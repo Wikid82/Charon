@@ -14,8 +14,7 @@ jobs:
   propagate:
     name: Create PR to synchronize branches
     runs-on: ubuntu-latest
-    if: "\n      github.actor != 'github-actions[bot]' && \
-      github.event.pusher != null\n    "
+    if: github.actor != 'github-actions[bot]' && github.event.pusher != null
     steps:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
