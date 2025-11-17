@@ -73,7 +73,13 @@ const ProxyHosts = () => {
         <button type="submit" disabled={mutation.isPending}>
           {mutation.isPending ? 'Saving...' : 'Add Proxy Host'}
         </button>
-        {mutation.isError && <p className="error">Failed to create proxy host</p>}
+        {mutation.isError && (
+          <p className="error">
+            {mutation.error?.response?.data?.message ||
+             mutation.error?.message ||
+             'Failed to create proxy host'}
+          </p>
+        )}
       </form>
 
       {isLoading ? (
