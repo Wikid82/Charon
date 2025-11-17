@@ -1,0 +1,16 @@
+# General artifacts
+.DS_Store
+.env
+.env.*
+
+# Go backend
+backend/data/
+*.db
+
+# Node frontend
+frontend/node_modules/
+frontend/dist/
+
+# Python scaffolding leftovers
+__pycache__/
+*.pyc
