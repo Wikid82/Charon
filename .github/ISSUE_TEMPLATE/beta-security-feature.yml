@@ -1,0 +1,116 @@
+name: 🔐 Beta Security Feature
+description: Create an issue for a Beta milestone security feature
+title: "[BETA] [SECURITY] "
+labels: ["beta", "feature", "security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Beta Security Feature
+        Advanced security features for the beta release.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How critical is this security feature?
+      options:
+        - Critical (Essential security control)
+        - High (Important protection)
+        - Medium (Additional hardening)
+        - Low (Nice-to-have security enhancement)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: security_category
+    attributes:
+      label: Security Category
+      description: What type of security feature is this?
+      options:
+        - Authentication & Access Control
+        - Threat Protection
+        - SSL/TLS Management
+        - Monitoring & Logging
+        - Web Application Firewall
+        - Rate Limiting
+        - IP Access Control
+    validations:
+      required: true
+
+  - type: input
+    id: issue_number
+    attributes:
+      label: Planning Issue Number
+      description: Reference number from PROJECT_PLANNING.md (e.g., Issue #15)
+      placeholder: "Issue #"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: What security capability should this provide?
+      placeholder: Describe the security feature and its purpose
+    validations:
+      required: true
+
+  - type: textarea
+    id: threat_model
+    attributes:
+      label: Threat Model
+      description: What threats does this feature mitigate?
+      placeholder: |
+        - Threat 1: Description and severity
+        - Threat 2: Description and severity
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Implementation Tasks
+      description: List of tasks to complete this feature
+      placeholder: |
+        - [ ] Task 1
+        - [ ] Task 2
+        - [ ] Task 3
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we verify this security control works?
+      placeholder: |
+        - [ ] Security test 1
+        - [ ] Security test 2
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: special_labels
+    attributes:
+      label: Special Categories
+      description: Select all that apply
+      options:
+        - label: SSO (Single Sign-On)
+        - label: WAF (Web Application Firewall)
+        - label: CrowdSec Integration
+        - label: Plus Feature (Premium)
+        - label: Requires Documentation
+
+  - type: textarea
+    id: security_testing
+    attributes:
+      label: Security Testing Plan
+      description: How will you test this security feature?
+      placeholder: Describe testing approach, tools, and scenarios
+    validations:
+      required: false

@@ -1,0 +1,93 @@
+name: 🏗️ Alpha Feature
+description: Create an issue for an Alpha milestone feature
+title: "[ALPHA] "
+labels: ["alpha", "feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Alpha Milestone Feature
+        Features that are part of the core foundation and initial release.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How critical is this feature?
+      options:
+        - Critical (Blocking, must-have)
+        - High (Important, should have)
+        - Medium (Nice to have)
+        - Low (Future enhancement)
+    validations:
+      required: true
+
+  - type: input
+    id: issue_number
+    attributes:
+      label: Planning Issue Number
+      description: Reference number from PROJECT_PLANNING.md (e.g., Issue #5)
+      placeholder: "Issue #"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: What should this feature do?
+      placeholder: Describe the feature in detail
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Implementation Tasks
+      description: List of tasks to complete this feature
+      placeholder: |
+        - [ ] Task 1
+        - [ ] Task 2
+        - [ ] Task 3
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this feature is complete?
+      placeholder: |
+        - [ ] Criteria 1
+        - [ ] Criteria 2
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: categories
+    attributes:
+      label: Categories
+      description: Select all that apply
+      options:
+        - label: Backend
+        - label: Frontend
+        - label: Database
+        - label: Caddy Integration
+        - label: Security
+        - label: SSL/TLS
+        - label: UI/UX
+        - label: Deployment
+        - label: Documentation
+
+  - type: textarea
+    id: technical_notes
+    attributes:
+      label: Technical Notes
+      description: Any technical considerations or dependencies?
+      placeholder: Libraries, APIs, or other issues that need to be completed first
+    validations:
+      required: false

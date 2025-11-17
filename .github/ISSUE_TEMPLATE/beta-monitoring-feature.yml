@@ -1,0 +1,118 @@
+name: 📊 Beta Monitoring Feature
+description: Create an issue for a Beta milestone monitoring/logging feature
+title: "[BETA] [MONITORING] "
+labels: ["beta", "feature", "monitoring"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Beta Monitoring & Logging Feature
+        Features related to observability, logging, and system monitoring.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How critical is this monitoring feature?
+      options:
+        - Critical (Essential for operations)
+        - High (Important visibility)
+        - Medium (Enhanced monitoring)
+        - Low (Nice-to-have metrics)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: monitoring_type
+    attributes:
+      label: Monitoring Type
+      description: What aspect of monitoring?
+      options:
+        - Dashboards & Statistics
+        - Log Viewing & Search
+        - Alerting & Notifications
+        - CrowdSec Dashboard
+        - Analytics Integration
+        - Health Checks
+        - Performance Metrics
+    validations:
+      required: true
+
+  - type: input
+    id: issue_number
+    attributes:
+      label: Planning Issue Number
+      description: Reference number from PROJECT_PLANNING.md (e.g., Issue #23)
+      placeholder: "Issue #"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: What monitoring/logging capability should this provide?
+      placeholder: Describe what users will be able to see or do
+    validations:
+      required: true
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Metrics & Data Points
+      description: What data will be collected and displayed?
+      placeholder: |
+        - Metric 1: Description
+        - Metric 2: Description
+    validations:
+      required: false
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Implementation Tasks
+      description: List of tasks to complete this feature
+      placeholder: |
+        - [ ] Task 1
+        - [ ] Task 2
+        - [ ] Task 3
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we verify this monitoring feature works?
+      placeholder: |
+        - [ ] Data displays correctly
+        - [ ] Updates in real-time
+        - [ ] Performance is acceptable
+      value: |
+        - [ ] 
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: categories
+    attributes:
+      label: Implementation Areas
+      description: Select all that apply
+      options:
+        - label: Backend (Data collection)
+        - label: Frontend (UI/Charts)
+        - label: Database (Storage)
+        - label: Real-time Updates (WebSocket)
+        - label: External Integration (GoAccess, CrowdSec)
+        - label: Documentation Required
+
+  - type: textarea
+    id: ui_design
+    attributes:
+      label: UI/UX Considerations
+      description: Describe the user interface requirements
+      placeholder: Layout, charts, filters, export options, etc.
+    validations:
+      required: false
