@@ -1,0 +1,18 @@
+# Codecov configuration - require 75% overall coverage by default
+# Adjust target as needed
+
+coverage:
+  status:
+    project:
+      default:
+        target: 75%
+        threshold: 0%
+
+# Fail CI if Codecov upload/report indicates a problem
+require_ci_to_pass: yes
+
+# Exclude folders from Codecov (adjust as needed)
+ignore:
+  - tests/*
+  - docs/*
+  - .github/*
