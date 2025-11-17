@@ -1,38 +1,58 @@
-# Generic multi-stage Dockerfile for a Python web backend (FastAPI example).
-# Adapt this to your chosen stack (Go, Node, etc.) as needed.
+# Multi-stage Dockerfile for CaddyProxyManager+ (Go backend + React frontend)
 
-# ---- Builder ----
-FROM python:3.12-slim AS builder
-WORKDIR /app
+# ---- Frontend Builder ----
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Copy frontend source and build
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Backend Builder ----
+FROM golang:1.22-alpine AS backend-builder
+WORKDIR /app/backend
 
 # Install build dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache gcc musl-dev sqlite-dev
 
-# Copy only dependency files first to leverage cache
-COPY requirements.txt requirements.dev.txt ./
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Go module files
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
 
-# Copy source
-COPY . .
+# Copy backend source
+COPY backend/ ./
 
-# ---- Final image ----
-FROM python:3.12-slim
+# Build the Go binary
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o api ./cmd/api
+
+# ---- Final Runtime ----
+FROM alpine:latest
 WORKDIR /app
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates sqlite-libs
 
-# Copy application code
-COPY --from=builder /app /app
+# Copy Go binary from backend builder
+COPY --from=backend-builder /app/backend/api /app/api
 
-ENV PYTHONUNBUFFERED=1
+# Copy frontend build from frontend builder
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# Expose default port (change if needed)
-EXPOSE 8000
+# Set default environment variables
+ENV CPM_ENV=production
+ENV CPM_HTTP_PORT=8080
+ENV CPM_DB_PATH=/app/data/cpm.db
+ENV CPM_FRONTEND_DIR=/app/frontend/dist
 
-# Default command - update to your actual app entrypoint
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Create data directory
+RUN mkdir -p /app/data
+
+# Expose HTTP port
+EXPOSE 8080
+
+# Run the application
+CMD ["/app/api"]
