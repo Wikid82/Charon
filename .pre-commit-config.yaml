@@ -26,3 +26,37 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: []
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: gofmt (format Go files)
+        entry: gofmt -s -w
+        language: system
+        types: [go]
+
+      - id: go-vet
+        name: go vet (basic static checks)
+        entry: go vet ./...
+        language: system
+        types: [go]
+
+      - id: golangci-lint
+        name: golangci-lint (project linter)
+        entry: golangci-lint run
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: frontend-eslint
+        name: frontend-eslint (run ESLint on frontend)
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        files: '\\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+
+      - id: frontend-typecheck
+        name: frontend-typecheck (TypeScript type-check)
+        entry: bash -c 'cd frontend && npx tsc -p tsconfig.json --noEmit'
+        language: system
+        files: '\\.(ts|tsx)$'
+        pass_filenames: false
