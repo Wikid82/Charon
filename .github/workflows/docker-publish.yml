@@ -32,6 +32,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
 
+      - name: Resolve Caddy base digest
+        id: caddy
+        run: |
+          docker pull caddy:2-alpine
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
+          echo "image=$DIGEST" >> $GITHUB_OUTPUT
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -70,6 +77,7 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
             VCS_REF=${{ github.sha }}
+            CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
       - name: Image digest
         run: echo ${{ steps.build-and-push.outputs.digest }}
@@ -82,6 +90,8 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy results to GitHub Security
         if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'

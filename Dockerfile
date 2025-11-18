@@ -52,8 +52,9 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o api ./cmd/api
 
 # ---- Final Runtime with Caddy ----
-# Pin to Alpine variant to keep surface small and CVEs manageable
-FROM caddy:2-alpine
+# Allow pinning Caddy by digest via build-arg
+ARG CADDY_IMAGE=caddy:2-alpine
+FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for CPM+ (no bash needed)

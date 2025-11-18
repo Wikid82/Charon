@@ -35,6 +35,14 @@ jobs:
       - name: 🔧 Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
 
+      # Resolve immutable digest for Caddy base
+      - name: 📦 Resolve Caddy base digest
+        id: caddy
+        run: |
+          docker pull caddy:2-alpine
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
+          echo "image=$DIGEST" >> $GITHUB_OUTPUT
+
       # Step 4: Log in to GitHub Container Registry
       - name: 🔐 Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
@@ -85,6 +93,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
       # Step 8: Run Trivy security scan
       - name: 🔍 Run Trivy vulnerability scanner
@@ -95,6 +105,8 @@ jobs:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'sarif'
           output: 'trivy-results.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
 
       # Step 9: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
