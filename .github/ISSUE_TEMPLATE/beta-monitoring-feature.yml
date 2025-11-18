@@ -77,7 +77,7 @@ body:
         - [ ] Task 2
         - [ ] Task 3
       value: |
-        - [ ] 
+        - [ ]
     validations:
       required: true
 
@@ -91,7 +91,7 @@ body:
         - [ ] Updates in real-time
         - [ ] Performance is acceptable
       value: |
-        - [ ] 
+        - [ ]
     validations:
       required: true
 

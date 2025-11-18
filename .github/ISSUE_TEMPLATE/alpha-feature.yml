@@ -50,7 +50,7 @@ body:
         - [ ] Task 2
         - [ ] Task 3
       value: |
-        - [ ] 
+        - [ ]
     validations:
       required: true
 
@@ -63,7 +63,7 @@ body:
         - [ ] Criteria 1
         - [ ] Criteria 2
       value: |
-        - [ ] 
+        - [ ]
     validations:
       required: true
 
