@@ -11,8 +11,22 @@ coverage:
 # Fail CI if Codecov upload/report indicates a problem
 require_ci_to_pass: yes
 
-# Exclude folders from Codecov (adjust as needed)
+# Exclude folders from Codecov
 ignore:
-  - tests/*
-  - docs/*
-  - .github/*
+  - "**/tests/*"
+  - "**/test/*"
+  - "**/__tests__/*"
+  - "**/test_*.go"
+  - "**/*_test.go"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "docs/*"
+  - ".github/*"
+  - "scripts/*"
+  - "tools/*"
+  - "frontend/node_modules/*"
+  - "frontend/dist/*"
+  - "frontend/coverage/*"
+  - "backend/cmd/seed/*"
+  - "backend/data/*"
+  - "*.md"
