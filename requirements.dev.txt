@@ -5,7 +5,7 @@
 pytest>=7.4
 pytest-cov>=4.1
 black>=24.3
-ruff>=0.15
+ruff>=0.6.0
 isort>=5.12
 mypy>=1.6
 pre-commit>=3.4
