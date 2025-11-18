@@ -148,11 +148,11 @@ User actions:
 1. **Handler Tests** (`backend/internal/api/handlers/*_test.go`)
    - RemoteServer CRUD tests mirroring `proxy_host_handler_test.go`
    - Import workflow tests (upload, preview, commit, cancel)
-   
+
 2. **Service Tests** (`backend/internal/services/*_test.go`)
    - Uniqueness validation tests
    - Domain conflict detection
-   
+
 3. **Importer Tests** (`backend/internal/caddy/importer_test.go`)
    - Caddyfile parsing with fixtures in `testdata/`
    - Host extraction edge cases

@@ -32,7 +32,7 @@ create_issue() {
     local title="$1"
     local labels="$2"
     local body="$3"
-    
+
     echo "Creating: $title"
     gh issue create \
         --repo "$REPO" \

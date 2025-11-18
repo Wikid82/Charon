@@ -25,6 +25,8 @@ pre-commit install
 pre-commit run --all-files
 ```
 
+	The `pre-commit` configuration now includes a `python compile check` hook (backed by `python -m compileall`) so syntax errors are caught locally before hitting CI.
+
 Development notes
 - Branching model: `development` is the main working branch; create `feature/**` branches from `development`.
 - CI enforces lint and coverage (75% fail-under) in `.github/workflows/ci.yml`.
