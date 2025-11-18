@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"fmt"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -30,6 +33,7 @@ func (h *RemoteServerHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/remote-servers/:uuid", h.Get)
 	router.PUT("/remote-servers/:uuid", h.Update)
 	router.DELETE("/remote-servers/:uuid", h.Delete)
+	router.POST("/remote-servers/:uuid/test", h.TestConnection)
 }
 
 // List retrieves all remote servers.
@@ -115,4 +119,52 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusNoContent, nil)
+}
+
+// TestConnection tests the TCP connection to a remote server.
+func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
+	uuid := c.Param("uuid")
+
+	server, err := h.service.GetByUUID(uuid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		return
+	}
+
+	// Test TCP connection with 5 second timeout
+	address := net.JoinHostPort(server.Host, fmt.Sprintf("%d", server.Port))
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+
+	result := gin.H{
+		"server_uuid": server.UUID,
+		"address":     address,
+		"timestamp":   time.Now().UTC(),
+	}
+
+	if err != nil {
+		result["reachable"] = false
+		result["error"] = err.Error()
+
+		// Update server reachability status
+		server.Reachable = false
+		now := time.Now().UTC()
+		server.LastChecked = &now
+		h.service.Update(server)
+
+		c.JSON(http.StatusOK, result)
+		return
+	}
+	defer conn.Close()
+
+	// Connection successful
+	result["reachable"] = true
+	result["latency_ms"] = time.Since(time.Now()).Milliseconds()
+
+	// Update server reachability status
+	server.Reachable = true
+	now := time.Now().UTC()
+	server.LastChecked = &now
+	h.service.Update(server)
+
+	c.JSON(http.StatusOK, result)
 }

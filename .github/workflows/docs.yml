@@ -1,0 +1,353 @@
+name: Deploy Documentation to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main           # Deploy docs when pushing to main
+    paths:
+      - 'docs/**'      # Only run if docs folder changes
+      - 'README.md'    # Or if README changes
+      - '.github/workflows/docs.yml'  # Or if this workflow changes
+  workflow_dispatch:   # Allow manual trigger
+
+# Sets permissions to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Get the code
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js (for building any JS-based doc tools)
+      - name: 🔧 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Step 3: Create a beautiful docs site structure
+      - name: 📝 Build documentation site
+        run: |
+          # Create output directory
+          mkdir -p _site
+          
+          # Copy all markdown files
+          cp README.md _site/
+          cp -r docs _site/
+          
+          # Create a simple HTML index that looks nice
+          cat > _site/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Caddy Proxy Manager Plus - Documentation</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+            <style>
+              :root {
+                --primary: #1d4ed8;
+                --primary-hover: #1e40af;
+              }
+              body {
+                background-color: #0f172a;
+                color: #e2e8f0;
+              }
+              header {
+                background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+                padding: 3rem 0;
+                text-align: center;
+                margin-bottom: 2rem;
+              }
+              header h1 {
+                color: white;
+                font-size: 2.5rem;
+                margin-bottom: 0.5rem;
+              }
+              header p {
+                color: #e0e7ff;
+                font-size: 1.25rem;
+              }
+              .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 2rem;
+              }
+              .card {
+                background: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 12px;
+                padding: 1.5rem;
+                margin-bottom: 1.5rem;
+                transition: transform 0.2s, box-shadow 0.2s;
+              }
+              .card:hover {
+                transform: translateY(-4px);
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+              }
+              .card h3 {
+                color: #60a5fa;
+                margin-top: 0;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+              }
+              .card p {
+                color: #cbd5e1;
+                margin-bottom: 1rem;
+              }
+              .card a {
+                color: #60a5fa;
+                text-decoration: none;
+                font-weight: 600;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+              }
+              .card a:hover {
+                color: #93c5fd;
+              }
+              .badge {
+                display: inline-block;
+                padding: 0.25rem 0.75rem;
+                border-radius: 9999px;
+                font-size: 0.875rem;
+                font-weight: 600;
+                margin-left: 0.5rem;
+              }
+              .badge-beginner {
+                background: #10b981;
+                color: white;
+              }
+              .badge-advanced {
+                background: #f59e0b;
+                color: white;
+              }
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 1.5rem;
+              }
+              footer {
+                text-align: center;
+                padding: 3rem 0;
+                color: #64748b;
+                border-top: 1px solid #334155;
+                margin-top: 4rem;
+              }
+            </style>
+          </head>
+          <body>
+            <header>
+              <h1>🚀 Caddy Proxy Manager Plus</h1>
+              <p>Make your websites easy to reach - No coding required!</p>
+            </header>
+            
+            <div class="container">
+              <section>
+                <h2>👋 Welcome!</h2>
+                <p style="font-size: 1.1rem; color: #cbd5e1;">
+                  This documentation will help you get started with Caddy Proxy Manager Plus. 
+                  Whether you're a complete beginner or an experienced developer, we've got you covered!
+                </p>
+              </section>
+
+              <h2 style="margin-top: 3rem;">📚 Getting Started</h2>
+              <div class="grid">
+                <div class="card">
+                  <h3>🏠 Getting Started Guide <span class="badge badge-beginner">Start Here</span></h3>
+                  <p>Your first setup in just 5 minutes! We'll walk you through everything step by step.</p>
+                  <a href="docs/getting-started.html">Read the Guide →</a>
+                </div>
+
+                <div class="card">
+                  <h3>📖 README <span class="badge badge-beginner">Essential</span></h3>
+                  <p>Learn what the app does, how to install it, and see examples of what you can build.</p>
+                  <a href="README.html">Read More →</a>
+                </div>
+
+                <div class="card">
+                  <h3>📥 Import Guide</h3>
+                  <p>Already using Caddy? Learn how to bring your existing configuration into the app.</p>
+                  <a href="docs/import-guide.html">Import Your Configs →</a>
+                </div>
+              </div>
+
+              <h2 style="margin-top: 3rem;">🔧 Developer Documentation</h2>
+              <div class="grid">
+                <div class="card">
+                  <h3>🔌 API Reference <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Complete REST API documentation with examples in JavaScript and Python.</p>
+                  <a href="docs/api.html">View API Docs →</a>
+                </div>
+
+                <div class="card">
+                  <h3>💾 Database Schema <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Understand how data is stored, relationships, and backup strategies.</p>
+                  <a href="docs/database-schema.html">View Schema →</a>
+                </div>
+
+                <div class="card">
+                  <h3>✨ Contributing Guide</h3>
+                  <p>Want to help make this better? Learn how to contribute code, docs, or ideas.</p>
+                  <a href="CONTRIBUTING.html">Start Contributing →</a>
+                </div>
+              </div>
+
+              <h2 style="margin-top: 3rem;">📋 All Documentation</h2>
+              <div class="card">
+                <h3>📚 Documentation Index</h3>
+                <p>Browse all available documentation organized by topic and skill level.</p>
+                <a href="docs/index.html">View Full Index →</a>
+              </div>
+
+              <h2 style="margin-top: 3rem;">🆘 Need Help?</h2>
+              <div class="card" style="background: #1e3a8a; border-color: #1e40af;">
+                <h3 style="color: #dbeafe;">Get Support</h3>
+                <p style="color: #bfdbfe;">
+                  Stuck? Have questions? We're here to help!
+                </p>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/discussions" 
+                     style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+                    💬 Ask a Question
+                  </a>
+                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/issues" 
+                     style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+                    🐛 Report a Bug
+                  </a>
+                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus" 
+                     style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
+                    ⭐ View on GitHub
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <footer>
+              <p>Built with ❤️ by <a href="https://github.com/Wikid82" style="color: #60a5fa;">@Wikid82</a></p>
+              <p>Made for humans, not just techies!</p>
+            </footer>
+          </body>
+          </html>
+          EOF
+          
+          # Convert markdown files to HTML using a simple converter
+          npm install -g marked
+          
+          # Convert each markdown file
+          for file in _site/docs/*.md; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file" .md)
+              marked "$file" -o "_site/docs/${filename}.html" --gfm
+            fi
+          done
+          
+          # Convert README and CONTRIBUTING
+          marked _site/README.md -o _site/README.html --gfm
+          if [ -f "CONTRIBUTING.md" ]; then
+            cp CONTRIBUTING.md _site/
+            marked _site/CONTRIBUTING.md -o _site/CONTRIBUTING.html --gfm
+          fi
+          
+          # Add simple styling to all HTML files
+          for html_file in _site/*.html _site/docs/*.html; do
+            if [ -f "$html_file" ] && [ "$html_file" != "_site/index.html" ]; then
+              # Add a header with navigation to each page
+              temp_file="${html_file}.tmp"
+              cat > "$temp_file" << 'HEADER'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Caddy Proxy Manager Plus - Documentation</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+            <style>
+              body { background-color: #0f172a; color: #e2e8f0; }
+              nav { background: #1e293b; padding: 1rem; margin-bottom: 2rem; }
+              nav a { color: #60a5fa; margin-right: 1rem; text-decoration: none; }
+              nav a:hover { color: #93c5fd; }
+              main { max-width: 900px; margin: 0 auto; padding: 2rem; }
+              a { color: #60a5fa; }
+              code { background: #1e293b; color: #fbbf24; padding: 0.2rem 0.4rem; border-radius: 4px; }
+              pre { background: #1e293b; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+              pre code { background: none; padding: 0; }
+            </style>
+          </head>
+          <body>
+            <nav>
+              <a href="/">🏠 Home</a>
+              <a href="/docs/index.html">📚 Docs</a>
+              <a href="/docs/getting-started.html">🚀 Get Started</a>
+              <a href="https://github.com/Wikid82/CaddyProxyManagerPlus">⭐ GitHub</a>
+            </nav>
+            <main>
+          HEADER
+              
+              # Append original content
+              cat "$html_file" >> "$temp_file"
+              
+              # Add footer
+              cat >> "$temp_file" << 'FOOTER'
+            </main>
+            <footer style="text-align: center; padding: 2rem; color: #64748b;">
+              <p>Caddy Proxy Manager Plus - Built with ❤️ for the community</p>
+            </footer>
+          </body>
+          </html>
+          FOOTER
+              
+              mv "$temp_file" "$html_file"
+            fi
+          done
+          
+          echo "✅ Documentation site built successfully!"
+
+      # Step 4: Upload the built site
+      - name: 📤 Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      # Deploy to GitHub Pages
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # Create a summary
+      - name: 📋 Create deployment summary
+        run: |
+          echo "## 🎉 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Your documentation is now live at:" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📚 What's Included" >> $GITHUB_STEP_SUMMARY
+          echo "- Getting Started Guide" >> $GITHUB_STEP_SUMMARY
+          echo "- Complete README" >> $GITHUB_STEP_SUMMARY
+          echo "- API Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "- Database Schema" >> $GITHUB_STEP_SUMMARY
+          echo "- Import Guide" >> $GITHUB_STEP_SUMMARY
+          echo "- Contributing Guidelines" >> $GITHUB_STEP_SUMMARY
