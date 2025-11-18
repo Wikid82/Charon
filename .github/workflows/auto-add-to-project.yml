@@ -10,15 +10,9 @@ jobs:
   add-to-project:
     runs-on: ubuntu-latest
     steps:
-      - name: Skip if PROJECT_URL not provided
-        run: |
-          if [ -z "${{ secrets.PROJECT_URL }}" ]; then
-            echo "PROJECT_URL secret not set; skipping add-to-project job."
-            exit 0
-          fi
-
       - name: Add issue or PR to project
         uses: actions/add-to-project@1b844f0c5ac6446a402e0cb3693f9be5eca188c5 # v0.6.1
+        continue-on-error: true
         with:
           project-url: ${{ secrets.PROJECT_URL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

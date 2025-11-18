@@ -82,27 +82,37 @@ jobs:
       - name: Image digest
         run: echo ${{ steps.build-and-push.outputs.digest }}
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy scan (table output first for visibility)
         if: github.event_name != 'pull_request'
-        id: trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          exit-code: '1'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload Trivy results to GitHub Security
-        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Run Trivy scan (table output)
-        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
+        id: trivy_table
+        continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        if: github.event_name != 'pull_request' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Check for vulnerabilities
+        if: github.event_name != 'pull_request' && steps.trivy_table.outcome == 'failure'
+        run: |
+          echo "::error::CRITICAL or HIGH vulnerabilities found in image"
+          exit 1
