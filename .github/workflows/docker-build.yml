@@ -60,8 +60,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             # Tag major from git tags (v1.2.3 → 1)
             type=semver,pattern={{major}}
-            # Tag with git SHA for tracking (first 7 characters)
-            type=sha,prefix={{branch}}-,format=short
 
       # Step 6: Build the frontend first
       - name: 🎨 Build frontend
