@@ -113,6 +113,7 @@ See `VERSION.md` for complete versioning documentation.
 - **Branching model**: `development` is the integration branch; open PRs from `feature/**`
 - **CI**: `.github/workflows/ci.yml` runs Go tests, ESLint, and frontend builds
 - **Docker**: Multi-stage build with Node (frontend) → Go (backend) → Alpine runtime
+- **Pre-commit**: `.pre-commit-config.yaml` runs formatters, linters, and now `go test` with coverage enforcement (`CPM_MIN_COVERAGE=75` by default)
 
 ## Contributing
 - See `CONTRIBUTING.md` (coming soon) for contribution guidelines.

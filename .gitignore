@@ -6,6 +6,7 @@
 # Go backend
 backend/data/
 *.db
+backend/coverage*.out
 
 # Node frontend
 frontend/node_modules/

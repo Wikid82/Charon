@@ -40,6 +40,12 @@ repos:
         language: system
         types: [go]
 
+      - id: go-test-coverage
+        name: go test (with coverage enforcement)
+        entry: bash scripts/go-test-coverage.sh
+        language: system
+        pass_filenames: false
+
       - id: golangci-lint
         name: golangci-lint (project linter)
         entry: golangci-lint run
