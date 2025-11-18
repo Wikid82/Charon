@@ -27,3 +27,11 @@ repos:
         exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|.*\.tsbuildinfo$)'
       - id: check-yaml
       - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: dockerfile-check
+        name: dockerfile validation
+        entry: tools/dockerfile_check.sh
+        language: script
+        files: "Dockerfile.*"
+        pass_filenames: true
