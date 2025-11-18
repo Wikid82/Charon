@@ -103,7 +103,7 @@ describe('useImport', () => {
     await result.current.commit({ 'test.com': 'skip' })
 
     expect(api.importAPI.commit).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
-    
+
     await waitFor(() => {
       expect(result.current.session).toBeNull()
     })
@@ -149,7 +149,7 @@ describe('useImport', () => {
     vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
     vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
     vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    
+
     const mockError = new Error('Commit failed')
     vi.mocked(api.importAPI.commit).mockRejectedValue(mockError)
 

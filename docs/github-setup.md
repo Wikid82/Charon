@@ -60,7 +60,7 @@ https://wikid82.github.io/CaddyProxyManagerPlus/
 
 **Triggers when:**
 - ✅ You push to `main` branch → Creates `latest` tag
-- ✅ You push to `development` branch → Creates `dev` tag  
+- ✅ You push to `development` branch → Creates `dev` tag
 - ✅ You create a version tag like `v1.0.0` → Creates version tags
 - ✅ You manually trigger it from GitHub UI
 
@@ -237,7 +237,7 @@ Before pushing to production, make sure:
 
 - [ ] GitHub Pages is enabled with "GitHub Actions" source
 - [ ] You've tested the Docker build workflow (automatic on push)
-- [ ] You've tested the docs deployment workflow  
+- [ ] You've tested the docs deployment workflow
 - [ ] Container package is set to "Public" visibility (optional, for easier pulls)
 - [ ] Documentation looks good on the published site
 - [ ] Docker image runs correctly

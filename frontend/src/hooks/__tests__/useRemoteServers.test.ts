@@ -87,7 +87,7 @@ describe('useRemoteServers', () => {
     vi.mocked(api.remoteServersAPI.list).mockResolvedValue([])
     const newServer = { name: 'New Server', host: 'new.local', port: 5000, enabled: true, provider: 'generic' }
     const createdServer = { uuid: '4', ...newServer }
-    
+
     vi.mocked(api.remoteServersAPI.create).mockResolvedValue(createdServer)
 
     const { result } = renderHook(() => useRemoteServers())
@@ -105,7 +105,7 @@ describe('useRemoteServers', () => {
   it('updates an existing remote server', async () => {
     const existingServer = { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }
     vi.mocked(api.remoteServersAPI.list).mockResolvedValue([existingServer])
-    
+
     const updatedServer = { ...existingServer, name: 'Updated Server' }
     vi.mocked(api.remoteServersAPI.update).mockResolvedValue(updatedServer)
 
