@@ -12,6 +12,45 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 )
 
+// CaddyConfig represents the root structure of Caddy's JSON config.
+type CaddyConfig struct {
+	Apps *CaddyApps `json:"apps,omitempty"`
+}
+
+// CaddyApps contains application-specific configurations.
+type CaddyApps struct {
+	HTTP *CaddyHTTP `json:"http,omitempty"`
+}
+
+// CaddyHTTP represents the HTTP app configuration.
+type CaddyHTTP struct {
+	Servers map[string]*CaddyServer `json:"servers,omitempty"`
+}
+
+// CaddyServer represents a single server configuration.
+type CaddyServer struct {
+	Routes                []*CaddyRoute `json:"routes,omitempty"`
+	TLSConnectionPolicies interface{}   `json:"tls_connection_policies,omitempty"`
+}
+
+// CaddyRoute represents a single route with matchers and handlers.
+type CaddyRoute struct {
+	Match  []*CaddyMatcher `json:"match,omitempty"`
+	Handle []*CaddyHandler `json:"handle,omitempty"`
+}
+
+// CaddyMatcher represents route matching criteria.
+type CaddyMatcher struct {
+	Host []string `json:"host,omitempty"`
+}
+
+// CaddyHandler represents a handler in the route.
+type CaddyHandler struct {
+	Handler   string      `json:"handler"`
+	Upstreams interface{} `json:"upstreams,omitempty"`
+	Headers   interface{} `json:"headers,omitempty"`
+}
+
 // ParsedHost represents a single host detected during Caddyfile import.
 type ParsedHost struct {
 	Domain       string   `json:"domain"`
