@@ -52,11 +52,13 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o api ./cmd/api
 
 # ---- Final Runtime with Caddy ----
-FROM caddy:latest
+# Pin to Alpine variant to keep surface small and CVEs manageable
+FROM caddy:2-alpine
 WORKDIR /app
 
-# Install runtime dependencies for CPM+
-RUN apk --no-cache add ca-certificates sqlite-libs bash
+# Install runtime dependencies for CPM+ (no bash needed)
+RUN apk --no-cache add ca-certificates sqlite-libs \
+    && apk --no-cache upgrade
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/api /app/api
