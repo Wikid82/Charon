@@ -84,24 +84,26 @@ jobs:
 
       # Step 8: Run Trivy security scan
       - name: 🔍 Run Trivy vulnerability scanner
+        id: trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref == 'refs/heads/main' && 'latest' || 'dev' }}
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'sarif'
           output: 'trivy-results.sarif'
 
       # Step 9: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: steps.trivy.outcome == 'success'
         with:
           sarif_file: 'trivy-results.sarif'
 
       # Step 10: Run Trivy with table output for workflow logs
       - name: 📋 Run Trivy scan (table output)
+        if: steps.trivy.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref == 'refs/heads/main' && 'latest' || 'dev' }}
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
