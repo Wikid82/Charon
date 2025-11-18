@@ -6,6 +6,9 @@ ARG VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
 
+# Allow pinning Caddy base image by digest via build-arg
+ARG CADDY_IMAGE=caddy:2-alpine
+
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
@@ -52,8 +55,6 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o api ./cmd/api
 
 # ---- Final Runtime with Caddy ----
-# Allow pinning Caddy by digest via build-arg
-ARG CADDY_IMAGE=caddy:2-alpine
 FROM ${CADDY_IMAGE}
 WORKDIR /app
 
