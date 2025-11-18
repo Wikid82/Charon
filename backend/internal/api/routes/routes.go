@@ -12,8 +12,8 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB) error {
-	if err := db.AutoMigrate(&models.ProxyHost{}); err != nil {
-		return fmt.Errorf("auto migrate proxy host: %w", err)
+	if err := db.AutoMigrate(&models.ProxyHost{}, &models.CaddyConfig{}); err != nil {
+		return fmt.Errorf("auto migrate: %w", err)
 	}
 
 	router.GET("/api/v1/health", handlers.HealthHandler)
