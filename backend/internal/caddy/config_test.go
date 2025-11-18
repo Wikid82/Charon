@@ -89,7 +89,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 
 	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
 	handler := route.Handle[0]
-	
+
 	// Check WebSocket headers are present
 	require.NotNil(t, handler["headers"])
 }

@@ -1,18 +1,21 @@
-.PHONY: help install test build run clean docker-build docker-run
+.PHONY: help install test build run clean docker-build docker-run release
 
 # Default target
 help:
 	@echo "CaddyProxyManager+ Build System"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  install       - Install all dependencies (backend + frontend)"
-	@echo "  test          - Run all tests (backend + frontend)"
-	@echo "  build         - Build backend and frontend"
-	@echo "  run           - Run backend in development mode"
-	@echo "  clean         - Clean build artifacts"
-	@echo "  docker-build  - Build Docker image"
-	@echo "  docker-run    - Run Docker container"
-	@echo "  dev           - Run both backend and frontend in dev mode (requires tmux)"
+	@echo "  install                - Install all dependencies (backend + frontend)"
+	@echo "  test                   - Run all tests (backend + frontend)"
+	@echo "  build                  - Build backend and frontend"
+	@echo "  run                    - Run backend in development mode"
+	@echo "  clean                  - Clean build artifacts"
+	@echo "  docker-build           - Build Docker image"
+	@echo "  docker-build-versioned - Build Docker image with version from .version file"
+	@echo "  docker-run             - Run Docker container"
+	@echo "  docker-dev             - Run Docker in development mode"
+	@echo "  release                - Create a new semantic version release (interactive)"
+	@echo "  dev                    - Run both backend and frontend in dev mode (requires tmux)"
 
 # Install all dependencies
 install:
@@ -54,6 +57,19 @@ clean:
 docker-build:
 	docker-compose build
 
+# Build Docker image with version
+docker-build-versioned:
+	@VERSION=$$(cat .version 2>/dev/null || echo "dev"); \
+	BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ'); \
+	VCS_REF=$$(git rev-parse HEAD 2>/dev/null || echo "unknown"); \
+	docker build \
+		--build-arg VERSION=$$VERSION \
+		--build-arg BUILD_DATE=$$BUILD_DATE \
+		--build-arg VCS_REF=$$VCS_REF \
+		-t caddyproxymanagerplus:$$VERSION \
+		-t caddyproxymanagerplus:latest \
+		.
+
 # Run Docker containers (production)
 docker-run:
 	docker-compose up -d
@@ -76,3 +92,7 @@ dev:
 	tmux new-session -d -s cpm 'cd backend && go run ./cmd/api'
 	tmux split-window -h -t cpm 'cd frontend && npm run dev'
 	tmux attach -t cpm
+
+# Create a new release (interactive script)
+release:
+	@./scripts/release.sh

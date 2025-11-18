@@ -8,12 +8,12 @@ import (
 
 // Config captures runtime configuration sourced from environment variables.
 type Config struct {
-	Environment     string
-	HTTPPort        string
-	DatabasePath    string
-	FrontendDir     string
-	CaddyAdminAPI   string
-	CaddyConfigDir  string
+	Environment    string
+	HTTPPort       string
+	DatabasePath   string
+	FrontendDir    string
+	CaddyAdminAPI  string
+	CaddyConfigDir string
 }
 
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.

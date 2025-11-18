@@ -91,7 +91,7 @@ Data is persisted in Docker volumes:
 - `caddy_data`: Caddy certificates and data
 - `caddy_config`: Caddy configuration
 
-**Docker images** are published to GitHub Container Registry:
+**Docker images** are published to GitHub Container Registry with automatic semantic versioning:
 ```bash
 # Latest stable (from main branch)
 docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
@@ -99,9 +99,14 @@ docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
 # Development (from development branch)
 docker pull ghcr.io/wikid82/caddyproxymanagerplus:development
 
-# Specific version
+# Specific version (recommended for production)
 docker pull ghcr.io/wikid82/caddyproxymanagerplus:v1.0.0
+
+# Major/minor version (auto-updates to latest patch)
+docker pull ghcr.io/wikid82/caddyproxymanagerplus:1.0
 ```
+
+See `VERSION.md` for complete versioning documentation.
 
 ### Tooling
 - **Build system**: `Makefile` provides common development tasks (`make help` for all commands)
