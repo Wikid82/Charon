@@ -15,6 +15,7 @@ COPY frontend/package*.json ./
 
 # Set environment to bypass native binary requirement for cross-arch builds
 ENV npm_config_rollup_skip_nodejs_native=1
+ENV ROLLUP_SKIP_NODEJS_NATIVE=1
 
 RUN npm ci
 
