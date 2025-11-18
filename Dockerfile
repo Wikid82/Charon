@@ -1,38 +1,96 @@
-# Generic multi-stage Dockerfile for a Python web backend (FastAPI example).
-# Adapt this to your chosen stack (Go, Node, etc.) as needed.
+# Multi-stage Dockerfile for CaddyProxyManager+ with integrated Caddy
+# Single container deployment for simplified home user setup
 
-# ---- Builder ----
-FROM python:3.12-slim AS builder
-WORKDIR /app
+# Build arguments for versioning
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG VCS_REF
+
+# ---- Frontend Builder ----
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+RUN npm ci
+
+# Copy frontend source and build
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Backend Builder ----
+FROM golang:latest AS backend-builder
+WORKDIR /app/backend
 
 # Install build dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache gcc musl-dev sqlite-dev
 
-# Copy only dependency files first to leverage cache
-COPY requirements.txt requirements.dev.txt ./
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Go module files
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
 
-# Copy source
-COPY . .
+# Copy backend source
+COPY backend/ ./
 
-# ---- Final image ----
-FROM python:3.12-slim
+# Build arguments passed from main build context
+ARG VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+# Build the Go binary with version information injected via ldflags
+RUN CGO_ENABLED=1 GOOS=linux go build \
+    -a -installsuffix cgo \
+    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.SemVer=${VERSION} \
+              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
+              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildDate=${BUILD_DATE}" \
+    -o api ./cmd/api
+
+# ---- Final Runtime with Caddy ----
+FROM caddy:latest
 WORKDIR /app
 
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Install runtime dependencies for CPM+
+RUN apk --no-cache add ca-certificates sqlite-libs bash
 
-# Copy application code
-COPY --from=builder /app /app
+# Copy Go binary from backend builder
+COPY --from=backend-builder /app/backend/api /app/api
 
-ENV PYTHONUNBUFFERED=1
+# Copy frontend build from frontend builder
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
-# Expose default port (change if needed)
-EXPOSE 8000
+# Copy startup script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-# Default command - update to your actual app entrypoint
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Set default environment variables
+ENV CPM_ENV=production \
+    CPM_HTTP_PORT=8080 \
+    CPM_DB_PATH=/app/data/cpm.db \
+    CPM_FRONTEND_DIR=/app/frontend/dist \
+    CPM_CADDY_ADMIN_API=http://localhost:2019 \
+    CPM_CADDY_CONFIG_DIR=/app/data/caddy
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/data/caddy /config
+
+# Re-declare build args for LABEL usage
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG VCS_REF
+
+# OCI image labels for version metadata
+LABEL org.opencontainers.image.title="CaddyProxyManager+" \
+      org.opencontainers.image.description="Web UI for managing Caddy reverse proxy configurations" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://github.com/Wikid82/CaddyProxyManagerPlus" \
+      org.opencontainers.image.url="https://github.com/Wikid82/CaddyProxyManagerPlus" \
+      org.opencontainers.image.vendor="CaddyProxyManagerPlus" \
+      org.opencontainers.image.licenses="MIT"
+
+# Expose ports
+EXPOSE 80 443 443/udp 8080 2019
+
+# Use custom entrypoint to start both Caddy and CPM+
+ENTRYPOINT ["/docker-entrypoint.sh"]
