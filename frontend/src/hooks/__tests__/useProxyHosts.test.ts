@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useProxyHosts } from '../useProxyHosts'
 import * as api from '../../services/api'
 
@@ -72,7 +72,9 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.createHost(newHost)
+    await act(async () => {
+      await result.current.createHost(newHost)
+    })
 
     expect(api.proxyHostsAPI.create).toHaveBeenCalledWith(newHost)
     await waitFor(() => {
@@ -93,7 +95,9 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.updateHost('1', { domain_names: 'updated.com' })
+    await act(async () => {
+      await result.current.updateHost('1', { domain_names: 'updated.com' })
+    })
 
     expect(api.proxyHostsAPI.update).toHaveBeenCalledWith('1', { domain_names: 'updated.com' })
     await waitFor(() => {
@@ -115,7 +119,9 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.deleteHost('1')
+    await act(async () => {
+      await result.current.deleteHost('1')
+    })
 
     expect(api.proxyHostsAPI.delete).toHaveBeenCalledWith('1')
     await waitFor(() => {
