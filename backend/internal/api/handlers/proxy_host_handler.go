@@ -114,10 +114,3 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "proxy host deleted"})
 }
-
-// HealthHandler returns a simple health check response.
-func HealthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
-	})
-}
