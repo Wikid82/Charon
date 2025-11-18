@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useRemoteServers } from '../useRemoteServers'
 import * as api from '../../services/api'
 
@@ -96,7 +96,9 @@ describe('useRemoteServers', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.createServer(newServer)
+    await act(async () => {
+      await result.current.createServer(newServer)
+    })
 
     expect(api.remoteServersAPI.create).toHaveBeenCalledWith(newServer)
     await waitFor(() => {
@@ -117,7 +119,9 @@ describe('useRemoteServers', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.updateServer('1', { name: 'Updated Server' })
+    await act(async () => {
+      await result.current.updateServer('1', { name: 'Updated Server' })
+    })
 
     expect(api.remoteServersAPI.update).toHaveBeenCalledWith('1', { name: 'Updated Server' })
     await waitFor(() => {
@@ -139,7 +143,9 @@ describe('useRemoteServers', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.deleteServer('1')
+    await act(async () => {
+      await result.current.deleteServer('1')
+    })
 
     expect(api.remoteServersAPI.delete).toHaveBeenCalledWith('1')
     await waitFor(() => {
