@@ -1,27 +1,75 @@
+# Version control
 .git
 .gitignore
-node_modules
-venv
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
+.venv/
+venv/
 env/
-build/
-dist/
-*.egg-info
-.DS_Store
-.idea/
-.vscode/
-.env
-.env.*
-coverage/
-.coverage
+ENV/
 .pytest_cache/
-*.log
+.coverage
+*.cover
+.hypothesis/
+htmlcov/
+*.egg-info/
+
+# Node/Frontend build artifacts
+frontend/node_modules/
+frontend/coverage/
+frontend/.vite/
+frontend/*.tsbuildinfo
+# Keep frontend/dist - needed in final image
+
+# Go/Backend
+backend/*.out
+backend/coverage.*.out
+# Keep backend/api binary - needed in final image
+
+# Databases (runtime)
+backend/data/*.db
+backend/cmd/api/data/*.db
+*.sqlite
 *.sqlite3
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+!README.md
+
 # Docker
-docker-compose.override.yml
+docker-compose*.yml
 **/Dockerfile.*
+
+# CI/CD
+.github/
+.pre-commit-config.yaml
+
+# Scripts
+scripts/
+tools/

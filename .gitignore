@@ -1,3 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+*.cover
+.hypothesis/
+htmlcov/
 
-# Node modules
-frontend/node_modules
+# Node/Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# Go/Backend
+backend/api
+backend/*.out
+backend/coverage.*.out
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+backend/data/*.db
+backend/cmd/api/data/*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+
+# Caddy
+backend/data/caddy/
+
+# Docker
+docker-compose.override.yml
