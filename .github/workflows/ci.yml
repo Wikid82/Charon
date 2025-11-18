@@ -98,3 +98,50 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  docker-build-test:
+    name: Docker - Build & Integration Test
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: caddyproxymanager-plus:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Start services with docker-compose
+        run: |
+          docker-compose up -d
+          sleep 10  # Wait for services to be ready
+      
+      - name: Check app health
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused http://localhost:8080/api/v1/health
+      
+      - name: Check Caddy admin API
+        run: |
+          curl --retry 5 --retry-delay 3 --retry-connrefused http://localhost:2019/config/
+      
+      - name: Run integration tests
+        run: |
+          # Future: run integration tests against running containers
+          echo "Integration tests placeholder - will be implemented with Issue #4"
+      
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          docker-compose logs app
+          docker-compose logs caddy
+      
+      - name: Cleanup
+        if: always()
+        run: docker-compose down -v

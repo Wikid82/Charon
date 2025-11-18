@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: cpm_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - cpm_network
+    # Caddy admin API exposed on default port 2019 (internal only)
+    command: caddy run --config /config/caddy.json --adapter json
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cpm_app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - CPM_ENV=production
+      - CPM_HTTP_PORT=8080
+      - CPM_DB_PATH=/app/data/cpm.db
+      - CPM_FRONTEND_DIR=/app/frontend/dist
+      - CPM_CADDY_ADMIN_API=http://caddy:2019
+      - CPM_CADDY_CONFIG_DIR=/app/data/caddy
+    volumes:
+      - app_data:/app/data
+    networks:
+      - cpm_network
+    depends_on:
+      - caddy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  app_data:
+    driver: local
+
+networks:
+  cpm_network:
+    driver: bridge

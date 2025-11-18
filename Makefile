@@ -52,11 +52,23 @@ clean:
 
 # Build Docker image
 docker-build:
-	docker build -t caddyproxymanager-plus:latest .
+	docker-compose build
 
-# Run Docker container
+# Run Docker containers (production)
 docker-run:
-	docker run -p 8080:8080 -v cpm-data:/app/data caddyproxymanager-plus:latest
+	docker-compose up -d
+
+# Run Docker containers (development)
+docker-dev:
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Stop Docker containers
+docker-stop:
+	docker-compose down
+
+# View Docker logs
+docker-logs:
+	docker-compose logs -f
 
 # Development mode (requires tmux)
 dev:

@@ -70,17 +70,37 @@ cd frontend
 npm run build
 ```
 
-### Docker Deployment
+### Docker Deployment (Recommended)
+
+CaddyProxyManager+ is designed to run in Docker with Caddy as a sidecar container.
+
 ```bash
-# Build the image
-make docker-build
+# Production deployment
+docker-compose up -d
 
-# Run the container
-make docker-run
+# Development mode (exposes Caddy admin API on :2019)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
 
-# Or manually:
-docker build -t caddyproxymanager-plus .
-docker run -p 8080:8080 -v cpm-data:/app/data caddyproxymanager-plus
+The docker-compose stack includes:
+- **app**: CaddyProxyManager+ management interface (`:8080`)
+- **caddy**: Caddy reverse proxy (`:80`, `:443`, `:443/udp` for HTTP/3)
+
+Data is persisted in Docker volumes:
+- `app_data`: CPM+ database and config snapshots
+- `caddy_data`: Caddy certificates and data
+- `caddy_config`: Caddy configuration
+
+**Docker images** are published to GitHub Container Registry:
+```bash
+# Latest stable (from main branch)
+docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
+
+# Development (from development branch)
+docker pull ghcr.io/wikid82/caddyproxymanagerplus:development
+
+# Specific version
+docker pull ghcr.io/wikid82/caddyproxymanagerplus:v1.0.0
 ```
 
 ### Tooling
