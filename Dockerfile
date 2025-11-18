@@ -7,15 +7,16 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # ---- Frontend Builder ----
-FROM node:20-alpine AS frontend-builder
+# Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
 COPY frontend/package*.json ./
 
 # Set environment to bypass native binary requirement for cross-arch builds
-ENV npm_config_rollup_skip_nodejs_native=1
-ENV ROLLUP_SKIP_NODEJS_NATIVE=1
+ENV npm_config_rollup_skip_nodejs_native=1 \
+    ROLLUP_SKIP_NODEJS_NATIVE=1
 
 RUN npm ci
 
