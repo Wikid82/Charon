@@ -1,19 +1,25 @@
-import { Route, Routes } from 'react-router-dom';
-import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import ProxyHosts from './pages/ProxyHosts';
-import HealthStatus from './pages/HealthStatus';
+import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
+import Layout from './components/Layout'
+import { ToastContainer } from './components/Toast'
+import Dashboard from './pages/Dashboard'
+import ProxyHosts from './pages/ProxyHosts'
+import RemoteServers from './pages/RemoteServers'
+import ImportCaddy from './pages/ImportCaddy'
+import Settings from './pages/Settings'
 
-const App = () => {
+export default function App() {
   return (
-    <Layout>
+    <Router>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/proxy-hosts" element={<ProxyHosts />} />
-        <Route path="/status" element={<HealthStatus />} />
+        <Route path="/" element={<Layout><Outlet /></Layout>}>
+          <Route index element={<Dashboard />} />
+          <Route path="proxy-hosts" element={<ProxyHosts />} />
+          <Route path="remote-servers" element={<RemoteServers />} />
+          <Route path="import" element={<ImportCaddy />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
       </Routes>
-    </Layout>
-  );
-};
-
-export default App;
+      <ToastContainer />
+    </Router>
+  )
+}

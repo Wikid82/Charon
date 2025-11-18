@@ -1,20 +1,3 @@
-# General artifacts
-.DS_Store
-.env
-.env.*
 
-# Go backend
-backend/data/
-*.db
-backend/coverage*.out
-
-# Node frontend
-frontend/node_modules/
-frontend/dist/
-
-# Python scaffolding leftovers
-__pycache__/
-*.pyc
-
-# Release artifacts
-CHANGELOG.txt
+# Node modules
+frontend/node_modules

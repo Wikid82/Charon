@@ -69,6 +69,6 @@ jobs:
                 issue_number: issue.number,
                 labels: labels
               });
-              
+
               console.log(`Added labels: ${labels.join(', ')}`);
             }

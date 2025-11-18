@@ -1,20 +1,20 @@
 package version
 
-var (
-	// Name identifies the service in logs and telemetry.
-	Name = "caddy-proxy-manager-plus"
-	// SemVer captures the backend semantic version (injected at build time via ldflags).
-	SemVer = "0.1.0-alpha"
-	// GitCommit is the git commit SHA (injected at build time via ldflags).
+const (
+	// Name of the application
+	Name = "CaddyProxyManagerPlus"
+	// Version is the semantic version
+	Version = "0.1.0"
+	// BuildTime is set during build via ldflags
+	BuildTime = "unknown"
+	// GitCommit is set during build via ldflags
 	GitCommit = "unknown"
-	// BuildDate is the build timestamp (injected at build time via ldflags).
-	BuildDate = "unknown"
 )
 
-// Full returns the complete version string with commit and build date.
+// Full returns the complete version string.
 func Full() string {
-	if GitCommit != "unknown" && BuildDate != "unknown" {
-		return SemVer + " (" + GitCommit[:7] + ", " + BuildDate + ")"
+	if BuildTime != "unknown" && GitCommit != "unknown" {
+		return Version + " (commit: " + GitCommit + ", built: " + BuildTime + ")"
 	}
-	return SemVer
+	return Version
 }

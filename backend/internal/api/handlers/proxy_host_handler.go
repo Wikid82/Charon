@@ -8,134 +8,116 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
-// ProxyHostHandler manages CRUD operations for proxy hosts against the database.
+// ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
-	db *gorm.DB
+	service *services.ProxyHostService
 }
 
-// NewProxyHostHandler wires the handler with shared dependencies.
+// NewProxyHostHandler creates a new proxy host handler.
 func NewProxyHostHandler(db *gorm.DB) *ProxyHostHandler {
-	return &ProxyHostHandler{db: db}
+	return &ProxyHostHandler{
+		service: services.NewProxyHostService(db),
+	}
 }
 
-// RegisterRoutes attaches the handler to the provided router group.
-func (h *ProxyHostHandler) RegisterRoutes(rg *gin.RouterGroup) {
-	rg.GET("/proxy-hosts", h.List)
-	rg.POST("/proxy-hosts", h.Create)
-	rg.GET("/proxy-hosts/:uuid", h.Get)
-	rg.PUT("/proxy-hosts/:uuid", h.Update)
-	rg.DELETE("/proxy-hosts/:uuid", h.Delete)
+// RegisterRoutes registers proxy host routes.
+func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
+	router.GET("/proxy-hosts", h.List)
+	router.POST("/proxy-hosts", h.Create)
+	router.GET("/proxy-hosts/:uuid", h.Get)
+	router.PUT("/proxy-hosts/:uuid", h.Update)
+	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 }
 
-// proxyHostRequest contains the fields user supplied when creating/updating a host.
-type proxyHostRequest struct {
-	Name         string `json:"name" binding:"required"`
-	Domain       string `json:"domain" binding:"required"`
-	TargetScheme string `json:"target_scheme" binding:"required,oneof=http https"`
-	TargetHost   string `json:"target_host" binding:"required"`
-	TargetPort   int    `json:"target_port" binding:"required,min=1,max=65535"`
-	EnableTLS    bool   `json:"enable_tls"`
-	EnableWS     bool   `json:"enable_websockets"`
-}
-
-// List returns every proxy host ordered by most recent update.
+// List retrieves all proxy hosts.
 func (h *ProxyHostHandler) List(c *gin.Context) {
-	var hosts []models.ProxyHost
-	if err := h.db.Order("updated_at desc").Find(&hosts).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch proxy hosts"})
+	hosts, err := h.service.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, hosts)
 }
 
-// Create inserts a new proxy host into the datastore.
+// Create creates a new proxy host.
 func (h *ProxyHostHandler) Create(c *gin.Context) {
-	var req proxyHostRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var host models.ProxyHost
+	if err := c.ShouldBindJSON(&host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	host := models.ProxyHost{
-		UUID:         uuid.NewString(),
-		Name:         req.Name,
-		Domain:       req.Domain,
-		TargetScheme: req.TargetScheme,
-		TargetHost:   req.TargetHost,
-		TargetPort:   req.TargetPort,
-		EnableTLS:    req.EnableTLS,
-		EnableWS:     req.EnableWS,
-	}
+	host.UUID = uuid.NewString()
 
-	if err := h.db.Create(&host).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create proxy host"})
+	if err := h.service.Create(&host); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, host)
 }
 
-// Get returns a single host looked up by UUID.
+// Get retrieves a proxy host by UUID.
 func (h *ProxyHostHandler) Get(c *gin.Context) {
-	uuidParam := c.Param("uuid")
-	var host models.ProxyHost
-	if err := h.db.First(&host, "uuid = ?", uuidParam).Error; err != nil {
-		status := http.StatusInternalServerError
-		if err == gorm.ErrRecordNotFound {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, gin.H{"error": "proxy host not found"})
+	uuid := c.Param("uuid")
+
+	host, err := h.service.GetByUUID(uuid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, host)
 }
 
-// Update mutates an existing host.
+// Update updates an existing proxy host.
 func (h *ProxyHostHandler) Update(c *gin.Context) {
-	uuidParam := c.Param("uuid")
-	var req proxyHostRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	uuid := c.Param("uuid")
+
+	host, err := h.service.GetByUUID(uuid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
+		return
+	}
+
+	if err := c.ShouldBindJSON(host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	var host models.ProxyHost
-	if err := h.db.First(&host, "uuid = ?", uuidParam).Error; err != nil {
-		status := http.StatusInternalServerError
-		if err == gorm.ErrRecordNotFound {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, gin.H{"error": "proxy host not found"})
-		return
-	}
-
-	host.Name = req.Name
-	host.Domain = req.Domain
-	host.TargetScheme = req.TargetScheme
-	host.TargetHost = req.TargetHost
-	host.TargetPort = req.TargetPort
-	host.EnableTLS = req.EnableTLS
-	host.EnableWS = req.EnableWS
-
-	if err := h.db.Save(&host).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update proxy host"})
+	if err := h.service.Update(host); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, host)
 }
 
-// Delete removes a proxy host permanently.
+// Delete removes a proxy host.
 func (h *ProxyHostHandler) Delete(c *gin.Context) {
-	uuidParam := c.Param("uuid")
-	if err := h.db.Where("uuid = ?", uuidParam).Delete(&models.ProxyHost{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete proxy host"})
+	uuid := c.Param("uuid")
+
+	host, err := h.service.GetByUUID(uuid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	if err := h.service.Delete(host.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "proxy host deleted"})
+}
+
+// HealthHandler returns a simple health check response.
+func HealthHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ok",
+	})
 }

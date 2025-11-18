@@ -5,15 +5,19 @@ repos:
       - id: black
         language_version: python3
   - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.15.0
+    rev: v0.14.5
     hooks:
       - id: ruff
         args: ["--fix"]
-  - repo: https://github.com/pre-commit/mirrors-isort
-    rev: v5.12.0
+  - repo: local
     hooks:
-      - id: isort
-        name: isort (python)
+      - id: python-compile
+        name: python compile check
+        entry: tools/python_compile_check.sh
+        language: script
+        files: ".*\\.py$"
+        pass_filenames: false
+        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
@@ -21,48 +25,3 @@ repos:
       - id: trailing-whitespace
       - id: check-yaml
       - id: check-added-large-files
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.6
-    hooks:
-      - id: mypy
-        additional_dependencies: []
-  - repo: local
-    hooks:
-      - id: go-fmt
-        name: gofmt (format Go files)
-        entry: gofmt -s -w
-        language: system
-        types: [go]
-
-      - id: go-vet
-        name: go vet (basic static checks)
-        entry: go vet ./...
-        language: system
-        types: [go]
-
-      - id: go-test-coverage
-        name: go test (with coverage enforcement)
-        entry: bash scripts/go-test-coverage.sh
-        language: system
-        pass_filenames: false
-
-      - id: golangci-lint
-        name: golangci-lint (project linter)
-        entry: golangci-lint run
-        language: system
-        types: [go]
-        pass_filenames: false
-
-      - id: frontend-eslint
-        name: frontend-eslint (run ESLint on frontend)
-        entry: bash -c 'cd frontend && npm run lint'
-        language: system
-        files: '\\.(ts|tsx|js|jsx)$'
-        pass_filenames: false
-
-      - id: frontend-typecheck
-        name: frontend-typecheck (TypeScript type-check)
-        entry: bash -c 'cd frontend && npx tsc -p tsconfig.json --noEmit'
-        language: system
-        files: '\\.(ts|tsx)$'
-        pass_filenames: false

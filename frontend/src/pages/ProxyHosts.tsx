@@ -1,113 +1,157 @@
-import { FormEvent, useState } from 'react';
-import { useCreateProxyHost, useProxyHosts } from '../hooks/useProxyHosts';
+import { useState } from 'react'
+import { useProxyHosts, ProxyHost } from '../hooks/useProxyHosts'
+import ProxyHostForm from '../components/ProxyHostForm'
 
-const ProxyHosts = () => {
-  const { data, isLoading } = useProxyHosts();
-  const mutation = useCreateProxyHost();
-  const [formData, setFormData] = useState({
-    name: '',
-    domain: '',
-    target_scheme: 'http',
-    target_host: '',
-    target_port: 80
-  });
+export default function ProxyHosts() {
+  const { hosts, loading, error, createHost, updateHost, deleteHost } = useProxyHosts()
+  const [showForm, setShowForm] = useState(false)
+  const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    mutation.mutate(formData, {
-      onSuccess: () =>
-        setFormData({ name: '', domain: '', target_scheme: 'http', target_host: '', target_port: 80 })
-    });
-  };
+  const handleAdd = () => {
+    setEditingHost(undefined)
+    setShowForm(true)
+  }
+
+  const handleEdit = (host: ProxyHost) => {
+    setEditingHost(host)
+    setShowForm(true)
+  }
+
+  const handleSubmit = async (data: Partial<ProxyHost>) => {
+    if (editingHost) {
+      await updateHost(editingHost.uuid, data)
+    } else {
+      await createHost(data)
+    }
+    setShowForm(false)
+    setEditingHost(undefined)
+  }
+
+  const handleDelete = async (uuid: string) => {
+    if (confirm('Are you sure you want to delete this proxy host?')) {
+      try {
+        await deleteHost(uuid)
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Failed to delete')
+      }
+    }
+  }
 
   return (
-    <section>
-      <h2>Proxy Hosts</h2>
-
-      <form onSubmit={handleSubmit}>
-        <label>
-          Name
-          <input
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Domain
-          <input
-            value={formData.domain}
-            onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Target Host
-          <input
-            value={formData.target_host}
-            onChange={(e) => setFormData({ ...formData, target_host: e.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Target Port
-          <input
-            type="number"
-            value={formData.target_port}
-            onChange={(e) =>
-              setFormData({ ...formData, target_port: Number(e.target.value) || formData.target_port })
-            }
-            required
-          />
-        </label>
-        <label>
-          Scheme
-          <select
-            value={formData.target_scheme}
-            onChange={(e) => setFormData({ ...formData, target_scheme: e.target.value })}
-          >
-            <option value="http">HTTP</option>
-            <option value="https">HTTPS</option>
-          </select>
-        </label>
-        <button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? 'Saving...' : 'Add Proxy Host'}
+    <div className="p-8">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-white">Proxy Hosts</h1>
+        <button
+          onClick={handleAdd}
+          className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"
+        >
+          Add Proxy Host
         </button>
-        {mutation.isError && (
-          <p className="error">
-            {mutation.error?.response?.data?.message ||
-             mutation.error?.message ||
-             'Failed to create proxy host'}
-          </p>
-        )}
-      </form>
+      </div>
 
-      {isLoading ? (
-        <p>Loading hosts…</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Domain</th>
-              <th>Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.map((host) => (
-              <tr key={host.uuid}>
-                <td>{host.name}</td>
-                <td>{host.domain}</td>
-                <td>
-                  {host.target_scheme}://{host.target_host}:{host.target_port}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {error && (
+        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-3 rounded mb-6">
+          {error}
+        </div>
       )}
-    </section>
-  );
-};
 
-export default ProxyHosts;
+      <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
+        {loading ? (
+          <div className="text-center text-gray-400 py-12">Loading...</div>
+        ) : hosts.length === 0 ? (
+          <div className="text-center text-gray-400 py-12">
+            No proxy hosts configured yet. Click "Add Proxy Host" to get started.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-900 border-b border-gray-800">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Domain
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Forward To
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    SSL
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {hosts.map((host) => (
+                  <tr key={host.uuid} className="hover:bg-gray-900/50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-white">{host.domain_names}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-300">
+                        {host.forward_scheme}://{host.forward_host}:{host.forward_port}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex gap-2">
+                        {host.ssl_forced && (
+                          <span className="px-2 py-1 text-xs bg-green-900/30 text-green-400 rounded">
+                            SSL
+                          </span>
+                        )}
+                        {host.websocket_support && (
+                          <span className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 rounded">
+                            WS
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 py-1 text-xs rounded ${
+                          host.enabled
+                            ? 'bg-green-900/30 text-green-400'
+                            : 'bg-gray-700 text-gray-400'
+                        }`}
+                      >
+                        {host.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => handleEdit(host)}
+                        className="text-blue-400 hover:text-blue-300 mr-4"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(host.uuid)}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showForm && (
+        <ProxyHostForm
+          host={editingHost}
+          onSubmit={handleSubmit}
+          onCancel={() => {
+            setShowForm(false)
+            setEditingHost(undefined)
+          }}
+        />
+      )}
+    </div>
+  )
+}

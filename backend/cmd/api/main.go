@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"log"
-	"os/signal"
-	"syscall"
 
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/routes"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/database"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/server"
@@ -13,27 +13,36 @@ import (
 )
 
 func main() {
+	log.Printf("starting %s backend on version %s", version.Name, version.Full())
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
 
-	db, err := database.Open(cfg.DatabasePath)
+	db, err := database.Connect(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("connect database: %v", err)
 	}
 
-	srv, err := server.New(db, cfg)
-	if err != nil {
-		log.Fatalf("bootstrap server: %v", err)
+	router := server.NewRouter(cfg.FrontendDir)
+
+	if err := routes.Register(router, db); err != nil {
+		log.Fatalf("register routes: %v", err)
 	}
 
-	log.Printf("starting %s backend on :%s", version.Name, cfg.HTTPPort)
+	// Register import handler with config dependencies
+	routes.RegisterImportHandler(router, db, cfg.CaddyBinary, cfg.ImportDir)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// Check for mounted Caddyfile on startup
+	if err := handlers.CheckMountedImport(db, cfg.ImportCaddyfile, cfg.CaddyBinary, cfg.ImportDir); err != nil {
+		log.Printf("WARNING: failed to process mounted Caddyfile: %v", err)
+	}
 
-	if err := srv.Run(ctx); err != nil {
-		log.Fatalf("server exited with error: %v", err)
+	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
+	log.Printf("starting %s backend on %s", version.Name, addr)
+
+	if err := router.Run(addr); err != nil {
+		log.Fatalf("server error: %v", err)
 	}
 }

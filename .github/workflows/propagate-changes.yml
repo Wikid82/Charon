@@ -93,4 +93,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_BRANCH: ${{ steps.branches.outputs.source }}
           TARGET_BRANCH: ${{ steps.branches.outputs.target }}
-        
