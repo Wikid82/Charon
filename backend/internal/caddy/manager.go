@@ -65,7 +65,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		if rollbackErr := m.rollback(ctx); rollbackErr != nil {
 			return fmt.Errorf("apply failed: %w, rollback also failed: %v", err, rollbackErr)
 		}
-		
+
 		// Record failed attempt
 		m.recordConfigChange(configHash, false, err.Error())
 		return fmt.Errorf("apply failed (rolled back): %w", err)
@@ -183,7 +183,7 @@ func (m *Manager) recordConfigChange(configHash string, success bool, errorMsg s
 		Success:    success,
 		ErrorMsg:   errorMsg,
 	}
-	
+
 	// Best effort - don't fail if audit logging fails
 	m.db.Create(&record)
 }

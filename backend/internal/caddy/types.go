@@ -19,17 +19,17 @@ type HTTPApp struct {
 
 // Server represents an HTTP server instance.
 type Server struct {
-	Listen              []string          `json:"listen"`
-	Routes              []*Route          `json:"routes"`
-	AutoHTTPS           *AutoHTTPSConfig  `json:"automatic_https,omitempty"`
-	Logs                *ServerLogs       `json:"logs,omitempty"`
+	Listen    []string         `json:"listen"`
+	Routes    []*Route         `json:"routes"`
+	AutoHTTPS *AutoHTTPSConfig `json:"automatic_https,omitempty"`
+	Logs      *ServerLogs      `json:"logs,omitempty"`
 }
 
 // AutoHTTPSConfig controls automatic HTTPS behavior.
 type AutoHTTPSConfig struct {
-	Disable       bool     `json:"disable,omitempty"`
-	DisableRedir  bool     `json:"disable_redirects,omitempty"`
-	Skip          []string `json:"skip,omitempty"`
+	Disable      bool     `json:"disable,omitempty"`
+	DisableRedir bool     `json:"disable_redirects,omitempty"`
+	Skip         []string `json:"skip,omitempty"`
 }
 
 // ServerLogs configures access logging.
@@ -62,7 +62,7 @@ func ReverseProxyHandler(dial string, enableWS bool) Handler {
 			{"dial": dial},
 		},
 	}
-	
+
 	if enableWS {
 		// Enable WebSocket support by preserving upgrade headers
 		h["headers"] = map[string]interface{}{
@@ -74,7 +74,7 @@ func ReverseProxyHandler(dial string, enableWS bool) Handler {
 			},
 		}
 	}
-	
+
 	return h
 }
 
@@ -90,6 +90,6 @@ type AutomationConfig struct {
 
 // AutomationPolicy defines certificate management for specific domains.
 type AutomationPolicy struct {
-	Subjects []string `json:"subjects,omitempty"`
+	Subjects   []string      `json:"subjects,omitempty"`
 	IssuersRaw []interface{} `json:"issuers,omitempty"`
 }
