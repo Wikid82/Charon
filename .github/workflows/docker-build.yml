@@ -60,6 +60,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             # Tag major from git tags (v1.2.3 → 1)
             type=semver,pattern={{major}}
+            # Ephemeral tag for pull requests (derive number from GITHUB_REF if available)
+            type=raw,value=pr-${{ github.ref_name }},enable=${{ github.event_name == 'pull_request' }}
+            # Short SHA tag as fallback (for non-default non-dev push events)
+            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
 
       # Step 6: Build the frontend first
       - name: 🎨 Build frontend
@@ -76,7 +80,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -84,6 +88,7 @@ jobs:
 
       # Step 8: Run Trivy security scan
       - name: 🔍 Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
         id: trivy
         uses: aquasecurity/trivy-action@master
         with:
@@ -94,13 +99,13 @@ jobs:
       # Step 9: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: steps.trivy.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
         with:
           sarif_file: 'trivy-results.sarif'
 
       # Step 10: Run Trivy with table output for workflow logs
       - name: 📋 Run Trivy scan (table output)
-        if: steps.trivy.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.trivy.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
