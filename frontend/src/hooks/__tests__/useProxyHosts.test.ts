@@ -75,7 +75,9 @@ describe('useProxyHosts', () => {
     await result.current.createHost(newHost)
 
     expect(api.proxyHostsAPI.create).toHaveBeenCalledWith(newHost)
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2) // Initial load + reload after create
+    await waitFor(() => {
+      expect(result.current.hosts).toContainEqual(createdHost)
+    })
   })
 
   it('updates an existing proxy host', async () => {
@@ -94,7 +96,9 @@ describe('useProxyHosts', () => {
     await result.current.updateHost('1', { domain_names: 'updated.com' })
 
     expect(api.proxyHostsAPI.update).toHaveBeenCalledWith('1', { domain_names: 'updated.com' })
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.hosts[0].domain_names).toBe('updated.com')
+    })
   })
 
   it('deletes a proxy host', async () => {
@@ -114,7 +118,10 @@ describe('useProxyHosts', () => {
     await result.current.deleteHost('1')
 
     expect(api.proxyHostsAPI.delete).toHaveBeenCalledWith('1')
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.hosts).toHaveLength(1)
+      expect(result.current.hosts[0].uuid).toBe('2')
+    })
   })
 
   it('handles create errors', async () => {

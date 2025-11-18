@@ -18,7 +18,7 @@ import (
 )
 
 func setupTestDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")
 	}

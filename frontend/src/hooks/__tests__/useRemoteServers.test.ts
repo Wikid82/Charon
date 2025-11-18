@@ -99,7 +99,9 @@ describe('useRemoteServers', () => {
     await result.current.createServer(newServer)
 
     expect(api.remoteServersAPI.create).toHaveBeenCalledWith(newServer)
-    expect(api.remoteServersAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.servers).toContainEqual(createdServer)
+    })
   })
 
   it('updates an existing remote server', async () => {
@@ -118,7 +120,9 @@ describe('useRemoteServers', () => {
     await result.current.updateServer('1', { name: 'Updated Server' })
 
     expect(api.remoteServersAPI.update).toHaveBeenCalledWith('1', { name: 'Updated Server' })
-    expect(api.remoteServersAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.servers[0].name).toBe('Updated Server')
+    })
   })
 
   it('deletes a remote server', async () => {
@@ -138,7 +142,10 @@ describe('useRemoteServers', () => {
     await result.current.deleteServer('1')
 
     expect(api.remoteServersAPI.delete).toHaveBeenCalledWith('1')
-    expect(api.remoteServersAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.servers).toHaveLength(1)
+      expect(result.current.servers[0].uuid).toBe('2')
+    })
   })
 
   it('tests server connection', async () => {

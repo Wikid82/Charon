@@ -66,13 +66,25 @@ export function useRemoteServers() {
     }
   }
 
+  const testConnection = async (uuid: string) => {
+    try {
+      return await remoteServersAPI.test(uuid)
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : 'Failed to test connection')
+    }
+  }
+
+  const enabledServers = servers.filter(s => s.enabled)
+
   return {
     servers,
+    enabledServers,
     loading,
     error,
     refresh: fetchServers,
     createServer,
     updateServer,
     deleteServer,
+    testConnection,
   }
 }
