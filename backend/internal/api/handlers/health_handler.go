@@ -12,8 +12,8 @@ func HealthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "ok",
 		"service":    version.Name,
-		"version":    version.SemVer,
+		"version":    version.Version,
 		"git_commit": version.GitCommit,
-		"build_date": version.BuildDate,
+		"build_time": version.BuildTime,
 	})
 }
