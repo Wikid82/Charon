@@ -50,7 +50,7 @@ jobs:
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
