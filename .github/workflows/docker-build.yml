@@ -180,13 +180,6 @@ jobs:
           echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Registry**: GitHub Container Registry (ghcr.io)" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-                - name: 📋 Create skip summary
-                  if: steps.skip.outputs.skip_build == 'true'
-                  run: |
-                    echo "## 🚫 Docker Build Skipped" >> $GITHUB_STEP_SUMMARY
-                    echo "Reason: renovate bot or chore(deps)/chore commit/PR title." >> $GITHUB_STEP_SUMMARY
-                    echo "Actor: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-                    echo "Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags**: " >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -197,6 +190,14 @@ jobs:
           echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "docker run -d -p 8080:8080 -v caddy_data:/app/data ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 📋 Create skip summary
+        if: steps.skip.outputs.skip_build == 'true'
+        run: |
+          echo "## 🚫 Docker Build Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "Reason: renovate bot or chore(deps)/chore commit/PR title." >> $GITHUB_STEP_SUMMARY
+          echo "Actor: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
 
   test-image:
     name: Test Docker Image
