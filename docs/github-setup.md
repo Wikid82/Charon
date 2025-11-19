@@ -197,13 +197,13 @@ When you're ready to release a new version:
 docker pull ghcr.io/wikid82/caddyproxymanagerplus:dev
 
 # Pull stable version
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
+docker pull ghcr.io/wikid82/cpmp:latest
 
 # Pull specific version
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:1.0.0
+docker pull ghcr.io/wikid82/cpmp:1.0.0
 
 # Run the container
-docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/caddyproxymanagerplus:latest
+docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/cpmp:latest
 ```
 
 ### Git Tag Commands

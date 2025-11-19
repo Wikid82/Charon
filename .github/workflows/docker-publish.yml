@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository_owner }}/cpmp
 
 jobs:
   build-and-push:
@@ -29,11 +29,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Normalize image name
-        run: |
-          raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
-          echo "IMAGE_NAME=$(echo "$raw" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Determine skip condition
         id: skip

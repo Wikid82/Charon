@@ -52,7 +52,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.SemVer=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildDate=${BUILD_DATE}" \
-    -o api ./cmd/api
+    -o cpmp ./cmd/api
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
@@ -63,7 +63,7 @@ RUN apk --no-cache add ca-certificates sqlite-libs \
     && apk --no-cache upgrade
 
 # Copy Go binary from backend builder
-COPY --from=backend-builder /app/backend/api /app/api
+COPY --from=backend-builder /app/backend/cpmp /app/cpmp
 
 # Copy frontend build from frontend builder
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
@@ -89,7 +89,7 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # OCI image labels for version metadata
-LABEL org.opencontainers.image.title="CaddyProxyManager+" \
+LABEL org.opencontainers.image.title="CaddyProxyManager+ (CPMP)" \
       org.opencontainers.image.description="Web UI for managing Caddy reverse proxy configurations" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \

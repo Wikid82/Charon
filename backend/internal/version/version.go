@@ -2,7 +2,7 @@ package version
 
 const (
 	// Name of the application
-	Name = "CaddyProxyManagerPlus"
+	Name = "CPMP"
 	// Version is the semantic version
 	Version = "0.1.0"
 	// BuildTime is set during build via ldflags

@@ -27,7 +27,7 @@ done
 
 # Start CPM+ management application
 echo "Starting CPM+ management application..."
-/app/api &
+/app/cpmp &
 APP_PID=$!
 echo "CPM+ started (PID: $APP_PID)"
 

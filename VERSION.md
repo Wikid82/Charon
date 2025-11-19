@@ -62,16 +62,16 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 
 ```bash
 # Use latest stable release
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
+docker pull ghcr.io/wikid82/cpmp:latest
 
 # Use specific version
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:v1.0.0
+docker pull ghcr.io/wikid82/cpmp:v1.0.0
 
 # Use development builds
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:development
+docker pull ghcr.io/wikid82/cpmp:development
 
 # Use specific commit
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:main-abc123
+docker pull ghcr.io/wikid82/cpmp:main-abc123
 ```
 
 ## Version Information
@@ -97,7 +97,7 @@ Response includes:
 
 View version metadata:
 ```bash
-docker inspect ghcr.io/wikid82/caddyproxymanagerplus:latest \
+docker inspect ghcr.io/wikid82/cpmp:latest \
   --format='{{json .Config.Labels}}' | jq
 ```
 
@@ -111,7 +111,7 @@ Returns OCI-compliant labels:
 
 Local builds default to `version=dev`:
 ```bash
-docker build -t caddyproxymanagerplus:dev .
+docker build -t cpmp:dev .
 ```
 
 Build with custom version:
