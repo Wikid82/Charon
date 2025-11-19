@@ -6,11 +6,13 @@ import ProxyHosts from './pages/ProxyHosts'
 import RemoteServers from './pages/RemoteServers'
 import ImportCaddy from './pages/ImportCaddy'
 import Settings from './pages/Settings'
+import Login from './pages/Login'
 
 export default function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<Layout><Outlet /></Layout>}>
           <Route index element={<Dashboard />} />
           <Route path="proxy-hosts" element={<ProxyHosts />} />
