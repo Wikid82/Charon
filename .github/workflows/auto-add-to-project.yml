@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: Add issue or PR to project
         uses: actions/add-to-project@v0.5.0
-        continue-on-error: true
         with:
           project-url: ${{ secrets.PROJECT_URL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
