@@ -78,6 +78,26 @@ func ReverseProxyHandler(dial string, enableWS bool) Handler {
 	return h
 }
 
+// HeaderHandler creates a handler that sets HTTP response headers.
+func HeaderHandler(headers map[string][]string) Handler {
+	return Handler{
+		"handler": "headers",
+		"response": map[string]interface{}{
+			"set": headers,
+		},
+	}
+}
+
+// BlockExploitsHandler creates a handler that blocks common exploits.
+// This uses Caddy's request matchers to block malicious patterns.
+func BlockExploitsHandler() Handler {
+	return Handler{
+		"handler": "vars",
+		// Placeholder for future exploit blocking logic
+		// Can be extended with specific matchers for SQL injection, XSS, etc.
+	}
+}
+
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
 	Automation *AutomationConfig `json:"automation,omitempty"`

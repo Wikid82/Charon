@@ -19,14 +19,15 @@ func TestGenerateConfig_Empty(t *testing.T) {
 func TestGenerateConfig_SingleHost(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:         "test-uuid",
-			Name:         "Media",
-			Domain:       "media.example.com",
-			TargetScheme: "http",
-			TargetHost:   "media",
-			TargetPort:   32400,
-			EnableTLS:    true,
-			EnableWS:     false,
+			UUID:             "test-uuid",
+			Name:             "Media",
+			DomainNames:      "media.example.com",
+			ForwardScheme:    "http",
+			ForwardHost:      "media",
+			ForwardPort:      32400,
+			SSLForced:        true,
+			WebsocketSupport: false,
+			Enabled:          true,
 		},
 	}
 
@@ -55,16 +56,18 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 func TestGenerateConfig_MultipleHosts(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "uuid-1",
-			Domain:     "site1.example.com",
-			TargetHost: "app1",
-			TargetPort: 8080,
+			UUID:        "uuid-1",
+			DomainNames: "site1.example.com",
+			ForwardHost: "app1",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
 		{
-			UUID:       "uuid-2",
-			Domain:     "site2.example.com",
-			TargetHost: "app2",
-			TargetPort: 8081,
+			UUID:        "uuid-2",
+			DomainNames: "site2.example.com",
+			ForwardHost: "app2",
+			ForwardPort: 8081,
+			Enabled:     true,
 		},
 	}
 
@@ -76,11 +79,12 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "uuid-ws",
-			Domain:     "ws.example.com",
-			TargetHost: "wsapp",
-			TargetPort: 3000,
-			EnableWS:   true,
+			UUID:             "uuid-ws",
+			DomainNames:      "ws.example.com",
+			ForwardHost:      "wsapp",
+			ForwardPort:      3000,
+			WebsocketSupport: true,
+			Enabled:          true,
 		},
 	}
 
@@ -97,10 +101,11 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 func TestGenerateConfig_EmptyDomain(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "bad-uuid",
-			Domain:     "",
-			TargetHost: "app",
-			TargetPort: 8080,
+			UUID:        "bad-uuid",
+			DomainNames: "",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
 	}
 
