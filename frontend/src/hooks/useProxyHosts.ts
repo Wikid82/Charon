@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import { proxyHostsAPI } from '../services/api'
 
+export interface Location {
+  uuid?: string
+  path: string
+  forward_scheme: string
+  forward_host: string
+  forward_port: number
+}
+
 export interface ProxyHost {
   uuid: string
   domain_names: string
@@ -15,7 +23,7 @@ export interface ProxyHost {
   hsts_subdomains: boolean
   block_exploits: boolean
   websocket_support: boolean
-  advanced_config?: string
+  locations: Location[]
   enabled: boolean
   created_at: string
   updated_at: string

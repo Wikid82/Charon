@@ -15,6 +15,7 @@ func Register(router *gin.Engine, db *gorm.DB) error {
 	// AutoMigrate all models for Issue #5 persistence layer
 	if err := db.AutoMigrate(
 		&models.ProxyHost{},
+		&models.Location{},
 		&models.CaddyConfig{},
 		&models.RemoteServer{},
 		&models.SSLCertificate{},
