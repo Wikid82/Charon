@@ -20,9 +20,9 @@ func NewProxyHostService(db *gorm.DB) *ProxyHostService {
 }
 
 // ValidateUniqueDomain ensures no duplicate domains exist before creation/update.
-func (s *ProxyHostService) ValidateUniqueDomain(domain string, excludeID uint) error {
+func (s *ProxyHostService) ValidateUniqueDomain(domainNames string, excludeID uint) error {
 	var count int64
-	query := s.db.Model(&models.ProxyHost{}).Where("domain = ?", domain)
+	query := s.db.Model(&models.ProxyHost{}).Where("domain_names = ?", domainNames)
 
 	if excludeID > 0 {
 		query = query.Where("id != ?", excludeID)
@@ -41,7 +41,7 @@ func (s *ProxyHostService) ValidateUniqueDomain(domain string, excludeID uint) e
 
 // Create validates and creates a new proxy host.
 func (s *ProxyHostService) Create(host *models.ProxyHost) error {
-	if err := s.ValidateUniqueDomain(host.Domain, 0); err != nil {
+	if err := s.ValidateUniqueDomain(host.DomainNames, 0); err != nil {
 		return err
 	}
 
@@ -50,7 +50,7 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 
 // Update validates and updates an existing proxy host.
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
-	if err := s.ValidateUniqueDomain(host.Domain, host.ID); err != nil {
+	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
 		return err
 	}
 
@@ -71,19 +71,19 @@ func (s *ProxyHostService) GetByID(id uint) (*models.ProxyHost, error) {
 	return &host, nil
 }
 
-// GetByUUID retrieves a proxy host by UUID.
+// GetByUUID finds a proxy host by UUID.
 func (s *ProxyHostService) GetByUUID(uuid string) (*models.ProxyHost, error) {
 	var host models.ProxyHost
-	if err := s.db.Where("uuid = ?", uuid).First(&host).Error; err != nil {
+	if err := s.db.Preload("Locations").Where("uuid = ?", uuid).First(&host).Error; err != nil {
 		return nil, err
 	}
 	return &host, nil
 }
 
-// List retrieves all proxy hosts.
+// List returns all proxy hosts.
 func (s *ProxyHostService) List() ([]models.ProxyHost, error) {
 	var hosts []models.ProxyHost
-	if err := s.db.Find(&hosts).Error; err != nil {
+	if err := s.db.Preload("Locations").Order("updated_at desc").Find(&hosts).Error; err != nil {
 		return nil, err
 	}
 	return hosts, nil

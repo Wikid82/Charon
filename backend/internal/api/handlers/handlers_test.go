@@ -26,6 +26,7 @@ func setupTestDB() *gorm.DB {
 	// Auto migrate
 	db.AutoMigrate(
 		&models.ProxyHost{},
+		&models.Location{},
 		&models.RemoteServer{},
 		&models.ImportSession{},
 	)
@@ -137,13 +138,13 @@ func TestProxyHostHandler_List(t *testing.T) {
 
 	// Create test proxy host
 	host := &models.ProxyHost{
-		UUID:         uuid.NewString(),
-		Name:         "Test Host",
-		Domain:       "test.local",
-		TargetScheme: "http",
-		TargetHost:   "localhost",
-		TargetPort:   3000,
-		Enabled:      true,
+		UUID:          uuid.NewString(),
+		Name:          "Test Host",
+		DomainNames:   "test.local",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   3000,
+		Enabled:       true,
 	}
 	db.Create(host)
 
@@ -175,12 +176,12 @@ func TestProxyHostHandler_Create(t *testing.T) {
 
 	// Test Create
 	hostData := map[string]interface{}{
-		"name":          "New Host",
-		"domain":        "new.local",
-		"target_scheme": "http",
-		"target_host":   "192.168.1.200",
-		"target_port":   8080,
-		"enabled":       true,
+		"name":           "New Host",
+		"domain_names":   "new.local",
+		"forward_scheme": "http",
+		"forward_host":   "192.168.1.200",
+		"forward_port":   8080,
+		"enabled":        true,
 	}
 	body, _ := json.Marshal(hostData)
 
@@ -195,7 +196,7 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &host)
 	assert.NoError(t, err)
 	assert.Equal(t, "New Host", host.Name)
-	assert.Equal(t, "new.local", host.Domain)
+	assert.Equal(t, "new.local", host.DomainNames)
 	assert.NotEmpty(t, host.UUID)
 }
 

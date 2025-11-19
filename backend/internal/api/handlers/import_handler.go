@@ -157,7 +157,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	errors := []string{}
 
 	for _, host := range proxyHosts {
-		action := req.Resolutions[host.Domain]
+		action := req.Resolutions[host.DomainNames]
 
 		if action == "skip" {
 			skipped++
@@ -165,13 +165,13 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		}
 
 		if action == "rename" {
-			host.Domain = host.Domain + "-imported"
+			host.DomainNames = host.DomainNames + "-imported"
 		}
 
 		host.UUID = uuid.NewString()
 
 		if err := h.proxyHostSvc.Create(&host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.Domain, err.Error()))
+			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 		} else {
 			created++
 		}
@@ -228,13 +228,13 @@ func (h *ImportHandler) processImport(caddyfilePath, originalName string) error 
 	existingHosts, _ := h.proxyHostSvc.List()
 	existingDomains := make(map[string]bool)
 	for _, host := range existingHosts {
-		existingDomains[host.Domain] = true
+		existingDomains[host.DomainNames] = true
 	}
 
 	for _, parsed := range result.Hosts {
-		if existingDomains[parsed.Domain] {
+		if existingDomains[parsed.DomainNames] {
 			result.Conflicts = append(result.Conflicts,
-				fmt.Sprintf("Domain '%s' already exists in CPM+", parsed.Domain))
+				fmt.Sprintf("Domain '%s' already exists in CPM+", parsed.DomainNames))
 		}
 	}
 

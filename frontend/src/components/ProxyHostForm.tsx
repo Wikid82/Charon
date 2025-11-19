@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ProxyHost } from '../hooks/useProxyHosts'
+import { ProxyHost, Location } from '../hooks/useProxyHosts'
 import { remoteServersAPI } from '../services/api'
 
 interface ProxyHostFormProps {
@@ -29,7 +29,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? false,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? false,
-    advanced_config: host?.advanced_config || '',
+    locations: host?.locations || [] as Location[],
     enabled: host?.enabled ?? true,
   })
 
@@ -48,6 +48,28 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
     fetchServers()
   }, [])
+
+  const addLocation = () => {
+    setFormData({
+      ...formData,
+      locations: [
+        ...formData.locations,
+        { path: '/', forward_scheme: 'http', forward_host: '', forward_port: 80 }
+      ]
+    })
+  }
+
+  const removeLocation = (index: number) => {
+    const newLocations = [...formData.locations]
+    newLocations.splice(index, 1)
+    setFormData({ ...formData, locations: newLocations })
+  }
+
+  const updateLocation = (index: number, field: keyof Location, value: any) => {
+    const newLocations = [...formData.locations]
+    newLocations[index] = { ...newLocations[index], [field]: value }
+    setFormData({ ...formData, locations: newLocations })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -231,18 +253,83 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </label>
           </div>
 
-          {/* Advanced Config */}
+          {/* Custom Locations */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Advanced Caddy Config (Optional)
-            </label>
-            <textarea
-              value={formData.advanced_config}
-              onChange={e => setFormData({ ...formData, advanced_config: e.target.value })}
-              placeholder="Additional Caddy directives..."
-              rows={4}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="flex items-center justify-between mb-4">
+              <label className="block text-sm font-medium text-gray-300">
+                Custom Locations
+              </label>
+              <button
+                type="button"
+                onClick={addLocation}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors"
+              >
+                Add Location
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {formData.locations.map((location, index) => (
+                <div key={index} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                  <div className="grid grid-cols-12 gap-4 mb-2">
+                    <div className="col-span-4">
+                      <label className="block text-xs text-gray-400 mb-1">Path</label>
+                      <input
+                        type="text"
+                        value={location.path}
+                        onChange={e => updateLocation(index, 'path', e.target.value)}
+                        placeholder="/api"
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1">Scheme</label>
+                      <select
+                        value={location.forward_scheme}
+                        onChange={e => updateLocation(index, 'forward_scheme', e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="http">HTTP</option>
+                        <option value="https">HTTPS</option>
+                      </select>
+                    </div>
+                    <div className="col-span-4">
+                      <label className="block text-xs text-gray-400 mb-1">Forward Host</label>
+                      <input
+                        type="text"
+                        value={location.forward_host}
+                        onChange={e => updateLocation(index, 'forward_host', e.target.value)}
+                        placeholder="10.0.0.1"
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1">Port</label>
+                      <input
+                        type="number"
+                        value={location.forward_port}
+                        onChange={e => updateLocation(index, 'forward_port', parseInt(e.target.value))}
+                        className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => removeLocation(index)}
+                      className="text-red-400 hover:text-red-300 text-xs"
+                    >
+                      Remove Location
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {formData.locations.length === 0 && (
+                <div className="text-center text-gray-500 text-sm py-4 border border-dashed border-gray-700 rounded-lg">
+                  No custom locations defined
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Actions */}
