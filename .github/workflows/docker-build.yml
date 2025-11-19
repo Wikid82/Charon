@@ -17,6 +17,11 @@ jobs:
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    concurrency:
+      group: docker-build-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      skip_build: ${{ steps.skip.outputs.skip_build }}
     permissions:
       contents: read
       packages: write
@@ -32,6 +37,29 @@ jobs:
         run: |
           raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
           echo "IMAGE_NAME=$(echo "$raw" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: 🧪 Determine skip condition
+        id: skip
+        run: |
+          should_skip=false
+          actor='${{ github.actor }}'
+          event='${{ github.event_name }}'
+          head_msg='${{ github.event.head_commit.message }}'
+          pr_title=""
+          if [ "$event" = "pull_request" ]; then
+            pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH" 2>/dev/null || echo '')
+          fi
+          if [ "$actor" = "renovate[bot]" ]; then should_skip=true; fi
+          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
+          if [ "$should_skip" = true ]; then
+            echo "Skipping heavy docker build for actor=$actor event=$event (message/title matched)"
+          else
+            echo "Proceeding with full docker build"
+          fi
 
       # Step 2: Set up QEMU for multi-platform builds (ARM, AMD64, etc.)
       - name: 🔧 Set up QEMU
@@ -81,6 +109,7 @@ jobs:
 
       # Step 6: Build the frontend first
       - name: 🎨 Build frontend
+        if: steps.skip.outputs.skip_build != 'true'
         run: |
           cd frontend
           npm ci
@@ -88,12 +117,13 @@ jobs:
 
       # Step 7: Build and push Docker image
       - name: 🐳 Build and push Docker image
+        if: steps.skip.outputs.skip_build != 'true'
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         id: build
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -104,7 +134,7 @@ jobs:
 
       # Step 8: Run Trivy scan (table output first for visibility)
       - name: 📋 Run Trivy scan (table output)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         id: trivy_table
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
@@ -116,7 +146,7 @@ jobs:
 
       # Step 9: Run Trivy security scan (SARIF)
       - name: 🔍 Run Trivy vulnerability scanner
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         id: trivy
         continue-on-error: true
         uses: aquasecurity/trivy-action@master
@@ -130,25 +160,33 @@ jobs:
       # Step 10: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: github.event_name != 'pull_request' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
         with:
           sarif_file: 'trivy-results.sarif'
 
       # Step 11: Fail if vulnerabilities found
       - name: ❌ Check for vulnerabilities
-        if: github.event_name != 'pull_request' && steps.trivy_table.outcome == 'failure'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy_table.outcome == 'failure'
         run: |
           echo "::error::CRITICAL or HIGH vulnerabilities found in image"
           exit 1
 
       # Step 11: Create a summary
       - name: 📋 Create summary
+        if: steps.skip.outputs.skip_build != 'true'
         run: |
           echo "## 🎉 Docker Image Built Successfully!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Registry**: GitHub Container Registry (ghcr.io)" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+                - name: 📋 Create skip summary
+                  if: steps.skip.outputs.skip_build == 'true'
+                  run: |
+                    echo "## 🚫 Docker Build Skipped" >> $GITHUB_STEP_SUMMARY
+                    echo "Reason: renovate bot or chore(deps)/chore commit/PR title." >> $GITHUB_STEP_SUMMARY
+                    echo "Actor: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+                    echo "Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags**: " >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -164,6 +202,7 @@ jobs:
     name: Test Docker Image
     needs: build-and-push
     runs-on: ubuntu-latest
+    if: needs.build-and-push.outputs.skip_build != 'true'
 
     steps:
       # Ensure normalized lowercase IMAGE_NAME for this job as well
