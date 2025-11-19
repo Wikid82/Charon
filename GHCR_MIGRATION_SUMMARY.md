@@ -13,11 +13,11 @@ Updated all workflows and documentation to use GitHub Container Registry (GHCR) 
 - **After**: GitHub Container Registry (`ghcr.io/wikid82/caddyproxymanagerplus`)
 
 ### Benefits of GHCR:
-✅ **No extra accounts needed** - Uses your GitHub account  
-✅ **Automatic authentication** - Uses built-in `GITHUB_TOKEN`  
-✅ **Free for public repos** - No Docker Hub rate limits  
-✅ **Integrated with repo** - Packages show up on your GitHub profile  
-✅ **Better security** - No need to store Docker Hub credentials  
+✅ **No extra accounts needed** - Uses your GitHub account
+✅ **Automatic authentication** - Uses built-in `GITHUB_TOKEN`
+✅ **Free for public repos** - No Docker Hub rate limits
+✅ **Integrated with repo** - Packages show up on your GitHub profile
+✅ **Better security** - No need to store Docker Hub credentials
 
 ### Files Updated:
 
@@ -35,7 +35,7 @@ env:
   REGISTRY: docker.io
   IMAGE_NAME: wikid82/caddy-proxy-manager-plus
 
-# After  
+# After
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}

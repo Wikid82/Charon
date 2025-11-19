@@ -6,12 +6,21 @@ ARG VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
 
+# Allow pinning Caddy base image by digest via build-arg
+ARG CADDY_IMAGE=caddy:2-alpine
+
 # ---- Frontend Builder ----
-FROM node:20-alpine AS frontend-builder
+# Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
 COPY frontend/package*.json ./
+
+# Set environment to bypass native binary requirement for cross-arch builds
+ENV npm_config_rollup_skip_nodejs_native=1 \
+    ROLLUP_SKIP_NODEJS_NATIVE=1
+
 RUN npm ci
 
 # Copy frontend source and build
@@ -19,7 +28,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Backend Builder ----
-FROM golang:latest AS backend-builder
+FROM golang:alpine AS backend-builder
 WORKDIR /app/backend
 
 # Install build dependencies
@@ -46,11 +55,12 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o api ./cmd/api
 
 # ---- Final Runtime with Caddy ----
-FROM caddy:latest
+FROM ${CADDY_IMAGE}
 WORKDIR /app
 
-# Install runtime dependencies for CPM+
-RUN apk --no-cache add ca-certificates sqlite-libs bash
+# Install runtime dependencies for CPM+ (no bash needed)
+RUN apk --no-cache add ca-certificates sqlite-libs \
+    && apk --no-cache upgrade
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/api /app/api

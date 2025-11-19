@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
 
     steps:
       # Step 1: Download the code
@@ -34,13 +35,21 @@ jobs:
       - name: 🔧 Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
 
+      # Resolve immutable digest for Caddy base
+      - name: 📦 Resolve Caddy base digest
+        id: caddy
+        run: |
+          docker pull caddy:2-alpine
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
+          echo "image=$DIGEST" >> $GITHUB_OUTPUT
+
       # Step 4: Log in to GitHub Container Registry
       - name: 🔐 Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CPMP_GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Step 5: Figure out what tags to use
       - name: 🏷️ Extract metadata (tags, labels)
@@ -59,8 +68,10 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             # Tag major from git tags (v1.2.3 → 1)
             type=semver,pattern={{major}}
-            # Tag with git SHA for tracking (first 7 characters)
-            type=sha,prefix=sha-,format=short
+            # Ephemeral tag for pull requests (derive number from GITHUB_REF if available)
+            type=raw,value=pr-${{ github.ref_name }},enable=${{ github.event_name == 'pull_request' }}
+            # Short SHA tag as fallback (for non-default non-dev push events)
+            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
 
       # Step 6: Build the frontend first
       - name: 🎨 Build frontend
@@ -71,18 +82,60 @@ jobs:
 
       # Step 7: Build and push Docker image
       - name: 🐳 Build and push Docker image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@v5
+        id: build
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
-      # Step 8: Create a summary
+      # Step 8: Run Trivy scan (table output first for visibility)
+      - name: 📋 Run Trivy scan (table output)
+        if: github.event_name != 'pull_request'
+        id: trivy_table
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      # Step 9: Run Trivy security scan (SARIF)
+      - name: 🔍 Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      # Step 10: Upload Trivy results to GitHub Security tab
+      - name: 📤 Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name != 'pull_request' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # Step 11: Fail if vulnerabilities found
+      - name: ❌ Check for vulnerabilities
+        if: github.event_name != 'pull_request' && steps.trivy_table.outcome == 'failure'
+        run: |
+          echo "::error::CRITICAL or HIGH vulnerabilities found in image"
+          exit 1
+
+      # Step 11: Create a summary
       - name: 📋 Create summary
         run: |
           echo "## 🎉 Docker Image Built Successfully!" >> $GITHUB_STEP_SUMMARY
