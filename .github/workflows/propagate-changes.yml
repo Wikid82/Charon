@@ -19,7 +19,7 @@ jobs:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '18'
+          node-version: '18.20.8'
 
       - name: Propagate Changes
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
