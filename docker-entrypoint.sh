@@ -8,7 +8,8 @@ echo "Starting CaddyProxyManager+ with integrated Caddy..."
 
 # Start Caddy in the background with initial empty config
 echo '{"apps":{}}' > /config/caddy.json
-caddy run --config /config/caddy.json --adapter json &
+# Use JSON config directly; no adapter needed
+caddy run --config /config/caddy.json &
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
