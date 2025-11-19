@@ -9,7 +9,7 @@ ruff>=0.15
 isort>=5.12
 mypy>=1.6
 pre-commit>=3.4
-bandit>=1.8
+bandit>=1.9.1
 tox>=4.11
 pytest-timeout==2.4.0
 
