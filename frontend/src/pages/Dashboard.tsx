@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
-import { healthAPI } from '../services/api'
+import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
 
 export default function Dashboard() {
@@ -10,15 +10,15 @@ export default function Dashboard() {
   const [health, setHealth] = useState<{ status: string } | null>(null)
 
   useEffect(() => {
-    const checkHealth = async () => {
+    const fetchHealth = async () => {
       try {
-        const result = await healthAPI.check()
+        const result = await checkHealth()
         setHealth(result)
       } catch (err) {
         setHealth({ status: 'error' })
       }
     }
-    checkHealth()
+    fetchHealth()
   }, [])
 
   const enabledHosts = hosts.filter(h => h.enabled).length
