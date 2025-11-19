@@ -10,9 +10,23 @@ jobs:
   add-to-project:
     runs-on: ubuntu-latest
     steps:
+      - name: Determine project URL presence
+        id: project_check
+        run: |
+          if [ -n "${{ secrets.PROJECT_URL }}" ]; then
+            echo "has_project=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_project=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Add issue or PR to project
+        if: steps.project_check.outputs.has_project == 'true'
         uses: actions/add-to-project@1b844f0c5ac6446a402e0cb3693f9be5eca188c5 # v0.6.1
         continue-on-error: true
         with:
           project-url: ${{ secrets.PROJECT_URL }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip summary
+        if: steps.project_check.outputs.has_project == 'false'
+        run: echo "PROJECT_URL secret missing; skipping project assignment." >> $GITHUB_STEP_SUMMARY
