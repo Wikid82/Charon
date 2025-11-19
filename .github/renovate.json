@@ -50,7 +50,6 @@
       "matchPackageNames": ["caddy"],
       "allowedVersions": "<3.0.0",
       "labels": ["dependencies", "docker"],
-      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
     },
     {
