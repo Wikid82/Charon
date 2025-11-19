@@ -30,7 +30,7 @@ jobs:
     steps:
       # Step 1: Download the code
       - name: 📥 Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       # Normalize IMAGE_NAME to lowercase to satisfy container registry format
       - name: 🔤 Normalize image name
@@ -159,7 +159,7 @@ jobs:
 
       # Step 10: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@c3d42c5d08633d8b33635fbd94b000a0e2585b3c # v3
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
         with:
           sarif_file: 'trivy-results.sarif'
