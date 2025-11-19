@@ -100,7 +100,7 @@ docker build \
   --build-arg VERSION=1.2.3 \
   --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
   --build-arg VCS_REF=$(git rev-parse HEAD) \
-  -t caddyproxymanagerplus:1.2.3 .
+  -t cpmp:1.2.3 .
 ```
 
 ### Querying Version at Runtime
@@ -109,14 +109,14 @@ docker build \
 curl http://localhost:8080/api/v1/health
 {
   "status": "ok",
-  "service": "caddy-proxy-manager-plus",
+  "service": "CPMP",
   "version": "1.0.0",
   "git_commit": "abc1234567890def",
   "build_date": "2025-11-17T12:34:56Z"
 }
 
 # Container image labels
-docker inspect ghcr.io/wikid82/caddyproxymanagerplus:latest \
+docker inspect ghcr.io/wikid82/cpmp:latest \
   --format='{{json .Config.Labels}}' | jq
 ```
 

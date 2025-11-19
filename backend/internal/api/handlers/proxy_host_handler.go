@@ -53,6 +53,11 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	host.UUID = uuid.NewString()
 
+	// Assign UUIDs to locations
+	for i := range host.Locations {
+		host.Locations[i].UUID = uuid.NewString()
+	}
+
 	if err := h.service.Create(&host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -1,20 +1,11 @@
-import { useState, useEffect } from 'react'
-import { ProxyHost } from '../hooks/useProxyHosts'
-import { remoteServersAPI } from '../services/api'
+import { useState } from 'react'
+import type { ProxyHost } from '../api/proxyHosts'
+import { useRemoteServers } from '../hooks/useRemoteServers'
 
 interface ProxyHostFormProps {
   host?: ProxyHost
   onSubmit: (data: Partial<ProxyHost>) => Promise<void>
   onCancel: () => void
-}
-
-interface RemoteServer {
-  uuid: string
-  name: string
-  provider: string
-  host: string
-  port: number
-  enabled: boolean
 }
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
@@ -33,21 +24,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     enabled: host?.enabled ?? true,
   })
 
-  const [remoteServers, setRemoteServers] = useState<RemoteServer[]>([])
+  const { servers: remoteServers } = useRemoteServers()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const fetchServers = async () => {
-      try {
-        const servers = await remoteServersAPI.list(true)
-        setRemoteServers(servers)
-      } catch (err) {
-        console.error('Failed to fetch remote servers:', err)
-      }
-    }
-    fetchServers()
-  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

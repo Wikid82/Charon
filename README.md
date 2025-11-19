@@ -1,4 +1,4 @@
-# Caddy Proxy Manager Plus
+# Caddy Proxy Manager+ (CPMP)
 
 **Make your websites easy to reach!** 🚀
 
@@ -56,13 +56,15 @@ Don't have Docker? [Download it here](https://docs.docker.com/get-docker/) - it'
 ### Step 2: Run One Command
 Open your terminal and paste this:
 
+**Real-World Example:**
 ```bash
 docker run -d \
   -p 8080:8080 \
   -v caddy_data:/app/data \
   --name caddy-proxy-manager \
-  ghcr.io/wikid82/caddyproxymanagerplus:latest
+  ghcr.io/wikid82/cpmp:latest
 ```
+
 
 ### Step 3: Open Your Browser
 Go to: **http://localhost:8080**

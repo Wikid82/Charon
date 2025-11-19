@@ -42,7 +42,7 @@ docker run -d \
   -p 8080:8080 \
   -v caddy_data:/app/data \
   --name caddy-proxy-manager \
-  ghcr.io/wikid82/caddyproxymanagerplus:latest
+  ghcr.io/wikid82/cpmp:latest
 ```
 
 **What does this do?** It downloads and starts the app. You don't need to understand the details - just copy and paste!
