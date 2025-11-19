@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
           fetch-depth: 0
 
@@ -23,7 +23,7 @@ jobs:
         run: |
           # Get previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
-          
+
           if [ -z "$PREV_TAG" ]; then
             echo "First release - generating full changelog"
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
@@ -31,20 +31,20 @@ jobs:
             echo "Generating changelog since $PREV_TAG"
             CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges)
           fi
-          
+
           # Save to file for GitHub release
           echo "$CHANGELOG" > CHANGELOG.txt
           echo "Generated changelog with $(echo "$CHANGELOG" | wc -l) commits"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           body_path: CHANGELOG.txt
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_TOKEN }}
 
   build-and-publish:
     needs: create-release

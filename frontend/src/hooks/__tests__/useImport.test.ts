@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useImport } from '../useImport'
 import * as api from '../../services/api'
 
@@ -55,7 +55,9 @@ describe('useImport', () => {
 
     const { result } = renderHook(() => useImport())
 
-    await result.current.upload('example.com { reverse_proxy localhost:8080 }')
+    await act(async () => {
+      await result.current.upload('example.com { reverse_proxy localhost:8080 }')
+    })
 
     await waitFor(() => {
       expect(result.current.session).toEqual(mockSession)
@@ -71,9 +73,19 @@ describe('useImport', () => {
 
     const { result } = renderHook(() => useImport())
 
-    await expect(result.current.upload('invalid')).rejects.toThrow('Upload failed')
+    let threw = false
+    await act(async () => {
+      try {
+        await result.current.upload('invalid')
+      } catch {
+        threw = true
+      }
+    })
+    expect(threw).toBe(true)
 
-    expect(result.current.error).toBe('Upload failed')
+    await waitFor(() => {
+      expect(result.current.error).toBe('Upload failed')
+    })
   })
 
   it('commits import with resolutions', async () => {
@@ -86,24 +98,27 @@ describe('useImport', () => {
     }
 
     vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
-    vi.mocked(api.importAPI.status)
-      .mockResolvedValueOnce({ has_pending: true, session: mockSession })
-      .mockResolvedValueOnce({ has_pending: false })
+    // Keep session pending during initial checks so upload retains session state
+    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
     vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
     vi.mocked(api.importAPI.commit).mockResolvedValue({})
 
     const { result } = renderHook(() => useImport())
 
-    await result.current.upload('test')
+    await act(async () => {
+      await result.current.upload('test')
+    })
 
     await waitFor(() => {
       expect(result.current.session).toEqual(mockSession)
     })
 
-    await result.current.commit({ 'test.com': 'skip' })
+    await act(async () => {
+      await result.current.commit({ 'test.com': 'skip' })
+    })
 
     expect(api.importAPI.commit).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
-    
+
     await waitFor(() => {
       expect(result.current.session).toBeNull()
     })
@@ -125,16 +140,22 @@ describe('useImport', () => {
 
     const { result } = renderHook(() => useImport())
 
-    await result.current.upload('test')
+    await act(async () => {
+      await result.current.upload('test')
+    })
 
     await waitFor(() => {
       expect(result.current.session).toEqual(mockSession)
     })
 
-    await result.current.cancel()
+    await act(async () => {
+      await result.current.cancel()
+    })
 
     expect(api.importAPI.cancel).toHaveBeenCalledWith('session-3')
-    expect(result.current.session).toBeNull()
+    await waitFor(() => {
+      expect(result.current.session).toBeNull()
+    })
   })
 
   it('handles commit errors', async () => {
@@ -149,20 +170,32 @@ describe('useImport', () => {
     vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
     vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
     vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    
+
     const mockError = new Error('Commit failed')
     vi.mocked(api.importAPI.commit).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useImport())
 
-    await result.current.upload('test')
+    await act(async () => {
+      await result.current.upload('test')
+    })
 
     await waitFor(() => {
       expect(result.current.session).toEqual(mockSession)
     })
 
-    await expect(result.current.commit({})).rejects.toThrow('Commit failed')
+    let threw = false
+    await act(async () => {
+      try {
+        await result.current.commit({})
+      } catch {
+        threw = true
+      }
+    })
+    expect(threw).toBe(true)
 
-    expect(result.current.error).toBe('Commit failed')
+    await waitFor(() => {
+      expect(result.current.error).toBe('Commit failed')
+    })
   })
 })

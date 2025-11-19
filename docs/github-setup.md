@@ -4,35 +4,18 @@ This guide will help you set up GitHub Actions for automatic Docker builds and d
 
 ---
 
-## 📦 Step 1: Set Up GitHub Container Registry Token
+## 📦 Step 1: Docker Image Publishing (Automatic!)
 
-The Docker build workflow uses GitHub Container Registry (GHCR) to store your images.
+The Docker build workflow uses GitHub Container Registry (GHCR) to store your images. **No setup required!** GitHub automatically provides authentication tokens for GHCR.
 
-### Add Your GHCR Token:
+### How It Works:
 
-1. **Create a Personal Access Token (PAT):**
-   - Go to https://github.com/settings/tokens
-   - Click **"Generate new token"** → **"Generate new token (classic)"**
-   - Give it a name: `CPMP GHCR Token`
-   - Select scopes:
-     - ✅ `write:packages` (upload container images)
-     - ✅ `read:packages` (download container images)
-     - ✅ `delete:packages` (optional - delete old images)
-   - Click **"Generate token"**
-   - **Copy the token** - you won't see it again!
+GitHub Actions automatically uses the built-in `GITHUB_TOKEN` which has permission to:
+- ✅ Push images to `ghcr.io/wikid82/caddyproxymanagerplus`
+- ✅ Link images to your repository
+- ✅ Publish images for free (public repositories)
 
-2. **Add Secret to Repository:**
-   - Go to your repository → https://github.com/Wikid82/CaddyProxyManagerPlus
-   - Click **"Settings"** → **"Secrets and variables"** → **"Actions"**
-   - Click **"New repository secret"**
-   - Name: `CPMP_GHCR_TOKEN`
-   - Value: Paste the token you copied
-   - Click **"Add secret"**
-
-**Where images go:**
-- ✅ `ghcr.io/wikid82/caddyproxymanagerplus`
-- ✅ Images are linked to your repository
-- ✅ Free for public repositories
+**Nothing to configure!** Just push code and images will be built automatically.
 
 ### Make Your Images Public (Optional):
 
@@ -77,7 +60,7 @@ https://wikid82.github.io/CaddyProxyManagerPlus/
 
 **Triggers when:**
 - ✅ You push to `main` branch → Creates `latest` tag
-- ✅ You push to `development` branch → Creates `dev` tag  
+- ✅ You push to `development` branch → Creates `dev` tag
 - ✅ You create a version tag like `v1.0.0` → Creates version tags
 - ✅ You manually trigger it from GitHub UI
 
@@ -174,17 +157,12 @@ When you're ready to release a new version:
 ### Docker Build Fails
 
 **Problem**: "Error: denied: requested access to the resource is denied"
-- **Fix**: Make sure you created the `CPMP_GHCR_TOKEN` secret with the right permissions
-- **Check**: Token needs `write:packages` scope
-- **Verify**: Settings → Secrets and variables → Actions → Check `CPMP_GHCR_TOKEN` exists
-
-**Problem**: "Error: CPMP_GHCR_TOKEN not found"
-- **Fix**: You need to add the secret (see Step 1 above)
-- **Double-check**: The secret name is exactly `CPMP_GHCR_TOKEN` (case-sensitive!)
+- **Fix**: This shouldn't happen with `GITHUB_TOKEN` - check workflow permissions
+- **Verify**: Settings → Actions → General → Workflow permissions → "Read and write permissions" enabled
 
 **Problem**: Can't pull the image
 - **Fix**: Make the package public (see Step 1 above)
-- **Or**: Authenticate with GitHub: `echo $CPMP_GHCR_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
+- **Or**: Authenticate with GitHub: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
 
 ### Docs Don't Deploy
 
@@ -257,11 +235,9 @@ git push origin :refs/tags/v1.2.3
 
 Before pushing to production, make sure:
 
-- [ ] Created Personal Access Token with `write:packages` scope
-- [ ] Added `CPMP_GHCR_TOKEN` secret to repository
 - [ ] GitHub Pages is enabled with "GitHub Actions" source
-- [ ] You've tested the Docker build workflow
-- [ ] You've tested the docs deployment workflow  
+- [ ] You've tested the Docker build workflow (automatic on push)
+- [ ] You've tested the docs deployment workflow
 - [ ] Container package is set to "Public" visibility (optional, for easier pulls)
 - [ ] Documentation looks good on the published site
 - [ ] Docker image runs correctly

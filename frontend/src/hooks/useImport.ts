@@ -69,7 +69,7 @@ export function useImport() {
 
   const commit = async (resolutions: Record<string, string>) => {
     if (!session) throw new Error('No active session')
-    
+
     try {
       setLoading(true)
       setError(null)
@@ -87,7 +87,7 @@ export function useImport() {
 
   const cancel = async () => {
     if (!session) return
-    
+
     try {
       setLoading(true)
       setError(null)

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":separateMultipleMajorReleases",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "baseBranches": ["development"],
+  "timezone": "UTC",
+  "dependencyDashboard": true,
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 5,
+  "labels": ["dependencies"],
+  "rebaseWhen": "conflicted",
+  "vulnerabilityAlerts": { "enabled": true },
+  "schedule": ["every weekday"],
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Automerge safe patch updates",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "Frontend npm: automerge minor for devDependencies",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "labels": ["dependencies", "npm"]
+    },
+    {
+      "description": "Backend Go modules",
+      "matchManagers": ["gomod"],
+      "labels": ["dependencies", "go"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "labels": ["dependencies", "github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "Docker: keep Caddy within v2 (no automatic jump to v3)",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["caddy"],
+      "allowedVersions": "<3.0.0",
+      "labels": ["dependencies", "docker"],
+      "automerge": true
+    },
+    {
+      "description": "Group non-breaking npm minor/patch",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm minor/patch",
+      "prPriority": -1
+    },
+    {
+      "description": "Group docker base minor/patch",
+      "matchManagers": ["dockerfile"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "docker base updates",
+      "prPriority": -1
+    }
+  ]
+}

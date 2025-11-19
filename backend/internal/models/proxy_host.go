@@ -19,11 +19,3 @@ type ProxyHost struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
-
-// CaddyConfig stores the generated Caddy JSON configuration.
-type CaddyConfig struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	Config    string    `json:"config" gorm:"type:text"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
