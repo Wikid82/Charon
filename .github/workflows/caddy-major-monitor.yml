@@ -1,0 +1,62 @@
+name: Monitor Caddy Major Release
+
+on:
+  schedule:
+    - cron: '17 7 * * 1' # Mondays at 07:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-caddy-major:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for Caddy v3 and open issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstream = { owner: 'caddyserver', repo: 'caddy' };
+            const { data: releases } = await github.rest.repos.listReleases({
+              ...upstream,
+              per_page: 50,
+            });
+            const latestV3 = releases.find(r => /^v3\./.test(r.tag_name));
+            if (!latestV3) {
+              core.info('No Caddy v3 release detected.');
+              return;
+            }
+
+            const issueTitle = `Track upgrade to Caddy v3 (${latestV3.tag_name})`;
+
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            if (existing.some(i => i.title === issueTitle)) {
+              core.info('Issue already exists — nothing to do.');
+              return;
+            }
+
+            const body = [
+              'Caddy v3 has been released upstream and detected by the scheduled monitor.',
+              '',
+              `Detected release: ${latestV3.tag_name} (${latestV3.html_url})`,
+              '',
+              '- Create a feature branch to evaluate the v3 migration.',
+              '- Review breaking changes and update Docker base images/workflows.',
+              '- Validate Trivy scans and update any policies as needed.',
+              '',
+              'Current policy: remain on latest 2.x until v3 is validated.'
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body,
+            });

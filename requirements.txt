@@ -4,12 +4,12 @@
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 pydantic>=2.0
-sqlalchemy>=2.0
+sqlalchemy>=2.0.44
 alembic>=1.11
 python-dotenv>=1.0
-passlib[bcrypt]>=1.7
+passlib[bcrypt]>=1.7.4
 httpx>=0.24
 requests>=2.31
-python-multipart>=0.0.6
+python-multipart>=0.0.20
 
 # Add additional runtime libs below

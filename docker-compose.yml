@@ -2,9 +2,7 @@ version: '3.9'
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/wikid82/caddyproxymanagerplus:latest
     container_name: caddyproxymanagerplus
     restart: unless-stopped
     ports:

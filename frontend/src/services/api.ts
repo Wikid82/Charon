@@ -21,7 +21,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   }
 
   const response = await fetch(url, config)
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }))
     throw new Error(error.error || `HTTP ${response.status}`)

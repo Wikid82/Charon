@@ -23,7 +23,7 @@ jobs:
         run: |
           # Get previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
-          
+
           if [ -z "$PREV_TAG" ]; then
             echo "First release - generating full changelog"
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
@@ -31,7 +31,7 @@ jobs:
             echo "Generating changelog since $PREV_TAG"
             CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges)
           fi
-          
+
           # Save to file for GitHub release
           echo "$CHANGELOG" > CHANGELOG.txt
           echo "Generated changelog with $(echo "$CHANGELOG" | wc -l) commits"

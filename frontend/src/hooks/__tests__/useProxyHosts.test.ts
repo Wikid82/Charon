@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useProxyHosts } from '../useProxyHosts'
 import * as api from '../../services/api'
 
@@ -63,7 +63,7 @@ describe('useProxyHosts', () => {
     vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([])
     const newHost = { domain_names: 'new.com', forward_host: 'localhost', forward_port: 9000 }
     const createdHost = { uuid: '3', ...newHost, enabled: true }
-    
+
     vi.mocked(api.proxyHostsAPI.create).mockResolvedValue(createdHost)
 
     const { result } = renderHook(() => useProxyHosts())
@@ -72,16 +72,20 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.createHost(newHost)
+    await act(async () => {
+      await result.current.createHost(newHost)
+    })
 
     expect(api.proxyHostsAPI.create).toHaveBeenCalledWith(newHost)
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2) // Initial load + reload after create
+    await waitFor(() => {
+      expect(result.current.hosts).toContainEqual(createdHost)
+    })
   })
 
   it('updates an existing proxy host', async () => {
     const existingHost = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
     vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([existingHost])
-    
+
     const updatedHost = { ...existingHost, domain_names: 'updated.com' }
     vi.mocked(api.proxyHostsAPI.update).mockResolvedValue(updatedHost)
 
@@ -91,10 +95,14 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.updateHost('1', { domain_names: 'updated.com' })
+    await act(async () => {
+      await result.current.updateHost('1', { domain_names: 'updated.com' })
+    })
 
     expect(api.proxyHostsAPI.update).toHaveBeenCalledWith('1', { domain_names: 'updated.com' })
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.hosts[0].domain_names).toBe('updated.com')
+    })
   })
 
   it('deletes a proxy host', async () => {
@@ -111,10 +119,15 @@ describe('useProxyHosts', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await result.current.deleteHost('1')
+    await act(async () => {
+      await result.current.deleteHost('1')
+    })
 
     expect(api.proxyHostsAPI.delete).toHaveBeenCalledWith('1')
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current.hosts).toHaveLength(1)
+      expect(result.current.hosts[0].uuid).toBe('2')
+    })
   })
 
   it('handles create errors', async () => {
