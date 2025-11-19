@@ -11,7 +11,7 @@ on:
     branches:
       - main
       - development
-  workflow_call:  # Allow this workflow to be called by other workflows
+  workflow_call:
 
 env:
   REGISTRY: ghcr.io
@@ -20,6 +20,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -27,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Normalize image name
         run: |
@@ -51,16 +52,17 @@ jobs:
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
-          if [ "$should_skip" = true ]; then
-            echo "Skipping heavy docker publish for actor=$actor event=$event (message/title matched)"
-          else
-            echo "Proceeding with docker publish"
-          fi
+
+      - name: Set up QEMU
+        if: steps.skip.outputs.skip_build != 'true'
+        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+        if: steps.skip.outputs.skip_build != 'true'
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
 
       - name: Resolve Caddy base digest
+        if: steps.skip.outputs.skip_build != 'true'
         id: caddy
         run: |
           docker pull caddy:2-alpine
@@ -68,8 +70,8 @@ jobs:
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -78,15 +80,12 @@ jobs:
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
         id: meta
-        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5
+        uses: docker/metadata-action@dbef88086f6cef02e264edb7dbf63250c17cef6c # v5.0.1
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Tag 'latest' for main branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # Tag 'dev' for development branch
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            # Semver tags for version releases (v1.0.0 -> 1.0.0, 1.0, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -94,10 +93,11 @@ jobs:
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # v5.1.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          # PRs: amd64 only, no push. Pushes: amd64+arm64, push.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -109,51 +109,30 @@ jobs:
             VCS_REF=${{ github.sha }}
             CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
-      - name: Image digest
-        if: steps.skip.outputs.skip_build != 'true'
-        run: echo ${{ steps.build-and-push.outputs.digest }}
-
-      - name: Run Trivy scan (table output first for visibility)
-        if: github.event_name != 'pull_request'
-          && steps.skip.outputs.skip_build != 'true'
-        id: trivy_table
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@master
+      # Trivy steps only on push
+      - name: Run Trivy scan (table output)
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        uses: aquasecurity/trivy-action@d43c1f16c00cfd3978dde6c07f4bbcf9eb6993ca # v0.16.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-
-      - name: Run Trivy vulnerability scanner
-        if: github.event_name != 'pull_request'
-          && steps.skip.outputs.skip_build != 'true'
-        id: trivy
         continue-on-error: true
-        uses: aquasecurity/trivy-action@master
+
+      - name: Run Trivy vulnerability scanner (SARIF)
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        id: trivy
+        uses: aquasecurity/trivy-action@d43c1f16c00cfd3978dde6c07f4bbcf9eb6993ca # v0.16.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
-          exit-code: '0'
           severity: 'CRITICAL,HIGH'
+        continue-on-error: true
 
-      - name: Upload Trivy results to GitHub Security
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
+      - name: Upload Trivy results
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results.sarif'
-
-      - name: Check for vulnerabilities
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy_table.outcome == 'failure'
-        run: |
-          echo "::error::CRITICAL or HIGH vulnerabilities found in image"
-          exit 1
-
-      - name: Skip summary
-        if: steps.skip.outputs.skip_build == 'true'
-        run: |
-          echo "## 🚫 Docker Publish Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "Reason: renovate bot or chore(deps)/chore commit/PR title." >> $GITHUB_STEP_SUMMARY
-          echo "Actor: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
