@@ -21,74 +21,86 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Determine source and target branches
-        id: branches
-        run: |
-          echo "source=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
-          if [ "${GITHUB_REF#refs/heads/}" = "main" ]; then
-            echo "target=development" >> $GITHUB_OUTPUT
-          else
-            echo "target=main" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create or update Pull Request
+      - name: Propagate Changes
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const source = process.env.SOURCE_BRANCH || process.env.GITHUB_REF.replace('refs/heads/','');
-            const target = process.env.TARGET_BRANCH || (source === 'main' ? 'development' : 'main');
+            const currentBranch = context.ref.replace('refs/heads/', '');
 
-            const src = source;
-            const base = target;
+            async function createPR(src, base) {
+              if (src === base) return;
 
-            // Do not create PR if source and base are same
-            if (src === base) {
-              core.info(`Source and base are the same (${src}); skipping.`);
-              return;
+              core.info(`Checking propagation from ${src} to ${base}...`);
+
+              // Check for existing open PRs
+              const { data: pulls } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${context.repo.owner}:${src}`,
+                base: base,
+              });
+
+              if (pulls.length > 0) {
+                core.info(`Existing PR found for ${src} -> ${base}. Skipping.`);
+                return;
+              }
+
+              // Compare commits to see if src is ahead of base
+              try {
+                const compare = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: base,
+                  head: src,
+                });
+
+                // If src is not ahead, nothing to merge
+                if (compare.data.ahead_by === 0) {
+                  core.info(`${src} is not ahead of ${base}. No propagation needed.`);
+                  return;
+                }
+              } catch (error) {
+                // If base branch doesn't exist, etc.
+                core.warning(`Error comparing ${src} to ${base}: ${error.message}`);
+                return;
+              }
+
+              // Create PR
+              try {
+                const pr = await github.rest.pulls.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `Propagate changes from ${src} into ${base}`,
+                  head: src,
+                  base: base,
+                  body: `Automated PR to propagate changes from ${src} into ${base}.\n\nTriggered by push to ${currentBranch}.`,
+                });
+                core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}`);
+              } catch (error) {
+                core.warning(`Failed to create PR from ${src} to ${base}: ${error.message}`);
+              }
             }
 
-            // Check for existing open PRs from src->base
-            const { data: pulls } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              head: `${context.repo.owner}:${src}`,
-              base: base,
-            });
+            if (currentBranch === 'main') {
+              // Main -> Development
+              await createPR('main', 'development');
+            } else if (currentBranch === 'development') {
+              // Development -> Feature branches
+              const branches = await github.paginate(github.rest.repos.listBranches, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
 
-            if (pulls.length > 0) {
-              core.info(`Found existing PR(s) from ${src} to ${base}. Skipping creation.`);
-              return;
+              const featureBranches = branches
+                .map(b => b.name)
+                .filter(name => name.startsWith('feature/'));
+
+              core.info(`Found ${featureBranches.length} feature branches: ${featureBranches.join(', ')}`);
+
+              for (const featureBranch of featureBranches) {
+                await createPR('development', featureBranch);
+              }
             }
-
-            // Compare commits: only create PR if source is ahead of base
-            const compare = await github.rest.repos.compareCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              base: base,
-              head: src,
-            });
-
-            if (compare.data && compare.data.status === 'identical') {
-              core.info(`${src} and ${base} are identical. No PR needed.`);
-              return;
-            }
-
-            // Create PR
-            const title = `Propagate changes from ${src} into ${base}`;
-            const body = `Automated PR to propagate commits from ${src} into ${base}.\n\nTriggered by push by @${context.actor}.`;
-
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              head: src,
-              base,
-              body,
-            });
-
-            core.info(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_TOKEN }}
-          SOURCE_BRANCH: ${{ steps.branches.outputs.source }}
-          TARGET_BRANCH: ${{ steps.branches.outputs.target }}
