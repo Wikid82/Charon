@@ -1,28 +1,36 @@
+import { ReactNode } from 'react'
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import Layout from '../Layout'
+import { ThemeProvider } from '../../context/ThemeContext'
+
+const renderWithProviders = (children: ReactNode) => {
+  return render(
+    <BrowserRouter>
+      <ThemeProvider>
+        {children}
+      </ThemeProvider>
+    </BrowserRouter>
+  )
+}
 
 describe('Layout', () => {
   it('renders the application title', () => {
-    render(
-      <BrowserRouter>
-        <Layout>
-          <div>Test Content</div>
-        </Layout>
-      </BrowserRouter>
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
     )
 
-    expect(screen.getByText('Caddy Proxy Manager+')).toBeInTheDocument()
+    expect(screen.getAllByText('CPM+')[0]).toBeInTheDocument()
   })
 
   it('renders all navigation items', () => {
-    render(
-      <BrowserRouter>
-        <Layout>
-          <div>Test Content</div>
-        </Layout>
-      </BrowserRouter>
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
     )
 
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
@@ -33,24 +41,20 @@ describe('Layout', () => {
   })
 
   it('renders children content', () => {
-    render(
-      <BrowserRouter>
-        <Layout>
-          <div data-testid="test-content">Test Content</div>
-        </Layout>
-      </BrowserRouter>
+    renderWithProviders(
+      <Layout>
+        <div data-testid="test-content">Test Content</div>
+      </Layout>
     )
 
     expect(screen.getByTestId('test-content')).toBeInTheDocument()
   })
 
   it('displays version information', () => {
-    render(
-      <BrowserRouter>
-        <Layout>
-          <div>Test Content</div>
-        </Layout>
-      </BrowserRouter>
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
     )
 
     expect(screen.getByText('Version 0.1.0')).toBeInTheDocument()
