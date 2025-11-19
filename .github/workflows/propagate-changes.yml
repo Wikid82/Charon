@@ -89,6 +89,6 @@ jobs:
 
             core.info(`Created PR #${pr.data.number}: ${pr.data.html_url}`);
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           SOURCE_BRANCH: ${{ steps.branches.outputs.source }}
           TARGET_BRANCH: ${{ steps.branches.outputs.target }}

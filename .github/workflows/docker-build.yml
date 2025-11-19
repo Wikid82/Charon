@@ -83,7 +83,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.PROJECT_TOKEN }}
 
       # Step 5: Figure out what tags to use
       - name: 🏷️ Extract metadata (tags, labels)
