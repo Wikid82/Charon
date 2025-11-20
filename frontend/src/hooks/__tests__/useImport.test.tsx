@@ -110,11 +110,16 @@ describe('useImport', () => {
       updated_at: '2025-01-18T10:00:00Z',
     }
 
+    let isCommitted = false
     vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
-    // Keep session pending during initial checks so upload retains session state
-    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportStatus).mockImplementation(async () => {
+      if (isCommitted) return { has_pending: false }
+      return { has_pending: true, session: mockSession }
+    })
     vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    vi.mocked(api.commitImport).mockResolvedValue({})
+    vi.mocked(api.commitImport).mockImplementation(async () => {
+      isCommitted = true
+    })
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -146,11 +151,15 @@ describe('useImport', () => {
       updated_at: '2025-01-18T10:00:00Z',
     }
 
+    let isCancelled = false
     vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
-    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportStatus).mockImplementation(async () => {
+      if (isCancelled) return { has_pending: false }
+      return { has_pending: true, session: mockSession }
+    })
     vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
     vi.mocked(api.cancelImport).mockImplementation(async () => {
-      vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: false })
+      isCancelled = true
     })
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
