@@ -35,7 +35,7 @@ jobs:
       - name: 🔧 Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: '20.19.5'
+          node-version: '24.11.1'
 
       # Step 3: Create a beautiful docs site structure
       - name: 📝 Build documentation site
