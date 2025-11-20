@@ -69,6 +69,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// Logs
 		protected.GET("/logs", logsHandler.List)
 		protected.GET("/logs/:filename", logsHandler.Read)
+		protected.GET("/logs/:filename/download", logsHandler.Download)
 
 		// Settings
 		settingsHandler := handlers.NewSettingsHandler(db)

@@ -36,8 +36,11 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	err = os.MkdirAll(logsDir, 0755)
 	require.NoError(t, err)
 
-	// Create dummy log files
-	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte("line1\nline2\nline3"), 0644)
+	// Create dummy log files with JSON content
+	log1 := `{"level":"info","ts":1600000000,"msg":"request handled","request":{"method":"GET","host":"example.com","uri":"/","remote_ip":"1.2.3.4"},"status":200}`
+	log2 := `{"level":"error","ts":1600000060,"msg":"error handled","request":{"method":"POST","host":"api.example.com","uri":"/submit","remote_ip":"5.6.7.8"},"status":500}`
+
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0644)
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(logsDir, "cpmp.log"), []byte("app log line 1\napp log line 2"), 0644)
 	require.NoError(t, err)
@@ -55,6 +58,7 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	logs := api.Group("/logs")
 	logs.GET("", h.List)
 	logs.GET("/:filename", h.Read)
+	logs.GET("/:filename/download", h.Download)
 
 	return r, svc, tmpDir
 }
@@ -85,17 +89,24 @@ func TestLogsLifecycle(t *testing.T) {
 	require.True(t, found)
 
 	// 2. Read log
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?lines=2", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=2", nil)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var content struct {
-		Filename string   `json:"filename"`
-		Lines    []string `json:"lines"`
+		Filename string        `json:"filename"`
+		Logs     []interface{} `json:"logs"`
+		Total    int           `json:"total"`
 	}
 	err = json.Unmarshal(resp.Body.Bytes(), &content)
 	require.NoError(t, err)
-	require.Len(t, content.Lines, 2)
-	require.Equal(t, "line3", content.Lines[1]) // Last line
+	require.Len(t, content.Logs, 2)
+
+	// 3. Download log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), "request handled")
 }

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -27,13 +28,41 @@ func (h *LogsHandler) List(c *gin.Context) {
 
 func (h *LogsHandler) Read(c *gin.Context) {
 	filename := c.Param("filename")
-	linesStr := c.DefaultQuery("lines", "100")
-	lines, _ := strconv.Atoi(linesStr)
 
-	content, err := h.service.ReadLog(filename, lines)
+	// Parse query parameters
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	filter := models.LogFilter{
+		Search: c.Query("search"),
+		Host:   c.Query("host"),
+		Status: c.Query("status"),
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	logs, total, err := h.service.QueryLogs(filename, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read log"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"filename": filename, "lines": content})
+
+	c.JSON(http.StatusOK, gin.H{
+		"filename": filename,
+		"logs":     logs,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+	})
+}
+
+func (h *LogsHandler) Download(c *gin.Context) {
+	filename := c.Param("filename")
+	path, err := h.service.GetLogPath(filename)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
+		return
+	}
+
+	c.File(path)
 }

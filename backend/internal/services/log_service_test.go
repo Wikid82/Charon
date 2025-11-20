@@ -1,11 +1,13 @@
 package services
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,8 +22,35 @@ func TestLogService(t *testing.T) {
 	err = os.MkdirAll(logsDir, 0755)
 	require.NoError(t, err)
 
-	// Create logs
-	err = os.WriteFile(filepath.Join(logsDir, "test.log"), []byte("line1\nline2\nline3"), 0644)
+	// Create sample JSON logs
+	logEntry1 := models.CaddyAccessLog{
+		Level:  "info",
+		Ts:     1600000000,
+		Msg:    "request handled",
+		Status: 200,
+	}
+	logEntry1.Request.Method = "GET"
+	logEntry1.Request.Host = "example.com"
+	logEntry1.Request.URI = "/"
+	logEntry1.Request.RemoteIP = "1.2.3.4"
+
+	logEntry2 := models.CaddyAccessLog{
+		Level:  "error",
+		Ts:     1600000060,
+		Msg:    "error handled",
+		Status: 500,
+	}
+	logEntry2.Request.Method = "POST"
+	logEntry2.Request.Host = "api.example.com"
+	logEntry2.Request.URI = "/submit"
+	logEntry2.Request.RemoteIP = "5.6.7.8"
+
+	line1, _ := json.Marshal(logEntry1)
+	line2, _ := json.Marshal(logEntry2)
+
+	content := string(line1) + "\n" + string(line2) + "\n"
+
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(content), 0644)
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0644)
 	require.NoError(t, err)
@@ -33,16 +62,44 @@ func TestLogService(t *testing.T) {
 	logs, err := service.ListLogs()
 	require.NoError(t, err)
 	assert.Len(t, logs, 1)
-	assert.Equal(t, "test.log", logs[0].Name)
+	assert.Equal(t, "access.log", logs[0].Name)
 
-	// Test Read
-	lines, err := service.ReadLog("test.log", 2)
+	// Test QueryLogs - All
+	results, total, err := service.QueryLogs("access.log", models.LogFilter{Limit: 10})
 	require.NoError(t, err)
-	assert.Len(t, lines, 2)
-	assert.Equal(t, "line2", lines[0])
-	assert.Equal(t, "line3", lines[1])
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, results, 2)
+	// Should be reversed (newest first)
+	assert.Equal(t, 500, results[0].Status)
+	assert.Equal(t, 200, results[1].Status)
 
-	// Test Read non-existent
-	_, err = service.ReadLog("missing.log", 10)
+	// Test QueryLogs - Filter Status
+	results, total, err = service.QueryLogs("access.log", models.LogFilter{Status: "5xx", Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, results, 1)
+	assert.Equal(t, 500, results[0].Status)
+
+	// Test QueryLogs - Filter Host
+	results, total, err = service.QueryLogs("access.log", models.LogFilter{Host: "api.example.com", Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "api.example.com", results[0].Request.Host)
+
+	// Test QueryLogs - Search
+	results, total, err = service.QueryLogs("access.log", models.LogFilter{Search: "submit", Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "/submit", results[0].Request.URI)
+
+	// Test GetLogPath
+	path, err := service.GetLogPath("access.log")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(logsDir, "access.log"), path)
+
+	// Test GetLogPath non-existent
+	_, err = service.GetLogPath("missing.log")
 	assert.Error(t, err)
 }
