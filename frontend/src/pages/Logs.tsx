@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getLogs, getLogContent } from '../api/logs';
+import { getSettings, updateSetting } from '../api/settings';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Loader2, RefreshCw, FileText } from 'lucide-react';
+import { toast } from '../components/Toast';
+import { Loader2, RefreshCw, FileText, Save } from 'lucide-react';
 
 const Logs: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [lineCount, setLineCount] = useState(100);
+  const [logLevel, setLogLevel] = useState('INFO');
+  const queryClient = useQueryClient();
 
   const { data: logs, isLoading: isLoadingLogs, refetch: refetchLogs } = useQuery({
     queryKey: ['logs'],
@@ -20,14 +24,60 @@ const Logs: React.FC = () => {
     enabled: !!selectedLog,
   });
 
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+  });
+
+  // Update local state when settings load
+  React.useEffect(() => {
+    if (settings && settings['logging.level']) {
+      setLogLevel(settings['logging.level']);
+    }
+  }, [settings]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async () => {
+      await updateSetting('logging.level', logLevel, 'caddy', 'string');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast.success('Log level saved');
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to save log level: ${error.message}`);
+    },
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">System Logs</h1>
-        <Button onClick={() => { refetchLogs(); if (selectedLog) refetchContent(); }} variant="secondary" size="sm">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <select
+              value={logLevel}
+              onChange={(e) => setLogLevel(e.target.value)}
+              className="block w-32 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+            >
+              <option value="DEBUG">DEBUG</option>
+              <option value="INFO">INFO</option>
+              <option value="WARN">WARN</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+            <Button
+              onClick={() => saveSettingsMutation.mutate()}
+              isLoading={saveSettingsMutation.isPending}
+              size="sm"
+            >
+              <Save className="w-4 h-4" />
+            </Button>
+          </div>
+          <Button onClick={() => { refetchLogs(); if (selectedLog) refetchContent(); }} variant="secondary" size="sm">
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
