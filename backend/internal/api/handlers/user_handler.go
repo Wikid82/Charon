@@ -21,6 +21,8 @@ func NewUserHandler(db *gorm.DB) *UserHandler {
 func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/setup", h.GetSetupStatus)
 	r.POST("/setup", h.Setup)
+	r.GET("/profile", h.GetProfile)
+	r.POST("/regenerate-api-key", h.RegenerateAPIKey)
 }
 
 // GetSetupStatus checks if the application needs initial setup (i.e., no users exist).
@@ -109,5 +111,46 @@ func (h *UserHandler) Setup(c *gin.Context) {
 			"email": user.Email,
 			"name":  user.Name,
 		},
+	})
+}
+
+// RegenerateAPIKey generates a new API key for the authenticated user.
+func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	apiKey := uuid.New().String()
+
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Update("api_key", apiKey).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update API key"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"api_key": apiKey})
+}
+
+// GetProfile returns the current user's profile including API key.
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":      user.ID,
+		"email":   user.Email,
+		"name":    user.Name,
+		"role":    user.Role,
+		"api_key": user.APIKey,
 	})
 }

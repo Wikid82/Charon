@@ -12,7 +12,8 @@ type User struct {
 	ID                  uint       `json:"id" gorm:"primaryKey"`
 	UUID                string     `json:"uuid" gorm:"uniqueIndex"`
 	Email               string     `json:"email" gorm:"uniqueIndex"`
-	PasswordHash        string     `json:"-"` // Never serialize password hash
+	APIKey              string     `json:"api_key" gorm:"uniqueIndex"` // For external API access
+	PasswordHash        string     `json:"-"`                          // Never serialize password hash
 	Name                string     `json:"name"`
 	Role                string     `json:"role" gorm:"default:'user'"` // "admin", "user", "viewer"
 	Enabled             bool       `json:"enabled" gorm:"default:true"`
