@@ -132,6 +132,116 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	assert.NotEmpty(t, result["error"])
 }
 
+func TestRemoteServerHandler_Get(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB()
+
+	// Create test server
+	server := &models.RemoteServer{
+		UUID:     uuid.NewString(),
+		Name:     "Test Server",
+		Provider: "docker",
+		Host:     "localhost",
+		Port:     8080,
+		Enabled:  true,
+	}
+	db.Create(server)
+
+	handler := handlers.NewRemoteServerHandler(db)
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	// Test Get
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var fetched models.RemoteServer
+	err := json.Unmarshal(w.Body.Bytes(), &fetched)
+	assert.NoError(t, err)
+	assert.Equal(t, server.UUID, fetched.UUID)
+}
+
+func TestRemoteServerHandler_Update(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB()
+
+	// Create test server
+	server := &models.RemoteServer{
+		UUID:     uuid.NewString(),
+		Name:     "Test Server",
+		Provider: "docker",
+		Host:     "localhost",
+		Port:     8080,
+		Enabled:  true,
+	}
+	db.Create(server)
+
+	handler := handlers.NewRemoteServerHandler(db)
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	// Test Update
+	updateData := map[string]interface{}{
+		"name":     "Updated Server",
+		"provider": "generic",
+		"host":     "10.0.0.1",
+		"port":     9000,
+		"enabled":  false,
+	}
+	body, _ := json.Marshal(updateData)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/remote-servers/"+server.UUID, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updated models.RemoteServer
+	err := json.Unmarshal(w.Body.Bytes(), &updated)
+	assert.NoError(t, err)
+	assert.Equal(t, "Updated Server", updated.Name)
+	assert.Equal(t, "generic", updated.Provider)
+	assert.False(t, updated.Enabled)
+}
+
+func TestRemoteServerHandler_Delete(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB()
+
+	// Create test server
+	server := &models.RemoteServer{
+		UUID:     uuid.NewString(),
+		Name:     "Test Server",
+		Provider: "docker",
+		Host:     "localhost",
+		Port:     8080,
+		Enabled:  true,
+	}
+	db.Create(server)
+
+	handler := handlers.NewRemoteServerHandler(db)
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	// Test Delete
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/api/v1/remote-servers/"+server.UUID, nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	// Verify Delete
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, nil)
+	router.ServeHTTP(w2, req2)
+
+	assert.Equal(t, http.StatusNotFound, w2.Code)
+}
+
 func TestProxyHostHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB()
