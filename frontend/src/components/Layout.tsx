@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
+import { useAuth } from '../context/AuthContext'
 
 interface LayoutProps {
   children: ReactNode
@@ -10,6 +11,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { logout } = useAuth()
 
   const navigation = [
     { name: 'Dashboard', path: '/', icon: '📊' },
@@ -63,6 +65,17 @@ export default function Layout({ children }: LayoutProps) {
               </Link>
             )
           })}
+
+          <button
+            onClick={() => {
+              setSidebarOpen(false)
+              logout()
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400"
+          >
+            <span className="text-lg">🚪</span>
+            Logout
+          </button>
         </nav>
         <div className="p-4 border-t border-gray-200 dark:border-gray-800">
           <div className="text-xs text-gray-500 dark:text-gray-500">

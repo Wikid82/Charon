@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import client from '../api/client';
-import { AxiosResponse } from 'axios';
 
 interface User {
   user_id: number;
@@ -9,7 +8,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: () => void;
+  login: () => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -36,14 +35,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
 
-  const login = () => {
+  const login = async () => {
     // Token is stored in cookie by backend, but we might want to store it in memory or trigger a re-fetch
     // Actually, if backend sets cookie, we just need to fetch /auth/me
-    client.get('/auth/me').then((response: AxiosResponse<User>) => {
-        setUser(response.data);
-    }).catch(() => {
-        setUser(null);
-    });
+    try {
+      const response = await client.get<User>('/auth/me');
+      setUser(response.data);
+    } catch (error) {
+      setUser(null);
+      throw error;
+    }
   };
 
   const logout = async () => {
@@ -54,6 +55,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setUser(null);
   };
+
+  // Auto-logout logic
+  useEffect(() => {
+    if (!user) return;
+
+    const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        console.log('Auto-logging out due to inactivity');
+        logout();
+      }, TIMEOUT_MS);
+    };
+
+    // Initial timer start
+    resetTimer();
+
+    // Event listeners for activity
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    const handleActivity = () => resetTimer();
+
+    events.forEach(event => {
+      window.addEventListener(event, handleActivity);
+    });
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => {
+        window.removeEventListener(event, handleActivity);
+      });
+    };
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>

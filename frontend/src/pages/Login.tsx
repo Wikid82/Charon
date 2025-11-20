@@ -21,7 +21,7 @@ export default function Login() {
 
     try {
       await client.post('/auth/login', { email, password })
-      login()
+      await login()
       toast.success('Logged in successfully')
       navigate('/')
     } catch (err: any) {
