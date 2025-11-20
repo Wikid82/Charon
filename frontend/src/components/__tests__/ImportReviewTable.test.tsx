@@ -96,7 +96,7 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    fireEvent.click(screen.getByText('Cancel'))
+    fireEvent.click(screen.getByText('Back'))
     expect(mockOnCancel).toHaveBeenCalledOnce()
   })
 
