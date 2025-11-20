@@ -47,6 +47,7 @@ backend/cmd/api/data/*.db
 *~
 
 # Logs
+/home/jeremy/Server/Projects/cpmp/.trivy_logs
 *.log
 logs/
 
