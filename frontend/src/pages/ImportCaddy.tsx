@@ -134,7 +134,7 @@ api.example.com {
       {showReview && preview && preview.preview && (
         <ImportReviewTable
           hosts={preview.preview.hosts}
-          conflicts={preview.preview.conflicts}
+          conflicts={Object.keys(preview.preview.conflicts)}
           errors={preview.preview.errors}
           onCommit={handleCommit}
           onCancel={() => setShowReview(false)}
