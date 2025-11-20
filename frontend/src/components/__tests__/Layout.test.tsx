@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Layout from '../Layout'
 import { ThemeProvider } from '../../context/ThemeContext'
 
@@ -12,13 +13,31 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }))
 
+// Mock API
+vi.mock('../../api/health', () => ({
+  checkHealth: vi.fn().mockResolvedValue({
+    version: '0.1.0',
+    git_commit: 'abcdef1',
+  }),
+}))
+
 const renderWithProviders = (children: ReactNode) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+
   return render(
-    <BrowserRouter>
-      <ThemeProvider>
-        {children}
-      </ThemeProvider>
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }
 
@@ -58,13 +77,13 @@ describe('Layout', () => {
     expect(screen.getByTestId('test-content')).toBeInTheDocument()
   })
 
-  it('displays version information', () => {
+  it('displays version information', async () => {
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
       </Layout>
     )
 
-    expect(screen.getByText('Version 0.1.0')).toBeInTheDocument()
+    expect(await screen.findByText('Version 0.1.0')).toBeInTheDocument()
   })
 })
