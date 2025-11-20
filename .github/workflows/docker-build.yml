@@ -226,7 +226,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.PROJECT_TOKEN }}
+          password: ${{ secrets.PROJECT_TOKEN }} # yamllint disable-line rule:line-length
 
       # Step 2: Pull the image we just built
       - name: 📥 Pull Docker image
