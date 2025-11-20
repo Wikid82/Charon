@@ -10,6 +10,7 @@ import RemoteServers from './pages/RemoteServers'
 import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
 import Settings from './pages/Settings'
+import Logs from './pages/Logs'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="remote-servers" element={<RemoteServers />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="import" element={<ImportCaddy />} />
+            <Route path="logs" element={<Logs />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
