@@ -27,7 +27,8 @@ func main() {
 
 	router := server.NewRouter(cfg.FrontendDir)
 
-	if err := routes.Register(router, db); err != nil {
+	// Pass config to routes for auth service and certificate service
+	if err := routes.Register(router, db, cfg); err != nil {
 		log.Fatalf("register routes: %v", err)
 	}
 

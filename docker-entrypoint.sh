@@ -17,7 +17,7 @@ echo "Caddy started (PID: $CADDY_PID)"
 echo "Waiting for Caddy admin API..."
 i=1
 while [ "$i" -le 30 ]; do
-    if wget -q -O- http://localhost:2019/config/ > /dev/null 2>&1; then
+    if wget -q -O- http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
         echo "Caddy is ready!"
         break
     fi

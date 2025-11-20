@@ -15,6 +15,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Dashboard', path: '/', icon: '📊' },
     { name: 'Proxy Hosts', path: '/proxy-hosts', icon: '🌐' },
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
+    { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
     { name: 'Settings', path: '/settings', icon: '⚙️' },
   ]
