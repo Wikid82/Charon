@@ -6,8 +6,37 @@ export interface LogFile {
   mod_time: string;
 }
 
-export interface LogContent {
-  lines: string[];
+export interface CaddyAccessLog {
+  level: string;
+  ts: number;
+  logger: string;
+  msg: string;
+  request: {
+    remote_ip: string;
+    method: string;
+    host: string;
+    uri: string;
+    proto: string;
+  };
+  status: number;
+  duration: number;
+  size: number;
+}
+
+export interface LogResponse {
+  filename: string;
+  logs: CaddyAccessLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface LogFilter {
+  search?: string;
+  host?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export const getLogs = async (): Promise<LogFile[]> => {
@@ -15,7 +44,21 @@ export const getLogs = async (): Promise<LogFile[]> => {
   return response.data;
 };
 
-export const getLogContent = async (filename: string, lines: number = 100): Promise<LogContent> => {
-  const response = await client.get<LogContent>(`/logs/${filename}?lines=${lines}`);
+export const getLogContent = async (filename: string, filter: LogFilter = {}): Promise<LogResponse> => {
+  const params = new URLSearchParams();
+  if (filter.search) params.append('search', filter.search);
+  if (filter.host) params.append('host', filter.host);
+  if (filter.status) params.append('status', filter.status);
+  if (filter.limit) params.append('limit', filter.limit.toString());
+  if (filter.offset) params.append('offset', filter.offset.toString());
+
+  const response = await client.get<LogResponse>(`/logs/${filename}?${params.toString()}`);
   return response.data;
+};
+
+export const downloadLog = (filename: string) => {
+  // Direct window location change to trigger download
+  // We need to use the base URL from the client config if possible,
+  // but for now we assume relative path works with the proxy setup
+  window.location.href = `/api/v1/logs/${filename}/download`;
 };
