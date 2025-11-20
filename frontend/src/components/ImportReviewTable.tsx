@@ -7,17 +7,16 @@ interface HostPreview {
 
 interface Props {
   hosts: HostPreview[]
-  conflicts: Record<string, string>
+  conflicts: string[]
   errors: string[]
   onCommit: (resolutions: Record<string, string>) => Promise<void>
   onCancel: () => void
 }
 
 export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, onCancel }: Props) {
-  const conflictDomains = useMemo(() => Object.keys(conflicts || {}), [conflicts])
   const [resolutions, setResolutions] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    conflictDomains.forEach((d: string) => { init[d] = conflicts[d] || 'keep' })
+    conflicts.forEach((d: string) => { init[d] = 'keep' })
     return init
   })
   const [submitting, setSubmitting] = useState(false)
@@ -88,7 +87,7 @@ export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, 
           <tbody className="divide-y divide-gray-800">
             {hosts.map((h, idx) => {
               const domain = h.domain_names
-              const hasConflict = conflictDomains.includes(domain)
+              const hasConflict = conflicts.includes(domain)
               return (
                 <tr key={`${domain}-${idx}`} className="hover:bg-gray-900/50">
                   <td className="px-6 py-4 whitespace-nowrap">

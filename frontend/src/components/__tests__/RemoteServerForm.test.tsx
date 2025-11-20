@@ -92,7 +92,7 @@ describe('RemoteServerForm', () => {
 
     const nameInput = screen.getByPlaceholderText('My Production Server')
     const hostInput = screen.getByPlaceholderText('192.168.1.100')
-    const portInput = screen.getByDisplayValue('80')
+    const portInput = screen.getByDisplayValue('22')
 
     fireEvent.change(nameInput, { target: { value: 'New Server' } })
     fireEvent.change(hostInput, { target: { value: '10.0.0.5' } })

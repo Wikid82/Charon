@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
 import { useRemoteServers } from '../useRemoteServers'
 import * as api from '../../services/api'
 
@@ -14,6 +16,19 @@ vi.mock('../../services/api', () => ({
     test: vi.fn(),
   },
 }))
+
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  )
+}
 
 describe('useRemoteServers', () => {
   beforeEach(() => {
@@ -32,7 +47,7 @@ describe('useRemoteServers', () => {
 
     vi.mocked(api.remoteServersAPI.list).mockResolvedValue(mockServers)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     expect(result.current.loading).toBe(true)
     expect(result.current.servers).toEqual([])
@@ -55,7 +70,7 @@ describe('useRemoteServers', () => {
 
     vi.mocked(api.remoteServersAPI.list).mockResolvedValue(mockServers)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -72,7 +87,7 @@ describe('useRemoteServers', () => {
     const mockError = new Error('Network error')
     vi.mocked(api.remoteServersAPI.list).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -90,7 +105,7 @@ describe('useRemoteServers', () => {
 
     vi.mocked(api.remoteServersAPI.create).mockResolvedValue(createdServer)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -113,7 +128,7 @@ describe('useRemoteServers', () => {
     const updatedServer = { ...existingServer, name: 'Updated Server' }
     vi.mocked(api.remoteServersAPI.update).mockResolvedValue(updatedServer)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -137,7 +152,7 @@ describe('useRemoteServers', () => {
     vi.mocked(api.remoteServersAPI.list).mockResolvedValue(servers)
     vi.mocked(api.remoteServersAPI.delete).mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -159,7 +174,7 @@ describe('useRemoteServers', () => {
     const testResult = { reachable: true, address: 'localhost:8080' }
     vi.mocked(api.remoteServersAPI.test).mockResolvedValue(testResult)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -176,7 +191,7 @@ describe('useRemoteServers', () => {
     const mockError = new Error('Failed to create')
     vi.mocked(api.remoteServersAPI.create).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -191,7 +206,7 @@ describe('useRemoteServers', () => {
     const mockError = new Error('Failed to update')
     vi.mocked(api.remoteServersAPI.update).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -206,7 +221,7 @@ describe('useRemoteServers', () => {
     const mockError = new Error('Failed to delete')
     vi.mocked(api.remoteServersAPI.delete).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -220,7 +235,7 @@ describe('useRemoteServers', () => {
     const mockError = new Error('Connection failed')
     vi.mocked(api.remoteServersAPI.test).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useRemoteServers())
+    const { result } = renderHook(() => useRemoteServers(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
 import { useImport } from '../useImport'
 import * as api from '../../services/api'
 
@@ -14,6 +16,19 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  )
+}
+
 describe('useImport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -25,7 +40,7 @@ describe('useImport', () => {
   })
 
   it('starts with no active session', async () => {
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.session).toBeNull()
@@ -53,7 +68,7 @@ describe('useImport', () => {
     vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
     vi.mocked(api.importAPI.preview).mockResolvedValue(mockPreview)
 
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.upload('example.com { reverse_proxy localhost:8080 }')
@@ -71,7 +86,7 @@ describe('useImport', () => {
     const mockError = new Error('Upload failed')
     vi.mocked(api.importAPI.upload).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     let threw = false
     await act(async () => {
@@ -103,7 +118,7 @@ describe('useImport', () => {
     vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
     vi.mocked(api.importAPI.commit).mockResolvedValue({})
 
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.upload('test')
@@ -138,7 +153,7 @@ describe('useImport', () => {
     vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
     vi.mocked(api.importAPI.cancel).mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.upload('test')
@@ -174,7 +189,7 @@ describe('useImport', () => {
     const mockError = new Error('Commit failed')
     vi.mocked(api.importAPI.commit).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useImport())
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await act(async () => {
       await result.current.upload('test')

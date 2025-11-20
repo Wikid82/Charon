@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RemoteServer } from '../api/remoteServers'
+import { remoteServersAPI } from '../services/api'
 
 interface Props {
   server?: RemoteServer
@@ -44,6 +45,20 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     }
   }
 
+  const handleTestConnection = async () => {
+    if (!server?.uuid) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await remoteServersAPI.test(server.uuid)
+      alert(`Connection successful: ${result.address}`)
+    } catch (err) {
+      setError('Connection failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-dark-card rounded-lg border border-gray-800 max-w-lg w-full">
@@ -67,6 +82,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               required
               value={formData.name}
               onChange={e => setFormData({ ...formData, name: e.target.value })}
+              placeholder="My Production Server"
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -131,6 +147,16 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
           </label>
 
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+            {server && (
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={loading}
+                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 mr-auto"
+              >
+                Test Connection
+              </button>
+            )}
             <button
               type="button"
               onClick={onCancel}
