@@ -4,6 +4,7 @@ import {
   createRemoteServer,
   updateRemoteServer,
   deleteRemoteServer,
+  testRemoteServerConnection,
   RemoteServer
 } from '../api/remoteServers';
 
@@ -39,6 +40,10 @@ export function useRemoteServers(enabledOnly = false) {
     },
   });
 
+  const testConnectionMutation = useMutation({
+    mutationFn: testRemoteServerConnection,
+  });
+
   return {
     servers: query.data || [],
     loading: query.isLoading,
@@ -46,9 +51,11 @@ export function useRemoteServers(enabledOnly = false) {
     createServer: createMutation.mutateAsync,
     updateServer: (uuid: string, data: Partial<RemoteServer>) => updateMutation.mutateAsync({ uuid, data }),
     deleteServer: deleteMutation.mutateAsync,
+    testConnection: testConnectionMutation.mutateAsync,
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isTestingConnection: testConnectionMutation.isPending,
   };
 }
 

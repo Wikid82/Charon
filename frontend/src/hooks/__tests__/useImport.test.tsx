@@ -3,17 +3,15 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { useImport } from '../useImport'
-import * as api from '../../services/api'
+import * as api from '../../api/import'
 
 // Mock the API
-vi.mock('../../services/api', () => ({
-  importAPI: {
-    status: vi.fn(),
-    preview: vi.fn(),
-    upload: vi.fn(),
-    commit: vi.fn(),
-    cancel: vi.fn(),
-  },
+vi.mock('../../api/import', () => ({
+  uploadCaddyfile: vi.fn(),
+  getImportPreview: vi.fn(),
+  commitImport: vi.fn(),
+  cancelImport: vi.fn(),
+  getImportStatus: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -32,7 +30,7 @@ const createWrapper = () => {
 describe('useImport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: false })
+    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: false })
   })
 
   afterEach(() => {
@@ -64,9 +62,9 @@ describe('useImport', () => {
       errors: [],
     }
 
-    vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
-    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.importAPI.preview).mockResolvedValue(mockPreview)
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockPreview)
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -78,13 +76,13 @@ describe('useImport', () => {
       expect(result.current.session).toEqual(mockSession)
     })
 
-    expect(api.importAPI.upload).toHaveBeenCalledWith('example.com { reverse_proxy localhost:8080 }', undefined)
+    expect(api.uploadCaddyfile).toHaveBeenCalledWith('example.com { reverse_proxy localhost:8080 }', undefined)
     expect(result.current.loading).toBe(false)
   })
 
   it('handles upload errors', async () => {
     const mockError = new Error('Upload failed')
-    vi.mocked(api.importAPI.upload).mockRejectedValue(mockError)
+    vi.mocked(api.uploadCaddyfile).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -112,11 +110,11 @@ describe('useImport', () => {
       updated_at: '2025-01-18T10:00:00Z',
     }
 
-    vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
     // Keep session pending during initial checks so upload retains session state
-    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    vi.mocked(api.importAPI.commit).mockResolvedValue({})
+    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.commitImport).mockResolvedValue({})
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -132,7 +130,7 @@ describe('useImport', () => {
       await result.current.commit({ 'test.com': 'skip' })
     })
 
-    expect(api.importAPI.commit).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
+    expect(api.commitImport).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
 
     await waitFor(() => {
       expect(result.current.session).toBeNull()
@@ -148,10 +146,10 @@ describe('useImport', () => {
       updated_at: '2025-01-18T10:00:00Z',
     }
 
-    vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
-    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    vi.mocked(api.importAPI.cancel).mockResolvedValue(undefined)
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.cancelImport).mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -167,7 +165,7 @@ describe('useImport', () => {
       await result.current.cancel()
     })
 
-    expect(api.importAPI.cancel).toHaveBeenCalledWith('session-3')
+    expect(api.cancelImport).toHaveBeenCalledWith('session-3')
     await waitFor(() => {
       expect(result.current.session).toBeNull()
     })
@@ -182,12 +180,12 @@ describe('useImport', () => {
       updated_at: '2025-01-18T10:00:00Z',
     }
 
-    vi.mocked(api.importAPI.upload).mockResolvedValue({ session: mockSession })
-    vi.mocked(api.importAPI.status).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.importAPI.preview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
+    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
 
     const mockError = new Error('Commit failed')
-    vi.mocked(api.importAPI.commit).mockRejectedValue(mockError)
+    vi.mocked(api.commitImport).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 

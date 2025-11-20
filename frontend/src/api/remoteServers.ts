@@ -38,3 +38,8 @@ export const updateRemoteServer = async (uuid: string, server: Partial<RemoteSer
 export const deleteRemoteServer = async (uuid: string): Promise<void> => {
   await client.delete(`/remote-servers/${uuid}`);
 };
+
+export const testRemoteServerConnection = async (uuid: string): Promise<{ address: string }> => {
+  const { data } = await client.post<{ address: string }>(`/remote-servers/${uuid}/test`);
+  return data;
+};

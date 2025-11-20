@@ -41,7 +41,7 @@ describe('useProxyHosts', () => {
       { uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 },
     ]
 
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue(mockHosts)
+    vi.mocked(api.getProxyHosts).mockResolvedValue(mockHosts)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -54,12 +54,12 @@ describe('useProxyHosts', () => {
 
     expect(result.current.hosts).toEqual(mockHosts)
     expect(result.current.error).toBeNull()
-    expect(api.proxyHostsAPI.list).toHaveBeenCalledOnce()
+    expect(api.getProxyHosts).toHaveBeenCalledOnce()
   })
 
   it('handles loading errors', async () => {
     const mockError = new Error('Failed to fetch')
-    vi.mocked(api.proxyHostsAPI.list).mockRejectedValue(mockError)
+    vi.mocked(api.getProxyHosts).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -72,11 +72,11 @@ describe('useProxyHosts', () => {
   })
 
   it('creates a new proxy host', async () => {
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([])
+    vi.mocked(api.getProxyHosts).mockResolvedValue([])
     const newHost = { domain_names: 'new.com', forward_host: 'localhost', forward_port: 9000 }
     const createdHost = { uuid: '3', ...newHost, enabled: true }
 
-    vi.mocked(api.proxyHostsAPI.create).mockResolvedValue(createdHost)
+    vi.mocked(api.createProxyHost).mockResolvedValue(createdHost)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -88,7 +88,7 @@ describe('useProxyHosts', () => {
       await result.current.createHost(newHost)
     })
 
-    expect(api.proxyHostsAPI.create).toHaveBeenCalledWith(newHost)
+    expect(api.createProxyHost).toHaveBeenCalledWith(newHost)
     await waitFor(() => {
       expect(result.current.hosts).toContainEqual(createdHost)
     })
@@ -96,10 +96,10 @@ describe('useProxyHosts', () => {
 
   it('updates an existing proxy host', async () => {
     const existingHost = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([existingHost])
+    vi.mocked(api.getProxyHosts).mockResolvedValue([existingHost])
 
     const updatedHost = { ...existingHost, domain_names: 'updated.com' }
-    vi.mocked(api.proxyHostsAPI.update).mockResolvedValue(updatedHost)
+    vi.mocked(api.updateProxyHost).mockResolvedValue(updatedHost)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -111,7 +111,7 @@ describe('useProxyHosts', () => {
       await result.current.updateHost('1', { domain_names: 'updated.com' })
     })
 
-    expect(api.proxyHostsAPI.update).toHaveBeenCalledWith('1', { domain_names: 'updated.com' })
+    expect(api.updateProxyHost).toHaveBeenCalledWith('1', { domain_names: 'updated.com' })
     await waitFor(() => {
       expect(result.current.hosts[0].domain_names).toBe('updated.com')
     })
@@ -122,8 +122,8 @@ describe('useProxyHosts', () => {
       { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 },
       { uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 },
     ]
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue(hosts)
-    vi.mocked(api.proxyHostsAPI.delete).mockResolvedValue(undefined)
+    vi.mocked(api.getProxyHosts).mockResolvedValue(hosts)
+    vi.mocked(api.deleteProxyHost).mockResolvedValue(undefined)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -135,7 +135,7 @@ describe('useProxyHosts', () => {
       await result.current.deleteHost('1')
     })
 
-    expect(api.proxyHostsAPI.delete).toHaveBeenCalledWith('1')
+    expect(api.deleteProxyHost).toHaveBeenCalledWith('1')
     await waitFor(() => {
       expect(result.current.hosts).toHaveLength(1)
       expect(result.current.hosts[0].uuid).toBe('2')
@@ -143,9 +143,9 @@ describe('useProxyHosts', () => {
   })
 
   it('handles create errors', async () => {
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([])
+    vi.mocked(api.getProxyHosts).mockResolvedValue([])
     const mockError = new Error('Failed to create')
-    vi.mocked(api.proxyHostsAPI.create).mockRejectedValue(mockError)
+    vi.mocked(api.createProxyHost).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -158,9 +158,9 @@ describe('useProxyHosts', () => {
 
   it('handles update errors', async () => {
     const host = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([host])
+    vi.mocked(api.getProxyHosts).mockResolvedValue([host])
     const mockError = new Error('Failed to update')
-    vi.mocked(api.proxyHostsAPI.update).mockRejectedValue(mockError)
+    vi.mocked(api.updateProxyHost).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
@@ -173,9 +173,9 @@ describe('useProxyHosts', () => {
 
   it('handles delete errors', async () => {
     const host = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
-    vi.mocked(api.proxyHostsAPI.list).mockResolvedValue([host])
+    vi.mocked(api.getProxyHosts).mockResolvedValue([host])
     const mockError = new Error('Failed to delete')
-    vi.mocked(api.proxyHostsAPI.delete).mockRejectedValue(mockError)
+    vi.mocked(api.deleteProxyHost).mockRejectedValue(mockError)
 
     const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
