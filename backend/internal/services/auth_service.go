@@ -104,6 +104,23 @@ func (s *AuthService) GenerateToken(user *models.User) (string, error) {
 	return token.SignedString([]byte(s.config.JWTSecret))
 }
 
+func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword string) error {
+	var user models.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return errors.New("user not found")
+	}
+
+	if !user.CheckPassword(oldPassword) {
+		return errors.New("invalid current password")
+	}
+
+	if err := user.SetPassword(newPassword); err != nil {
+		return err
+	}
+
+	return s.db.Save(&user).Error
+}
+
 func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
