@@ -39,6 +39,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	authHandler := handlers.NewAuthHandler(authService)
 	authMiddleware := middleware.AuthMiddleware(authService)
 
+	// Backup routes
+	backupService := services.NewBackupService(&cfg)
+	backupHandler := handlers.NewBackupHandler(backupService)
+
+	// Log routes
+	logService := services.NewLogService(&cfg)
+	logsHandler := handlers.NewLogsHandler(logService)
+
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 
@@ -48,6 +56,18 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
+
+		// Backups
+		protected.GET("/backups", backupHandler.List)
+		protected.POST("/backups", backupHandler.Create)
+		protected.DELETE("/backups/:filename", backupHandler.Delete)
+		protected.GET("/backups/:filename/download", backupHandler.Download)
+		protected.POST("/backups/:filename/restore", backupHandler.Restore)
+
+		// Logs
+		protected.GET("/logs", logsHandler.List)
+		protected.GET("/logs/:filename", logsHandler.Read)
+
 	}
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db)
