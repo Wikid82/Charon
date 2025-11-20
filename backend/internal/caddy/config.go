@@ -9,15 +9,42 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost) (*Config, error) {
-	if len(hosts) == 0 {
-		return &Config{
-			Apps: Apps{
-				HTTP: &HTTPApp{
-					Servers: map[string]*Server{},
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string) (*Config, error) {
+	config := &Config{
+		Apps: Apps{
+			HTTP: &HTTPApp{
+				Servers: map[string]*Server{},
+			},
+		},
+		Storage: Storage{
+			System: "file_system",
+			Root:   storageDir,
+		},
+	}
+
+	if acmeEmail != "" {
+		config.Apps.TLS = &TLSApp{
+			Automation: &AutomationConfig{
+				Policies: []*AutomationPolicy{
+					{
+						IssuersRaw: []interface{}{
+							map[string]interface{}{
+								"module": "acme",
+								"email":  acmeEmail,
+							},
+							map[string]interface{}{
+								"module": "zerossl",
+								"email":  acmeEmail,
+							},
+						},
+					},
 				},
 			},
-		}, nil
+		}
+	}
+
+	if len(hosts) == 0 {
+		return config, nil
 	}
 
 	routes := make([]*Route, 0)
@@ -89,19 +116,12 @@ func GenerateConfig(hosts []models.ProxyHost) (*Config, error) {
 		routes = append(routes, route)
 	}
 
-	config := &Config{
-		Apps: Apps{
-			HTTP: &HTTPApp{
-				Servers: map[string]*Server{
-					"cpm_server": {
-						Listen: []string{":80", ":443"},
-						Routes: routes,
-						AutoHTTPS: &AutoHTTPSConfig{
-							Disable: false,
-						},
-					},
-				},
-			},
+	config.Apps.HTTP.Servers["cpm_server"] = &Server{
+		Listen: []string{":80", ":443"},
+		Routes: routes,
+		AutoHTTPS: &AutoHTTPSConfig{
+			Disable:      false,
+			DisableRedir: false,
 		},
 	}
 

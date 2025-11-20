@@ -17,6 +17,7 @@ type Config struct {
 	CaddyBinary     string
 	ImportCaddyfile string
 	ImportDir       string
+	JWTSecret       string
 }
 
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.
@@ -31,6 +32,7 @@ func Load() (Config, error) {
 		CaddyBinary:     getEnv("CPM_CADDY_BINARY", "caddy"),
 		ImportCaddyfile: getEnv("CPM_IMPORT_CADDYFILE", "/import/Caddyfile"),
 		ImportDir:       getEnv("CPM_IMPORT_DIR", filepath.Join("data", "imports")),
+		JWTSecret:       getEnv("CPM_JWT_SECRET", "change-me-in-production"),
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {

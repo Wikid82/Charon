@@ -3,7 +3,14 @@ package caddy
 // Config represents Caddy's top-level JSON configuration structure.
 // Reference: https://caddyserver.com/docs/json/
 type Config struct {
-	Apps Apps `json:"apps"`
+	Apps    Apps    `json:"apps"`
+	Storage Storage `json:"storage,omitempty"`
+}
+
+// Storage configures the storage module.
+type Storage struct {
+	System string `json:"module"`
+	Root   string `json:"root,omitempty"`
 }
 
 // Apps contains all Caddy app modules.

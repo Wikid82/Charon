@@ -4,27 +4,30 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { toast } from '../components/Toast'
+import client from '../api/client'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
-    // Mock login delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    if (email === 'admin@example.com' && password === 'changeme') {
+    try {
+      await client.post('/auth/login', { email, password })
+      login()
       toast.success('Logged in successfully')
       navigate('/')
-    } else {
-      toast.error('Invalid credentials')
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Login failed')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
