@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import React from 'react'
 import { useProxyHosts } from '../useProxyHosts'
 import * as api from '../../services/api'
 
@@ -13,6 +15,19 @@ vi.mock('../../services/api', () => ({
     delete: vi.fn(),
   },
 }))
+
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  })
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  )
+}
 
 describe('useProxyHosts', () => {
   beforeEach(() => {
@@ -31,7 +46,7 @@ describe('useProxyHosts', () => {
 
     vi.mocked(api.proxyHostsAPI.list).mockResolvedValue(mockHosts)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     expect(result.current.loading).toBe(true)
     expect(result.current.hosts).toEqual([])
@@ -49,7 +64,7 @@ describe('useProxyHosts', () => {
     const mockError = new Error('Failed to fetch')
     vi.mocked(api.proxyHostsAPI.list).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -66,7 +81,7 @@ describe('useProxyHosts', () => {
 
     vi.mocked(api.proxyHostsAPI.create).mockResolvedValue(createdHost)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -89,7 +104,7 @@ describe('useProxyHosts', () => {
     const updatedHost = { ...existingHost, domain_names: 'updated.com' }
     vi.mocked(api.proxyHostsAPI.update).mockResolvedValue(updatedHost)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -113,7 +128,7 @@ describe('useProxyHosts', () => {
     vi.mocked(api.proxyHostsAPI.list).mockResolvedValue(hosts)
     vi.mocked(api.proxyHostsAPI.delete).mockResolvedValue(undefined)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -135,7 +150,7 @@ describe('useProxyHosts', () => {
     const mockError = new Error('Failed to create')
     vi.mocked(api.proxyHostsAPI.create).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -150,7 +165,7 @@ describe('useProxyHosts', () => {
     const mockError = new Error('Failed to update')
     vi.mocked(api.proxyHostsAPI.update).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
@@ -165,7 +180,7 @@ describe('useProxyHosts', () => {
     const mockError = new Error('Failed to delete')
     vi.mocked(api.proxyHostsAPI.delete).mockRejectedValue(mockError)
 
-    const { result } = renderHook(() => useProxyHosts())
+    const { result } = renderHook(() => useProxyHosts(), { wrapper: createWrapper() })
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)

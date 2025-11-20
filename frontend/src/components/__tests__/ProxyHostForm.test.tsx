@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
 import { mockRemoteServers } from '../../test/mockData'
 
@@ -10,6 +11,22 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+})
+
+const renderWithClient = (ui: React.ReactElement) => {
+  return renderWithClient(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>
+  )
+}
+
 describe('ProxyHostForm', () => {
   const mockOnSubmit = vi.fn(() => Promise.resolve())
   const mockOnCancel = vi.fn()
@@ -19,7 +36,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('renders create form with empty fields', async () => {
-    render(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -47,7 +64,7 @@ describe('ProxyHostForm', () => {
       updated_at: '2025-11-18T10:00:00Z',
     }
 
-    render(
+    renderWithClient(
       <ProxyHostForm host={mockHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -59,7 +76,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('loads remote servers for quick select', async () => {
-    render(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -69,7 +86,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('calls onCancel when cancel button is clicked', async () => {
-    render(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -81,7 +98,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('submits form with correct data', async () => {
-    render(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -107,7 +124,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('handles SSL and WebSocket checkboxes', async () => {
-    render(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
