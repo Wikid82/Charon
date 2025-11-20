@@ -32,18 +32,19 @@ jobs:
 
       - name: Determine skip condition
         id: skip
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           should_skip=false
-          actor='${{ github.actor }}'
-          event='${{ github.event_name }}'
-          head_msg='${{ github.event.head_commit.message }}'
           pr_title=""
-          if [ "$event" = "pull_request" ]; then
+          if [ "$EVENT" = "pull_request" ]; then
             pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH" 2>/dev/null || echo '')
           fi
-          if [ "$actor" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
