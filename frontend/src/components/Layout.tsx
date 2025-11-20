@@ -46,40 +46,41 @@ export default function Layout({ children }: LayoutProps) {
           <ThemeToggle />
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-16 lg:mt-0">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.path
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
-                }`}
-              >
-                <span className="text-lg">{item.icon}</span>
-                {item.name}
-              </Link>
-            )
-          })}
-
-          <button
-            onClick={() => {
-              setSidebarOpen(false)
-              logout()
-            }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400"
-          >
-            <span className="text-lg">🚪</span>
-            Logout
-          </button>
-        </nav>
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800">
-          <div className="text-xs text-gray-500 dark:text-gray-500">
-            Version 0.1.0
+        <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
+          <nav className="flex-1 space-y-1">
+            {navigation.map((item) => {
+              const isActive = location.pathname === item.path
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  {item.name}
+                </Link>
+              )
+            })}
+          </nav>
+          <div className="mt-6 border-t border-gray-200 dark:border-gray-800 pt-4">
+            <div className="text-xs text-gray-500 dark:text-gray-500">
+              Version 0.1.0
+            </div>
+            <button
+              onClick={() => {
+                setSidebarOpen(false)
+                logout()
+              }}
+              className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-red-600 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900"
+            >
+              <span className="text-lg">🚪</span>
+              Logout
+            </button>
           </div>
         </div>
       </aside>
