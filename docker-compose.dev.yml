@@ -1,0 +1,21 @@
+version: '3.9'
+
+# Development override - use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  app:
+    image: ghcr.io/wikid82/caddyproxymanagerplus:dev
+    # Development: expose Caddy admin API externally for debugging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+      - "2019:2019"  # Caddy admin API (dev only)
+    environment:
+      - CPM_ENV=development
+      - CPM_HTTP_PORT=8080
+      - CPM_DB_PATH=/app/data/cpm.db
+      - CPM_FRONTEND_DIR=/app/frontend/dist
+      - CPM_CADDY_ADMIN_API=http://localhost:2019
+      - CPM_CADDY_CONFIG_DIR=/app/data/caddy

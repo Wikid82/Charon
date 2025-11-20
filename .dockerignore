@@ -1,0 +1,76 @@
+# Version control
+.git
+.gitignore
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+*.cover
+.hypothesis/
+htmlcov/
+*.egg-info/
+
+# Node/Frontend build artifacts
+frontend/node_modules/
+frontend/coverage/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+
+# Go/Backend
+backend/api
+backend/*.out
+backend/coverage/
+backend/coverage.*.out
+
+# Databases (runtime)
+backend/data/*.db
+backend/cmd/api/data/*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Docker
+docker-compose*.yml
+**/Dockerfile.*
+
+# CI/CD
+.github/
+.pre-commit-config.yaml
+
+# Scripts
+scripts/
+tools/
