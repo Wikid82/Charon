@@ -39,8 +39,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 
+	// Fetch ACME email setting
+	var acmeEmailSetting models.Setting
+	var acmeEmail string
+	if err := m.db.Where("key = ?", "caddy.acme_email").First(&acmeEmailSetting).Error; err == nil {
+		acmeEmail = acmeEmailSetting.Value
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
