@@ -220,6 +220,14 @@ jobs:
             echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
+      # Step 1.5: Log in to GitHub Container Registry (Required for private/internal images)
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PROJECT_TOKEN }}
+
       # Step 2: Pull the image we just built
       - name: 📥 Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
