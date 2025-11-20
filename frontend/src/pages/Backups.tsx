@@ -8,6 +8,12 @@ import { getBackups, createBackup, restoreBackup, deleteBackup } from '../api/ba
 import { getSettings, updateSetting } from '../api/settings'
 import { Loader2, Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
 
+const formatSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
 export default function Backups() {
   const queryClient = useQueryClient()
   const [interval, setInterval] = useState('7')
@@ -165,10 +171,10 @@ export default function Backups() {
                       {backup.filename}
                     </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
-                      {(backup.size / 1024 / 1024).toFixed(2)} MB
+                      {formatSize(backup.size)}
                     </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-gray-400">
-                      {new Date(backup.created_at).toLocaleString()}
+                      {new Date(backup.time).toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-right space-x-2">
                       <Button

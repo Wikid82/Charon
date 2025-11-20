@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Shield, Archive, FileText, ChevronDown, ChevronRight } from 'lucide-react'
+import { Shield, Archive, FileText, ChevronDown, ChevronRight, Server } from 'lucide-react'
 import { useState } from 'react'
 
 export default function SettingsLayout() {
@@ -17,6 +17,17 @@ export default function SettingsLayout() {
             Settings
           </h2>
           <nav className="space-y-1">
+            <Link
+              to="/settings/system"
+              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                isActive('/settings/system')
+                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              <Server className="w-4 h-4" />
+              System
+            </Link>
             <Link
               to="/settings/security"
               className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${

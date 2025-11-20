@@ -10,6 +10,7 @@ import RemoteServers from './pages/RemoteServers'
 import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
 import SettingsLayout from './pages/SettingsLayout'
+import SystemSettings from './pages/SystemSettings'
 import Security from './pages/Security'
 import Backups from './pages/Backups'
 import Logs from './pages/Logs'
@@ -40,7 +41,8 @@ export default function App() {
 
             {/* Settings Routes */}
             <Route path="settings" element={<SettingsLayout />}>
-              <Route index element={<Security />} /> {/* Default to Security */}
+              <Route index element={<SystemSettings />} /> {/* Default to System */}
+              <Route path="system" element={<SystemSettings />} />
               <Route path="security" element={<Security />} />
               <Route path="tasks">
                 <Route path="backups" element={<Backups />} />
