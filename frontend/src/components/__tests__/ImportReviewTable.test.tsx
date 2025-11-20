@@ -55,7 +55,7 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    expect(screen.getByText('Errors')).toBeInTheDocument()
+    expect(screen.getByText('Issues found during parsing')).toBeInTheDocument()
     expect(screen.getByText('Invalid Caddyfile syntax')).toBeInTheDocument()
     expect(screen.getByText('Missing required field')).toBeInTheDocument()
   })
