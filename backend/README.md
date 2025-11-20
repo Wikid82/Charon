@@ -3,7 +3,7 @@
 This folder contains the Go API for CaddyProxyManager+.
 
 ## Prerequisites
-- Go 1.22+
+- Go 1.24+
 
 ## Getting started
 ```bash
