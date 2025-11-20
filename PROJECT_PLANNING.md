@@ -188,24 +188,21 @@ Implement secure user management for the admin panel.
 ---
 
 #### Issue #8: Basic Access Logging
-**Priority**: `high`
-**Labels**: `alpha`, `monitoring`, `high`
+**Priority**: `medium`
+**Labels**: `alpha`, `backend`, `medium`
 **Description**:
 Implement basic access logging for troubleshooting.
 
 **Tasks**:
-- [ ] Configure Caddy access logging format
-- [ ] Create log storage/rotation strategy
-- [ ] Implement log viewer in UI (paginated)
-- [ ] Add log filtering (by host, status code, date)
-- [ ] Implement log search functionality
-- [ ] Add log download capability
+- [x] Configure Caddy access logging format
+- [x] Create log viewer in UI
+- [x] Implement log rotation policy
+- [x] Add API endpoint to retrieve logs
 
 **Acceptance Criteria**:
-- All proxy requests logged
-- Logs viewable in UI
-- Logs searchable and filterable
-- Logs rotate to prevent disk fill
+- Access logs visible in UI
+- Logs rotate automatically
+- API returns log content securely
 
 ---
 
@@ -216,13 +213,13 @@ Implement basic access logging for troubleshooting.
 Create settings interface for global configurations.
 
 **Tasks**:
-- [ ] Create settings page layout
-- [ ] Implement default certificate email configuration
-- [ ] Add Caddy admin API endpoint configuration
-- [ ] Implement backup/restore settings
-- [ ] Add system status display (Caddy version, uptime)
-- [ ] Create health check endpoint
-- [ ] Implement update check mechanism
+- [x] Create settings page layout
+- [x] Implement default certificate email configuration
+- [x] Add Caddy admin API endpoint configuration
+- [x] Implement backup/restore settings
+- [x] Add system status display (Caddy version, uptime)
+- [x] Create health check endpoint
+- [x] Implement update check mechanism
 
 **Acceptance Criteria**:
 - All global settings configurable
@@ -232,25 +229,26 @@ Create settings interface for global configurations.
 ---
 
 #### Issue #10: Docker & Deployment Configuration
-**Priority**: `high`
-**Labels**: `alpha`, `deployment`, `high`
+**Priority**: `critical`
+**Labels**: `alpha`, `devops`, `critical`
 **Description**:
-Create easy deployment via Docker.
+Finalize Docker configuration for production deployment.
 
 **Tasks**:
-- [ ] Create optimized Dockerfile (multi-stage build)
-- [ ] Write docker-compose.yml with volume mounts
-- [ ] Configure proper networking for Caddy
-- [ ] Implement environment variable configuration
-- [ ] Create entrypoint script for initialization
-- [ ] Add healthcheck to Docker container
-- [ ] Write deployment documentation
+- [x] Optimize Dockerfile (multi-stage build)
+- [x] Create docker-compose.yml for production
+- [x] Create docker-compose.dev.yml for development
+- [x] Configure volume persistence
+- [x] Set up environment variable configuration
+- [x] Implement health checks in Docker
+- [x] Add container restart policies
 
 **Acceptance Criteria**:
-- Single `docker-compose up` starts everything
-- Data persists in volumes
-- Environment easily configurable
-- Works on common NAS platforms (Synology, Unraid)
+- Container builds successfully
+- Container size optimized
+- Data persists across restarts
+- Development environment easy to spin up
+
 
 ---
 
