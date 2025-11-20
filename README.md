@@ -7,7 +7,7 @@ This app helps you manage multiple websites and apps from one simple dashboard. 
 **No coding required!** Just point, click, and you're done. ✨
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![React Version](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://react.dev/)
 
 ---
@@ -79,8 +79,8 @@ Go to: **http://localhost:8080**
 
 Want to tinker with the app or help make it better? Here's how:
 
-### What You Need First:
-- **Go 1.22+** - [Get it here](https://go.dev/dl/) (the "engine" that runs the app)
+-### What You Need First:
+- **Go 1.24+** - [Get it here](https://go.dev/dl/) (the "engine" that runs the app)
 - **Node.js 20+** - [Get it here](https://nodejs.org/) (helps build the pretty interface)
 
 ### Getting It Running:
