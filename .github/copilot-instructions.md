@@ -32,5 +32,6 @@
 - Run the backend before the frontend; React Query expects the exact JSON produced by GORM tags (snake_case), so keep API and UI field names aligned.
 - When adding models, update both `internal/models` and the `AutoMigrate` call inside `internal/api/routes/routes.go`; register new Gin routes right after migrations for clarity.
 - Tests belong beside handlers (`*_test.go`); reuse the `setupTestRouter` helper structure (in-memory SQLite, Gin router, httptest requests) for fast feedback.
+- **Testing Requirement**: All new code (features, bug fixes, refactors) MUST include accompanying unit tests. Ensure tests cover happy paths and error conditions.
 - The root `Dockerfile` builds the Go binary and the React static assets (multi-stage build).
 - Branch from `feature/**` and target `development`.
