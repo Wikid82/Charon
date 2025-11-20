@@ -47,6 +47,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	{
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.GET("/auth/me", authHandler.Me)
+		protected.POST("/auth/change-password", authHandler.ChangePassword)
 	}
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db)
