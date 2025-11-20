@@ -34,6 +34,9 @@ WORKDIR /app/backend
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 
+# Install Delve so we can attach during debugging
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.22.0
+
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -64,6 +67,7 @@ RUN apk --no-cache add ca-certificates sqlite-libs \
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/cpmp /app/cpmp
+COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist

@@ -27,11 +27,15 @@ done
 
 # Start CPM+ management application
 echo "Starting CPM+ management application..."
-/app/cpmp &
+if [ "$CPMP_DEBUG" = "1" ]; then
+    DEBUG_PORT=${CPMP_DEBUG_PORT:-2345}
+    echo "Running CPM+ under Delve (port $DEBUG_PORT)"
+    /usr/local/bin/dlv exec /app/cpmp --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --log -- &
+else
+    /app/cpmp &
+fi
 APP_PID=$!
 echo "CPM+ started (PID: $APP_PID)"
-
-# Function to handle shutdown gracefully
 shutdown() {
     echo "Shutting down..."
     kill -TERM "$APP_PID" 2>/dev/null || true
