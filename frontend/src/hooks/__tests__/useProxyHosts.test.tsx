@@ -3,17 +3,14 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { useProxyHosts } from '../useProxyHosts'
-import * as api from '../../services/api'
+import * as api from '../../api/proxyHosts'
 
 // Mock the API
-vi.mock('../../services/api', () => ({
-  proxyHostsAPI: {
-    list: vi.fn(),
-    get: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  },
+vi.mock('../../api/proxyHosts', () => ({
+  getProxyHosts: vi.fn(),
+  createProxyHost: vi.fn(),
+  updateProxyHost: vi.fn(),
+  deleteProxyHost: vi.fn(),
 }))
 
 const createWrapper = () => {
