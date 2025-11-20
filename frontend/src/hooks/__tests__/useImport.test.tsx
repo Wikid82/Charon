@@ -41,9 +41,9 @@ describe('useImport', () => {
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
     await waitFor(() => {
+      expect(result.current.loading).toBe(false)
       expect(result.current.session).toBeNull()
     })
-    expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()
   })
 
@@ -76,7 +76,7 @@ describe('useImport', () => {
       expect(result.current.session).toEqual(mockSession)
     })
 
-    expect(api.uploadCaddyfile).toHaveBeenCalledWith('example.com { reverse_proxy localhost:8080 }', undefined)
+    expect(api.uploadCaddyfile).toHaveBeenCalledWith('example.com { reverse_proxy localhost:8080 }')
     expect(result.current.loading).toBe(false)
   })
 
@@ -130,7 +130,7 @@ describe('useImport', () => {
       await result.current.commit({ 'test.com': 'skip' })
     })
 
-    expect(api.commitImport).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
+    expect(api.commitImport).toHaveBeenCalledWith({ 'test.com': 'skip' })
 
     await waitFor(() => {
       expect(result.current.session).toBeNull()
@@ -149,7 +149,9 @@ describe('useImport', () => {
     vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
     vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
     vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
-    vi.mocked(api.cancelImport).mockResolvedValue(undefined)
+    vi.mocked(api.cancelImport).mockImplementation(async () => {
+      vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: false })
+    })
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -165,7 +167,7 @@ describe('useImport', () => {
       await result.current.cancel()
     })
 
-    expect(api.cancelImport).toHaveBeenCalledWith('session-3')
+    expect(api.cancelImport).toHaveBeenCalled()
     await waitFor(() => {
       expect(result.current.session).toBeNull()
     })

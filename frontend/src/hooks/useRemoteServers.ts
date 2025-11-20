@@ -19,7 +19,7 @@ export function useRemoteServers(enabledOnly = false) {
   });
 
   const createMutation = useMutation({
-    mutationFn: createRemoteServer,
+    mutationFn: (server: Partial<RemoteServer>) => createRemoteServer(server),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
@@ -34,14 +34,14 @@ export function useRemoteServers(enabledOnly = false) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteRemoteServer,
+    mutationFn: (uuid: string) => deleteRemoteServer(uuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
 
   const testConnectionMutation = useMutation({
-    mutationFn: testRemoteServerConnection,
+    mutationFn: (uuid: string) => testRemoteServerConnection(uuid),
   });
 
   return {

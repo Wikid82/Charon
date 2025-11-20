@@ -35,7 +35,7 @@ export function useImport() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: uploadCaddyfile,
+    mutationFn: (content: string) => uploadCaddyfile(content),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['import-preview'] });
@@ -43,7 +43,7 @@ export function useImport() {
   });
 
   const commitMutation = useMutation({
-    mutationFn: commitImport,
+    mutationFn: (resolutions: Record<string, string>) => commitImport(resolutions),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['import-preview'] });
@@ -53,7 +53,7 @@ export function useImport() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: cancelImport,
+    mutationFn: () => cancelImport(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['import-preview'] });

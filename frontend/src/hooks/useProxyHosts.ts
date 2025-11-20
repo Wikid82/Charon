@@ -18,7 +18,7 @@ export function useProxyHosts() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createProxyHost,
+    mutationFn: (host: Partial<ProxyHost>) => createProxyHost(host),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
@@ -33,7 +33,7 @@ export function useProxyHosts() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: deleteProxyHost,
+    mutationFn: (uuid: string) => deleteProxyHost(uuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
