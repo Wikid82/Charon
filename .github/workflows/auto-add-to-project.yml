@@ -21,7 +21,7 @@ jobs:
 
       - name: Add issue or PR to project
         if: steps.project_check.outputs.has_project == 'true'
-        uses: actions/add-to-project@1b844f0c5ac6446a402e0cb3693f9be5eca188c5 # v0.6.1
+        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
         continue-on-error: true
         with:
           project-url: ${{ secrets.PROJECT_URL }}
