@@ -29,4 +29,5 @@ ignore:
   - "frontend/coverage/*"
   - "backend/cmd/seed/*"
   - "backend/data/*"
+  - "backend/coverage/*"
   - "*.md"

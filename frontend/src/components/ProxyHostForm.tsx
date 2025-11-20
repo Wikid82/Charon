@@ -88,10 +88,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Remote Server Quick Select */}
           {remoteServers.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="quick-select" className="block text-sm font-medium text-gray-300 mb-2">
                 Quick Select from Remote Servers
               </label>
               <select
+                id="quick-select"
                 onChange={e => handleServerSelect(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
@@ -212,10 +213,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Advanced Config */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="advanced-config" className="block text-sm font-medium text-gray-300 mb-2">
               Advanced Caddy Config (Optional)
             </label>
             <textarea
+              id="advanced-config"
               value={formData.advanced_config}
               onChange={e => setFormData({ ...formData, advanced_config: e.target.value })}
               placeholder="Additional Caddy directives..."

@@ -149,4 +149,54 @@ describe('ProxyHostForm', () => {
     expect(sslCheckbox).toBeChecked()
     expect(wsCheckbox).toBeChecked()
   })
+
+  it('populates fields when remote server is selected', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/Local Docker Registry/)).toBeInTheDocument()
+    })
+
+    const select = screen.getByRole('combobox', { name: /quick select/i })
+    fireEvent.change(select, { target: { value: mockRemoteServers[0].uuid } })
+
+    expect(screen.getByDisplayValue(mockRemoteServers[0].host)).toBeInTheDocument()
+    expect(screen.getByDisplayValue(mockRemoteServers[0].port)).toBeInTheDocument()
+  })
+
+  it('displays error message on submission failure', async () => {
+    const mockErrorSubmit = vi.fn(() => Promise.reject(new Error('Submission failed')))
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockErrorSubmit} onCancel={mockOnCancel} />
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+      target: { value: 'test.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), {
+      target: { value: 'localhost' },
+    })
+    fireEvent.change(screen.getByDisplayValue('80'), {
+      target: { value: '8080' },
+    })
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Submission failed')).toBeInTheDocument()
+    })
+  })
+
+  it('handles advanced config input', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const advancedInput = screen.getByLabelText(/Advanced Caddy Config/i)
+    fireEvent.change(advancedInput, { target: { value: 'header_up X-Test "True"' } })
+
+    expect(advancedInput).toHaveValue('header_up X-Test "True"')
+  })
 })
