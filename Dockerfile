@@ -11,7 +11,7 @@ ARG CADDY_IMAGE=caddy:2-alpine
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.11.1-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
