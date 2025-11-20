@@ -20,7 +20,7 @@ const queryClient = new QueryClient({
 })
 
 const renderWithClient = (ui: React.ReactElement) => {
-  return renderWithClient(
+  return render(
     <QueryClientProvider client={queryClient}>
       {ui}
     </QueryClientProvider>
