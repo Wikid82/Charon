@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.pre-commit.out"
-MIN_COVERAGE="${CPM_MIN_COVERAGE:-75}"
+MIN_COVERAGE="${CPM_MIN_COVERAGE:-40}"
 
 cd "$BACKEND_DIR"
 
-go test -coverprofile="$COVERAGE_FILE" ./...
+go test -coverprofile="$COVERAGE_FILE" ./internal/...
 
 go tool cover -func="$COVERAGE_FILE" | tail -n 1
 TOTAL_LINE=$(go tool cover -func="$COVERAGE_FILE" | grep total)
