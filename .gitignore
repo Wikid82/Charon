@@ -45,6 +45,7 @@ backend/cmd/api/data/*.db
 *.code-workspace
 
 # Logs
+.trivy_logs
 *.log
 logs/
 npm-debug.log*
@@ -68,3 +69,4 @@ docker-compose.override.yml
 # Testing
 coverage/
 *.xml
+.trivy_logs/trivy-report.txt

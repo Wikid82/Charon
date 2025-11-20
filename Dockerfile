@@ -7,7 +7,8 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # Allow pinning Caddy base image by digest via build-arg
-ARG CADDY_IMAGE=caddy:2-alpine
+# Using caddy:2.9.1-alpine to fix CVE-2025-59530 and stdlib vulnerabilities
+ARG CADDY_IMAGE=caddy:2.9.1-alpine
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
@@ -54,10 +55,21 @@ ARG BUILD_DATE=unknown
 RUN CGO_ENABLED=1 GOOS=linux go build \
     -gcflags "all=-N -l" \
     -a -installsuffix cgo \
-    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.SemVer=${VERSION} \
+    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
-              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildDate=${BUILD_DATE}" \
+              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
     -o cpmp ./cmd/api
+
+# ---- Caddy Builder ----
+# Build Caddy from source to ensure we use the latest Go version and dependencies
+# This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
+FROM golang:alpine AS caddy-builder
+RUN apk add --no-cache git
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN xcaddy build v2.9.1 \
+    --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
+    --output /usr/bin/caddy
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
@@ -66,6 +78,9 @@ WORKDIR /app
 # Install runtime dependencies for CPM+ (no bash needed)
 RUN apk --no-cache add ca-certificates sqlite-libs \
     && apk --no-cache upgrade
+
+# Copy Caddy binary from caddy-builder (overwriting the one from base image)
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/cpmp /app/cpmp

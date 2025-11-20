@@ -1,8 +1,10 @@
 import { ReactNode, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { useAuth } from '../context/AuthContext'
+import { checkHealth } from '../api/health'
 
 interface LayoutProps {
   children: ReactNode
@@ -12,6 +14,12 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { logout } = useAuth()
+
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: checkHealth,
+    staleTime: 1000 * 60 * 60, // 1 hour
+  })
 
   const navigation = [
     { name: 'Dashboard', path: '/', icon: '📊' },
@@ -68,8 +76,13 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </nav>
           <div className="mt-6 border-t border-gray-200 dark:border-gray-800 pt-4">
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              Version 0.1.0
+            <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
+              <span>Version {health?.version || 'dev'}</span>
+              {health?.git_commit && health.git_commit !== 'unknown' && (
+                <span className="text-[10px] opacity-75 font-mono">
+                  ({health.git_commit.substring(0, 7)})
+                </span>
+              )}
             </div>
             <button
               onClick={() => {
