@@ -40,6 +40,7 @@ func (s *AuthService) Register(email, password, name string) (*models.User, erro
 		Email:     email,
 		Name:      name,
 		Role:      role,
+		APIKey:    uuid.New().String(),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
