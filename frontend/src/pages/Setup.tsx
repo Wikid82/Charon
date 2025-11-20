@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSetupStatus, performSetup, SetupRequest } from '../api/setup';
+import client from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 
 const Setup: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { login, isAuthenticated } = useAuth();
   const [formData, setFormData] = useState<SetupRequest>({
     name: '',
     email: '',
@@ -21,15 +25,27 @@ const Setup: React.FC = () => {
   });
 
   useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/');
+      return;
+    }
     if (status && !status.setupRequired) {
       navigate('/login');
     }
-  }, [status, navigate]);
+  }, [status, isAuthenticated, navigate]);
 
   const mutation = useMutation({
-    mutationFn: performSetup,
-    onSuccess: () => {
-      navigate('/login');
+    mutationFn: async (data: SetupRequest) => {
+      // 1. Perform Setup
+      await performSetup(data);
+      // 2. Auto Login
+      await client.post('/auth/login', { email: data.email, password: data.password });
+      // 3. Update Auth Context
+      await login();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['setupStatus'] });
+      navigate('/');
     },
     onError: (err: any) => {
       setError(err.response?.data?.error || 'Setup failed');

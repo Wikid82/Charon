@@ -35,7 +35,7 @@ WORKDIR /app/backend
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve so we can attach during debugging
-RUN go install github.com/go-delve/delve/cmd/dlv@v1.22.0
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
@@ -50,7 +50,9 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
+# -gcflags "all=-N -l" disables optimizations and inlining for better debugging
 RUN CGO_ENABLED=1 GOOS=linux go build \
+    -gcflags "all=-N -l" \
     -a -installsuffix cgo \
     -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.SemVer=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \

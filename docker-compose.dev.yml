@@ -4,7 +4,7 @@ version: '3.9'
 
 services:
   app:
-    image: ghcr.io/wikid82/caddyproxymanagerplus:dev
+    image: ghcr.io/wikid82/cpmp:dev
     # Development: expose Caddy admin API externally for debugging
     ports:
       - "80:80"

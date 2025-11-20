@@ -3,7 +3,7 @@ version: '3.9'
 services:
   app:
     image: cpmp:local
-    container_name: caddyproxymanagerplus-local
+    container_name: cpmp-debug
     restart: unless-stopped
     ports:
       - "80:80"        # HTTP (Caddy proxy)

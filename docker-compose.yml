@@ -2,8 +2,8 @@ version: '3.9'
 
 services:
   app:
-    image: ghcr.io/wikid82/caddyproxymanagerplus:latest
-    container_name: caddyproxymanagerplus
+    image: ghcr.io/wikid82/cpmp:latest
+    container_name: cpmp
     restart: unless-stopped
     ports:
       - "80:80"        # HTTP (Caddy proxy)

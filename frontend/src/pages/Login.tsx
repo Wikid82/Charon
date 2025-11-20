@@ -1,19 +1,34 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
 import { toast } from '../components/Toast'
 import client from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import { getSetupStatus } from '../api/setup'
 
 export default function Login() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [showResetInfo, setShowResetInfo] = useState(false)
   const { login } = useAuth()
+
+  const { data: setupStatus, isLoading: isCheckingSetup } = useQuery({
+    queryKey: ['setupStatus'],
+    queryFn: getSetupStatus,
+    retry: false,
+  })
+
+  useEffect(() => {
+    if (setupStatus?.setupRequired) {
+      navigate('/setup')
+    }
+  }, [setupStatus, navigate])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,6 +37,7 @@ export default function Login() {
     try {
       await client.post('/auth/login', { email, password })
       await login()
+      await queryClient.invalidateQueries({ queryKey: ['setupStatus'] })
       toast.success('Logged in successfully')
       navigate('/')
     } catch (err: any) {
@@ -29,6 +45,14 @@ export default function Login() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (isCheckingSetup) {
+    return (
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
+        <div className="text-white">Checking setup status...</div>
+      </div>
+    )
   }
 
   return (
