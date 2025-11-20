@@ -4,11 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
 import { mockRemoteServers } from '../../test/mockData'
 
-// Mock the API
-vi.mock('../../services/api', () => ({
-  remoteServersAPI: {
-    list: vi.fn(() => Promise.resolve(mockRemoteServers)),
-  },
+// Mock the hook
+vi.mock('../../hooks/useRemoteServers', () => ({
+  useRemoteServers: vi.fn(() => ({
+    servers: mockRemoteServers,
+    isLoading: false,
+    error: null,
+    createRemoteServer: vi.fn(),
+    updateRemoteServer: vi.fn(),
+    deleteRemoteServer: vi.fn(),
+  })),
 }))
 
 const queryClient = new QueryClient({
