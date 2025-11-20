@@ -5,6 +5,25 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import Setup from '../Setup';
 import * as setupApi from '../../api/setup';
 
+// Mock AuthContext so useAuth works in tests
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({
+    login: vi.fn(),
+    logout: vi.fn(),
+    isAuthenticated: false,
+    isLoading: false,
+    user: null,
+  }),
+}));
+
+// Mock API client
+vi.mock('../../api/client', () => ({
+  default: {
+    post: vi.fn().mockResolvedValue({ data: {} }),
+    get: vi.fn().mockResolvedValue({ data: {} }),
+  },
+}));
+
 // Mock react-router-dom
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -94,11 +113,11 @@ describe('Setup Page', () => {
         name: 'Admin',
         email: 'admin@example.com',
         password: 'password123',
-      }, expect.anything());
+      });
     });
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/login');
+      expect(mockNavigate).toHaveBeenCalledWith('/');
     });
   });
 

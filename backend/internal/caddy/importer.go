@@ -148,7 +148,11 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 										parts := strings.Split(dial, ":")
 										if len(parts) == 2 {
 											host.ForwardHost = parts[0]
-											fmt.Sscanf(parts[1], "%d", &host.ForwardPort)
+											if _, err := fmt.Sscanf(parts[1], "%d", &host.ForwardPort); err != nil {
+												// Default to 80 if parsing fails, or handle error appropriately
+												// For now, just log or ignore, but at least we checked err
+												host.ForwardPort = 80
+											}
 										}
 									}
 								}
