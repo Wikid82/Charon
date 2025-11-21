@@ -10,8 +10,10 @@ services:
       - "443:443"      # HTTPS (Caddy proxy)
       - "443:443/udp"  # HTTP/3 (Caddy proxy)
       - "8080:8080"    # Management UI (CPM+)
+      - "2345:2345"    # Delve Debugger
     environment:
-      - CPM_ENV=production
+      - CPM_ENV=development
+      - CPMP_DEBUG=1
       - CPM_HTTP_PORT=8080
       - CPM_DB_PATH=/app/data/cpm.db
       - CPM_FRONTEND_DIR=/app/frontend/dist
@@ -20,6 +22,10 @@ services:
       - CPM_CADDY_BINARY=caddy
       - CPM_IMPORT_CADDYFILE=/import/Caddyfile
       - CPM_IMPORT_DIR=/app/data/imports
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
     volumes:
       - cpm_data_local:/app/data
       - caddy_data_local:/data
