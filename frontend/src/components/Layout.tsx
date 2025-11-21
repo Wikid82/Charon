@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ThemeToggle } from './ThemeToggle'
@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 import { checkHealth } from '../api/health'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface LayoutProps {
   children: ReactNode
@@ -14,8 +15,16 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed')
+    return saved ? JSON.parse(saved) : false
+  })
   const { logout } = useAuth()
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', JSON.stringify(isCollapsed))
+  }, [isCollapsed])
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -40,20 +49,21 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex items-center gap-2">
           <NotificationCenter />
           <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            {sidebarOpen ? '✕' : '☰'}
+          <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}>
+            {mobileSidebarOpen ? '✕' : '☰'}
           </Button>
         </div>
       </div>
 
       {/* Sidebar */}
       <aside className={`
-        fixed lg:static inset-y-0 left-0 z-30 w-64 transform transition-transform duration-200 ease-in-out
+        fixed lg:static inset-y-0 left-0 z-30 transform transition-all duration-200 ease-in-out
         bg-white dark:bg-dark-sidebar border-r border-gray-200 dark:border-gray-800 flex flex-col
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className="p-6 hidden lg:flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>
+        <div className={`p-6 hidden lg:flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+          {!isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>}
           <ThemeToggle />
         </div>
 
@@ -65,20 +75,32 @@ export default function Layout({ children }: LayoutProps) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={() => setMobileSidebarOpen(false)}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
-                  }`}
+                  } ${isCollapsed ? 'justify-center' : ''}`}
+                  title={isCollapsed ? item.name : ''}
                 >
                   <span className="text-lg">{item.icon}</span>
-                  {item.name}
+                  {!isCollapsed && item.name}
                 </Link>
               )
             })}
           </nav>
-          <div className="mt-6 border-t border-gray-200 dark:border-gray-800 pt-4">
+
+          {/* Collapse Toggle */}
+          <div className="hidden lg:flex justify-center py-4 border-t border-gray-200 dark:border-gray-800">
+            <button
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
+          </div>
+
+          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 ${isCollapsed ? 'hidden' : ''}`}>
             <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
               {health?.git_commit && health.git_commit !== 'unknown' && (
@@ -89,7 +111,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <button
               onClick={() => {
-                setSidebarOpen(false)
+                setMobileSidebarOpen(false)
                 logout()
               }}
               className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-red-600 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900"
@@ -98,14 +120,32 @@ export default function Layout({ children }: LayoutProps) {
               Logout
             </button>
           </div>
+
+          {/* Collapsed Logout */}
+          {isCollapsed && (
+             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4">
+                <button
+                  onClick={() => {
+                    setMobileSidebarOpen(false)
+                    logout()
+                  }}
+                  className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  title="Logout"
+                >
+                  <span className="text-lg">🚪</span>
+                </button>
+             </div>
+          )}
+
         </div>
       </aside>
 
       {/* Overlay for mobile */}
-      {sidebarOpen && (
+            {/* Mobile Overlay */}
+      {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-gray-900/50 z-20 lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 

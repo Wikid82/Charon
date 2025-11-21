@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
+import { isValidEmail } from '../utils/validation';
 
 const Setup: React.FC = () => {
   const navigate = useNavigate();
@@ -18,12 +19,21 @@ const Setup: React.FC = () => {
     password: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [emailValid, setEmailValid] = useState<boolean | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['setupStatus'],
     queryFn: getSetupStatus,
     retry: false,
   });
+
+  useEffect(() => {
+    if (formData.email) {
+      setEmailValid(isValidEmail(formData.email));
+    } else {
+      setEmailValid(null);
+    }
+  }, [formData.email]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -94,18 +104,23 @@ const Setup: React.FC = () => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
-            <Input
-              id="email"
-              name="email"
-              label="Email Address"
-              type="email"
-              required
-              placeholder="admin@example.com"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              helperText="This email will be used for Let's Encrypt certificate notifications and recovery."
-            />
-                        <div className="space-y-1">
+            <div className="relative">
+              <Input
+                id="email"
+                name="email"
+                label="Email Address"
+                type="email"
+                required
+                placeholder="admin@example.com"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className={emailValid === false ? 'border-red-500 focus:ring-red-500' : emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
+              />
+              {emailValid === false && (
+                <p className="mt-1 text-xs text-red-500">Please enter a valid email address</p>
+              )}
+            </div>
+            <div className="space-y-1">
               <Input
                 id="password"
                 name="password"
