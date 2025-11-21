@@ -1,20 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import client from '../api/client';
-
-interface User {
-  user_id: number;
-  role: string;
-}
-
-interface AuthContextType {
-  user: User | null;
-  login: () => Promise<void>;
-  logout: () => void;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -25,7 +11,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const response = await client.get('/auth/me');
         setUser(response.data);
-      } catch (error) {
+      } catch {
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -95,12 +81,4 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };

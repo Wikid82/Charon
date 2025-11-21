@@ -6,7 +6,7 @@ import Setup from '../Setup';
 import * as setupApi from '../../api/setup';
 
 // Mock AuthContext so useAuth works in tests
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     login: vi.fn(),
     logout: vi.fn(),
