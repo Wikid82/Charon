@@ -50,7 +50,8 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	assert.True(t, backups[0].Size > 0)
 
 	// Test GetBackupPath
-	path := service.GetBackupPath(filename)
+	path, err := service.GetBackupPath(filename)
+	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(service.BackupDir, filename), path)
 
 	// Test Restore
@@ -113,14 +114,14 @@ func TestBackupService_PathTraversal(t *testing.T) {
 	os.MkdirAll(service.BackupDir, 0755)
 
 	// Test GetBackupPath with traversal
-	// Should resolve to .../backups/passwd, NOT .../etc/passwd
-	path := service.GetBackupPath("../../etc/passwd")
-	expected := filepath.Join(service.BackupDir, "passwd")
-	assert.Equal(t, expected, path)
+	// Should return error
+	_, err := service.GetBackupPath("../../etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid filename")
 
 	// Test DeleteBackup with traversal
-	// Should try to delete .../backups/passwd, fail because it doesn't exist
-	err := service.DeleteBackup("../../etc/passwd")
+	// Should return error
+	err = service.DeleteBackup("../../etc/passwd")
 	assert.Error(t, err)
-	assert.True(t, os.IsNotExist(err))
+	assert.Contains(t, err.Error(), "invalid filename")
 }

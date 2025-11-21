@@ -49,7 +49,11 @@ func (h *BackupHandler) Delete(c *gin.Context) {
 
 func (h *BackupHandler) Download(c *gin.Context) {
 	filename := c.Param("filename")
-	path := h.service.GetBackupPath(filename)
+	path, err := h.service.GetBackupPath(filename)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})

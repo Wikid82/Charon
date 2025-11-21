@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
@@ -65,6 +66,10 @@ func (h *LogsHandler) Download(c *gin.Context) {
 	filename := c.Param("filename")
 	path, err := h.service.GetLogPath(filename)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid filename") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
 		return
 	}

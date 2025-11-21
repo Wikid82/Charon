@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -59,8 +60,14 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 
 // GetLogPath returns the absolute path to a log file if it exists and is valid
 func (s *LogService) GetLogPath(filename string) (string, error) {
-	clean := filepath.Base(filepath.Clean(filename))
-	path := filepath.Join(s.LogDir, clean)
+	cleanName := filepath.Base(filename)
+	if filename != cleanName {
+		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+	path := filepath.Join(s.LogDir, cleanName)
+	if !strings.HasPrefix(path, filepath.Clean(s.LogDir)) {
+		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
 
 	// Verify file exists
 	if _, err := os.Stat(path); err != nil {
