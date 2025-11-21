@@ -42,9 +42,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   const getDockerHostString = () => {
     if (connectionSource === 'local') return undefined;
-    if (connectionSource === 'custom') return undefined;
+    if (connectionSource === 'custom') return null;
     const server = remoteServers.find(s => s.uuid === connectionSource);
-    if (!server) return undefined;
+    if (!server) return null;
     // Construct the Docker host string
     return `tcp://${server.host}:${server.port}`;
   }
@@ -250,7 +250,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Force SSL</span>
-              <div title="Redirects all HTTP traffic to HTTPS. This ensures that all connections to your site are encrypted, preventing eavesdropping." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Redirects visitors to the secure HTTPS version of your site. You should almost always turn this on to protect your data." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -262,7 +262,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HTTP/2 Support</span>
-              <div title="Enables the HTTP/2 protocol. This can improve performance by allowing multiple requests to be sent over a single connection." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Makes your site load faster by using a modern connection standard. Safe to leave on for most sites." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -274,7 +274,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Enabled</span>
-              <div title="Enables HTTP Strict Transport Security. This tells browsers to ONLY connect to your site using HTTPS for a specified period, preventing downgrade attacks." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Tells browsers to REMEMBER to only use HTTPS for this site. Adds extra security but can be tricky if you ever want to go back to HTTP." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -286,7 +286,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Subdomains</span>
-              <div title="Applies the HSTS policy to all subdomains as well. Use this only if you are sure all your subdomains support HTTPS." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Applies the HSTS rule to all subdomains (like blog.mysite.com). Only use this if ALL your subdomains are secure." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -298,7 +298,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Block Exploits</span>
-              <div title="Blocks common web attacks like SQL Injection (SQLi) and Cross-Site Scripting (XSS) by filtering malicious request patterns." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Automatically blocks common hacking attempts. Recommended to keep your site safe." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -310,7 +310,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Websockets Support</span>
-              <div title="Allows WebSocket connections to pass through the proxy. This is required for real-time applications like chat apps, notifications, or live dashboards." className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Needed for apps that update in real-time (like chat, notifications, or live status). If your app feels 'broken' or doesn't update, try turning this on." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
