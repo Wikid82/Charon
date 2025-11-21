@@ -2,7 +2,6 @@ package services
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -15,6 +14,7 @@ type UpdateService struct {
 	repoName       string
 	lastCheck      time.Time
 	cachedResult   *UpdateInfo
+	apiURL         string // For testing
 }
 
 type UpdateInfo struct {
@@ -33,7 +33,24 @@ func NewUpdateService() *UpdateService {
 		currentVersion: version.Version,
 		repoOwner:      "Wikid82",
 		repoName:       "CaddyProxyManagerPlus",
+		apiURL:         "https://api.github.com/repos/Wikid82/CaddyProxyManagerPlus/releases/latest",
 	}
+}
+
+// SetAPIURL sets the GitHub API URL for testing.
+func (s *UpdateService) SetAPIURL(url string) {
+	s.apiURL = url
+}
+
+// SetCurrentVersion sets the current version for testing.
+func (s *UpdateService) SetCurrentVersion(v string) {
+	s.currentVersion = v
+}
+
+// ClearCache clears the update cache for testing.
+func (s *UpdateService) ClearCache() {
+	s.cachedResult = nil
+	s.lastCheck = time.Time{}
 }
 
 func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
@@ -42,10 +59,9 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 		return s.cachedResult, nil
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", s.repoOwner, s.repoName)
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", s.apiURL, nil)
 	if err != nil {
 		return nil, err
 	}

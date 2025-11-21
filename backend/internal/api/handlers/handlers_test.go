@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -326,4 +327,32 @@ func TestHealthHandler(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", result["status"])
+}
+
+func TestRemoteServerHandler_Errors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB()
+
+	handler := handlers.NewRemoteServerHandler(db)
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	// Get non-existent
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/non-existent", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	// Update non-existent
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("PUT", "/api/v1/remote-servers/non-existent", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	// Delete non-existent
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/non-existent", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

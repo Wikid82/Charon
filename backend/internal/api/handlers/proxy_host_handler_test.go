@@ -18,7 +18,8 @@ import (
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 
@@ -112,4 +113,29 @@ func TestProxyHostErrors(t *testing.T) {
 	delResp := httptest.NewRecorder()
 	router.ServeHTTP(delResp, delReq)
 	require.Equal(t, http.StatusNotFound, delResp.Code)
+}
+
+func TestProxyHostValidation(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Invalid JSON
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(`{invalid json}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	// Create a host first
+	host := &models.ProxyHost{
+		UUID:        "valid-uuid",
+		DomainNames: "valid.com",
+	}
+	db.Create(host)
+
+	// Update with invalid JSON
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/valid-uuid", strings.NewReader(`{invalid json}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
