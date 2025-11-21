@@ -43,6 +43,7 @@ const NotificationCenter: React.FC = () => {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-gray-400 hover:text-white focus:outline-none"
+        aria-label="Notifications"
       >
         <Bell className="w-6 h-6" />
         {unreadCount > 0 && (
@@ -55,6 +56,7 @@ const NotificationCenter: React.FC = () => {
       {isOpen && (
         <>
           <div
+            data-testid="notification-backdrop"
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           ></div>

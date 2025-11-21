@@ -13,6 +13,25 @@ vi.mock('../../api/proxyHosts', () => ({
   deleteProxyHost: vi.fn(),
 }))
 
+const createMockHost = (overrides: Partial<api.ProxyHost> = {}): api.ProxyHost => ({
+  uuid: '1',
+  domain_names: 'test.com',
+  forward_scheme: 'http',
+  forward_host: 'localhost',
+  forward_port: 8080,
+  ssl_forced: false,
+  http2_support: false,
+  hsts_enabled: false,
+  hsts_subdomains: false,
+  block_exploits: false,
+  websocket_support: false,
+  locations: [],
+  enabled: true,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+  ...overrides,
+})
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -37,8 +56,8 @@ describe('useProxyHosts', () => {
 
   it('loads proxy hosts on mount', async () => {
     const mockHosts = [
-      { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 },
-      { uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 },
+      createMockHost({ uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }),
+      createMockHost({ uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 }),
     ]
 
     vi.mocked(api.getProxyHosts).mockResolvedValue(mockHosts)
@@ -74,7 +93,7 @@ describe('useProxyHosts', () => {
   it('creates a new proxy host', async () => {
     vi.mocked(api.getProxyHosts).mockResolvedValue([])
     const newHost = { domain_names: 'new.com', forward_host: 'localhost', forward_port: 9000 }
-    const createdHost = { uuid: '3', ...newHost, enabled: true }
+    const createdHost = createMockHost({ uuid: '3', ...newHost, enabled: true })
 
     vi.mocked(api.createProxyHost).mockImplementation(async () => {
       vi.mocked(api.getProxyHosts).mockResolvedValue([createdHost])
@@ -98,12 +117,11 @@ describe('useProxyHosts', () => {
   })
 
   it('updates an existing proxy host', async () => {
-    const existingHost = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
+    const existingHost = createMockHost({ uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 })
     let hosts = [existingHost]
     vi.mocked(api.getProxyHosts).mockImplementation(() => Promise.resolve(hosts))
 
-    const updatedHost = { ...existingHost, domain_names: 'updated.com' }
-    vi.mocked(api.updateProxyHost).mockImplementation(async (uuid, data) => {
+    vi.mocked(api.updateProxyHost).mockImplementation(async (_, data) => {
       hosts = [{ ...existingHost, ...data }]
       return hosts[0]
     })
@@ -126,8 +144,8 @@ describe('useProxyHosts', () => {
 
   it('deletes a proxy host', async () => {
     const hosts = [
-      { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 },
-      { uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 },
+      createMockHost({ uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }),
+      createMockHost({ uuid: '2', domain_names: 'app.com', enabled: true, forward_host: 'localhost', forward_port: 3000 }),
     ]
     vi.mocked(api.getProxyHosts).mockResolvedValue(hosts)
     vi.mocked(api.deleteProxyHost).mockImplementation(async (uuid) => {
@@ -167,7 +185,7 @@ describe('useProxyHosts', () => {
   })
 
   it('handles update errors', async () => {
-    const host = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
+    const host = createMockHost({ uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 })
     vi.mocked(api.getProxyHosts).mockResolvedValue([host])
     const mockError = new Error('Failed to update')
     vi.mocked(api.updateProxyHost).mockRejectedValue(mockError)
@@ -182,7 +200,7 @@ describe('useProxyHosts', () => {
   })
 
   it('handles delete errors', async () => {
-    const host = { uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 }
+    const host = createMockHost({ uuid: '1', domain_names: 'test.com', enabled: true, forward_host: 'localhost', forward_port: 8080 })
     vi.mocked(api.getProxyHosts).mockResolvedValue([host])
     const mockError = new Error('Failed to delete')
     vi.mocked(api.deleteProxyHost).mockRejectedValue(mockError)

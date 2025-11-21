@@ -58,6 +58,12 @@ func TestManager_ApplyConfig(t *testing.T) {
 	// Apply Config
 	err = manager.ApplyConfig(context.Background())
 	assert.NoError(t, err)
+
+	// Verify config was saved to DB
+	var caddyConfig models.CaddyConfig
+	err = db.First(&caddyConfig).Error
+	assert.NoError(t, err)
+	assert.True(t, caddyConfig.Success)
 }
 
 func TestManager_ApplyConfig_Failure(t *testing.T) {
@@ -84,21 +90,59 @@ func TestManager_ApplyConfig_Failure(t *testing.T) {
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 8080,
 	}
-	db.Create(&host)
+	require.NoError(t, db.Create(&host).Error)
 
-	// Apply Config - Should fail and trigger rollback
-	// Since we mock failure, rollback (which tries to apply the same config) will also fail.
+	// Apply Config - should fail
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "apply failed")
-	assert.Contains(t, err.Error(), "rollback also failed")
 
-	// Check if failure was recorded in DB
-	// Since rollback failed, recordConfigChange is NOT called.
-	var configLog models.CaddyConfig
-	err = db.First(&configLog).Error
-	assert.Error(t, err) // Should be record not found
-	assert.Equal(t, gorm.ErrRecordNotFound, err)
+	// Verify failure was recorded
+	var caddyConfig models.CaddyConfig
+	err = db.First(&caddyConfig).Error
+	assert.NoError(t, err)
+	assert.False(t, caddyConfig.Success)
+	assert.NotEmpty(t, caddyConfig.ErrorMsg)
+}
+
+func TestManager_Ping(t *testing.T) {
+	// Mock Caddy Admin API
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/config/" && r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, nil, "")
+
+	err := manager.Ping(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestManager_GetCurrentConfig(t *testing.T) {
+	// Mock Caddy Admin API
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/config/" && r.Method == "GET" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"apps": {"http": {}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, nil, "")
+
+	config, err := manager.GetCurrentConfig(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	assert.NotNil(t, config.Apps)
+	assert.NotNil(t, config.Apps.HTTP)
 }
 
 func TestManager_RotateSnapshots(t *testing.T) {

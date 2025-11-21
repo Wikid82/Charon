@@ -12,6 +12,18 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 )
 
+// Executor defines an interface for executing shell commands.
+type Executor interface {
+	Execute(name string, args ...string) ([]byte, error)
+}
+
+// DefaultExecutor implements Executor using os/exec.
+type DefaultExecutor struct{}
+
+func (e *DefaultExecutor) Execute(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
 // CaddyConfig represents the root structure of Caddy's JSON config.
 type CaddyConfig struct {
 	Apps *CaddyApps `json:"apps,omitempty"`
@@ -73,6 +85,7 @@ type ImportResult struct {
 // Importer handles Caddyfile parsing and conversion to CPM+ models.
 type Importer struct {
 	caddyBinaryPath string
+	executor        Executor
 }
 
 // NewImporter creates a new Caddyfile importer.
@@ -80,7 +93,10 @@ func NewImporter(binaryPath string) *Importer {
 	if binaryPath == "" {
 		binaryPath = "caddy" // Default to PATH
 	}
-	return &Importer{caddyBinaryPath: binaryPath}
+	return &Importer{
+		caddyBinaryPath: binaryPath,
+		executor:        &DefaultExecutor{},
+	}
 }
 
 // ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
@@ -89,8 +105,7 @@ func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
 		return nil, fmt.Errorf("caddyfile not found: %s", caddyfilePath)
 	}
 
-	cmd := exec.Command(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
-	output, err := cmd.CombinedOutput()
+	output, err := i.executor.Execute(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
 	if err != nil {
 		return nil, fmt.Errorf("caddy adapt failed: %w (output: %s)", err, string(output))
 	}
@@ -238,8 +253,8 @@ func ConvertToProxyHosts(parsedHosts []ParsedHost) []models.ProxyHost {
 
 // ValidateCaddyBinary checks if the Caddy binary is available.
 func (i *Importer) ValidateCaddyBinary() error {
-	cmd := exec.Command(i.caddyBinaryPath, "version")
-	if err := cmd.Run(); err != nil {
+	_, err := i.executor.Execute(i.caddyBinaryPath, "version")
+	if err != nil {
 		return errors.New("caddy binary not found or not executable")
 	}
 	return nil

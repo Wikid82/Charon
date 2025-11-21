@@ -93,6 +93,15 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
 		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
 
+		// Docker
+		dockerService, err := services.NewDockerService()
+		if err == nil { // Only register if Docker is available
+			dockerHandler := handlers.NewDockerHandler(dockerService)
+			dockerHandler.RegisterRoutes(protected)
+		} else {
+			fmt.Printf("Warning: Docker service unavailable: %v\n", err)
+		}
+
 		// Uptime Service
 		uptimeService := services.NewUptimeService(db, notificationService)
 

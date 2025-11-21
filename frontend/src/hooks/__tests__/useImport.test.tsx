@@ -49,22 +49,26 @@ describe('useImport', () => {
 
   it('uploads content and creates session', async () => {
     const mockSession = {
-      uuid: 'session-1',
-      filename: 'Caddyfile',
-      state: 'reviewing',
+      id: 'session-1',
+      state: 'reviewing' as const,
       created_at: '2025-01-18T10:00:00Z',
       updated_at: '2025-01-18T10:00:00Z',
     }
 
-    const mockPreview = {
-      hosts: [{ domain: 'test.com' }],
+    const mockPreviewData = {
+      hosts: [{ domain_names: 'test.com' }],
       conflicts: [],
       errors: [],
     }
 
-    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    const mockResponse = {
+      session: mockSession,
+      preview: mockPreviewData,
+    }
+
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
     vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.getImportPreview).mockResolvedValue(mockPreview)
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
 
@@ -103,20 +107,24 @@ describe('useImport', () => {
 
   it('commits import with resolutions', async () => {
     const mockSession = {
-      uuid: 'session-2',
-      filename: 'Caddyfile',
-      state: 'reviewing',
+      id: 'session-2',
+      state: 'reviewing' as const,
       created_at: '2025-01-18T10:00:00Z',
       updated_at: '2025-01-18T10:00:00Z',
     }
 
+    const mockResponse = {
+      session: mockSession,
+      preview: { hosts: [], conflicts: [], errors: [] },
+    }
+
     let isCommitted = false
-    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
     vi.mocked(api.getImportStatus).mockImplementation(async () => {
       if (isCommitted) return { has_pending: false }
       return { has_pending: true, session: mockSession }
     })
-    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
     vi.mocked(api.commitImport).mockImplementation(async () => {
       isCommitted = true
     })
@@ -144,20 +152,24 @@ describe('useImport', () => {
 
   it('cancels active import session', async () => {
     const mockSession = {
-      uuid: 'session-3',
-      filename: 'Caddyfile',
-      state: 'reviewing',
+      id: 'session-3',
+      state: 'reviewing' as const,
       created_at: '2025-01-18T10:00:00Z',
       updated_at: '2025-01-18T10:00:00Z',
     }
 
+    const mockResponse = {
+      session: mockSession,
+      preview: { hosts: [], conflicts: [], errors: [] },
+    }
+
     let isCancelled = false
-    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
     vi.mocked(api.getImportStatus).mockImplementation(async () => {
       if (isCancelled) return { has_pending: false }
       return { has_pending: true, session: mockSession }
     })
-    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
     vi.mocked(api.cancelImport).mockImplementation(async () => {
       isCancelled = true
     })
@@ -184,16 +196,20 @@ describe('useImport', () => {
 
   it('handles commit errors', async () => {
     const mockSession = {
-      uuid: 'session-4',
-      filename: 'Caddyfile',
-      state: 'reviewing',
+      id: 'session-4',
+      state: 'reviewing' as const,
       created_at: '2025-01-18T10:00:00Z',
       updated_at: '2025-01-18T10:00:00Z',
     }
 
-    vi.mocked(api.uploadCaddyfile).mockResolvedValue({ session: mockSession })
+    const mockResponse = {
+      session: mockSession,
+      preview: { hosts: [], conflicts: [], errors: [] },
+    }
+
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
     vi.mocked(api.getImportStatus).mockResolvedValue({ has_pending: true, session: mockSession })
-    vi.mocked(api.getImportPreview).mockResolvedValue({ hosts: [], conflicts: [], errors: [] })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
 
     const mockError = new Error('Commit failed')
     vi.mocked(api.commitImport).mockRejectedValue(mockError)

@@ -74,6 +74,22 @@ Go to: **http://localhost:8080**
 
 For more details, check out the [Docker Deployment Guide](DOCKER.md).
 
+### 🔌 Connecting to Remote Servers (Optional)
+
+**Want to see containers on OTHER servers?**
+
+If you have apps running on a different computer (like a Raspberry Pi or a VPS) and want CPMP to see them automatically:
+
+1.  **Copy** the `docker-compose.remote.yml` file to that *other* computer.
+2.  **Run it** there: `docker compose -f docker-compose.remote.yml up -d`
+3.  **Connect** in CPMP:
+    *   Go to "Add Proxy Host"
+    *   Click "Remote Docker?"
+    *   Type the address: `tcp://<IP-OF-OTHER-COMPUTER>:2375`
+
+**⚠️ IMPORTANT SECURITY WARNING:**
+Think of this like leaving your front door unlocked. **ONLY** do this if your computers are connected via a secure VPN (like **Tailscale** or **WireGuard**) or are on a private home network that strangers can't access. Never do this on a public server without a VPN!
+
 ---
 
 ## 🛠️ The Developer Way (If You Like Code)

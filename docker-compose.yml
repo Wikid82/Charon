@@ -24,6 +24,7 @@ services:
       - cpm_data:/app/data
       - caddy_data:/data
       - caddy_config:/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       # Mount your existing Caddyfile for automatic import (optional)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
     healthcheck:

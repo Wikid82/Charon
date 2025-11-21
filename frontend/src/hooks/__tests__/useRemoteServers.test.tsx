@@ -14,6 +14,19 @@ vi.mock('../../api/remoteServers', () => ({
   testRemoteServerConnection: vi.fn(),
 }))
 
+const createMockServer = (overrides: Partial<api.RemoteServer> = {}): api.RemoteServer => ({
+  uuid: '1',
+  name: 'Server 1',
+  provider: 'generic',
+  host: 'localhost',
+  port: 8080,
+  enabled: true,
+  reachable: true,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+  ...overrides,
+})
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -38,8 +51,8 @@ describe('useRemoteServers', () => {
 
   it('loads all remote servers on mount', async () => {
     const mockServers = [
-      { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true },
-      { uuid: '2', name: 'Server 2', host: '192.168.1.100', port: 3000, enabled: false },
+      createMockServer({ uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }),
+      createMockServer({ uuid: '2', name: 'Server 2', host: '192.168.1.100', port: 3000, enabled: false }),
     ]
 
     vi.mocked(api.getRemoteServers).mockResolvedValue(mockServers)
@@ -75,7 +88,7 @@ describe('useRemoteServers', () => {
   it('creates a new remote server', async () => {
     vi.mocked(api.getRemoteServers).mockResolvedValue([])
     const newServer = { name: 'New Server', host: 'new.local', port: 5000, provider: 'generic' }
-    const createdServer = { uuid: '4', ...newServer, enabled: true }
+    const createdServer = createMockServer({ uuid: '4', ...newServer, enabled: true })
 
     vi.mocked(api.createRemoteServer).mockImplementation(async () => {
       vi.mocked(api.getRemoteServers).mockResolvedValue([createdServer])
@@ -99,12 +112,11 @@ describe('useRemoteServers', () => {
   })
 
   it('updates an existing remote server', async () => {
-    const existingServer = { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }
+    const existingServer = createMockServer({ uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true })
     let servers = [existingServer]
     vi.mocked(api.getRemoteServers).mockImplementation(() => Promise.resolve(servers))
 
-    const updatedServer = { ...existingServer, name: 'Updated Server' }
-    vi.mocked(api.updateRemoteServer).mockImplementation(async (uuid, data) => {
+    vi.mocked(api.updateRemoteServer).mockImplementation(async (_, data) => {
       servers = [{ ...existingServer, ...data }]
       return servers[0]
     })
@@ -127,8 +139,8 @@ describe('useRemoteServers', () => {
 
   it('deletes a remote server', async () => {
     const servers = [
-      { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true },
-      { uuid: '2', name: 'Server 2', host: '192.168.1.100', port: 3000, enabled: false },
+      createMockServer({ uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }),
+      createMockServer({ uuid: '2', name: 'Server 2', host: '192.168.1.100', port: 3000, enabled: false }),
     ]
     vi.mocked(api.getRemoteServers).mockResolvedValue(servers)
     vi.mocked(api.deleteRemoteServer).mockImplementation(async (uuid) => {
@@ -185,7 +197,7 @@ describe('useRemoteServers', () => {
   })
 
   it('handles update errors', async () => {
-    const server = { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }
+    const server = createMockServer({ uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true })
     vi.mocked(api.getRemoteServers).mockResolvedValue([server])
     const mockError = new Error('Failed to update')
     vi.mocked(api.updateRemoteServer).mockRejectedValue(mockError)
@@ -196,11 +208,11 @@ describe('useRemoteServers', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    await expect(result.current.updateServer('1', { name: 'Updated' })).rejects.toThrow('Failed to update')
+    await expect(result.current.updateServer('1', { name: 'Updated Server' })).rejects.toThrow('Failed to update')
   })
 
   it('handles delete errors', async () => {
-    const server = { uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true }
+    const server = createMockServer({ uuid: '1', name: 'Server 1', host: 'localhost', port: 8080, enabled: true })
     vi.mocked(api.getRemoteServers).mockResolvedValue([server])
     const mockError = new Error('Failed to delete')
     vi.mocked(api.deleteRemoteServer).mockRejectedValue(mockError)
