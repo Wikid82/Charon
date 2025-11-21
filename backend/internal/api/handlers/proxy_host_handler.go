@@ -30,6 +30,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/proxy-hosts/:uuid", h.Get)
 	router.PUT("/proxy-hosts/:uuid", h.Update)
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
+	router.POST("/proxy-hosts/test", h.TestConnection)
 }
 
 // List retrieves all proxy hosts.
@@ -118,4 +119,24 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "proxy host deleted"})
+}
+
+// TestConnection checks if the proxy host is reachable.
+func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
+	var req struct {
+		ForwardHost string `json:"forward_host" binding:"required"`
+		ForwardPort int    `json:"forward_port" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.service.TestConnection(req.ForwardHost, req.ForwardPort); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }

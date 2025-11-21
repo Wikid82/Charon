@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -138,4 +140,41 @@ func TestProxyHostValidation(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
+}
+
+func TestProxyHostConnection(t *testing.T) {
+	router, _ := setupTestRouter(t)
+
+	// 1. Test Invalid Input (Missing Host)
+	body := `{"forward_port": 80}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts/test", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	// 2. Test Connection Failure (Unreachable Port)
+	// Use a reserved port or localhost port that is likely closed
+	body = `{"forward_host": "localhost", "forward_port": 54321}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts/test", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// It should return 502 Bad Gateway
+	require.Equal(t, http.StatusBadGateway, resp.Code)
+
+	// 3. Test Connection Success
+	// Start a local listener
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer l.Close()
+
+	addr := l.Addr().(*net.TCPAddr)
+
+	body = fmt.Sprintf(`{"forward_host": "%s", "forward_port": %d}`, addr.IP.String(), addr.Port)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts/test", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
 }

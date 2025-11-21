@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -231,4 +232,121 @@ func TestUserHandler_Errors(t *testing.T) {
 	r.ServeHTTP(w, req)
 	// If table missing, Update should fail
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUserHandler_UpdateProfile(t *testing.T) {
+	handler, db := setupUserHandler(t)
+
+	// Create user
+	user := &models.User{
+		UUID:   uuid.NewString(),
+		Email:  "test@example.com",
+		Name:   "Test User",
+		APIKey: uuid.NewString(),
+	}
+	user.SetPassword("password123")
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", user.ID)
+		c.Next()
+	})
+	r.PUT("/profile", handler.UpdateProfile)
+
+	// 1. Success - Name only
+	t.Run("Success Name Only", func(t *testing.T) {
+		body := map[string]string{
+			"name":  "Updated Name",
+			"email": "test@example.com",
+		}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var updatedUser models.User
+		db.First(&updatedUser, user.ID)
+		assert.Equal(t, "Updated Name", updatedUser.Name)
+	})
+
+	// 2. Success - Email change with password
+	t.Run("Success Email Change", func(t *testing.T) {
+		body := map[string]string{
+			"name":             "Updated Name",
+			"email":            "newemail@example.com",
+			"current_password": "password123",
+		}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var updatedUser models.User
+		db.First(&updatedUser, user.ID)
+		assert.Equal(t, "newemail@example.com", updatedUser.Email)
+	})
+
+	// 3. Fail - Email change without password
+	t.Run("Fail Email Change No Password", func(t *testing.T) {
+		// Reset email
+		db.Model(user).Update("email", "test@example.com")
+
+		body := map[string]string{
+			"name":  "Updated Name",
+			"email": "another@example.com",
+		}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	// 4. Fail - Email change wrong password
+	t.Run("Fail Email Change Wrong Password", func(t *testing.T) {
+		body := map[string]string{
+			"name":             "Updated Name",
+			"email":            "another@example.com",
+			"current_password": "wrongpassword",
+		}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	// 5. Fail - Email already in use
+	t.Run("Fail Email In Use", func(t *testing.T) {
+		// Create another user
+		otherUser := &models.User{
+			UUID:   uuid.NewString(),
+			Email:  "other@example.com",
+			Name:   "Other User",
+			APIKey: uuid.NewString(),
+		}
+		db.Create(otherUser)
+
+		body := map[string]string{
+			"name":  "Updated Name",
+			"email": "other@example.com",
+		}
+		jsonBody, _ := json.Marshal(body)
+		req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
 }

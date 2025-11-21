@@ -50,3 +50,7 @@ export const updateProxyHost = async (uuid: string, host: Partial<ProxyHost>): P
 export const deleteProxyHost = async (uuid: string): Promise<void> => {
   await client.delete(`/proxy-hosts/${uuid}`);
 };
+
+export const testProxyHostConnection = async (host: string, port: number): Promise<void> => {
+  await client.post('/proxy-hosts/test', { forward_host: host, forward_port: port });
+};

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { CircleHelp, AlertCircle } from 'lucide-react'
+import { CircleHelp, AlertCircle, Check, X, Loader2 } from 'lucide-react'
 import type { ProxyHost } from '../api/proxyHosts'
+import { testProxyHostConnection } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useDocker } from '../hooks/useDocker'
@@ -38,6 +39,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [showDomainPrompt, setShowDomainPrompt] = useState(false)
   const [pendingDomain, setPendingDomain] = useState('')
   const [dontAskAgain, setDontAskAgain] = useState(false)
+
+  // Test Connection State
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
   useEffect(() => {
     const stored = localStorage.getItem('cpmp_dont_ask_domain')
@@ -86,6 +90,23 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const handleDontAskToggle = (checked: boolean) => {
     setDontAskAgain(checked)
     localStorage.setItem('cpmp_dont_ask_domain', String(checked))
+  }
+
+  const handleTestConnection = async () => {
+    if (!formData.forward_host || !formData.forward_port) return
+
+    setTestStatus('testing')
+    try {
+      await testProxyHostConnection(formData.forward_host, formData.forward_port)
+      setTestStatus('success')
+      // Reset status after 3 seconds
+      setTimeout(() => setTestStatus('idle'), 3000)
+    } catch (err) {
+      console.error("Test connection failed", err)
+      setTestStatus('error')
+      // Reset status after 3 seconds
+      setTimeout(() => setTestStatus('idle'), 3000)
+    }
   }
 
   // Fetch containers based on selected source
@@ -422,12 +443,30 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             >
               Cancel
             </button>
+
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={loading || testStatus === 'testing' || !formData.forward_host || !formData.forward_port}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50 ${
+                testStatus === 'success' ? 'bg-green-600 hover:bg-green-500 text-white' :
+                testStatus === 'error' ? 'bg-red-600 hover:bg-red-500 text-white' :
+                'bg-gray-700 hover:bg-gray-600 text-white'
+              }`}
+              title="Test connection to the forward host"
+            >
+              {testStatus === 'testing' ? <Loader2 size={18} className="animate-spin" /> :
+               testStatus === 'success' ? <Check size={18} /> :
+               testStatus === 'error' ? <X size={18} /> :
+               'Test Connection'}
+            </button>
+
             <button
               type="submit"
               disabled={loading}
-              className="px-6 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
-              {loading ? 'Saving...' : (host ? 'Update' : 'Create')}
+              {loading ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>
