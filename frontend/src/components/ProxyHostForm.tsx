@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CircleHelp } from 'lucide-react'
 import type { ProxyHost } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDocker } from '../hooks/useDocker'
@@ -20,15 +21,31 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_enabled: host?.hsts_enabled ?? false,
     hsts_subdomains: host?.hsts_subdomains ?? false,
     block_exploits: host?.block_exploits ?? true,
-    websocket_support: host?.websocket_support ?? false,
+    websocket_support: host?.websocket_support ?? true,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
   })
 
   const { servers: remoteServers } = useRemoteServers()
-  const [dockerHost, setDockerHost] = useState('')
-  const [showDockerHost, setShowDockerHost] = useState(false)
-  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(dockerHost)
+  const [connectionSource, setConnectionSource] = useState<'local' | string>('local')
+
+  // Fetch containers based on selected source
+  // If 'local', host is undefined (which defaults to local socket in backend)
+  // If remote UUID, we need to find the server and get its host address?
+  // Actually, the backend ListContainers takes a 'host' query param.
+  // If it's a remote server, we should probably pass the UUID or the host address.
+  // Looking at backend/internal/services/docker_service.go, it takes a 'host' string.
+  // If it's a remote server, we need to pass the TCP address (e.g. tcp://1.2.3.4:2375).
+
+  const getDockerHostString = () => {
+    if (connectionSource === 'local') return undefined;
+    const server = remoteServers.find(s => s.uuid === connectionSource);
+    if (!server) return undefined;
+    // Construct the Docker host string
+    return `tcp://${server.host}:${server.port}`;
+  }
+
+  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(getDockerHostString())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -130,28 +147,31 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
             {/* Docker Container Quick Select */}
             <div>
-              <div className="flex justify-between items-center mb-2">
-                <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300">
-                  Quick Select: Container
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowDockerHost(!showDockerHost)}
-                  className="text-xs text-blue-400 hover:text-blue-300"
-                >
-                  {showDockerHost ? 'Hide Remote' : 'Remote Docker?'}
-                </button>
-              </div>
+              <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
+                Source
+              </label>
+              <select
+                id="connection-source"
+                value={connectionSource}
+                onChange={e => setConnectionSource(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="local">Local (Docker Socket)</option>
+                {remoteServers
+                  .filter(s => s.provider === 'docker' && s.enabled)
+                  .map(server => (
+                    <option key={server.uuid} value={server.uuid}>
+                      {server.name} ({server.host})
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
 
-              {showDockerHost && (
-                <input
-                  type="text"
-                  placeholder="tcp://100.x.y.z:2375"
-                  value={dockerHost}
-                  onChange={(e) => setDockerHost(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              )}
+            <div>
+              <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300 mb-2">
+                Quick Select: Container
+              </label>
 
               <select
                 id="quick-select-docker"
@@ -227,6 +247,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Force SSL</span>
+              <div title="Redirects all HTTP traffic to HTTPS" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -236,6 +259,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HTTP/2 Support</span>
+              <div title="Enables HTTP/2 support for better performance" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -245,6 +271,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Enabled</span>
+              <div title="Enables HTTP Strict Transport Security (HSTS)" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -254,6 +283,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Subdomains</span>
+              <div title="Applies HSTS to all subdomains" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -262,7 +294,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 onChange={e => setFormData({ ...formData, block_exploits: e.target.checked })}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-300">Block Common Exploits</span>
+              <span className="text-sm text-gray-300">Block Exploits</span>
+              <div title="Blocks common exploit attempts (XSS, SQLi, etc.)" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
@@ -271,7 +306,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 onChange={e => setFormData({ ...formData, websocket_support: e.target.checked })}
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-300">WebSocket Support</span>
+              <span className="text-sm text-gray-300">Websockets Support</span>
+              <div title="Enables WebSocket support for real-time applications" className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
             </label>
             <label className="flex items-center gap-3">
               <input
