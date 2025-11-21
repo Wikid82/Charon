@@ -132,12 +132,14 @@ Implement the core proxy host creation and management.
 - [ ] Add WebSocket support toggle
 - [ ] Implement custom locations/paths
 - [ ] Add advanced options (headers, caching)
+- [ ] Implement Docker/Podman container auto-discovery (via socket)
 
 **Acceptance Criteria**:
 - Can create basic proxy hosts
 - Hosts appear in list immediately
 - Changes reflect in Caddy config
 - Can proxy HTTP/HTTPS services successfully
+- Can select local containers from a list
 
 ---
 
@@ -790,6 +792,29 @@ Implement theme system beyond basic dark/light.
 
 ---
 
+### 🔌 CONNECTIVITY & REMOTE ACCESS (Beta - Phase 6)
+
+#### Issue #41: Remote Server & VPN Integrations
+**Priority**: `high`
+**Labels**: `beta`, `feature`, `high`, `connectivity`
+**Description**:
+Integrate VPN and tunnel providers to securely proxy services from remote networks.
+
+**Tasks**:
+- [ ] Implement Remote Server management system
+- [ ] Add Tailscale integration (with Headscale support)
+- [ ] Add ZeroTier integration
+- [ ] Add Cloudflare Tunnel integration
+- [ ] Implement connection health monitoring
+- [ ] Create UI for managing remote providers
+- [ ] Add "Use Custom Control Server" option for Headscale
+
+**Acceptance Criteria**:
+- Can connect to remote networks via VPN/Tunnel
+- Remote hosts available as proxy targets
+- Headscale supported as Tailscale alternative
+- Connection status visible in UI
+
 ### 🔧 ADVANCED FEATURES (Post-Beta)
 
 #### Issue #33: API & CLI Tools
@@ -1033,7 +1058,7 @@ Ensure CaddyProxyManager+ performs well under load.
 - Docker deployment
 - User authentication
 
-### Beta (Issues #11-32)
+### Beta (Issues #11-32, #41)
 **Goal**: Full security suite and monitoring
 **Target**: 4-6 months
 **Key Features**:
@@ -1045,6 +1070,7 @@ Ensure CaddyProxyManager+ performs well under load.
 - DNS challenge (wildcard certs)
 - Enhanced logging & monitoring
 - GoAccess integration
+- Remote Access (Tailscale/Headscale, ZeroTier)
 
 ### Post-Beta (Issues #33-36)
 **Goal**: Advanced features and enterprise capabilities

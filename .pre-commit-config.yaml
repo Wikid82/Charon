@@ -31,3 +31,9 @@ repos:
         language: script
         files: '\.go$'
         pass_filenames: false
+      - id: frontend-type-check
+        name: Frontend TypeScript Check
+        entry: bash -c 'cd frontend && npm run type-check'
+        language: system
+        files: '^frontend/.*\.(ts|tsx)$'
+        pass_filenames: false

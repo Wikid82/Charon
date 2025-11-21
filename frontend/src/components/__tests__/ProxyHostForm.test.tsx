@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
 import { mockRemoteServers } from '../../test/mockData'
 
-// Mock the hook
+// Mock the hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
   useRemoteServers: vi.fn(() => ({
     servers: mockRemoteServers,
@@ -13,6 +13,26 @@ vi.mock('../../hooks/useRemoteServers', () => ({
     createRemoteServer: vi.fn(),
     updateRemoteServer: vi.fn(),
     deleteRemoteServer: vi.fn(),
+  })),
+}))
+
+vi.mock('../../hooks/useDocker', () => ({
+  useDocker: vi.fn(() => ({
+    containers: [
+      {
+        id: 'container-123',
+        names: ['my-app'],
+        image: 'nginx:latest',
+        state: 'running',
+        status: 'Up 2 hours',
+        network: 'bridge',
+        ip: '172.17.0.2',
+        ports: [{ private_port: 80, public_port: 8080, type: 'tcp' }]
+      }
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
   })),
 }))
 
@@ -65,6 +85,7 @@ describe('ProxyHostForm', () => {
       block_exploits: true,
       websocket_support: false,
       enabled: true,
+      locations: [],
       created_at: '2025-11-18T10:00:00Z',
       updated_at: '2025-11-18T10:00:00Z',
     }
@@ -159,11 +180,27 @@ describe('ProxyHostForm', () => {
       expect(screen.getByText(/Local Docker Registry/)).toBeInTheDocument()
     })
 
-    const select = screen.getByRole('combobox', { name: /quick select/i })
+    const select = screen.getByLabelText('Quick Select: Remote Server')
     fireEvent.change(select, { target: { value: mockRemoteServers[0].uuid } })
 
     expect(screen.getByDisplayValue(mockRemoteServers[0].host)).toBeInTheDocument()
     expect(screen.getByDisplayValue(mockRemoteServers[0].port)).toBeInTheDocument()
+  })
+
+  it('populates fields when a docker container is selected', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quick Select: Container')).toBeInTheDocument()
+    })
+
+    const select = screen.getByLabelText('Quick Select: Container')
+    fireEvent.change(select, { target: { value: 'container-123' } })
+
+    expect(screen.getByDisplayValue('172.17.0.2')).toBeInTheDocument() // IP
+    expect(screen.getByDisplayValue('80')).toBeInTheDocument() // Port
   })
 
   it('displays error message on submission failure', async () => {
@@ -198,5 +235,20 @@ describe('ProxyHostForm', () => {
     fireEvent.change(advancedInput, { target: { value: 'header_up X-Test "True"' } })
 
     expect(advancedInput).toHaveValue('header_up X-Test "True"')
+  })
+
+  it('allows entering a remote docker host', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const toggle = screen.getByText('Remote Docker?')
+    fireEvent.click(toggle)
+
+    const input = screen.getByPlaceholderText('tcp://100.x.y.z:2375')
+    expect(input).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'tcp://remote:2375' } })
+    expect(input).toHaveValue('tcp://remote:2375')
   })
 })

@@ -11,7 +11,7 @@ export interface ImportPreview {
   session: ImportSession;
   preview: {
     hosts: Array<{ domain_names: string; [key: string]: unknown }>;
-    conflicts: Record<string, string>;
+    conflicts: string[];
     errors: string[];
   };
 }
