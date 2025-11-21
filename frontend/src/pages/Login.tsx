@@ -4,9 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
-import { toast } from '../components/Toast'
+import { toast } from '../utils/toast'
 import client from '../api/client'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../hooks/useAuth'
 import { getSetupStatus } from '../api/setup'
 
 export default function Login() {

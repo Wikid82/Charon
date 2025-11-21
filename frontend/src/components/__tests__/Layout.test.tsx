@@ -7,7 +7,7 @@ import Layout from '../Layout'
 import { ThemeProvider } from '../../context/ThemeContext'
 
 // Mock AuthContext
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     logout: vi.fn(),
   }),

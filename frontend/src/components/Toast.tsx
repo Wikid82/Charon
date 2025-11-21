@@ -1,34 +1,5 @@
 import { useEffect, useState } from 'react'
-
-type ToastType = 'success' | 'error' | 'info' | 'warning'
-
-interface Toast {
-  id: number
-  message: string
-  type: ToastType
-}
-
-let toastId = 0
-const toastCallbacks = new Set<(toast: Toast) => void>()
-
-export const toast = {
-  success: (message: string) => {
-    const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'success' }))
-  },
-  error: (message: string) => {
-    const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'error' }))
-  },
-  info: (message: string) => {
-    const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'info' }))
-  },
-  warning: (message: string) => {
-    const id = ++toastId
-    toastCallbacks.forEach(callback => callback({ id, message, type: 'warning' }))
-  },
-}
+import { toastCallbacks, Toast } from '../utils/toast'
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<Toast[]>([])
