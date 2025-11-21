@@ -103,3 +103,24 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "illegal file path")
 }
+
+func TestBackupService_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	os.MkdirAll(service.BackupDir, 0755)
+
+	// Test GetBackupPath with traversal
+	// Should resolve to .../backups/passwd, NOT .../etc/passwd
+	path := service.GetBackupPath("../../etc/passwd")
+	expected := filepath.Join(service.BackupDir, "passwd")
+	assert.Equal(t, expected, path)
+
+	// Test DeleteBackup with traversal
+	// Should try to delete .../backups/passwd, fail because it doesn't exist
+	err := service.DeleteBackup("../../etc/passwd")
+	assert.Error(t, err)
+	assert.True(t, os.IsNotExist(err))
+}

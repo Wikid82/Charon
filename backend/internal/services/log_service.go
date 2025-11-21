@@ -59,7 +59,7 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 
 // GetLogPath returns the absolute path to a log file if it exists and is valid
 func (s *LogService) GetLogPath(filename string) (string, error) {
-	clean := filepath.Base(filename)
+	clean := filepath.Base(filepath.Clean(filename))
 	path := filepath.Join(s.LogDir, clean)
 
 	// Verify file exists

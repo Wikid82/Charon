@@ -160,20 +160,21 @@ func (s *BackupService) addDirToZip(w *zip.Writer, srcDir, zipBase string) error
 // DeleteBackup removes a backup file
 func (s *BackupService) DeleteBackup(filename string) error {
 	// Basic sanitization to prevent directory traversal
-	clean := filepath.Base(filename)
+	clean := filepath.Base(filepath.Clean(filename))
 	return os.Remove(filepath.Join(s.BackupDir, clean))
 }
 
 // GetBackupPath returns the full path to a backup file (for downloading)
 func (s *BackupService) GetBackupPath(filename string) string {
-	clean := filepath.Base(filename)
+	clean := filepath.Base(filepath.Clean(filename))
 	return filepath.Join(s.BackupDir, clean)
 }
 
 // RestoreBackup restores the database and caddy data from a zip archive
 func (s *BackupService) RestoreBackup(filename string) error {
 	// 1. Verify backup exists
-	srcPath := filepath.Join(s.BackupDir, filename)
+	clean := filepath.Base(filepath.Clean(filename))
+	srcPath := filepath.Join(s.BackupDir, clean)
 	if _, err := os.Stat(srcPath); err != nil {
 		return err
 	}
