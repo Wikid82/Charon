@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
