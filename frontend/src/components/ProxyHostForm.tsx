@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { CircleHelp } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { CircleHelp, AlertCircle } from 'lucide-react'
 import type { ProxyHost } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useDocker } from '../hooks/useDocker'
+import { parse } from 'tldts'
 
 interface ProxyHostFormProps {
   host?: ProxyHost
@@ -28,9 +29,64 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   })
 
   const { servers: remoteServers } = useRemoteServers()
-  const { domains } = useDomains()
+  const { domains, createDomain } = useDomains()
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
   const [selectedDomain, setSelectedDomain] = useState('')
+  const [selectedContainerId, setSelectedContainerId] = useState<string>('')
+
+  // New Domain Popup State
+  const [showDomainPrompt, setShowDomainPrompt] = useState(false)
+  const [pendingDomain, setPendingDomain] = useState('')
+  const [dontAskAgain, setDontAskAgain] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem('cpmp_dont_ask_domain')
+    if (stored === 'true') {
+      setDontAskAgain(true)
+    }
+  }, [])
+
+  const checkNewDomains = (input: string) => {
+    if (dontAskAgain) return
+
+    const domainList = input.split(',').map(d => d.trim()).filter(d => d)
+    for (const domain of domainList) {
+      const parsed = parse(domain)
+      if (parsed.domain && parsed.domain !== domain) {
+        // It's a subdomain, check if the base domain exists
+        const baseDomain = parsed.domain
+        const exists = domains.some(d => d.name === baseDomain)
+        if (!exists) {
+          setPendingDomain(baseDomain)
+          setShowDomainPrompt(true)
+          return // Only prompt for one at a time
+        }
+      } else if (parsed.domain && parsed.domain === domain) {
+         // It is a base domain, check if it exists
+         const exists = domains.some(d => d.name === domain)
+         if (!exists) {
+            setPendingDomain(domain)
+            setShowDomainPrompt(true)
+            return
+         }
+      }
+    }
+  }
+
+  const handleSaveDomain = async () => {
+    try {
+      await createDomain(pendingDomain)
+      setShowDomainPrompt(false)
+    } catch (err) {
+      console.error("Failed to save domain", err)
+      // Optionally show error
+    }
+  }
+
+  const handleDontAskToggle = (checked: boolean) => {
+    setDontAskAgain(checked)
+    localStorage.setItem('cpmp_dont_ask_domain', String(checked))
+  }
 
   // Fetch containers based on selected source
   // If 'local', host is undefined (which defaults to local socket in backend)
@@ -68,6 +124,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   const handleContainerSelect = (containerId: string) => {
+    setSelectedContainerId(containerId)
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
       // Prefer internal IP if available, otherwise use container name
@@ -88,6 +145,20 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         forward_scheme: 'http',
         domain_names: newDomainNames,
       })
+    }
+  }
+
+  const handleBaseDomainChange = (domain: string) => {
+    setSelectedDomain(domain)
+    if (selectedContainerId && domain) {
+      const container = dockerContainers.find(c => c.id === selectedContainerId)
+      if (container) {
+        const subdomain = container.names[0].replace(/^\//, '')
+        setFormData(prev => ({
+          ...prev,
+          domain_names: `${subdomain}.${domain}`
+        }))
+      }
     }
   }
 
@@ -172,7 +243,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <select
                   id="base-domain"
                   value={selectedDomain}
-                  onChange={e => setSelectedDomain(e.target.value)}
+                  onChange={e => handleBaseDomainChange(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">-- Select a base domain --</option>
@@ -193,6 +264,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 required
                 value={formData.domain_names}
                 onChange={e => setFormData({ ...formData, domain_names: e.target.value })}
+                onBlur={e => checkNewDomains(e.target.value)}
                 placeholder="example.com, www.example.com"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -360,6 +432,55 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           </div>
         </form>
       </div>
+
+      {/* New Domain Prompt Modal */}
+      {showDomainPrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-center gap-3 mb-4 text-blue-400">
+              <AlertCircle size={24} />
+              <h3 className="text-lg font-semibold text-white">New Base Domain Detected</h3>
+            </div>
+
+            <p className="text-gray-300 mb-4">
+              You are using a new base domain: <span className="font-mono font-bold text-white">{pendingDomain}</span>
+            </p>
+            <p className="text-gray-400 text-sm mb-6">
+              Would you like to save this to your domain list for easier selection in the future?
+            </p>
+
+            <div className="flex items-center gap-2 mb-6">
+              <input
+                type="checkbox"
+                id="dont-ask"
+                checked={dontAskAgain}
+                onChange={e => handleDontAskToggle(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-600 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="dont-ask" className="text-sm text-gray-400 select-none">
+                Don't ask me again
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDomainPrompt(false)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+              >
+                No, thanks
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDomain}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Yes, save it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
