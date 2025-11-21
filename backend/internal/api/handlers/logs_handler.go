@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
@@ -43,6 +44,10 @@ func (h *LogsHandler) Read(c *gin.Context) {
 
 	logs, total, err := h.service.QueryLogs(filename, filter)
 	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Log file not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read log"})
 		return
 	}

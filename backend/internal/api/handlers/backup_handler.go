@@ -37,6 +37,10 @@ func (h *BackupHandler) Create(c *gin.Context) {
 func (h *BackupHandler) Delete(c *gin.Context) {
 	filename := c.Param("filename")
 	if err := h.service.DeleteBackup(filename); err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete backup"})
 		return
 	}
@@ -58,6 +62,10 @@ func (h *BackupHandler) Download(c *gin.Context) {
 func (h *BackupHandler) Restore(c *gin.Context) {
 	filename := c.Param("filename")
 	if err := h.service.RestoreBackup(filename); err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Backup not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore backup: " + err.Error()})
 		return
 	}

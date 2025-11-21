@@ -61,6 +61,8 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 	backups.GET("", h.List)
 	backups.POST("", h.Create)
 	backups.POST("/:filename/restore", h.Restore)
+	backups.DELETE("/:filename", h.Delete)
+	backups.GET("/:filename/download", h.Download)
 
 	return r, svc, tmpDir
 }
@@ -101,4 +103,45 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
+
+	// 5. Download backup
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	// Content-Type might vary depending on implementation (application/octet-stream or zip)
+	// require.Equal(t, "application/zip", resp.Header().Get("Content-Type"))
+
+	// 6. Delete backup
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// 7. List backups (should be empty again)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var list []interface{}
+	json.Unmarshal(resp.Body.Bytes(), &list)
+	require.Empty(t, list)
+
+	// 8. Delete non-existent backup
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/missing.zip", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 9. Restore non-existent backup
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/missing.zip/restore", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 10. Download non-existent backup
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/missing.zip/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
 }

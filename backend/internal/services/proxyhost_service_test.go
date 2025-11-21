@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
@@ -11,9 +12,10 @@ import (
 )
 
 func setupProxyHostTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 	return db
 }
 
@@ -29,16 +31,110 @@ func TestProxyHostService_ValidateUniqueDomain(t *testing.T) {
 	}
 	require.NoError(t, db.Create(existing).Error)
 
-	// Test 1: Duplicate domain
-	err := service.ValidateUniqueDomain("example.com", 0)
+	tests := []struct {
+		name        string
+		domainNames string
+		excludeID   uint
+		wantErr     bool
+	}{
+		{
+			name:        "New unique domain",
+			domainNames: "new.example.com",
+			excludeID:   0,
+			wantErr:     false,
+		},
+		{
+			name:        "Duplicate domain",
+			domainNames: "example.com",
+			excludeID:   0,
+			wantErr:     true,
+		},
+		{
+			name:        "Same domain but excluded ID (update self)",
+			domainNames: "example.com",
+			excludeID:   existing.ID,
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := service.ValidateUniqueDomain(tt.domainNames, tt.excludeID)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestProxyHostService_CRUD(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	// Create
+	host := &models.ProxyHost{
+		UUID:        "uuid-1",
+		DomainNames: "test.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	err := service.Create(host)
+	assert.NoError(t, err)
+	assert.NotZero(t, host.ID)
+
+	// Create Duplicate
+	dup := &models.ProxyHost{
+		UUID:        "uuid-2",
+		DomainNames: "test.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8081,
+	}
+	err = service.Create(dup)
 	assert.Error(t, err)
-	assert.Equal(t, "domain already exists", err.Error())
 
-	// Test 2: New domain
-	err = service.ValidateUniqueDomain("new.com", 0)
+	// GetByID
+	fetched, err := service.GetByID(host.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, host.DomainNames, fetched.DomainNames)
+
+	// GetByUUID
+	fetchedUUID, err := service.GetByUUID(host.UUID)
+	assert.NoError(t, err)
+	assert.Equal(t, host.ID, fetchedUUID.ID)
+
+	// Update
+	host.ForwardPort = 9090
+	err = service.Update(host)
 	assert.NoError(t, err)
 
-	// Test 3: Update existing (exclude self)
-	err = service.ValidateUniqueDomain("example.com", existing.ID)
+	fetched, err = service.GetByID(host.ID)
 	assert.NoError(t, err)
+	assert.Equal(t, 9090, fetched.ForwardPort)
+
+	// Update Duplicate
+	host2 := &models.ProxyHost{
+		UUID:        "uuid-3",
+		DomainNames: "other.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	service.Create(host2)
+
+	host.DomainNames = "other.example.com" // Conflict with host2
+	err = service.Update(host)
+	assert.Error(t, err)
+
+	// List
+	hosts, err := service.List()
+	assert.NoError(t, err)
+	assert.Len(t, hosts, 2)
+
+	// Delete
+	err = service.Delete(host.ID)
+	assert.NoError(t, err)
+
+	_, err = service.GetByID(host.ID)
+	assert.Error(t, err)
 }

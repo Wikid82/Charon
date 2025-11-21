@@ -109,4 +109,28 @@ func TestLogsLifecycle(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "request handled")
+
+	// 4. Read non-existent log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 5. Download non-existent log
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// 6. List logs error (delete directory)
+	os.RemoveAll(filepath.Join(tmpDir, "data", "logs"))
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// ListLogs returns empty list if dir doesn't exist, so it should be 200 OK with empty list
+	require.Equal(t, http.StatusOK, resp.Code)
+	var emptyLogs []services.LogFile
+	err = json.Unmarshal(resp.Body.Bytes(), &emptyLogs)
+	require.NoError(t, err)
+	require.Empty(t, emptyLogs)
 }

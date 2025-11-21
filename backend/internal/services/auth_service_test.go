@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,15 +13,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func setupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+func setupAuthTestDB(t *testing.T) *gorm.DB {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.User{}))
 	return db
 }
 
 func TestAuthService_Register(t *testing.T) {
-	db := setupTestDB(t)
+	db := setupAuthTestDB(t)
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
@@ -38,7 +40,7 @@ func TestAuthService_Register(t *testing.T) {
 }
 
 func TestAuthService_Login(t *testing.T) {
-	db := setupTestDB(t)
+	db := setupAuthTestDB(t)
 	cfg := config.Config{JWTSecret: "test-secret"}
 	service := NewAuthService(db, cfg)
 
@@ -75,4 +77,55 @@ func TestAuthService_Login(t *testing.T) {
 	token, err = service.Login("test@example.com", "password123")
 	assert.Error(t, err)
 	assert.Equal(t, "account locked", err.Error())
+}
+
+func TestAuthService_ChangePassword(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("test@example.com", "password123", "Test User")
+	require.NoError(t, err)
+
+	// Success
+	err = service.ChangePassword(user.ID, "password123", "newpassword")
+	assert.NoError(t, err)
+
+	// Verify login with new password
+	_, err = service.Login("test@example.com", "newpassword")
+	assert.NoError(t, err)
+
+	// Fail with old password
+	_, err = service.Login("test@example.com", "password123")
+	assert.Error(t, err)
+
+	// Fail with wrong current password
+	err = service.ChangePassword(user.ID, "wrong", "another")
+	assert.Error(t, err)
+	assert.Equal(t, "invalid current password", err.Error())
+
+	// Fail with non-existent user
+	err = service.ChangePassword(999, "password", "new")
+	assert.Error(t, err)
+}
+
+func TestAuthService_ValidateToken(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	user, err := service.Register("test@example.com", "password123", "Test User")
+	require.NoError(t, err)
+
+	token, err := service.Login("test@example.com", "password123")
+	require.NoError(t, err)
+
+	// Valid token
+	claims, err := service.ValidateToken(token)
+	assert.NoError(t, err)
+	assert.Equal(t, user.ID, claims.UserID)
+
+	// Invalid token
+	_, err = service.ValidateToken("invalid.token.string")
+	assert.Error(t, err)
 }
