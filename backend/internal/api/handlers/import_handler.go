@@ -63,7 +63,12 @@ func (h *ImportHandler) GetStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"has_pending": true,
-		"session":     session,
+		"session": gin.H{
+			"id":         session.UUID,
+			"state":      session.Status,
+			"created_at": session.CreatedAt,
+			"updated_at": session.UpdatedAt,
+		},
 	})
 }
 
@@ -89,7 +94,15 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 	session.Status = "reviewing"
 	h.db.Save(&session)
 
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, gin.H{
+		"session": gin.H{
+			"id":         session.UUID,
+			"state":      session.Status,
+			"created_at": session.CreatedAt,
+			"updated_at": session.UpdatedAt,
+		},
+		"preview": result,
+	})
 }
 
 // Upload handles manual Caddyfile upload or paste.
