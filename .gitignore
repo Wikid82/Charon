@@ -70,3 +70,4 @@ docker-compose.override.yml
 coverage/
 *.xml
 .trivy_logs/trivy-report.txt
+backend/coverage.txt
