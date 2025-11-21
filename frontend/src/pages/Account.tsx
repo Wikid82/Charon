@@ -451,7 +451,7 @@ export default function Account() {
                 Yes, update certificate email too
               </Button>
               <Button onClick={() => confirmEmailUpdate(false)} variant="secondary" className="w-full">
-                No, keep using {certEmail}
+                No, keep using {previousEmail || certEmail}
               </Button>
               <Button onClick={() => setShowEmailConfirmModal(false)} variant="ghost" className="w-full text-gray-500">
                 Cancel

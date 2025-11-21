@@ -145,9 +145,8 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className="flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col">
         {/* Desktop Header */}
-        <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
+        <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 relative">
            <div className="w-1/3 flex items-center gap-4">
-             <h1 className="text-xl font-bold text-gray-900 dark:text-white mr-4">CPM+</h1>
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -156,11 +155,15 @@ export default function Layout({ children }: LayoutProps) {
                 <Menu className="w-5 h-5" />
               </button>
            </div>
-           <div className="w-1/3 flex justify-center">
-             {/* Centered content if needed, or just spacer */}
+           <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
+             <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
-             {user && <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{user.name}</span>}
+             {user && (
+               <Link to="/settings/account" className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                 {user.name}
+               </Link>
+             )}
              <SystemStatus />
              <NotificationCenter />
              <ThemeToggle />
