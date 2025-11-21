@@ -25,3 +25,9 @@ repos:
         language: script
         files: "Dockerfile.*"
         pass_filenames: true
+      - id: go-test-coverage
+        name: Go Test Coverage
+        entry: scripts/go-test-coverage.sh
+        language: script
+        files: '\.go$'
+        pass_filenames: false

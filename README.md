@@ -56,15 +56,14 @@ Don't have Docker? [Download it here](https://docs.docker.com/get-docker/) - it'
 ### Step 2: Run One Command
 Open your terminal and paste this:
 
-**Real-World Example:**
 ```bash
-docker run -d \
-  -p 8080:8080 \
-  -v caddy_data:/app/data \
-  --name caddy-proxy-manager \
-  ghcr.io/wikid82/cpmp:latest
-```
+# Clone the repository
+git clone https://github.com/Wikid82/CaddyProxyManagerPlus.git
+cd CaddyProxyManagerPlus
 
+# Start the stack
+docker-compose up -d
+```
 
 ### Step 3: Open Your Browser
 Go to: **http://localhost:8080**
@@ -72,6 +71,8 @@ Go to: **http://localhost:8080**
 **That's it!** 🎉 You're ready to start adding your websites!
 
 > 💡 **Tip:** Not sure what a terminal is? On Windows, search for "Command Prompt". On Mac, search for "Terminal".
+
+For more details, check out the [Docker Deployment Guide](DOCKER.md).
 
 ---
 

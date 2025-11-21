@@ -2,6 +2,7 @@ package routes
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -26,6 +27,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.User{},
 		&models.Setting{},
 		&models.ImportSession{},
+		&models.Notification{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -39,6 +41,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	authHandler := handlers.NewAuthHandler(authService)
 	authMiddleware := middleware.AuthMiddleware(authService)
 
+	// Backup routes
+	backupService := services.NewBackupService(&cfg)
+	backupHandler := handlers.NewBackupHandler(backupService)
+
+	// Log routes
+	logService := services.NewLogService(&cfg)
+	logsHandler := handlers.NewLogsHandler(logService)
+
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 
@@ -48,6 +58,58 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.POST("/auth/change-password", authHandler.ChangePassword)
+
+		// Backups
+		protected.GET("/backups", backupHandler.List)
+		protected.POST("/backups", backupHandler.Create)
+		protected.DELETE("/backups/:filename", backupHandler.Delete)
+		protected.GET("/backups/:filename/download", backupHandler.Download)
+		protected.POST("/backups/:filename/restore", backupHandler.Restore)
+
+		// Logs
+		protected.GET("/logs", logsHandler.List)
+		protected.GET("/logs/:filename", logsHandler.Read)
+		protected.GET("/logs/:filename/download", logsHandler.Download)
+
+		// Settings
+		settingsHandler := handlers.NewSettingsHandler(db)
+		protected.GET("/settings", settingsHandler.GetSettings)
+		protected.POST("/settings", settingsHandler.UpdateSetting)
+
+		// User Profile & API Key
+		userHandler := handlers.NewUserHandler(db)
+		protected.GET("/user/profile", userHandler.GetProfile)
+		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
+
+		// Updates
+		updateService := services.NewUpdateService()
+		updateHandler := handlers.NewUpdateHandler(updateService)
+		protected.GET("/system/updates", updateHandler.Check)
+
+		// Notifications
+		notificationService := services.NewNotificationService(db)
+		notificationHandler := handlers.NewNotificationHandler(notificationService)
+		protected.GET("/notifications", notificationHandler.List)
+		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
+		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
+
+		// Uptime Service
+		uptimeService := services.NewUptimeService(db, notificationService)
+
+		// Start background checker (every 5 minutes)
+		go func() {
+			// Wait a bit for server to start
+			time.Sleep(1 * time.Minute)
+			ticker := time.NewTicker(5 * time.Minute)
+			for range ticker.C {
+				uptimeService.CheckAllHosts()
+			}
+		}()
+
+		protected.POST("/system/uptime/check", func(c *gin.Context) {
+			go uptimeService.CheckAllHosts()
+			c.JSON(200, gin.H{"message": "Uptime check started"})
+		})
 	}
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db)

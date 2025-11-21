@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/routes"
@@ -12,9 +14,31 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/server"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
+	// Setup logging with rotation
+	logDir := "/app/data/logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		// Fallback to local directory if /app/data fails (e.g. local dev)
+		logDir = "data/logs"
+		_ = os.MkdirAll(logDir, 0755)
+	}
+
+	logFile := filepath.Join(logDir, "cpmp.log")
+	rotator := &lumberjack.Logger{
+		Filename:   logFile,
+		MaxSize:    10, // megabytes
+		MaxBackups: 3,
+		MaxAge:     28, // days
+		Compress:   true,
+	}
+
+	// Log to both stdout and file
+	mw := io.MultiWriter(os.Stdout, rotator)
+	log.SetOutput(mw)
+
 	// Handle CLI commands
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
 		if len(os.Args) != 4 {

@@ -9,7 +9,11 @@ import ProxyHosts from './pages/ProxyHosts'
 import RemoteServers from './pages/RemoteServers'
 import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
-import Settings from './pages/Settings'
+import SettingsLayout from './pages/SettingsLayout'
+import SystemSettings from './pages/SystemSettings'
+import Security from './pages/Security'
+import Backups from './pages/Backups'
+import Logs from './pages/Logs'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 
@@ -34,7 +38,17 @@ export default function App() {
             <Route path="remote-servers" element={<RemoteServers />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="import" element={<ImportCaddy />} />
-            <Route path="settings" element={<Settings />} />
+
+            {/* Settings Routes */}
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route index element={<SystemSettings />} /> {/* Default to System */}
+              <Route path="system" element={<SystemSettings />} />
+              <Route path="security" element={<Security />} />
+              <Route path="tasks">
+                <Route path="backups" element={<Backups />} />
+                <Route path="logs" element={<Logs />} />
+              </Route>
+            </Route>
           </Route>
         </Routes>
         <ToastContainer />

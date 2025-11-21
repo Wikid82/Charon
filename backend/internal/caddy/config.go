@@ -10,7 +10,33 @@ import (
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
 func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string) (*Config, error) {
+	// Define log file paths
+	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
+	// Or we can just use a relative path if Caddy's working directory is set correctly.
+	// In Docker, WORKDIR is /app, and storageDir passed here is usually /app/data/caddy.
+	// Let's put logs in /app/data/logs/access.log
+	logFile := "/app/data/logs/access.log"
+
 	config := &Config{
+		Logging: &LoggingConfig{
+			Logs: map[string]*LogConfig{
+				"access": {
+					Level: "INFO",
+					Writer: &WriterConfig{
+						Output:       "file",
+						Filename:     logFile,
+						Roll:         true,
+						RollSize:     10, // 10 MB
+						RollKeep:     5,  // Keep 5 files
+						RollKeepDays: 7,  // Keep for 7 days
+					},
+					Encoder: &EncoderConfig{
+						Format: "json",
+					},
+					Include: []string{"http.log.access.access_log"},
+				},
+			},
+		},
 		Apps: Apps{
 			HTTP: &HTTPApp{
 				Servers: map[string]*Server{},
@@ -47,6 +73,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		return config, nil
 	}
 
+	// We already initialized srv0 above, so we just append routes to it
 	routes := make([]*Route, 0)
 
 	for _, host := range hosts {
@@ -122,6 +149,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		AutoHTTPS: &AutoHTTPSConfig{
 			Disable:      false,
 			DisableRedir: false,
+		},
+		Logs: &ServerLogs{
+			DefaultLoggerName: "access_log",
 		},
 	}
 

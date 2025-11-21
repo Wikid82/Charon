@@ -5,6 +5,8 @@ import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { useAuth } from '../context/AuthContext'
 import { checkHealth } from '../api/health'
+import NotificationCenter from './NotificationCenter'
+import SystemStatus from './SystemStatus'
 
 interface LayoutProps {
   children: ReactNode
@@ -27,7 +29,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
-    { name: 'Settings', path: '/settings', icon: '⚙️' },
+    { name: 'Settings', path: '/settings/security', icon: '⚙️' },
   ]
 
   return (
@@ -36,6 +38,7 @@ export default function Layout({ children }: LayoutProps) {
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
         <h1 className="text-lg font-bold text-gray-900 dark:text-white">CPM+</h1>
         <div className="flex items-center gap-2">
+          <NotificationCenter />
           <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={() => setSidebarOpen(!sidebarOpen)}>
             {sidebarOpen ? '✕' : '☰'}
@@ -57,7 +60,7 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.path
+              const isActive = location.pathname === item.path || (item.path.startsWith('/settings') && location.pathname.startsWith('/settings'))
               return (
                 <Link
                   key={item.path}
@@ -106,9 +109,16 @@ export default function Layout({ children }: LayoutProps) {
         />
       )}
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto pt-16 lg:pt-0">
-        {children}
+      {/* Main Content */}
+      <main className="flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col">
+        {/* Desktop Header */}
+        <header className="hidden lg:flex items-center justify-end px-8 py-4 gap-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
+           <SystemStatus />
+           <NotificationCenter />
+        </header>
+        <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
+          {children}
+        </div>
       </main>
     </div>
   )
