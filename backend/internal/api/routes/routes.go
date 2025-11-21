@@ -28,6 +28,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.Setting{},
 		&models.ImportSession{},
 		&models.Notification{},
+		&models.Domain{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -93,6 +94,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/notifications", notificationHandler.List)
 		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
 		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
+
+		// Domains
+		domainHandler := handlers.NewDomainHandler(db)
+		protected.GET("/domains", domainHandler.List)
+		protected.POST("/domains", domainHandler.Create)
+		protected.DELETE("/domains/:id", domainHandler.Delete)
 
 		// Docker
 		dockerService, err := services.NewDockerService()

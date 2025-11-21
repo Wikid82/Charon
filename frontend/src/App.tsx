@@ -15,6 +15,7 @@ import SystemSettings from './pages/SystemSettings'
 import Account from './pages/Account'
 import Backups from './pages/Backups'
 import Logs from './pages/Logs'
+import Domains from './pages/Domains'
 import Login from './pages/Login'
 import Setup from './pages/Setup'
 
@@ -37,6 +38,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="proxy-hosts" element={<ProxyHosts />} />
             <Route path="remote-servers" element={<RemoteServers />} />
+            <Route path="domains" element={<Domains />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="import" element={<ImportCaddy />} />
 

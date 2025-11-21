@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CircleHelp } from 'lucide-react'
 import type { ProxyHost } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
+import { useDomains } from '../hooks/useDomains'
 import { useDocker } from '../hooks/useDocker'
 
 interface ProxyHostFormProps {
@@ -27,7 +28,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   })
 
   const { servers: remoteServers } = useRemoteServers()
-  const [connectionSource, setConnectionSource] = useState<'local' | string>('local')
+  const { domains } = useDomains()
+  const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
+  const [selectedDomain, setSelectedDomain] = useState('')
 
   // Fetch containers based on selected source
   // If 'local', host is undefined (which defaults to local socket in backend)
@@ -39,6 +42,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   const getDockerHostString = () => {
     if (connectionSource === 'local') return undefined;
+    if (connectionSource === 'custom') return undefined;
     const server = remoteServers.find(s => s.uuid === connectionSource);
     if (!server) return undefined;
     // Construct the Docker host string
@@ -63,18 +67,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
-  const handleServerSelect = (serverUuid: string) => {
-    const server = remoteServers.find(s => s.uuid === serverUuid)
-    if (server) {
-      setFormData({
-        ...formData,
-        forward_host: server.host,
-        forward_port: server.port,
-        forward_scheme: 'http',
-      })
-    }
-  }
-
   const handleContainerSelect = (containerId: string) => {
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
@@ -83,11 +75,18 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       // Use the first exposed port if available, otherwise default to 80
       const port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
 
+      let newDomainNames = formData.domain_names
+      if (selectedDomain) {
+        const subdomain = container.names[0].replace(/^\//, '')
+        newDomainNames = `${subdomain}.${selectedDomain}`
+      }
+
       setFormData({
         ...formData,
         forward_host: host,
         forward_port: port,
         forward_scheme: 'http',
+        domain_names: newDomainNames,
       })
     }
   }
@@ -109,42 +108,43 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           )}
 
           {/* Domain Names */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Domain Names (comma-separated)
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.domain_names}
-              onChange={e => setFormData({ ...formData, domain_names: e.target.value })}
-              placeholder="example.com, www.example.com"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Remote Server Quick Select */}
-            {remoteServers.length > 0 && (
+          <div className="space-y-4">
+            {domains.length > 0 && (
               <div>
-                <label htmlFor="quick-select-server" className="block text-sm font-medium text-gray-300 mb-2">
-                  Quick Select: Remote Server
+                <label htmlFor="base-domain" className="block text-sm font-medium text-gray-300 mb-2">
+                  Base Domain (Auto-fill)
                 </label>
                 <select
-                  id="quick-select-server"
-                  onChange={e => handleServerSelect(e.target.value)}
+                  id="base-domain"
+                  value={selectedDomain}
+                  onChange={e => setSelectedDomain(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">-- Select a server --</option>
-                  {remoteServers.map(server => (
-                    <option key={server.uuid} value={server.uuid}>
-                      {server.name} ({server.host}:{server.port})
+                  <option value="">-- Select a base domain --</option>
+                  {domains.map(domain => (
+                    <option key={domain.uuid} value={domain.name}>
+                      {domain.name}
                     </option>
                   ))}
                 </select>
               </div>
             )}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Domain Names (comma-separated)
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.domain_names}
+                onChange={e => setFormData({ ...formData, domain_names: e.target.value })}
+                placeholder="example.com, www.example.com"
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
             <div>
               <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
@@ -156,6 +156,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 onChange={e => setConnectionSource(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
+                <option value="custom">Custom / Manual</option>
                 <option value="local">Local (Docker Socket)</option>
                 {remoteServers
                   .filter(s => s.provider === 'docker' && s.enabled)
@@ -176,11 +177,13 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               <select
                 id="quick-select-docker"
                 onChange={e => handleContainerSelect(e.target.value)}
-                disabled={dockerLoading}
+                disabled={dockerLoading || connectionSource === 'custom'}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 <option value="">
-                  {dockerLoading ? 'Loading containers...' : '-- Select a container --'}
+                  {connectionSource === 'custom'
+                    ? 'Select a source to view containers'
+                    : (dockerLoading ? 'Loading containers...' : '-- Select a container --')}
                 </option>
                 {dockerContainers.map(container => (
                   <option key={container.id} value={container.id}>
@@ -188,7 +191,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   </option>
                 ))}
               </select>
-              {dockerError && (
+              {dockerError && connectionSource !== 'custom' && (
                 <p className="text-xs text-red-400 mt-1">
                   Failed to connect: {(dockerError as Error).message}
                 </p>
@@ -247,7 +250,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Force SSL</span>
-              <div title="Redirects all HTTP traffic to HTTPS" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Redirects all HTTP traffic to HTTPS. This ensures that all connections to your site are encrypted, preventing eavesdropping." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -259,7 +262,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HTTP/2 Support</span>
-              <div title="Enables HTTP/2 support for better performance" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Enables the HTTP/2 protocol. This can improve performance by allowing multiple requests to be sent over a single connection." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -271,7 +274,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Enabled</span>
-              <div title="Enables HTTP Strict Transport Security (HSTS)" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Enables HTTP Strict Transport Security. This tells browsers to ONLY connect to your site using HTTPS for a specified period, preventing downgrade attacks." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -283,7 +286,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">HSTS Subdomains</span>
-              <div title="Applies HSTS to all subdomains" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Applies the HSTS policy to all subdomains as well. Use this only if you are sure all your subdomains support HTTPS." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -295,7 +298,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Block Exploits</span>
-              <div title="Blocks common exploit attempts (XSS, SQLi, etc.)" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Blocks common web attacks like SQL Injection (SQLi) and Cross-Site Scripting (XSS) by filtering malicious request patterns." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
@@ -307,7 +310,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
               />
               <span className="text-sm text-gray-300">Websockets Support</span>
-              <div title="Enables WebSocket support for real-time applications" className="text-gray-500 hover:text-gray-300 cursor-help">
+              <div title="Allows WebSocket connections to pass through the proxy. This is required for real-time applications like chat apps, notifications, or live dashboards." className="text-gray-500 hover:text-gray-300 cursor-help">
                 <CircleHelp size={14} />
               </div>
             </label>
