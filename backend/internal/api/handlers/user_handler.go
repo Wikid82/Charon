@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -70,7 +71,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	user := models.User{
 		UUID:    uuid.New().String(),
 		Name:    req.Name,
-		Email:   req.Email,
+		Email:   strings.ToLower(req.Email),
 		Role:    "admin",
 		Enabled: true,
 	}
@@ -176,6 +177,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	// Check if email is already taken by another user
+	req.Email = strings.ToLower(req.Email)
 	var count int64
 	if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&count).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check email availability"})

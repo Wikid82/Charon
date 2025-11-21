@@ -11,7 +11,7 @@ import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
 import SettingsLayout from './pages/SettingsLayout'
 import SystemSettings from './pages/SystemSettings'
-import Security from './pages/Security'
+import Account from './pages/Account'
 import Backups from './pages/Backups'
 import Logs from './pages/Logs'
 import Login from './pages/Login'
@@ -41,14 +41,15 @@ export default function App() {
 
             {/* Settings Routes */}
             <Route path="settings" element={<SettingsLayout />}>
-              <Route index element={<SystemSettings />} /> {/* Default to System */}
+              <Route index element={<SystemSettings />} />
               <Route path="system" element={<SystemSettings />} />
-              <Route path="security" element={<Security />} />
+              <Route path="account" element={<Account />} />
               <Route path="tasks">
                 <Route path="backups" element={<Backups />} />
                 <Route path="logs" element={<Logs />} />
               </Route>
             </Route>
+
           </Route>
         </Routes>
         <ToastContainer />

@@ -124,14 +124,23 @@ func TestAuthHandler_Logout(t *testing.T) {
 }
 
 func TestAuthHandler_Me(t *testing.T) {
-	handler, _ := setupAuthHandler(t)
+	handler, db := setupAuthHandler(t)
+
+	// Create user that matches the middleware ID
+	user := &models.User{
+		UUID:  uuid.NewString(),
+		Email: "me@example.com",
+		Name:  "Me User",
+		Role:  "admin",
+	}
+	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	// Simulate middleware
 	r.Use(func(c *gin.Context) {
-		c.Set("userID", uint(1))
-		c.Set("role", "admin")
+		c.Set("userID", user.ID)
+		c.Set("role", user.Role)
 		c.Next()
 	})
 	r.GET("/me", handler.Me)
@@ -143,8 +152,10 @@ func TestAuthHandler_Me(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Equal(t, float64(1), resp["user_id"])
+	assert.Equal(t, float64(user.ID), resp["user_id"])
 	assert.Equal(t, "admin", resp["role"])
+	assert.Equal(t, "Me User", resp["name"])
+	assert.Equal(t, "me@example.com", resp["email"])
 }
 
 func TestAuthHandler_ChangePassword(t *testing.T) {

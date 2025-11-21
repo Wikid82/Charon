@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 import { checkHealth } from '../api/health'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Menu } from 'lucide-react'
 
 interface LayoutProps {
   children: ReactNode
@@ -20,7 +20,7 @@ export default function Layout({ children }: LayoutProps) {
     const saved = localStorage.getItem('sidebarCollapsed')
     return saved ? JSON.parse(saved) : false
   })
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
 
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(isCollapsed))
@@ -38,7 +38,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
-    { name: 'Settings', path: '/settings/security', icon: '⚙️' },
+    { name: 'Settings', path: '/settings/system', icon: '⚙️' },
   ]
 
   return (
@@ -62,21 +62,15 @@ export default function Layout({ children }: LayoutProps) {
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className={`p-4 hidden lg:flex items-center ${isCollapsed ? 'flex-col justify-center gap-4' : 'justify-end gap-4'}`}>
-          <ThemeToggle />
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-          </button>
+        <div className={`p-4 hidden lg:flex items-center justify-center`}>
+           {!isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>}
+           {isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">C+</h1>}
         </div>
 
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.path || (item.path.startsWith('/settings') && location.pathname.startsWith('/settings'))
+              const isActive = location.pathname === item.path || (item.path.startsWith('/settings') && location.pathname.startsWith(item.path) && item.path !== '/settings/system')
               return (
                 <Link
                   key={item.path}
@@ -149,13 +143,23 @@ export default function Layout({ children }: LayoutProps) {
       <main className="flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col">
         {/* Desktop Header */}
         <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
-           <div className="w-1/3"></div>
-           <div className="w-1/3 flex justify-center">
-             <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>
+           <div className="w-1/3 flex items-center gap-4">
+             <button
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                <Menu className="w-5 h-5" />
+              </button>
            </div>
-           <div className="w-1/3 flex justify-end gap-4">
+           <div className="w-1/3 flex justify-center">
+             {/* Centered content if needed, or just spacer */}
+           </div>
+           <div className="w-1/3 flex justify-end items-center gap-4">
+             {user && <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{user.name}</span>}
              <SystemStatus />
              <NotificationCenter />
+             <ThemeToggle />
            </div>
         </header>
         <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
