@@ -17,10 +17,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     forward_scheme: host?.forward_scheme || 'http',
     forward_host: host?.forward_host || '',
     forward_port: host?.forward_port || 80,
-    ssl_forced: host?.ssl_forced ?? false,
-    http2_support: host?.http2_support ?? false,
-    hsts_enabled: host?.hsts_enabled ?? false,
-    hsts_subdomains: host?.hsts_subdomains ?? false,
+    ssl_forced: host?.ssl_forced ?? true,
+    http2_support: host?.http2_support ?? true,
+    hsts_enabled: host?.hsts_enabled ?? true,
+    hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
     advanced_config: host?.advanced_config || '',
@@ -107,6 +107,61 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </div>
           )}
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Docker Container Quick Select */}
+            <div>
+              <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
+                Source
+              </label>
+              <select
+                id="connection-source"
+                value={connectionSource}
+                onChange={e => setConnectionSource(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="custom">Custom / Manual</option>
+                <option value="local">Local (Docker Socket)</option>
+                {remoteServers
+                  .filter(s => s.provider === 'docker' && s.enabled)
+                  .map(server => (
+                    <option key={server.uuid} value={server.uuid}>
+                      {server.name} ({server.host})
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300 mb-2">
+                Containers
+              </label>
+
+              <select
+                id="quick-select-docker"
+                onChange={e => handleContainerSelect(e.target.value)}
+                disabled={dockerLoading || connectionSource === 'custom'}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                <option value="">
+                  {connectionSource === 'custom'
+                    ? 'Select a source to view containers'
+                    : (dockerLoading ? 'Loading containers...' : '-- Select a container --')}
+                </option>
+                {dockerContainers.map(container => (
+                  <option key={container.id} value={container.id}>
+                    {container.names[0]} ({container.image})
+                  </option>
+                ))}
+              </select>
+              {dockerError && connectionSource !== 'custom' && (
+                <p className="text-xs text-red-400 mt-1">
+                  Failed to connect: {(dockerError as Error).message}
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* Domain Names */}
           <div className="space-y-4">
             {domains.length > 0 && (
@@ -141,61 +196,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 placeholder="example.com, www.example.com"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Docker Container Quick Select */}
-            <div>
-              <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
-                Source
-              </label>
-              <select
-                id="connection-source"
-                value={connectionSource}
-                onChange={e => setConnectionSource(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="custom">Custom / Manual</option>
-                <option value="local">Local (Docker Socket)</option>
-                {remoteServers
-                  .filter(s => s.provider === 'docker' && s.enabled)
-                  .map(server => (
-                    <option key={server.uuid} value={server.uuid}>
-                      {server.name} ({server.host})
-                    </option>
-                  ))
-                }
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300 mb-2">
-                Quick Select: Container
-              </label>
-
-              <select
-                id="quick-select-docker"
-                onChange={e => handleContainerSelect(e.target.value)}
-                disabled={dockerLoading || connectionSource === 'custom'}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                <option value="">
-                  {connectionSource === 'custom'
-                    ? 'Select a source to view containers'
-                    : (dockerLoading ? 'Loading containers...' : '-- Select a container --')}
-                </option>
-                {dockerContainers.map(container => (
-                  <option key={container.id} value={container.id}>
-                    {container.names[0]} ({container.image})
-                  </option>
-                ))}
-              </select>
-              {dockerError && connectionSource !== 'custom' && (
-                <p className="text-xs text-red-400 mt-1">
-                  Failed to connect: {(dockerError as Error).message}
-                </p>
-              )}
             </div>
           </div>
 
