@@ -23,6 +23,7 @@ func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/setup", h.Setup)
 	r.GET("/profile", h.GetProfile)
 	r.POST("/regenerate-api-key", h.RegenerateAPIKey)
+	r.PUT("/profile", h.UpdateProfile)
 }
 
 // GetSetupStatus checks if the application needs initial setup (i.e., no users exist).
@@ -153,4 +154,46 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		"role":    user.Role,
 		"api_key": user.APIKey,
 	})
+}
+
+type UpdateProfileRequest struct {
+	Name  string `json:"name" binding:"required"`
+	Email string `json:"email" binding:"required,email"`
+}
+
+// UpdateProfile updates the authenticated user's profile.
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if email is already taken by another user
+	var count int64
+	if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check email availability"})
+		return
+	}
+
+	if count > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+		return
+	}
+
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"name":  req.Name,
+		"email": req.Email,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
 }

@@ -79,6 +79,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
 		protected.GET("/user/profile", userHandler.GetProfile)
+		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
 
 		// Updates
