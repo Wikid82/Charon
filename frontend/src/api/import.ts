@@ -11,7 +11,7 @@ export interface ImportPreview {
   session: ImportSession;
   preview: {
     hosts: Array<{ domain_names: string; [key: string]: unknown }>;
-    conflicts: Record<string, string>;
+    conflicts: string[];
     errors: string[];
   };
 }
@@ -44,7 +44,7 @@ export const getImportStatus = async (): Promise<{ has_pending: boolean; session
   try {
     const { data } = await client.get<{ has_pending: boolean; session?: ImportSession }>('/import/status');
     return data;
-  } catch (error) {
+  } catch {
     // Fallback if status endpoint doesn't exist, though the hook used it.
     return { has_pending: false };
   }

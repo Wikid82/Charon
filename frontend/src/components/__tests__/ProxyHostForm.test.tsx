@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
 import { mockRemoteServers } from '../../test/mockData'
 
-// Mock the hook
+// Mock the hooks
 vi.mock('../../hooks/useRemoteServers', () => ({
   useRemoteServers: vi.fn(() => ({
     servers: mockRemoteServers,
@@ -13,6 +13,26 @@ vi.mock('../../hooks/useRemoteServers', () => ({
     createRemoteServer: vi.fn(),
     updateRemoteServer: vi.fn(),
     deleteRemoteServer: vi.fn(),
+  })),
+}))
+
+vi.mock('../../hooks/useDocker', () => ({
+  useDocker: vi.fn(() => ({
+    containers: [
+      {
+        id: 'container-123',
+        names: ['my-app'],
+        image: 'nginx:latest',
+        state: 'running',
+        status: 'Up 2 hours',
+        network: 'bridge',
+        ip: '172.17.0.2',
+        ports: [{ private_port: 80, public_port: 8080, type: 'tcp' }]
+      }
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
   })),
 }))
 
@@ -33,7 +53,7 @@ const renderWithClient = (ui: React.ReactElement) => {
 }
 
 describe('ProxyHostForm', () => {
-  const mockOnSubmit = vi.fn(() => Promise.resolve())
+  const mockOnSubmit = vi.fn((_data: any) => Promise.resolve())
   const mockOnCancel = vi.fn()
 
   afterEach(() => {
@@ -65,6 +85,7 @@ describe('ProxyHostForm', () => {
       block_exploits: true,
       websocket_support: false,
       enabled: true,
+      locations: [],
       created_at: '2025-11-18T10:00:00Z',
       updated_at: '2025-11-18T10:00:00Z',
     }
@@ -159,11 +180,27 @@ describe('ProxyHostForm', () => {
       expect(screen.getByText(/Local Docker Registry/)).toBeInTheDocument()
     })
 
-    const select = screen.getByRole('combobox', { name: /quick select/i })
+    const select = screen.getByLabelText('Quick Select: Remote Server')
     fireEvent.change(select, { target: { value: mockRemoteServers[0].uuid } })
 
     expect(screen.getByDisplayValue(mockRemoteServers[0].host)).toBeInTheDocument()
     expect(screen.getByDisplayValue(mockRemoteServers[0].port)).toBeInTheDocument()
+  })
+
+  it('populates fields when a docker container is selected', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Quick Select: Container')).toBeInTheDocument()
+    })
+
+    const select = screen.getByLabelText('Quick Select: Container')
+    fireEvent.change(select, { target: { value: 'container-123' } })
+
+    expect(screen.getByDisplayValue('172.17.0.2')).toBeInTheDocument() // IP
+    expect(screen.getByDisplayValue('80')).toBeInTheDocument() // Port
   })
 
   it('displays error message on submission failure', async () => {
@@ -198,5 +235,92 @@ describe('ProxyHostForm', () => {
     fireEvent.change(advancedInput, { target: { value: 'header_up X-Test "True"' } })
 
     expect(advancedInput).toHaveValue('header_up X-Test "True"')
+  })
+
+  it('allows entering a remote docker host', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const toggle = screen.getByText('Remote Docker?')
+    fireEvent.click(toggle)
+
+    const input = screen.getByPlaceholderText('tcp://100.x.y.z:2375')
+    expect(input).toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'tcp://remote:2375' } })
+    expect(input).toHaveValue('tcp://remote:2375')
+  })
+
+  it('toggles all checkboxes', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), { target: { value: 'test.com' } })
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '10.0.0.1' } })
+
+    const checkboxes = [
+      'Force SSL',
+      'HTTP/2 Support',
+      'HSTS Enabled',
+      'HSTS Subdomains',
+      'Block Common Exploits',
+      'WebSocket Support',
+      'Enabled'
+    ]
+
+    for (const label of checkboxes) {
+      const checkbox = screen.getByLabelText(label)
+      fireEvent.click(checkbox)
+    }
+
+    // Verify state change by submitting
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalled()
+    })
+
+    // Check that the submitted data reflects the toggles
+    // Default for block_exploits is true, others false (except enabled)
+    // We toggled them, so block_exploits should be false, others true (enabled false)
+    // Wait, enabled default is true. So enabled -> false.
+    // block_exploits default true -> false.
+    // others default false -> true.
+
+    const submittedData = mockOnSubmit.mock.calls[0]?.[0] as any
+    expect(submittedData).toBeDefined()
+    if (submittedData) {
+      expect(submittedData.ssl_forced).toBe(true)
+      expect(submittedData.http2_support).toBe(true)
+      expect(submittedData.hsts_enabled).toBe(true)
+      expect(submittedData.hsts_subdomains).toBe(true)
+      expect(submittedData.block_exploits).toBe(false)
+      expect(submittedData.websocket_support).toBe(true)
+      expect(submittedData.enabled).toBe(false)
+    }
+  })
+
+  it('handles scheme selection', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+
+    // Find scheme select - it defaults to HTTP
+    // We can find it by label "Scheme"
+    const schemeSelect = screen.getByLabelText('Scheme')
+    fireEvent.change(schemeSelect, { target: { value: 'https' } })
+
+    expect(schemeSelect).toHaveValue('https')
   })
 })

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { RemoteServer } from '../api/remoteServers'
-import { remoteServersAPI } from '../services/api'
+import { type RemoteServer, testRemoteServerConnection } from '../api/remoteServers'
 
 interface Props {
   server?: RemoteServer
@@ -50,9 +49,9 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     setLoading(true)
     setError(null)
     try {
-      const result = await remoteServersAPI.test(server.uuid)
+      const result = await testRemoteServerConnection(server.uuid)
       alert(`Connection successful: ${result.address}`)
-    } catch (err) {
+    } catch {
       setError('Connection failed')
     } finally {
       setLoading(false)

@@ -3,8 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
-import { toast } from '../components/Toast'
-import { getBackups, createBackup, restoreBackup, deleteBackup } from '../api/backups'
+import { toast } from '../utils/toast'
+import { getBackups, createBackup, restoreBackup, deleteBackup, BackupFile } from '../api/backups'
 import { getSettings, updateSetting } from '../api/settings'
 import { Loader2, Download, RotateCcw, Plus, Archive, Trash2, Save } from 'lucide-react'
 
@@ -45,7 +45,7 @@ export default function Backups() {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       toast.success('Backup created successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to create backup: ${error.message}`)
     },
   })
@@ -55,7 +55,7 @@ export default function Backups() {
     onSuccess: () => {
       toast.success('Backup restored successfully. Please restart the container.')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to restore backup: ${error.message}`)
     },
   })
@@ -66,7 +66,7 @@ export default function Backups() {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       toast.success('Backup deleted successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to delete backup: ${error.message}`)
     },
   })
@@ -80,18 +80,19 @@ export default function Backups() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('Backup settings saved')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to save settings: ${error.message}`)
     },
   })
 
-  const handleDownload = (_filename: string) => {
+  const handleDownload = (filename: string) => {
     // Direct download link
     // Assuming we have a download endpoint that serves the file
     // For now, we can use window.open or create a link element
     // But we need an auth token.
     // A better way is to use the API client to get a blob and download it.
     // Or just show a toast as before if not implemented fully.
+    console.log('Download requested for:', filename)
     toast.info('Download logic needs backend implementation for authenticated file serving')
   }
 
@@ -165,7 +166,7 @@ export default function Backups() {
                   </td>
                 </tr>
               ) : (
-                backups?.map((backup: any) => (
+                backups?.map((backup: BackupFile) => (
                   <tr key={backup.filename} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
                       {backup.filename}
