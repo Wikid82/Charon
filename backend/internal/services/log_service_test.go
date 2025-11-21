@@ -103,6 +103,15 @@ func TestLogService(t *testing.T) {
 	_, err = service.GetLogPath("missing.log")
 	assert.Error(t, err)
 
+	// Test GetLogPath - Invalid
+	_, err = service.GetLogPath("nonexistent.log")
+	assert.Error(t, err)
+
+	// Test GetLogPath - Traversal
+	_, err = service.GetLogPath("../../etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid filename")
+
 	// Test ListLogs - Directory Not Exist
 	nonExistService := NewLogService(&config.Config{DatabasePath: filepath.Join(t.TempDir(), "missing", "cpm.db")})
 	logs, err = nonExistService.ListLogs()

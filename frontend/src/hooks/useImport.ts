@@ -31,7 +31,7 @@ export function useImport() {
   const previewQuery = useQuery({
     queryKey: ['import-preview'],
     queryFn: getImportPreview,
-    enabled: !!statusQuery.data?.has_pending && statusQuery.data?.session?.state === 'reviewing',
+    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending'),
   });
 
   const uploadMutation = useMutation({

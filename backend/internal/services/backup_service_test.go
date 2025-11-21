@@ -50,7 +50,8 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	assert.True(t, backups[0].Size > 0)
 
 	// Test GetBackupPath
-	path := service.GetBackupPath(filename)
+	path, err := service.GetBackupPath(filename)
+	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(service.BackupDir, filename), path)
 
 	// Test Restore
@@ -102,4 +103,25 @@ func TestBackupService_Restore_ZipSlip(t *testing.T) {
 	err = service.RestoreBackup("malicious.zip")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "illegal file path")
+}
+
+func TestBackupService_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	os.MkdirAll(service.BackupDir, 0755)
+
+	// Test GetBackupPath with traversal
+	// Should return error
+	_, err := service.GetBackupPath("../../etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid filename")
+
+	// Test DeleteBackup with traversal
+	// Should return error
+	err = service.DeleteBackup("../../etc/passwd")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid filename")
 }

@@ -10,6 +10,9 @@ ARG VCS_REF
 # Using caddy:2.9.1-alpine to fix CVE-2025-59530 and stdlib vulnerabilities
 ARG CADDY_IMAGE=caddy:2.9.1-alpine
 
+# ---- Cross-Compilation Helpers ----
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
+
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 FROM --platform=$BUILDPLATFORM node:24.11.1-alpine AS frontend-builder
@@ -29,14 +32,20 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Backend Builder ----
-FROM golang:alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS backend-builder
+# Copy xx helpers for cross-compilation
+COPY --from=xx / /
+
 WORKDIR /app/backend
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev sqlite-dev
+# xx-apk installs packages for the TARGET architecture
+ARG TARGETPLATFORM
+RUN apk add --no-cache clang lld
+RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
-# Install Delve so we can attach during debugging
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
+# Install Delve (cross-compile for target)
+RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
@@ -52,7 +61,8 @@ ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
 # -gcflags "all=-N -l" disables optimizations and inlining for better debugging
-RUN CGO_ENABLED=1 GOOS=linux go build \
+# xx-go handles CGO and cross-compilation flags automatically
+RUN CGO_ENABLED=1 xx-go build \
     -gcflags "all=-N -l" \
     -a -installsuffix cgo \
     -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
@@ -63,10 +73,15 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM golang:alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS caddy-builder
+ARG TARGETOS
+ARG TARGETARCH
+
 RUN apk add --no-cache git
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-RUN xcaddy build v2.9.1 \
+
+# Build Caddy for the target architecture
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
     --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
     --output /usr/bin/caddy

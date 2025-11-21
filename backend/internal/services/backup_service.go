@@ -159,21 +159,41 @@ func (s *BackupService) addDirToZip(w *zip.Writer, srcDir, zipBase string) error
 
 // DeleteBackup removes a backup file
 func (s *BackupService) DeleteBackup(filename string) error {
-	// Basic sanitization to prevent directory traversal
-	clean := filepath.Base(filename)
-	return os.Remove(filepath.Join(s.BackupDir, clean))
+	cleanName := filepath.Base(filename)
+	if filename != cleanName {
+		return fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+	path := filepath.Join(s.BackupDir, cleanName)
+	if !strings.HasPrefix(path, filepath.Clean(s.BackupDir)) {
+		return fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+	return os.Remove(path)
 }
 
 // GetBackupPath returns the full path to a backup file (for downloading)
-func (s *BackupService) GetBackupPath(filename string) string {
-	clean := filepath.Base(filename)
-	return filepath.Join(s.BackupDir, clean)
+func (s *BackupService) GetBackupPath(filename string) (string, error) {
+	cleanName := filepath.Base(filename)
+	if filename != cleanName {
+		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+	path := filepath.Join(s.BackupDir, cleanName)
+	if !strings.HasPrefix(path, filepath.Clean(s.BackupDir)) {
+		return "", fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
+	return path, nil
 }
 
 // RestoreBackup restores the database and caddy data from a zip archive
 func (s *BackupService) RestoreBackup(filename string) error {
+	cleanName := filepath.Base(filename)
+	if filename != cleanName {
+		return fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
 	// 1. Verify backup exists
-	srcPath := filepath.Join(s.BackupDir, filename)
+	srcPath := filepath.Join(s.BackupDir, cleanName)
+	if !strings.HasPrefix(srcPath, filepath.Clean(s.BackupDir)) {
+		return fmt.Errorf("invalid filename: path traversal attempt detected")
+	}
 	if _, err := os.Stat(srcPath); err != nil {
 		return err
 	}
@@ -213,13 +233,16 @@ func (s *BackupService) unzip(src, dest string) error {
 
 		rc, err := f.Open()
 		if err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return err
 		}
 
 		_, err = io.Copy(outFile, rc)
 
-		outFile.Close()
+		// Check for close errors on writable file
+		if closeErr := outFile.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 		rc.Close()
 
 		if err != nil {

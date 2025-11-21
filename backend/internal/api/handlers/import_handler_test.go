@@ -93,7 +93,9 @@ func TestImportHandler_GetPreview(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var result map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	hosts := result["hosts"].([]interface{})
+
+	preview := result["preview"].(map[string]interface{})
+	hosts := preview["hosts"].([]interface{})
 	assert.Len(t, hosts, 1)
 
 	// Verify status changed to reviewing
