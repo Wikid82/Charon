@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository_owner }}/cpmp
 
 jobs:
   build-and-push:
@@ -28,38 +28,34 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-
-      - name: Normalize image name
-        run: |
-          raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
-          echo "IMAGE_NAME=$(echo "$raw" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Determine skip condition
         id: skip
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           should_skip=false
-          actor='${{ github.actor }}'
-          event='${{ github.event_name }}'
-          head_msg='${{ github.event.head_commit.message }}'
           pr_title=""
-          if [ "$event" = "pull_request" ]; then
+          if [ "$EVENT" = "pull_request" ]; then
             pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH" 2>/dev/null || echo '')
           fi
-          if [ "$actor" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Resolve Caddy base digest
         if: steps.skip.outputs.skip_build != 'true'
@@ -71,7 +67,7 @@ jobs:
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -93,7 +89,7 @@ jobs:
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
-        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f42f56 # v5.1.0
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           # PRs: amd64 only, no push. Pushes: amd64+arm64, push.
@@ -112,7 +108,7 @@ jobs:
       # Trivy steps only on push
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: aquasecurity/trivy-action@d43c1f16c00cfd3978dde6c07f4bbcf9eb6993ca # v0.16.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
@@ -123,7 +119,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (SARIF)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@d43c1f16c00cfd3978dde6c07f4bbcf9eb6993ca # v0.16.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
@@ -133,6 +129,6 @@ jobs:
 
       - name: Upload Trivy results
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@e12f0178983d466f2f6028f5cc7a6d786fd97f4b # v4
         with:
           sarif_file: 'trivy-results.sarif'

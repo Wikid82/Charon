@@ -17,12 +17,12 @@ jobs:
     if: github.actor != 'github-actions[bot]' && github.event.pusher != null
     steps:
       - name: Set up Node (for github-script)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6
         with:
-          node-version: '18'
+          node-version: '24.11.1'
 
       - name: Propagate Changes
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const currentBranch = context.ref.replace('refs/heads/', '');

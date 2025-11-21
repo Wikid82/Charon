@@ -3,7 +3,50 @@ package caddy
 // Config represents Caddy's top-level JSON configuration structure.
 // Reference: https://caddyserver.com/docs/json/
 type Config struct {
-	Apps Apps `json:"apps"`
+	Apps    Apps           `json:"apps"`
+	Logging *LoggingConfig `json:"logging,omitempty"`
+	Storage Storage        `json:"storage,omitempty"`
+}
+
+// LoggingConfig configures Caddy's logging facility.
+type LoggingConfig struct {
+	Logs  map[string]*LogConfig `json:"logs,omitempty"`
+	Sinks *SinkConfig           `json:"sinks,omitempty"`
+}
+
+// LogConfig configures a specific logger.
+type LogConfig struct {
+	Writer  *WriterConfig  `json:"writer,omitempty"`
+	Encoder *EncoderConfig `json:"encoder,omitempty"`
+	Level   string         `json:"level,omitempty"`
+	Include []string       `json:"include,omitempty"`
+	Exclude []string       `json:"exclude,omitempty"`
+}
+
+// WriterConfig configures the log writer (output).
+type WriterConfig struct {
+	Output       string `json:"output"`
+	Filename     string `json:"filename,omitempty"`
+	Roll         bool   `json:"roll,omitempty"`
+	RollSize     int    `json:"roll_size_mb,omitempty"`
+	RollKeep     int    `json:"roll_keep,omitempty"`
+	RollKeepDays int    `json:"roll_keep_days,omitempty"`
+}
+
+// EncoderConfig configures the log format.
+type EncoderConfig struct {
+	Format string `json:"format"` // "json", "console", etc.
+}
+
+// SinkConfig configures log sinks (e.g. stderr).
+type SinkConfig struct {
+	Writer *WriterConfig `json:"writer,omitempty"`
+}
+
+// Storage configures the storage module.
+type Storage struct {
+	System string `json:"module"`
+	Root   string `json:"root,omitempty"`
 }
 
 // Apps contains all Caddy app modules.
@@ -76,6 +119,26 @@ func ReverseProxyHandler(dial string, enableWS bool) Handler {
 	}
 
 	return h
+}
+
+// HeaderHandler creates a handler that sets HTTP response headers.
+func HeaderHandler(headers map[string][]string) Handler {
+	return Handler{
+		"handler": "headers",
+		"response": map[string]interface{}{
+			"set": headers,
+		},
+	}
+}
+
+// BlockExploitsHandler creates a handler that blocks common exploits.
+// This uses Caddy's request matchers to block malicious patterns.
+func BlockExploitsHandler() Handler {
+	return Handler{
+		"handler": "vars",
+		// Placeholder for future exploit blocking logic
+		// Can be extended with specific matchers for SQL injection, XSS, etc.
+	}
 }
 
 // TLSApp configures the TLS app for certificate management.

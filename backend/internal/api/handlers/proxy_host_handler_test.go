@@ -18,9 +18,10 @@ import (
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 
 	h := NewProxyHostHandler(db)
 	r := gin.New()
@@ -33,7 +34,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 func TestProxyHostLifecycle(t *testing.T) {
 	router, _ := setupTestRouter(t)
 
-	body := `{"name":"Media","domain":"media.example.com","target_scheme":"http","target_host":"media","target_port":32400}`
+	body := `{"name":"Media","domain_names":"media.example.com","forward_scheme":"http","forward_host":"media","forward_port":32400,"enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -43,7 +44,7 @@ func TestProxyHostLifecycle(t *testing.T) {
 
 	var created models.ProxyHost
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
-	require.Equal(t, "media.example.com", created.Domain)
+	require.Equal(t, "media.example.com", created.DomainNames)
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil)
 	listResp := httptest.NewRecorder()
@@ -53,4 +54,88 @@ func TestProxyHostLifecycle(t *testing.T) {
 	var hosts []models.ProxyHost
 	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &hosts))
 	require.Len(t, hosts, 1)
+
+	// Get by ID
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	getResp := httptest.NewRecorder()
+	router.ServeHTTP(getResp, getReq)
+	require.Equal(t, http.StatusOK, getResp.Code)
+
+	var fetched models.ProxyHost
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &fetched))
+	require.Equal(t, created.UUID, fetched.UUID)
+
+	// Update
+	updateBody := `{"name":"Media Updated","domain_names":"media.example.com","forward_scheme":"http","forward_host":"media","forward_port":32400,"enabled":false}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+created.UUID, strings.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	router.ServeHTTP(updateResp, updateReq)
+	require.Equal(t, http.StatusOK, updateResp.Code)
+
+	var updated models.ProxyHost
+	require.NoError(t, json.Unmarshal(updateResp.Body.Bytes(), &updated))
+	require.Equal(t, "Media Updated", updated.Name)
+	require.False(t, updated.Enabled)
+
+	// Delete
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	delResp := httptest.NewRecorder()
+	router.ServeHTTP(delResp, delReq)
+	require.Equal(t, http.StatusOK, delResp.Code)
+
+	// Verify Delete
+	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	getResp2 := httptest.NewRecorder()
+	router.ServeHTTP(getResp2, getReq2)
+	require.Equal(t, http.StatusNotFound, getResp2.Code)
+}
+
+func TestProxyHostErrors(t *testing.T) {
+	router, _ := setupTestRouter(t)
+
+	// Get non-existent
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/non-existent-uuid", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// Update non-existent
+	updateBody := `{"name":"Media Updated"}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/non-existent-uuid", strings.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	router.ServeHTTP(updateResp, updateReq)
+	require.Equal(t, http.StatusNotFound, updateResp.Code)
+
+	// Delete non-existent
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/non-existent-uuid", nil)
+	delResp := httptest.NewRecorder()
+	router.ServeHTTP(delResp, delReq)
+	require.Equal(t, http.StatusNotFound, delResp.Code)
+}
+
+func TestProxyHostValidation(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Invalid JSON
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(`{invalid json}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	// Create a host first
+	host := &models.ProxyHost{
+		UUID:        "valid-uuid",
+		DomainNames: "valid.com",
+	}
+	db.Create(host)
+
+	// Update with invalid JSON
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/valid-uuid", strings.NewReader(`{invalid json}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
 }

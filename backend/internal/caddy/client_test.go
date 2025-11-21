@@ -24,12 +24,13 @@ func TestClient_Load_Success(t *testing.T) {
 	client := NewClient(server.URL)
 	config, _ := GenerateConfig([]models.ProxyHost{
 		{
-			UUID:       "test",
-			Domain:     "test.com",
-			TargetHost: "app",
-			TargetPort: 8080,
+			UUID:        "test",
+			DomainNames: "test.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
-	})
+	}, "/tmp/caddy-data", "admin@example.com")
 
 	err := client.Load(context.Background(), config)
 	require.NoError(t, err)

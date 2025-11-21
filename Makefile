@@ -66,8 +66,8 @@ docker-build-versioned:
 		--build-arg VERSION=$$VERSION \
 		--build-arg BUILD_DATE=$$BUILD_DATE \
 		--build-arg VCS_REF=$$VCS_REF \
-		-t caddyproxymanagerplus:$$VERSION \
-		-t caddyproxymanagerplus:latest \
+		-t cpmp:$$VERSION \
+		-t cpmp:latest \
 		.
 
 # Run Docker containers (production)

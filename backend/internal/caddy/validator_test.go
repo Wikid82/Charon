@@ -17,14 +17,15 @@ func TestValidate_EmptyConfig(t *testing.T) {
 func TestValidate_ValidConfig(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "test",
-			Domain:     "test.example.com",
-			TargetHost: "app",
-			TargetPort: 8080,
+			UUID:        "test",
+			DomainNames: "test.example.com",
+			ForwardHost: "10.0.1.100",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
 	}
 
-	config, _ := GenerateConfig(hosts)
+	config, _ := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	err := Validate(config)
 	require.NoError(t, err)
 }

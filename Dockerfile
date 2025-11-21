@@ -7,11 +7,12 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # Allow pinning Caddy base image by digest via build-arg
-ARG CADDY_IMAGE=caddy:2-alpine
+# Using caddy:2.9.1-alpine to fix CVE-2025-59530 and stdlib vulnerabilities
+ARG CADDY_IMAGE=caddy:2.9.1-alpine
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.11.1-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -34,6 +35,9 @@ WORKDIR /app/backend
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 
+# Install Delve so we can attach during debugging
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -47,12 +51,25 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
+# -gcflags "all=-N -l" disables optimizations and inlining for better debugging
 RUN CGO_ENABLED=1 GOOS=linux go build \
+    -gcflags "all=-N -l" \
     -a -installsuffix cgo \
-    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.SemVer=${VERSION} \
+    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
-              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildDate=${BUILD_DATE}" \
-    -o api ./cmd/api
+              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
+    -o cpmp ./cmd/api
+
+# ---- Caddy Builder ----
+# Build Caddy from source to ensure we use the latest Go version and dependencies
+# This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
+FROM golang:alpine AS caddy-builder
+RUN apk add --no-cache git
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN xcaddy build v2.9.1 \
+    --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
+    --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
+    --output /usr/bin/caddy
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
@@ -62,8 +79,12 @@ WORKDIR /app
 RUN apk --no-cache add ca-certificates sqlite-libs \
     && apk --no-cache upgrade
 
+# Copy Caddy binary from caddy-builder (overwriting the one from base image)
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
+
 # Copy Go binary from backend builder
-COPY --from=backend-builder /app/backend/api /app/api
+COPY --from=backend-builder /app/backend/cpmp /app/cpmp
+COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
@@ -89,7 +110,7 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # OCI image labels for version metadata
-LABEL org.opencontainers.image.title="CaddyProxyManager+" \
+LABEL org.opencontainers.image.title="CaddyProxyManager+ (CPMP)" \
       org.opencontainers.image.description="Web UI for managing Caddy reverse proxy configurations" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \

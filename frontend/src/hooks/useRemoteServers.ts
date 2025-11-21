@@ -1,90 +1,62 @@
-import { useState, useEffect } from 'react'
-import { remoteServersAPI } from '../services/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  getRemoteServers,
+  createRemoteServer,
+  updateRemoteServer,
+  deleteRemoteServer,
+  testRemoteServerConnection,
+  RemoteServer
+} from '../api/remoteServers';
 
-export interface RemoteServer {
-  uuid: string
-  name: string
-  provider: string
-  host: string
-  port: number
-  username?: string
-  enabled: boolean
-  reachable: boolean
-  last_check?: string
-  created_at: string
-  updated_at: string
-}
+export const QUERY_KEY = ['remote-servers'];
 
-export function useRemoteServers() {
-  const [servers, setServers] = useState<RemoteServer[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function useRemoteServers(enabledOnly = false) {
+  const queryClient = useQueryClient();
 
-  const fetchServers = async (enabledOnly = false) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await remoteServersAPI.list(enabledOnly)
-      setServers(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch remote servers')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const query = useQuery({
+    queryKey: [...QUERY_KEY, { enabled: enabledOnly }],
+    queryFn: () => getRemoteServers(enabledOnly),
+  });
 
-  useEffect(() => {
-    fetchServers()
-  }, [])
+  const createMutation = useMutation({
+    mutationFn: (server: Partial<RemoteServer>) => createRemoteServer(server),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
-  const createServer = async (data: Partial<RemoteServer>) => {
-    try {
-      const newServer = await remoteServersAPI.create(data)
-      setServers([...servers, newServer])
-      return newServer
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to create remote server')
-    }
-  }
+  const updateMutation = useMutation({
+    mutationFn: ({ uuid, data }: { uuid: string; data: Partial<RemoteServer> }) =>
+      updateRemoteServer(uuid, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
-  const updateServer = async (uuid: string, data: Partial<RemoteServer>) => {
-    try {
-      const updatedServer = await remoteServersAPI.update(uuid, data)
-      setServers(servers.map(s => s.uuid === uuid ? updatedServer : s))
-      return updatedServer
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to update remote server')
-    }
-  }
+  const deleteMutation = useMutation({
+    mutationFn: (uuid: string) => deleteRemoteServer(uuid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
-  const deleteServer = async (uuid: string) => {
-    try {
-      await remoteServersAPI.delete(uuid)
-      setServers(servers.filter(s => s.uuid !== uuid))
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to delete remote server')
-    }
-  }
-
-  const testConnection = async (uuid: string) => {
-    try {
-      return await remoteServersAPI.test(uuid)
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to test connection')
-    }
-  }
-
-  const enabledServers = servers.filter(s => s.enabled)
+  const testConnectionMutation = useMutation({
+    mutationFn: (uuid: string) => testRemoteServerConnection(uuid),
+  });
 
   return {
-    servers,
-    enabledServers,
-    loading,
-    error,
-    refresh: fetchServers,
-    createServer,
-    updateServer,
-    deleteServer,
-    testConnection,
-  }
+    servers: query.data || [],
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+    createServer: createMutation.mutateAsync,
+    updateServer: (uuid: string, data: Partial<RemoteServer>) => updateMutation.mutateAsync({ uuid, data }),
+    deleteServer: deleteMutation.mutateAsync,
+    testConnection: testConnectionMutation.mutateAsync,
+    isCreating: createMutation.isPending,
+    isUpdating: updateMutation.isPending,
+    isDeleting: deleteMutation.isPending,
+    isTestingConnection: testConnectionMutation.isPending,
+  };
 }
+
+export type { RemoteServer };

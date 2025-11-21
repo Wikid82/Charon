@@ -217,7 +217,7 @@ Currently `caddy/manager.go` generates monolithic config. Enhance:
 // go.mod
 module github.com/Wikid82/CaddyProxyManagerPlus/backend
 
-go 1.22
+go 1.24
 
 require (
     github.com/gin-gonic/gin v1.11.0

@@ -17,7 +17,7 @@ echo "Caddy started (PID: $CADDY_PID)"
 echo "Waiting for Caddy admin API..."
 i=1
 while [ "$i" -le 30 ]; do
-    if wget -q -O- http://localhost:2019/config/ > /dev/null 2>&1; then
+    if wget -q -O- http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
         echo "Caddy is ready!"
         break
     fi
@@ -27,11 +27,15 @@ done
 
 # Start CPM+ management application
 echo "Starting CPM+ management application..."
-/app/api &
+if [ "$CPMP_DEBUG" = "1" ]; then
+    DEBUG_PORT=${CPMP_DEBUG_PORT:-2345}
+    echo "Running CPM+ under Delve (port $DEBUG_PORT)"
+    /usr/local/bin/dlv exec /app/cpmp --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --log -- &
+else
+    /app/cpmp &
+fi
 APP_PID=$!
 echo "CPM+ started (PID: $APP_PID)"
-
-# Function to handle shutdown gracefully
 shutdown() {
     echo "Shutting down..."
     kill -TERM "$APP_PID" 2>/dev/null || true

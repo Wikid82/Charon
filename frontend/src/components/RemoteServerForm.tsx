@@ -1,56 +1,60 @@
-import { useState } from 'react'
-import { RemoteServer } from '../hooks/useRemoteServers'
-import { remoteServersAPI } from '../services/api'
+import { useEffect, useState } from 'react'
+import { type RemoteServer, testRemoteServerConnection } from '../api/remoteServers'
 
-interface RemoteServerFormProps {
+interface Props {
   server?: RemoteServer
   onSubmit: (data: Partial<RemoteServer>) => Promise<void>
   onCancel: () => void
 }
 
-export default function RemoteServerForm({ server, onSubmit, onCancel }: RemoteServerFormProps) {
+export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) {
   const [formData, setFormData] = useState({
     name: server?.name || '',
     provider: server?.provider || 'generic',
     host: server?.host || '',
-    port: server?.port || 80,
+    port: server?.port ?? 22,
     username: server?.username || '',
     enabled: server?.enabled ?? true,
   })
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<any | null>(null)
-  const [testing, setTesting] = useState(false)
+
+  useEffect(() => {
+    setFormData({
+      name: server?.name || '',
+      provider: server?.provider || 'generic',
+      host: server?.host || '',
+      port: server?.port ?? 22,
+      username: server?.username || '',
+      enabled: server?.enabled ?? true,
+    })
+  }, [server])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
-
     try {
       await onSubmit(formData)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save remote server')
+      setError(err instanceof Error ? err.message : 'Failed to save server')
     } finally {
       setLoading(false)
     }
   }
 
   const handleTestConnection = async () => {
-    if (!server) return
-
-    setTesting(true)
-    setTestResult(null)
+    if (!server?.uuid) return
+    setLoading(true)
     setError(null)
-
     try {
-      const result = await remoteServersAPI.test(server.uuid)
-      setTestResult(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to test connection')
+      const result = await testRemoteServerConnection(server.uuid)
+      alert(`Connection successful: ${result.address}`)
+    } catch {
+      setError('Connection failed')
     } finally {
-      setTesting(false)
+      setLoading(false)
     }
   }
 
@@ -63,7 +67,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: RemoteS
           </h2>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {error && (
             <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-3 rounded">
               {error}
@@ -82,23 +86,19 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: RemoteS
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Provider</label>
-            <select
-              value={formData.provider}
-              onChange={e => setFormData({ ...formData, provider: e.target.value })}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="generic">Generic</option>
-              <option value="docker">Docker</option>
-              <option value="kubernetes">Kubernetes</option>
-              <option value="aws">AWS</option>
-              <option value="gcp">GCP</option>
-              <option value="azure">Azure</option>
-            </select>
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Provider</label>
+              <select
+                value={formData.provider}
+                onChange={e => setFormData({ ...formData, provider: e.target.value })}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="generic">Generic</option>
+                <option value="docker">Docker</option>
+                <option value="kubernetes">Kubernetes</option>
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Host</label>
               <input
@@ -110,31 +110,29 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: RemoteS
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Port</label>
               <input
                 type="number"
-                required
-                min="1"
-                max="65535"
+                min={1}
+                max={65535}
                 value={formData.port}
                 onChange={e => setFormData({ ...formData, port: parseInt(e.target.value) })}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Username (Optional)
-            </label>
-            <input
-              type="text"
-              value={formData.username}
-              onChange={e => setFormData({ ...formData, username: e.target.value })}
-              placeholder="admin"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+              <input
+                type="text"
+                value={formData.username}
+                onChange={e => setFormData({ ...formData, username: e.target.value })}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
 
           <label className="flex items-center gap-3">
@@ -147,46 +145,17 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: RemoteS
             <span className="text-sm text-gray-300">Enabled</span>
           </label>
 
-          {/* Connection Test */}
-          {server && (
-            <div className="pt-4 border-t border-gray-800">
+          <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+            {server && (
               <button
                 type="button"
                 onClick={handleTestConnection}
-                disabled={testing}
-                className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                disabled={loading}
+                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 mr-auto"
               >
-                {testing ? (
-                  <>
-                    <span className="animate-spin">⏳</span>
-                    Testing Connection...
-                  </>
-                ) : (
-                  <>
-                    <span>🔌</span>
-                    Test Connection
-                  </>
-                )}
+                Test Connection
               </button>
-              {testResult && (
-                <div className={`mt-3 p-3 rounded-lg ${testResult.reachable ? 'bg-green-900/20 border border-green-500' : 'bg-red-900/20 border border-red-500'}`}>
-                  <div className="flex items-center gap-2">
-                    <span className={testResult.reachable ? 'text-green-400' : 'text-red-400'}>
-                      {testResult.reachable ? '✓ Connection Successful' : '✗ Connection Failed'}
-                    </span>
-                  </div>
-                  {testResult.error && (
-                    <div className="text-xs text-red-300 mt-1">{testResult.error}</div>
-                  )}
-                  {testResult.address && (
-                    <div className="text-xs text-gray-400 mt-1">Address: {testResult.address}</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
+            )}
             <button
               type="button"
               onClick={onCancel}

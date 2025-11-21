@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{})
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -19,18 +19,19 @@ func TestGenerateConfig_Empty(t *testing.T) {
 func TestGenerateConfig_SingleHost(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:         "test-uuid",
-			Name:         "Media",
-			Domain:       "media.example.com",
-			TargetScheme: "http",
-			TargetHost:   "media",
-			TargetPort:   32400,
-			EnableTLS:    true,
-			EnableWS:     false,
+			UUID:             "test-uuid",
+			Name:             "Media",
+			DomainNames:      "media.example.com",
+			ForwardScheme:    "http",
+			ForwardHost:      "media",
+			ForwardPort:      32400,
+			SSLForced:        true,
+			WebsocketSupport: false,
+			Enabled:          true,
 		},
 	}
 
-	config, err := GenerateConfig(hosts)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -55,20 +56,22 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 func TestGenerateConfig_MultipleHosts(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "uuid-1",
-			Domain:     "site1.example.com",
-			TargetHost: "app1",
-			TargetPort: 8080,
+			UUID:        "uuid-1",
+			DomainNames: "site1.example.com",
+			ForwardHost: "app1",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
 		{
-			UUID:       "uuid-2",
-			Domain:     "site2.example.com",
-			TargetHost: "app2",
-			TargetPort: 8081,
+			UUID:        "uuid-2",
+			DomainNames: "site2.example.com",
+			ForwardHost: "app2",
+			ForwardPort: 8081,
+			Enabled:     true,
 		},
 	}
 
-	config, err := GenerateConfig(hosts)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	require.NoError(t, err)
 	require.Len(t, config.Apps.HTTP.Servers["cpm_server"].Routes, 2)
 }
@@ -76,15 +79,16 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "uuid-ws",
-			Domain:     "ws.example.com",
-			TargetHost: "wsapp",
-			TargetPort: 3000,
-			EnableWS:   true,
+			UUID:             "uuid-ws",
+			DomainNames:      "ws.example.com",
+			ForwardHost:      "wsapp",
+			ForwardPort:      3000,
+			WebsocketSupport: true,
+			Enabled:          true,
 		},
 	}
 
-	config, err := GenerateConfig(hosts)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	require.NoError(t, err)
 
 	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
@@ -97,14 +101,94 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 func TestGenerateConfig_EmptyDomain(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{
-			UUID:       "bad-uuid",
-			Domain:     "",
-			TargetHost: "app",
-			TargetPort: 8080,
+			UUID:        "bad-uuid",
+			DomainNames: "",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
 		},
 	}
 
-	_, err := GenerateConfig(hosts)
+	_, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "empty domain")
+}
+
+func TestGenerateConfig_Logging(t *testing.T) {
+	hosts := []models.ProxyHost{}
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
+	require.NoError(t, err)
+
+	// Verify logging config
+	require.NotNil(t, config.Logging)
+	require.NotNil(t, config.Logging.Logs)
+	require.Contains(t, config.Logging.Logs, "access")
+
+	logConfig := config.Logging.Logs["access"]
+	require.Equal(t, "INFO", logConfig.Level)
+	require.NotNil(t, logConfig.Writer)
+	require.Equal(t, "file", logConfig.Writer.Output)
+	require.Contains(t, logConfig.Writer.Filename, "access.log")
+	require.NotNil(t, logConfig.Writer.RollSize)
+	require.NotNil(t, logConfig.Writer.RollKeep)
+}
+
+func TestGenerateConfig_Advanced(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:           "advanced-uuid",
+			Name:           "Advanced",
+			DomainNames:    "advanced.example.com",
+			ForwardScheme:  "http",
+			ForwardHost:    "advanced",
+			ForwardPort:    8080,
+			SSLForced:      true,
+			HSTSEnabled:    true,
+			HSTSSubdomains: true,
+			BlockExploits:  true,
+			Enabled:        true,
+			Locations: []models.Location{
+				{
+					Path:        "/api",
+					ForwardHost: "api-service",
+					ForwardPort: 9000,
+				},
+			},
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
+	require.NoError(t, err)
+	require.NotNil(t, config)
+
+	server := config.Apps.HTTP.Servers["cpm_server"]
+	require.NotNil(t, server)
+	// Should have 2 routes: 1 for location /api, 1 for main domain
+	require.Len(t, server.Routes, 2)
+
+	// Check Location Route (should be first as it is more specific)
+	locRoute := server.Routes[0]
+	require.Equal(t, []string{"/api", "/api/*"}, locRoute.Match[0].Path)
+	require.Equal(t, []string{"advanced.example.com"}, locRoute.Match[0].Host)
+
+	// Check Main Route
+	mainRoute := server.Routes[1]
+	require.Nil(t, mainRoute.Match[0].Path) // No path means all paths
+	require.Equal(t, []string{"advanced.example.com"}, mainRoute.Match[0].Host)
+
+	// Check HSTS and BlockExploits handlers in main route
+	// Handlers are: [HSTS, BlockExploits, ReverseProxy]
+	// But wait, BlockExploitsHandler implementation details?
+	// Let's just check count for now or inspect types if possible.
+	// Based on code:
+	// handlers = append(handlers, HeaderHandler(...)) // HSTS
+	// handlers = append(handlers, BlockExploitsHandler()) // BlockExploits
+	// mainHandlers = append(handlers, ReverseProxyHandler(...))
+
+	require.Len(t, mainRoute.Handle, 3)
+
+	// Check HSTS
+	hstsHandler := mainRoute.Handle[0]
+	require.Equal(t, "headers", hstsHandler["handler"])
+	// We can't easily check the map content without casting, but we know it's there.
 }

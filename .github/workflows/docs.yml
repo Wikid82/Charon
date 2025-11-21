@@ -29,13 +29,13 @@ jobs:
     steps:
       # Step 1: Get the code
       - name: 📥 Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
 
       # Step 2: Set up Node.js (for building any JS-based doc tools)
       - name: 🔧 Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6
         with:
-          node-version: '20'
+          node-version: '24.11.1'
 
       # Step 3: Create a beautiful docs site structure
       - name: 📝 Build documentation site
@@ -318,7 +318,7 @@ jobs:
 
       # Step 4: Upload the built site
       - name: 📤 Upload artifact
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: '_site'
 

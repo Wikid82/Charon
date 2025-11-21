@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import RemoteServerForm from '../RemoteServerForm'
+import * as remoteServersApi from '../../api/remoteServers'
 
 // Mock the API
-vi.mock('../../services/api', () => ({
-  remoteServersAPI: {
-    test: vi.fn(() => Promise.resolve({ reachable: true, address: 'localhost:8080' })),
-  },
+vi.mock('../../api/remoteServers', () => ({
+  testRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080' })),
 }))
 
 describe('RemoteServerForm', () => {
@@ -92,7 +91,7 @@ describe('RemoteServerForm', () => {
 
     const nameInput = screen.getByPlaceholderText('My Production Server')
     const hostInput = screen.getByPlaceholderText('192.168.1.100')
-    const portInput = screen.getByDisplayValue('80')
+    const portInput = screen.getByDisplayValue('22')
 
     fireEvent.change(nameInput, { target: { value: 'New Server' } })
     fireEvent.change(hostInput, { target: { value: '10.0.0.5' } })
@@ -120,5 +119,75 @@ describe('RemoteServerForm', () => {
     fireEvent.change(providerSelect, { target: { value: 'docker' } })
 
     expect(providerSelect).toHaveValue('docker')
+  })
+
+  it('handles submission error', async () => {
+    const mockErrorSubmit = vi.fn(() => Promise.reject(new Error('Submission failed')))
+    render(
+      <RemoteServerForm onSubmit={mockErrorSubmit} onCancel={mockOnCancel} />
+    )
+
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('My Production Server'), { target: { value: 'Test Server' } })
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '10.0.0.1' } })
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Submission failed')).toBeInTheDocument()
+    })
+  })
+
+  it('handles test connection success', async () => {
+    const mockAlert = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    const mockServer = {
+      uuid: '123',
+      name: 'Test Server',
+      provider: 'docker',
+      host: 'localhost',
+      port: 5000,
+      enabled: true,
+      reachable: true,
+      created_at: '2025-11-18T10:00:00Z',
+      updated_at: '2025-11-18T10:00:00Z',
+    }
+
+    render(
+      <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    fireEvent.click(screen.getByText('Test Connection'))
+
+    await waitFor(() => {
+      expect(mockAlert).toHaveBeenCalledWith('Connection successful: localhost:8080')
+    })
+    mockAlert.mockRestore()
+  })
+
+  it('handles test connection failure', async () => {
+    // Override mock for this test
+    vi.mocked(remoteServersApi.testRemoteServerConnection).mockRejectedValueOnce(new Error('Connection failed'))
+
+    const mockServer = {
+      uuid: '123',
+      name: 'Test Server',
+      provider: 'docker',
+      host: 'localhost',
+      port: 5000,
+      enabled: true,
+      reachable: true,
+      created_at: '2025-11-18T10:00:00Z',
+      updated_at: '2025-11-18T10:00:00Z',
+    }
+
+    render(
+      <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    fireEvent.click(screen.getByText('Test Connection'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Connection failed')).toBeInTheDocument()
+    })
   })
 })

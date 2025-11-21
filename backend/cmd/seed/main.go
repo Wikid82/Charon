@@ -96,49 +96,55 @@ func main() {
 	// Seed Proxy Hosts
 	proxyHosts := []models.ProxyHost{
 		{
-			UUID:         uuid.NewString(),
-			Name:         "Development App",
-			Domain:       "app.local.dev",
-			TargetScheme: "http",
-			TargetHost:   "localhost",
-			TargetPort:   3000,
-			EnableTLS:    false,
-			EnableWS:     true,
-			Enabled:      true,
+			UUID:             uuid.NewString(),
+			Name:             "Development App",
+			DomainNames:      "app.local.dev",
+			ForwardScheme:    "http",
+			ForwardHost:      "localhost",
+			ForwardPort:      3000,
+			SSLForced:        false,
+			WebsocketSupport: true,
+			HSTSEnabled:      false,
+			BlockExploits:    true,
+			Enabled:          true,
 		},
 		{
-			UUID:         uuid.NewString(),
-			Name:         "API Server",
-			Domain:       "api.local.dev",
-			TargetScheme: "http",
-			TargetHost:   "192.168.1.100",
-			TargetPort:   8080,
-			EnableTLS:    false,
-			EnableWS:     false,
-			Enabled:      true,
+			UUID:             uuid.NewString(),
+			Name:             "API Server",
+			DomainNames:      "api.local.dev",
+			ForwardScheme:    "http",
+			ForwardHost:      "192.168.1.100",
+			ForwardPort:      8080,
+			SSLForced:        false,
+			WebsocketSupport: false,
+			HSTSEnabled:      false,
+			BlockExploits:    true,
+			Enabled:          true,
 		},
 		{
-			UUID:         uuid.NewString(),
-			Name:         "Docker Registry",
-			Domain:       "docker.local.dev",
-			TargetScheme: "http",
-			TargetHost:   "localhost",
-			TargetPort:   5000,
-			EnableTLS:    false,
-			EnableWS:     false,
-			Enabled:      false,
+			UUID:             uuid.NewString(),
+			Name:             "Docker Registry",
+			DomainNames:      "docker.local.dev",
+			ForwardScheme:    "http",
+			ForwardHost:      "localhost",
+			ForwardPort:      5000,
+			SSLForced:        false,
+			WebsocketSupport: false,
+			HSTSEnabled:      false,
+			BlockExploits:    true,
+			Enabled:          false,
 		},
 	}
 
 	for _, host := range proxyHosts {
-		result := db.Where("domain = ?", host.Domain).FirstOrCreate(&host)
+		result := db.Where("domain_names = ?", host.DomainNames).FirstOrCreate(&host)
 		if result.Error != nil {
-			log.Printf("Failed to seed proxy host %s: %v", host.Domain, result.Error)
+			log.Printf("Failed to seed proxy host %s: %v", host.DomainNames, result.Error)
 		} else if result.RowsAffected > 0 {
 			fmt.Printf("✓ Created proxy host: %s -> %s://%s:%d\n",
-				host.Domain, host.TargetScheme, host.TargetHost, host.TargetPort)
+				host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
 		} else {
-			fmt.Printf("  Proxy host already exists: %s\n", host.Domain)
+			fmt.Printf("  Proxy host already exists: %s\n", host.DomainNames)
 		}
 	}
 

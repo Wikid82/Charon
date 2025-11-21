@@ -132,12 +132,14 @@ Implement the core proxy host creation and management.
 - [ ] Add WebSocket support toggle
 - [ ] Implement custom locations/paths
 - [ ] Add advanced options (headers, caching)
+- [ ] Implement Docker/Podman container auto-discovery (via socket)
 
 **Acceptance Criteria**:
 - Can create basic proxy hosts
 - Hosts appear in list immediately
 - Changes reflect in Caddy config
 - Can proxy HTTP/HTTPS services successfully
+- Can select local containers from a list
 
 ---
 
@@ -188,24 +190,21 @@ Implement secure user management for the admin panel.
 ---
 
 #### Issue #8: Basic Access Logging
-**Priority**: `high`
-**Labels**: `alpha`, `monitoring`, `high`
+**Priority**: `medium`
+**Labels**: `alpha`, `backend`, `medium`
 **Description**:
 Implement basic access logging for troubleshooting.
 
 **Tasks**:
-- [ ] Configure Caddy access logging format
-- [ ] Create log storage/rotation strategy
-- [ ] Implement log viewer in UI (paginated)
-- [ ] Add log filtering (by host, status code, date)
-- [ ] Implement log search functionality
-- [ ] Add log download capability
+- [x] Configure Caddy access logging format
+- [x] Create log viewer in UI
+- [x] Implement log rotation policy
+- [x] Add API endpoint to retrieve logs
 
 **Acceptance Criteria**:
-- All proxy requests logged
-- Logs viewable in UI
-- Logs searchable and filterable
-- Logs rotate to prevent disk fill
+- Access logs visible in UI
+- Logs rotate automatically
+- API returns log content securely
 
 ---
 
@@ -216,13 +215,13 @@ Implement basic access logging for troubleshooting.
 Create settings interface for global configurations.
 
 **Tasks**:
-- [ ] Create settings page layout
-- [ ] Implement default certificate email configuration
-- [ ] Add Caddy admin API endpoint configuration
-- [ ] Implement backup/restore settings
-- [ ] Add system status display (Caddy version, uptime)
-- [ ] Create health check endpoint
-- [ ] Implement update check mechanism
+- [x] Create settings page layout
+- [x] Implement default certificate email configuration
+- [x] Add Caddy admin API endpoint configuration
+- [x] Implement backup/restore settings
+- [x] Add system status display (Caddy version, uptime)
+- [x] Create health check endpoint
+- [x] Implement update check mechanism
 
 **Acceptance Criteria**:
 - All global settings configurable
@@ -232,25 +231,26 @@ Create settings interface for global configurations.
 ---
 
 #### Issue #10: Docker & Deployment Configuration
-**Priority**: `high`
-**Labels**: `alpha`, `deployment`, `high`
+**Priority**: `critical`
+**Labels**: `alpha`, `devops`, `critical`
 **Description**:
-Create easy deployment via Docker.
+Finalize Docker configuration for production deployment.
 
 **Tasks**:
-- [ ] Create optimized Dockerfile (multi-stage build)
-- [ ] Write docker-compose.yml with volume mounts
-- [ ] Configure proper networking for Caddy
-- [ ] Implement environment variable configuration
-- [ ] Create entrypoint script for initialization
-- [ ] Add healthcheck to Docker container
-- [ ] Write deployment documentation
+- [x] Optimize Dockerfile (multi-stage build)
+- [x] Create docker-compose.yml for production
+- [x] Create docker-compose.dev.yml for development
+- [x] Configure volume persistence
+- [x] Set up environment variable configuration
+- [x] Implement health checks in Docker
+- [x] Add container restart policies
 
 **Acceptance Criteria**:
-- Single `docker-compose up` starts everything
-- Data persists in volumes
-- Environment easily configurable
-- Works on common NAS platforms (Synology, Unraid)
+- Container builds successfully
+- Container size optimized
+- Data persists across restarts
+- Development environment easy to spin up
+
 
 ---
 
@@ -792,6 +792,29 @@ Implement theme system beyond basic dark/light.
 
 ---
 
+### 🔌 CONNECTIVITY & REMOTE ACCESS (Beta - Phase 6)
+
+#### Issue #41: Remote Server & VPN Integrations
+**Priority**: `high`
+**Labels**: `beta`, `feature`, `high`, `connectivity`
+**Description**:
+Integrate VPN and tunnel providers to securely proxy services from remote networks.
+
+**Tasks**:
+- [ ] Implement Remote Server management system
+- [ ] Add Tailscale integration (with Headscale support)
+- [ ] Add ZeroTier integration
+- [ ] Add Cloudflare Tunnel integration
+- [ ] Implement connection health monitoring
+- [ ] Create UI for managing remote providers
+- [ ] Add "Use Custom Control Server" option for Headscale
+
+**Acceptance Criteria**:
+- Can connect to remote networks via VPN/Tunnel
+- Remote hosts available as proxy targets
+- Headscale supported as Tailscale alternative
+- Connection status visible in UI
+
 ### 🔧 ADVANCED FEATURES (Post-Beta)
 
 #### Issue #33: API & CLI Tools
@@ -1035,7 +1058,7 @@ Ensure CaddyProxyManager+ performs well under load.
 - Docker deployment
 - User authentication
 
-### Beta (Issues #11-32)
+### Beta (Issues #11-32, #41)
 **Goal**: Full security suite and monitoring
 **Target**: 4-6 months
 **Key Features**:
@@ -1047,6 +1070,7 @@ Ensure CaddyProxyManager+ performs well under load.
 - DNS challenge (wildcard certs)
 - Enhanced logging & monitoring
 - GoAccess integration
+- Remote Access (Tailscale/Headscale, ZeroTier)
 
 ### Post-Beta (Issues #33-36)
 **Goal**: Advanced features and enterprise capabilities
