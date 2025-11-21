@@ -53,7 +53,7 @@ const renderWithClient = (ui: React.ReactElement) => {
 }
 
 describe('ProxyHostForm', () => {
-  const mockOnSubmit = vi.fn(() => Promise.resolve())
+  const mockOnSubmit = vi.fn((_data: any) => Promise.resolve())
   const mockOnCancel = vi.fn()
 
   afterEach(() => {
@@ -250,5 +250,77 @@ describe('ProxyHostForm', () => {
 
     fireEvent.change(input, { target: { value: 'tcp://remote:2375' } })
     expect(input).toHaveValue('tcp://remote:2375')
+  })
+
+  it('toggles all checkboxes', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), { target: { value: 'test.com' } })
+    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '10.0.0.1' } })
+
+    const checkboxes = [
+      'Force SSL',
+      'HTTP/2 Support',
+      'HSTS Enabled',
+      'HSTS Subdomains',
+      'Block Common Exploits',
+      'WebSocket Support',
+      'Enabled'
+    ]
+
+    for (const label of checkboxes) {
+      const checkbox = screen.getByLabelText(label)
+      fireEvent.click(checkbox)
+    }
+
+    // Verify state change by submitting
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalled()
+    })
+
+    // Check that the submitted data reflects the toggles
+    // Default for block_exploits is true, others false (except enabled)
+    // We toggled them, so block_exploits should be false, others true (enabled false)
+    // Wait, enabled default is true. So enabled -> false.
+    // block_exploits default true -> false.
+    // others default false -> true.
+
+    const submittedData = mockOnSubmit.mock.calls[0]?.[0] as any
+    expect(submittedData).toBeDefined()
+    if (submittedData) {
+      expect(submittedData.ssl_forced).toBe(true)
+      expect(submittedData.http2_support).toBe(true)
+      expect(submittedData.hsts_enabled).toBe(true)
+      expect(submittedData.hsts_subdomains).toBe(true)
+      expect(submittedData.block_exploits).toBe(false)
+      expect(submittedData.websocket_support).toBe(true)
+      expect(submittedData.enabled).toBe(false)
+    }
+  })
+
+  it('handles scheme selection', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+
+    // Find scheme select - it defaults to HTTP
+    // We can find it by label "Scheme"
+    const schemeSelect = screen.getByLabelText('Scheme')
+    fireEvent.change(schemeSelect, { target: { value: 'https' } })
+
+    expect(schemeSelect).toHaveValue('https')
   })
 })

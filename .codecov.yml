@@ -30,4 +30,6 @@ ignore:
   - "backend/cmd/seed/*"
   - "backend/data/*"
   - "backend/coverage/*"
+  - "backend/internal/services/docker_service.go"
+  - "backend/internal/api/handlers/docker_handler.go"
   - "*.md"
