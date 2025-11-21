@@ -75,3 +75,4 @@ backend/coverage.txt
 # CodeQL
 codeql-db/
 codeql-results.sarif
+**.sarif
