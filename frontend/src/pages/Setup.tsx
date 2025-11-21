@@ -36,14 +36,21 @@ const Setup: React.FC = () => {
   }, [formData.email]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/');
+    // Wait for setup status to load
+    if (statusLoading) return;
+
+    // If setup is required, stay on this page (ignore stale auth)
+    if (status?.setupRequired) {
       return;
     }
-    if (status && !status.setupRequired) {
+
+    // If setup is NOT required, redirect based on auth
+    if (isAuthenticated) {
+      navigate('/');
+    } else {
       navigate('/login');
     }
-  }, [status, isAuthenticated, navigate]);
+  }, [status, statusLoading, isAuthenticated, navigate]);
 
   const mutation = useMutation({
     mutationFn: async (data: SetupRequest) => {
