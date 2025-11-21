@@ -17,7 +17,7 @@ export default function ImportCaddy() {
     try {
       await upload(content)
       setShowReview(true)
-    } catch (err) {
+    } catch {
       // Error is already set by hook
     }
   }
@@ -36,7 +36,7 @@ export default function ImportCaddy() {
       setContent('')
       setShowReview(false)
       alert('Import completed successfully!')
-    } catch (err) {
+    } catch {
       // Error is already set by hook
     }
   }
@@ -46,7 +46,7 @@ export default function ImportCaddy() {
       try {
         await cancel()
         setShowReview(false)
-      } catch (err) {
+      } catch {
         // Error is already set by hook
       }
     }
