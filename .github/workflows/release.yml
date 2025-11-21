@@ -10,38 +10,120 @@ permissions:
   packages: write
 
 jobs:
-  create-release:
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Generate changelog
-        id: changelog
+      - name: Install Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Archive Frontend
+        working-directory: frontend
+        run: tar -czf ../frontend-dist.tar.gz dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist.tar.gz
+
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build
+        working-directory: backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 1
         run: |
-          # Get previous tag
-          PREV_TAG=$(git describe --tags --abbrev=0 $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "First release - generating full changelog"
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
-          else
-            echo "Generating changelog since $PREV_TAG"
-            CHANGELOG=$(git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          # Install dependencies for CGO (sqlite)
+          if [ "${{ matrix.goarch }}" = "arm64" ]; then
+            sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+            export CC=aarch64-linux-gnu-gcc
           fi
 
-          # Save to file for GitHub release
-          echo "$CHANGELOG" > CHANGELOG.txt
-          echo "Generated changelog with $(echo "$CHANGELOG" | wc -l) commits"
+          go build -ldflags "-s -w -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${{ github.ref_name }}" -o ../cpmp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/api
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cpmp-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  build-caddy:
+    name: Build Caddy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          xcaddy build v2.9.1 \
+            --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
+            --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
+            --output caddy-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  create-release:
+    name: Create Release
+    needs: [build-frontend, build-backend, build-caddy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2
+        uses: softprops/action-gh-release@v2
         with:
-          body_path: CHANGELOG.txt
+          files: |
+            artifacts/frontend-dist/frontend-dist.tar.gz
+            artifacts/backend-linux-amd64/cpmp-linux-amd64
+            artifacts/backend-linux-arm64/cpmp-linux-arm64
+            artifacts/caddy-linux-amd64/caddy-linux-amd64
+            artifacts/caddy-linux-arm64/caddy-linux-arm64
           generate_release_notes: true
-          draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_TOKEN }}
