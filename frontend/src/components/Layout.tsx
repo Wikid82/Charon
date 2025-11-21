@@ -62,9 +62,15 @@ export default function Layout({ children }: LayoutProps) {
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className={`p-6 hidden lg:flex items-center ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
-          {!isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>}
+        <div className={`p-4 hidden lg:flex items-center ${isCollapsed ? 'flex-col justify-center gap-4' : 'justify-end gap-4'}`}>
           <ThemeToggle />
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </button>
         </div>
 
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
@@ -89,16 +95,6 @@ export default function Layout({ children }: LayoutProps) {
               )
             })}
           </nav>
-
-          {/* Collapse Toggle */}
-          <div className="hidden lg:flex justify-center py-4 border-t border-gray-200 dark:border-gray-800">
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-            </button>
-          </div>
 
           <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 ${isCollapsed ? 'hidden' : ''}`}>
             <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
@@ -152,9 +148,15 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className="flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col">
         {/* Desktop Header */}
-        <header className="hidden lg:flex items-center justify-end px-8 py-4 gap-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
-           <SystemStatus />
-           <NotificationCenter />
+        <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
+           <div className="w-1/3"></div>
+           <div className="w-1/3 flex justify-center">
+             <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>
+           </div>
+           <div className="w-1/3 flex justify-end gap-4">
+             <SystemStatus />
+             <NotificationCenter />
+           </div>
         </header>
         <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
           {children}
