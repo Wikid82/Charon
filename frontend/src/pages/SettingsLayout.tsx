@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 export default function SettingsLayout() {
   const location = useLocation()
-  const [tasksOpen, setTasksOpen] = useState(true)
+  const [tasksOpen, setTasksOpen] = useState(false)
 
   const isActive = (path: string) => location.pathname === path
 

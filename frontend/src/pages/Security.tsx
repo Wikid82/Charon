@@ -9,6 +9,7 @@ import { getProfile, regenerateApiKey, updateProfile } from '../api/user'
 import { getSettings, updateSetting } from '../api/settings'
 import { Copy, RefreshCw, Shield, Mail, User } from 'lucide-react'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
+import { isValidEmail } from '../utils/validation'
 
 export default function Security() {
   const [oldPassword, setOldPassword] = useState('')
@@ -19,9 +20,11 @@ export default function Security() {
   // Profile State
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [emailValid, setEmailValid] = useState<boolean | null>(null)
 
   // Certificate Email State
   const [certEmail, setCertEmail] = useState('')
+  const [certEmailValid, setCertEmailValid] = useState<boolean | null>(null)
   const [useUserEmail, setUseUserEmail] = useState(true)
 
   const queryClient = useQueryClient()
@@ -44,6 +47,15 @@ export default function Security() {
     }
   }, [profile])
 
+  // Validate profile email
+  useEffect(() => {
+    if (email) {
+      setEmailValid(isValidEmail(email))
+    } else {
+      setEmailValid(null)
+    }
+  }, [email])
+
   // Initialize cert email state
   useEffect(() => {
     if (settings && profile) {
@@ -57,6 +69,15 @@ export default function Security() {
       }
     }
   }, [settings, profile])
+
+  // Validate cert email
+  useEffect(() => {
+    if (certEmail && !useUserEmail) {
+      setCertEmailValid(isValidEmail(certEmail))
+    } else {
+      setCertEmailValid(null)
+    }
+  }, [certEmail, useUserEmail])
 
   const updateProfileMutation = useMutation({
     mutationFn: updateProfile,
@@ -144,17 +165,72 @@ export default function Security() {
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-            <Input
-              label="Login Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                label="Login Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={emailValid === false ? 'border-red-500 focus:ring-red-500' : emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
+              />
+              {emailValid === false && (
+                <p className="mt-1 text-xs text-red-500">Please enter a valid email address</p>
+              )}
+            </div>
             <Button
               onClick={() => updateProfileMutation.mutate({ name, email })}
               isLoading={updateProfileMutation.isPending}
             >
               Update Profile
+            </Button>
+          </div>
+        </Card>
+
+        {/* Certificate Email Configuration */}
+        <Card className="max-w-2xl p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Mail className="w-5 h-5 text-gray-500" />
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Certificate Email</h2>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            This email address is used to register with Let's Encrypt for SSL certificate generation and expiration notifications.
+          </p>
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useUserEmail"
+                checked={useUserEmail}
+                onChange={(e) => setUseUserEmail(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <label htmlFor="useUserEmail" className="text-sm text-gray-700 dark:text-gray-300">
+                Use my login email ({profile?.email})
+              </label>
+            </div>
+
+            {!useUserEmail && (
+              <div className="relative">
+                <Input
+                  label="Custom Email Address"
+                  type="email"
+                  value={certEmail}
+                  onChange={(e) => setCertEmail(e.target.value)}
+                  placeholder="certs@example.com"
+                  className={certEmailValid === false ? 'border-red-500 focus:ring-red-500' : certEmailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
+                />
+                {certEmailValid === false && (
+                  <p className="mt-1 text-xs text-red-500">Please enter a valid email address</p>
+                )}
+              </div>
+            )}
+
+            <Button
+              onClick={() => saveCertEmailMutation.mutate()}
+              isLoading={saveCertEmailMutation.isPending}
+            >
+              Save Email Settings
             </Button>
           </div>
         </Card>
@@ -197,49 +273,6 @@ export default function Security() {
               Update Password
             </Button>
           </form>
-        </Card>
-
-        {/* Certificate Email Configuration */}
-        <Card className="max-w-2xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Mail className="w-5 h-5 text-gray-500" />
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Certificate Email</h2>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            This email address is used to register with Let's Encrypt for SSL certificate generation and expiration notifications.
-          </p>
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="useUserEmail"
-                checked={useUserEmail}
-                onChange={(e) => setUseUserEmail(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <label htmlFor="useUserEmail" className="text-sm text-gray-700 dark:text-gray-300">
-                Use my login email ({profile?.email})
-              </label>
-            </div>
-
-            {!useUserEmail && (
-              <Input
-                label="Custom Email Address"
-                type="email"
-                value={certEmail}
-                onChange={(e) => setCertEmail(e.target.value)}
-                placeholder="certs@example.com"
-              />
-            )}
-
-            <Button
-              onClick={() => saveCertEmailMutation.mutate()}
-              isLoading={saveCertEmailMutation.isPending}
-            >
-              Save Email Settings
-            </Button>
-          </div>
         </Card>
 
         {/* API Key */}
