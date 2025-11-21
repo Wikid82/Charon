@@ -1,4 +1,4 @@
-# Caddy Proxy Manager Plus
+# Caddy Proxy Manager+ (CPMP)
 
 **Make your websites easy to reach!** 🚀
 
@@ -7,7 +7,7 @@ This app helps you manage multiple websites and apps from one simple dashboard. 
 **No coding required!** Just point, click, and you're done. ✨
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![React Version](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://react.dev/)
 
 ---
@@ -57,11 +57,12 @@ Don't have Docker? [Download it here](https://docs.docker.com/get-docker/) - it'
 Open your terminal and paste this:
 
 ```bash
-docker run -d \
-  -p 8080:8080 \
-  -v caddy_data:/app/data \
-  --name caddy-proxy-manager \
-  ghcr.io/wikid82/caddyproxymanagerplus:latest
+# Clone the repository
+git clone https://github.com/Wikid82/CaddyProxyManagerPlus.git
+cd CaddyProxyManagerPlus
+
+# Start the stack
+docker-compose up -d
 ```
 
 ### Step 3: Open Your Browser
@@ -71,14 +72,32 @@ Go to: **http://localhost:8080**
 
 > 💡 **Tip:** Not sure what a terminal is? On Windows, search for "Command Prompt". On Mac, search for "Terminal".
 
+For more details, check out the [Docker Deployment Guide](DOCKER.md).
+
+### 🔌 Connecting to Remote Servers (Optional)
+
+**Want to see containers on OTHER servers?**
+
+If you have apps running on a different computer (like a Raspberry Pi or a VPS) and want CPMP to see them automatically:
+
+1.  **Copy** the `docker-compose.remote.yml` file to that *other* computer.
+2.  **Run it** there: `docker compose -f docker-compose.remote.yml up -d`
+3.  **Connect** in CPMP:
+    *   Go to "Add Proxy Host"
+    *   Click "Remote Docker?"
+    *   Type the address: `tcp://<IP-OF-OTHER-COMPUTER>:2375`
+
+**⚠️ IMPORTANT SECURITY WARNING:**
+Think of this like leaving your front door unlocked. **ONLY** do this if your computers are connected via a secure VPN (like **Tailscale** or **WireGuard**) or are on a private home network that strangers can't access. Never do this on a public server without a VPN!
+
 ---
 
 ## 🛠️ The Developer Way (If You Like Code)
 
 Want to tinker with the app or help make it better? Here's how:
 
-### What You Need First:
-- **Go 1.22+** - [Get it here](https://go.dev/dl/) (the "engine" that runs the app)
+-### What You Need First:
+- **Go 1.24+** - [Get it here](https://go.dev/dl/) (the "engine" that runs the app)
 - **Node.js 20+** - [Get it here](https://nodejs.org/) (helps build the pretty interface)
 
 ### Getting It Running:

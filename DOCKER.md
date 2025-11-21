@@ -18,95 +18,84 @@ open http://localhost:8080
 
 ## Architecture
 
-The Docker stack consists of two services:
+CaddyProxyManager+ runs as a **single container** that includes:
+1.  **Caddy Server**: The reverse proxy engine (ports 80/443).
+2.  **CPM+ Backend**: The Go API that manages Caddy via its API.
+3.  **CPM+ Frontend**: The React web interface (port 8080).
 
-1. **app** (`caddyproxymanager-plus`): Management interface
-   - Manages proxy host configuration
-   - Provides web UI on port 8080
-   - Communicates with Caddy via admin API
-
-2. **caddy**: Reverse proxy server
-   - Handles incoming traffic on ports 80/443
-   - Automatic HTTPS with Let's Encrypt
-   - Configured dynamically via JSON API
+This unified architecture simplifies deployment, updates, and data management.
 
 ```
-┌──────────────┐
-│   Internet   │
-└──────┬───────┘
-       │ :80, :443
-       ▼
-┌──────────────┐     Admin API      ┌──────────────┐
-│    Caddy     │◄───────:2019───────┤  CPM+ App    │
-│ (Proxy)      │                    │  (Manager)   │
-└──────┬───────┘                    └──────┬───────┘
-       │                                   │
-       ▼                                   ▼
-  Your Services                       :8080 (Web UI)
+┌──────────────────────────────────────────┐
+│  Container (cpmp)                        │
+│                                          │
+│  ┌──────────┐   API    ┌──────────────┐  │
+│  │  Caddy   │◄──:2019──┤  CPM+ App    │  │
+│  │ (Proxy)  │          │  (Manager)   │  │
+│  └────┬─────┘          └──────┬───────┘  │
+│       │                       │          │
+└───────┼───────────────────────┼──────────┘
+        │ :80, :443             │ :8080
+        ▼                       ▼
+    Internet                 Web UI
 ```
 
-## Environment Variables
+## Configuration
 
-Configure CPM+ via environment variables in `docker-compose.yml`:
+### Volumes
 
-```yaml
-environment:
-  - CPM_ENV=production              # production | development
-  - CPM_HTTP_PORT=8080              # Management UI port
-  - CPM_DB_PATH=/app/data/cpm.db    # SQLite database location
-  - CPM_CADDY_ADMIN_API=http://caddy:2019  # Caddy admin endpoint
-  - CPM_CADDY_CONFIG_DIR=/app/data/caddy   # Config snapshots
-```
+Persist your data by mounting these volumes:
 
-## Volumes
+| Host Path | Container Path | Description |
+|-----------|----------------|-------------|
+| `./data` | `/app/data` | **Critical**. Stores the SQLite database (`cpm.db`) and application logs. |
+| `./caddy_data` | `/data` | **Critical**. Stores Caddy's SSL certificates and keys. |
+| `./caddy_config` | `/config` | Stores Caddy's autosave configuration. |
 
-Three persistent volumes store your data:
+### Environment Variables
 
-- **app_data**: CPM+ database, config snapshots, logs
-- **caddy_data**: Caddy certificates, ACME account data
-- **caddy_config**: Caddy runtime configuration
+Configure the application via `docker-compose.yml`:
 
-To backup your configuration:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CPM_ENV` | `production` | Set to `development` for verbose logging. |
+| `CPM_HTTP_PORT` | `8080` | Port for the Web UI. |
+| `CPM_DB_PATH` | `/app/data/cpm.db` | Path to the SQLite database. |
+| `CPM_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API. |
 
-```bash
-# Backup volumes
-docker run --rm -v cpm_app_data:/data -v $(pwd):/backup alpine tar czf /backup/cpm-backup.tar.gz /data
+## NAS Deployment Guides
 
-# Restore from backup
-docker run --rm -v cpm_app_data:/data -v $(pwd):/backup alpine tar xzf /backup/cpm-backup.tar.gz -C /
-```
+### Synology (Container Manager / Docker)
 
-## Ports
+1.  **Prepare Folders**: Create a folder `docker/cpmp` and subfolders `data`, `caddy_data`, and `caddy_config`.
+2.  **Download Image**: Search for `ghcr.io/wikid82/cpmp` in the Registry and download the `latest` tag.
+3.  **Launch Container**:
+    *   **Network**: Use `Host` mode (recommended for Caddy to see real client IPs) OR bridge mode mapping ports `80:80`, `443:443`, and `8080:8080`.
+    *   **Volume Settings**:
+        *   `/docker/cpmp/data` -> `/app/data`
+        *   `/docker/cpmp/caddy_data` -> `/data`
+        *   `/docker/cpmp/caddy_config` -> `/config`
+    *   **Environment**: Add `CPM_ENV=production`.
+4.  **Finish**: Start the container and access `http://YOUR_NAS_IP:8080`.
 
-Default port mapping:
+### Unraid
 
-- **80**: HTTP (Caddy) - redirects to HTTPS
-- **443/tcp**: HTTPS (Caddy)
-- **443/udp**: HTTP/3 (Caddy)
-- **8080**: Management UI (CPM+)
-- **2019**: Caddy admin API (internal only, exposed in dev mode)
-
-## Development Mode
-
-Development mode exposes the Caddy admin API externally for debugging:
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
-```
-
-Access Caddy admin API: `http://localhost:2019/config/`
-
-## Health Checks
-
-CPM+ includes a health check endpoint:
-
-```bash
-# Check if app is running
-curl http://localhost:8080/api/v1/health
-
-# Check Caddy status
-docker-compose exec caddy caddy version
-```
+1.  **Community Apps**: (Coming Soon) Search for "CaddyProxyManagerPlus".
+2.  **Manual Install**:
+    *   Click **Add Container**.
+    *   **Name**: CaddyProxyManagerPlus
+    *   **Repository**: `ghcr.io/wikid82/cpmp:latest`
+    *   **Network Type**: Bridge
+    *   **WebUI**: `http://[IP]:[PORT:8080]`
+    *   **Port mappings**:
+        *   Container Port: `80` -> Host Port: `80`
+        *   Container Port: `443` -> Host Port: `443`
+        *   Container Port: `8080` -> Host Port: `8080`
+    *   **Paths**:
+        *   `/mnt/user/appdata/cpmp/data` -> `/app/data`
+        *   `/mnt/user/appdata/cpmp/caddy_data` -> `/data`
+        *   `/mnt/user/appdata/cpmp/caddy_config` -> `/config`
+3.  **Apply**: Click Done to pull and start.
 
 ## Troubleshooting
 
@@ -114,10 +103,9 @@ docker-compose exec caddy caddy version
 
 **Symptom**: "Caddy unreachable" errors in logs
 
-**Solution**: Ensure both containers are on the same network:
+**Solution**: Since both run in the same container, this usually means Caddy failed to start. Check logs:
 ```bash
-docker-compose ps  # Check both services are "Up"
-docker-compose logs caddy  # Check Caddy logs
+docker-compose logs app
 ```
 
 ### Certificates not working
@@ -127,7 +115,7 @@ docker-compose logs caddy  # Check Caddy logs
 **Check**:
 1. Port 80/443 are accessible from the internet
 2. DNS points to your server
-3. Caddy logs: `docker-compose logs caddy | grep -i acme`
+3. Caddy logs: `docker-compose logs app | grep -i acme`
 
 ### Config changes not applied
 
@@ -191,25 +179,6 @@ environment:
 
 **Warning**: CPM+ will replace Caddy's entire configuration. Backup first!
 
-## Platform-Specific Notes
-
-### Synology NAS
-
-Use Container Manager (Docker GUI):
-1. Import `docker-compose.yml`
-2. Map port 80/443 to your NAS IP
-3. Enable auto-restart
-
-### Unraid
-
-1. Use Docker Compose Manager plugin
-2. Add compose file to `/boot/config/plugins/compose.manager/projects/cpm/`
-3. Start via web UI
-
-### Home Assistant Add-on
-
-Coming soon in Beta release.
-
 ## Performance Tuning
 
 For high-traffic deployments:
@@ -217,7 +186,7 @@ For high-traffic deployments:
 ```yaml
 # docker-compose.yml
 services:
-  caddy:
+  app:
     deploy:
       resources:
         limits:

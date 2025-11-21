@@ -131,11 +131,11 @@ api.example.com {
         </div>
       )}
 
-      {showReview && preview && (
+      {showReview && preview && preview.preview && (
         <ImportReviewTable
-          hosts={preview.hosts}
-          conflicts={preview.conflicts}
-          errors={preview.errors}
+          hosts={preview.preview.hosts}
+          conflicts={preview.preview.conflicts}
+          errors={preview.preview.errors}
           onCommit={handleCommit}
           onCancel={() => setShowReview(false)}
         />

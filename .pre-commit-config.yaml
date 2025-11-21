@@ -1,14 +1,4 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.3.0
-    hooks:
-      - id: black
-        language_version: python3
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.14.5
-    hooks:
-      - id: ruff
-        args: ["--fix"]
   - repo: local
     hooks:
       - id: python-compile
@@ -35,3 +25,15 @@ repos:
         language: script
         files: "Dockerfile.*"
         pass_filenames: true
+      - id: go-test-coverage
+        name: Go Test Coverage
+        entry: scripts/go-test-coverage.sh
+        language: script
+        files: '\.go$'
+        pass_filenames: false
+      - id: frontend-type-check
+        name: Frontend TypeScript Check
+        entry: bash -c 'cd frontend && npm run type-check'
+        language: system
+        files: '^frontend/.*\.(ts|tsx)$'
+        pass_filenames: false

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useProxyHosts, ProxyHost } from '../hooks/useProxyHosts'
+import { useProxyHosts } from '../hooks/useProxyHosts'
+import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
 
 export default function ProxyHosts() {

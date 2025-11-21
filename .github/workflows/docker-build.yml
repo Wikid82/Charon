@@ -11,7 +11,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository_owner }}/cpmp
 
 jobs:
   build-and-push:
@@ -30,33 +30,28 @@ jobs:
     steps:
       # Step 1: Download the code
       - name: 📥 Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
-
-      # Normalize IMAGE_NAME to lowercase to satisfy container registry format
-      - name: 🔤 Normalize image name
-        run: |
-          raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
-          echo "IMAGE_NAME=$(echo "$raw" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
 
       - name: 🧪 Determine skip condition
         id: skip
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           should_skip=false
-          actor='${{ github.actor }}'
-          event='${{ github.event_name }}'
-          head_msg='${{ github.event.head_commit.message }}'
           pr_title=""
-          if [ "$event" = "pull_request" ]; then
+          if [ "$EVENT" = "pull_request" ]; then
             pr_title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH" 2>/dev/null || echo '')
           fi
-          if [ "$actor" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+          if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
+          if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
           if [ "$should_skip" = true ]; then
-            echo "Skipping heavy docker build for actor=$actor event=$event (message/title matched)"
+            echo "Skipping heavy docker build for actor=$ACTOR event=$EVENT (message/title matched)"
           else
             echo "Proceeding with full docker build"
           fi
@@ -118,7 +113,7 @@ jobs:
       # Step 7: Build and push Docker image
       - name: 🐳 Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         id: build
         with:
           context: .
@@ -159,7 +154,7 @@ jobs:
 
       # Step 10: Upload Trivy results to GitHub Security tab
       - name: 📤 Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@e12f0178983d466f2f6028f5cc7a6d786fd97f4b # v4
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && (steps.trivy.outcome == 'success' || steps.trivy.outcome == 'failure')
         with:
           sarif_file: 'trivy-results.sarif'
@@ -224,6 +219,14 @@ jobs:
           else
             echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
+
+      # Step 1.5: Log in to GitHub Container Registry (Required for private/internal images)
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PROJECT_TOKEN }} # yamllint disable-line rule:line-length
 
       # Step 2: Pull the image we just built
       - name: 📥 Pull Docker image

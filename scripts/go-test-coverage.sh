@@ -3,12 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
-COVERAGE_FILE="$BACKEND_DIR/coverage.pre-commit.out"
+COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
 MIN_COVERAGE="${CPM_MIN_COVERAGE:-75}"
+
+# trap 'rm -f "$COVERAGE_FILE"' EXIT
 
 cd "$BACKEND_DIR"
 
-go test -coverprofile="$COVERAGE_FILE" ./...
+go test -mod=readonly -coverprofile="$COVERAGE_FILE" ./internal/...
 
 go tool cover -func="$COVERAGE_FILE" | tail -n 1
 TOTAL_LINE=$(go tool cover -func="$COVERAGE_FILE" | grep total)
@@ -29,7 +31,5 @@ if total < minimum:
     print(f"Coverage {total}% is below required {minimum}% (set CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
 PY
-
-rm -f "$COVERAGE_FILE"
 
 echo "Coverage requirement met"

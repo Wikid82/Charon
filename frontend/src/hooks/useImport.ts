@@ -1,116 +1,76 @@
-import { useState, useEffect, useCallback } from 'react'
-import { importAPI } from '../services/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  uploadCaddyfile,
+  getImportPreview,
+  commitImport,
+  cancelImport,
+  getImportStatus,
+  ImportSession,
+  ImportPreview
+} from '../api/import';
 
-interface ImportSession {
-  uuid: string
-  filename?: string
-  state: string
-  created_at: string
-  updated_at: string
-}
-
-interface ImportPreview {
-  hosts: any[]
-  conflicts: string[]
-  errors: string[]
-}
+export const QUERY_KEY = ['import-session'];
 
 export function useImport() {
-  const [session, setSession] = useState<ImportSession | null>(null)
-  const [preview, setPreview] = useState<ImportPreview | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [polling, setPolling] = useState(false)
+  const queryClient = useQueryClient();
 
-  const checkStatus = useCallback(async () => {
-    try {
-      const status = await importAPI.status()
-      if (status.has_pending && status.session) {
-        setSession(status.session)
-        if (status.session.state === 'reviewing') {
-          const previewData = await importAPI.preview()
-          setPreview(previewData)
-        }
-      } else {
-        setSession(null)
-        setPreview(null)
+  // Poll for status if we think there's an active session
+  const statusQuery = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: getImportStatus,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Poll if we have a pending session in reviewing state
+      if (data?.has_pending && data?.session?.state === 'reviewing') {
+        return 3000;
       }
-    } catch (err) {
-      console.error('Failed to check import status:', err)
-    }
-  }, [])
+      return false;
+    },
+  });
 
-  useEffect(() => {
-    checkStatus()
-  }, [checkStatus])
+  const previewQuery = useQuery({
+    queryKey: ['import-preview'],
+    queryFn: getImportPreview,
+    enabled: !!statusQuery.data?.has_pending && statusQuery.data?.session?.state === 'reviewing',
+  });
 
-  useEffect(() => {
-    if (polling && session?.state === 'reviewing') {
-      const interval = setInterval(checkStatus, 3000)
-      return () => clearInterval(interval)
-    }
-  }, [polling, session?.state, checkStatus])
+  const uploadMutation = useMutation({
+    mutationFn: (content: string) => uploadCaddyfile(content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['import-preview'] });
+    },
+  });
 
-  const upload = async (content: string, filename?: string) => {
-    try {
-      setLoading(true)
-      setError(null)
-      const result = await importAPI.upload(content, filename)
-      setSession(result.session)
-      setPolling(true)
-      await checkStatus()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload Caddyfile')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }
+  const commitMutation = useMutation({
+    mutationFn: (resolutions: Record<string, string>) => commitImport(resolutions),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['import-preview'] });
+      // Also invalidate proxy hosts as they might have changed
+      queryClient.invalidateQueries({ queryKey: ['proxy-hosts'] });
+    },
+  });
 
-  const commit = async (resolutions: Record<string, string>) => {
-    if (!session) throw new Error('No active session')
-
-    try {
-      setLoading(true)
-      setError(null)
-      await importAPI.commit(session.uuid, resolutions)
-      setSession(null)
-      setPreview(null)
-      setPolling(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to commit import')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const cancel = async () => {
-    if (!session) return
-
-    try {
-      setLoading(true)
-      setError(null)
-      await importAPI.cancel(session.uuid)
-      setSession(null)
-      setPreview(null)
-      setPolling(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel import')
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelImport(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['import-preview'] });
+    },
+  });
 
   return {
-    session,
-    preview,
-    loading,
-    error,
-    upload,
-    commit,
-    cancel,
-    refresh: checkStatus,
-  }
+    session: statusQuery.data?.session || null,
+    preview: previewQuery.data || null,
+    loading: statusQuery.isLoading || uploadMutation.isPending || commitMutation.isPending || cancelMutation.isPending,
+    error: (statusQuery.error || previewQuery.error || uploadMutation.error || commitMutation.error || cancelMutation.error)
+      ? ((statusQuery.error || previewQuery.error || uploadMutation.error || commitMutation.error || cancelMutation.error) as Error).message
+      : null,
+    upload: uploadMutation.mutateAsync,
+    commit: commitMutation.mutateAsync,
+    cancel: cancelMutation.mutateAsync,
+  };
 }
+
+export type { ImportSession, ImportPreview };

@@ -115,13 +115,13 @@ The `docs.yml` workflow already configured for GitHub Pages:
 
 **Latest stable version:**
 ```bash
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
-docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/caddyproxymanagerplus:latest
+docker pull ghcr.io/wikid82/cpmp:latest
+docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/cpmp:latest
 ```
 
 **Development version:**
 ```bash
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:dev
+docker pull ghcr.io/wikid82/cpmp:dev
 ```
 
 **Specific version:**

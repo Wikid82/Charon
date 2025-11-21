@@ -12,6 +12,18 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 )
 
+// Executor defines an interface for executing shell commands.
+type Executor interface {
+	Execute(name string, args ...string) ([]byte, error)
+}
+
+// DefaultExecutor implements Executor using os/exec.
+type DefaultExecutor struct{}
+
+func (e *DefaultExecutor) Execute(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
 // CaddyConfig represents the root structure of Caddy's JSON config.
 type CaddyConfig struct {
 	Apps *CaddyApps `json:"apps,omitempty"`
@@ -53,14 +65,14 @@ type CaddyHandler struct {
 
 // ParsedHost represents a single host detected during Caddyfile import.
 type ParsedHost struct {
-	Domain       string   `json:"domain"`
-	TargetScheme string   `json:"target_scheme"`
-	TargetHost   string   `json:"target_host"`
-	TargetPort   int      `json:"target_port"`
-	EnableTLS    bool     `json:"enable_tls"`
-	EnableWS     bool     `json:"enable_websockets"`
-	RawJSON      string   `json:"raw_json"` // Original Caddy JSON for this route
-	Warnings     []string `json:"warnings"` // Unsupported features
+	DomainNames      string   `json:"domain_names"`
+	ForwardScheme    string   `json:"forward_scheme"`
+	ForwardHost      string   `json:"forward_host"`
+	ForwardPort      int      `json:"forward_port"`
+	SSLForced        bool     `json:"ssl_forced"`
+	WebsocketSupport bool     `json:"websocket_support"`
+	RawJSON          string   `json:"raw_json"` // Original Caddy JSON for this route
+	Warnings         []string `json:"warnings"` // Unsupported features
 }
 
 // ImportResult contains parsed hosts and detected conflicts.
@@ -73,6 +85,7 @@ type ImportResult struct {
 // Importer handles Caddyfile parsing and conversion to CPM+ models.
 type Importer struct {
 	caddyBinaryPath string
+	executor        Executor
 }
 
 // NewImporter creates a new Caddyfile importer.
@@ -80,7 +93,10 @@ func NewImporter(binaryPath string) *Importer {
 	if binaryPath == "" {
 		binaryPath = "caddy" // Default to PATH
 	}
-	return &Importer{caddyBinaryPath: binaryPath}
+	return &Importer{
+		caddyBinaryPath: binaryPath,
+		executor:        &DefaultExecutor{},
+	}
 }
 
 // ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
@@ -89,8 +105,7 @@ func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
 		return nil, fmt.Errorf("caddyfile not found: %s", caddyfilePath)
 	}
 
-	cmd := exec.Command(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
-	output, err := cmd.CombinedOutput()
+	output, err := i.executor.Execute(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
 	if err != nil {
 		return nil, fmt.Errorf("caddy adapt failed: %w (output: %s)", err, string(output))
 	}
@@ -133,8 +148,8 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 
 					// Extract reverse proxy handler
 					host := ParsedHost{
-						Domain:    domain,
-						EnableTLS: strings.HasPrefix(domain, "https") || server.TLSConnectionPolicies != nil,
+						DomainNames: domain,
+						SSLForced:   strings.HasPrefix(domain, "https") || server.TLSConnectionPolicies != nil,
 					}
 
 					// Find reverse_proxy handler
@@ -147,8 +162,12 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 									if dial != "" {
 										parts := strings.Split(dial, ":")
 										if len(parts) == 2 {
-											host.TargetHost = parts[0]
-											fmt.Sscanf(parts[1], "%d", &host.TargetPort)
+											host.ForwardHost = parts[0]
+											if _, err := fmt.Sscanf(parts[1], "%d", &host.ForwardPort); err != nil {
+												// Default to 80 if parsing fails, or handle error appropriately
+												// For now, just log or ignore, but at least we checked err
+												host.ForwardPort = 80
+											}
 										}
 									}
 								}
@@ -159,7 +178,7 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 								if upgrade, ok := headers["Upgrade"].([]interface{}); ok {
 									for _, v := range upgrade {
 										if v == "websocket" {
-											host.EnableWS = true
+											host.WebsocketSupport = true
 											break
 										}
 									}
@@ -167,9 +186,9 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 							}
 
 							// Default scheme
-							host.TargetScheme = "http"
-							if host.EnableTLS {
-								host.TargetScheme = "https"
+							host.ForwardScheme = "http"
+							if host.SSLForced {
+								host.ForwardScheme = "https"
 							}
 						}
 
@@ -214,18 +233,18 @@ func ConvertToProxyHosts(parsedHosts []ParsedHost) []models.ProxyHost {
 	hosts := make([]models.ProxyHost, 0, len(parsedHosts))
 
 	for _, parsed := range parsedHosts {
-		if parsed.TargetHost == "" || parsed.TargetPort == 0 {
+		if parsed.ForwardHost == "" || parsed.ForwardPort == 0 {
 			continue // Skip invalid entries
 		}
 
 		hosts = append(hosts, models.ProxyHost{
-			Name:         parsed.Domain, // Can be customized by user during review
-			Domain:       parsed.Domain,
-			TargetScheme: parsed.TargetScheme,
-			TargetHost:   parsed.TargetHost,
-			TargetPort:   parsed.TargetPort,
-			EnableTLS:    parsed.EnableTLS,
-			EnableWS:     parsed.EnableWS,
+			Name:             parsed.DomainNames, // Can be customized by user during review
+			DomainNames:      parsed.DomainNames,
+			ForwardScheme:    parsed.ForwardScheme,
+			ForwardHost:      parsed.ForwardHost,
+			ForwardPort:      parsed.ForwardPort,
+			SSLForced:        parsed.SSLForced,
+			WebsocketSupport: parsed.WebsocketSupport,
 		})
 	}
 
@@ -234,8 +253,8 @@ func ConvertToProxyHosts(parsedHosts []ParsedHost) []models.ProxyHost {
 
 // ValidateCaddyBinary checks if the Caddy binary is available.
 func (i *Importer) ValidateCaddyBinary() error {
-	cmd := exec.Command(i.caddyBinaryPath, "version")
-	if err := cmd.Run(); err != nil {
+	_, err := i.executor.Execute(i.caddyBinaryPath, "version")
+	if err != nil {
 		return errors.New("caddy binary not found or not executable")
 	}
 	return nil

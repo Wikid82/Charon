@@ -24,9 +24,9 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 ## Getting Started
 
-### Prerequisites
+-### Prerequisites
 
-- **Go 1.22+** for backend development
+- **Go 1.24+** for backend development
 - **Node.js 20+** and npm for frontend development
 - Git for version control
 - A GitHub account

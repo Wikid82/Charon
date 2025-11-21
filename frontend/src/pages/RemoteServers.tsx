@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useRemoteServers, RemoteServer } from '../hooks/useRemoteServers'
+import { useRemoteServers } from '../hooks/useRemoteServers'
+import type { RemoteServer } from '../api/remoteServers'
 import RemoteServerForm from '../components/RemoteServerForm'
 
 export default function RemoteServers() {

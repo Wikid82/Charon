@@ -1,7 +1,7 @@
 # CaddyProxyManager+ Architecture Plan
 
 ## Stack Overview
-- **Backend**: Go 1.22, Gin HTTP framework, GORM ORM, SQLite for local/stateful storage.
+- **Backend**: Go 1.24, Gin HTTP framework, GORM ORM, SQLite for local/stateful storage.
 - **Frontend**: React 18 + TypeScript with Vite, React Query for data fetching, React Router for navigation.
 - **API Contract**: REST/JSON over `/api/v1`, versioned to keep room for breaking changes.
 - **Deployment**: Container-first via multi-stage Docker build (Node → Go), future compose bundle for Caddy runtime.

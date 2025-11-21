@@ -23,14 +23,15 @@ htmlcov/
 # Node/Frontend build artifacts
 frontend/node_modules/
 frontend/coverage/
+frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
-# Keep frontend/dist - needed in final image
 
 # Go/Backend
+backend/api
 backend/*.out
+backend/coverage/
 backend/coverage.*.out
-# Keep backend/api binary - needed in final image
 
 # Databases (runtime)
 backend/data/*.db
@@ -46,6 +47,7 @@ backend/cmd/api/data/*.db
 *~
 
 # Logs
+/home/jeremy/Server/Projects/cpmp/.trivy_logs
 *.log
 logs/
 

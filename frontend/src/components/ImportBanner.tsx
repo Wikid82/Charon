@@ -1,43 +1,29 @@
-interface ImportBannerProps {
-  session: {
-    uuid: string
-    filename?: string
-    state: string
-    created_at: string
-  }
+interface Props {
+  session: { id: string }
   onReview: () => void
   onCancel: () => void
 }
 
-export default function ImportBanner({ session, onReview, onCancel }: ImportBannerProps) {
+export default function ImportBanner({ session, onReview, onCancel }: Props) {
   return (
-    <div className="bg-blue-900/20 border border-blue-500 rounded-lg p-4 mb-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-blue-400 mb-1">
-            Import Session Active
-          </h3>
-          <p className="text-sm text-gray-300">
-            {session.filename && `File: ${session.filename} • `}
-            State: <span className="font-medium">{session.state}</span>
-          </p>
-        </div>
-        <div className="flex gap-3">
-          {session.state === 'reviewing' && (
-            <button
-              onClick={onReview}
-              className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"
-            >
-              Review Changes
-            </button>
-          )}
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 bg-red-900/20 hover:bg-red-900/30 text-red-400 rounded-lg font-medium transition-colors"
-          >
-            Cancel Import
-          </button>
-        </div>
+    <div className="bg-yellow-900/20 border border-yellow-600 text-yellow-300 px-4 py-3 rounded mb-6 flex items-center justify-between">
+      <div>
+        <div className="font-medium">Pending Import Session</div>
+        <div className="text-sm text-yellow-400/80">Session ID: {session.id}</div>
+      </div>
+      <div className="flex gap-3">
+        <button
+          onClick={onReview}
+          className="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 text-black rounded text-sm font-medium"
+        >
+          Review Changes
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-yellow-300 border border-yellow-700 rounded text-sm font-medium"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   )

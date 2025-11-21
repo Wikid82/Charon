@@ -1,84 +1,55 @@
-import { useState, useEffect } from 'react'
-import { proxyHostsAPI } from '../services/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  getProxyHosts,
+  createProxyHost,
+  updateProxyHost,
+  deleteProxyHost,
+  ProxyHost
+} from '../api/proxyHosts';
 
-export interface ProxyHost {
-  uuid: string
-  domain_names: string
-  forward_scheme: string
-  forward_host: string
-  forward_port: number
-  access_list_id?: string
-  certificate_id?: string
-  ssl_forced: boolean
-  http2_support: boolean
-  hsts_enabled: boolean
-  hsts_subdomains: boolean
-  block_exploits: boolean
-  websocket_support: boolean
-  advanced_config?: string
-  enabled: boolean
-  created_at: string
-  updated_at: string
-}
+export const QUERY_KEY = ['proxy-hosts'];
 
 export function useProxyHosts() {
-  const [hosts, setHosts] = useState<ProxyHost[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient();
 
-  const fetchHosts = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await proxyHostsAPI.list()
-      setHosts(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch proxy hosts')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const query = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: getProxyHosts,
+  });
 
-  useEffect(() => {
-    fetchHosts()
-  }, [])
+  const createMutation = useMutation({
+    mutationFn: (host: Partial<ProxyHost>) => createProxyHost(host),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
-  const createHost = async (data: Partial<ProxyHost>) => {
-    try {
-      const newHost = await proxyHostsAPI.create(data)
-      setHosts([...hosts, newHost])
-      return newHost
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to create proxy host')
-    }
-  }
+  const updateMutation = useMutation({
+    mutationFn: ({ uuid, data }: { uuid: string; data: Partial<ProxyHost> }) =>
+      updateProxyHost(uuid, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
-  const updateHost = async (uuid: string, data: Partial<ProxyHost>) => {
-    try {
-      const updatedHost = await proxyHostsAPI.update(uuid, data)
-      setHosts(hosts.map(h => h.uuid === uuid ? updatedHost : h))
-      return updatedHost
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to update proxy host')
-    }
-  }
-
-  const deleteHost = async (uuid: string) => {
-    try {
-      await proxyHostsAPI.delete(uuid)
-      setHosts(hosts.filter(h => h.uuid !== uuid))
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to delete proxy host')
-    }
-  }
+  const deleteMutation = useMutation({
+    mutationFn: (uuid: string) => deleteProxyHost(uuid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
 
   return {
-    hosts,
-    loading,
-    error,
-    refresh: fetchHosts,
-    createHost,
-    updateHost,
-    deleteHost,
-  }
+    hosts: query.data || [],
+    loading: query.isLoading,
+    error: query.error ? (query.error as Error).message : null,
+    createHost: createMutation.mutateAsync,
+    updateHost: (uuid: string, data: Partial<ProxyHost>) => updateMutation.mutateAsync({ uuid, data }),
+    deleteHost: deleteMutation.mutateAsync,
+    isCreating: createMutation.isPending,
+    isUpdating: updateMutation.isPending,
+    isDeleting: deleteMutation.isPending,
+  };
 }
+
+export type { ProxyHost };

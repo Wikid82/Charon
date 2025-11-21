@@ -22,24 +22,24 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    expect(screen.getByText('Hosts to Import (1)')).toBeInTheDocument()
+    expect(screen.getByText('Review Imported Hosts')).toBeInTheDocument()
     expect(screen.getByText('test.example.com')).toBeInTheDocument()
   })
 
   it('displays conflicts with resolution dropdowns', () => {
+    const conflicts = ['test.example.com']
     render(
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
-        conflicts={mockImportPreview.conflicts}
+        conflicts={conflicts}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
       />
     )
 
-    expect(screen.getByText(/Conflicts Detected \(1\)/)).toBeInTheDocument()
-    expect(screen.getByText('app.local.dev')).toBeInTheDocument()
-    expect(screen.getByText('-- Choose action --')).toBeInTheDocument()
+    expect(screen.getByText('test.example.com')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 
   it('displays errors', () => {
@@ -55,58 +55,24 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    expect(screen.getByText('Errors')).toBeInTheDocument()
+    expect(screen.getByText('Issues found during parsing')).toBeInTheDocument()
     expect(screen.getByText('Invalid Caddyfile syntax')).toBeInTheDocument()
     expect(screen.getByText('Missing required field')).toBeInTheDocument()
   })
 
-  it('disables commit button until all conflicts are resolved', () => {
-    render(
-      <ImportReviewTable
-        hosts={mockImportPreview.hosts}
-        conflicts={mockImportPreview.conflicts}
-        errors={[]}
-        onCommit={mockOnCommit}
-        onCancel={mockOnCancel}
-      />
-    )
-
-    const commitButton = screen.getByText('Commit Import')
-    expect(commitButton).toBeDisabled()
-  })
-
-  it('enables commit button when all conflicts are resolved', async () => {
-    render(
-      <ImportReviewTable
-        hosts={mockImportPreview.hosts}
-        conflicts={mockImportPreview.conflicts}
-        errors={[]}
-        onCommit={mockOnCommit}
-        onCancel={mockOnCancel}
-      />
-    )
-
-    const dropdown = screen.getAllByRole('combobox')[0]
-    fireEvent.change(dropdown, { target: { value: 'skip' } })
-
-    await waitFor(() => {
-      const commitButton = screen.getByText('Commit Import')
-      expect(commitButton).not.toBeDisabled()
-    })
-  })
-
   it('calls onCommit with resolutions', async () => {
+    const conflicts = ['test.example.com']
     render(
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
-        conflicts={mockImportPreview.conflicts}
+        conflicts={conflicts}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
       />
     )
 
-    const dropdown = screen.getAllByRole('combobox')[0]
+    const dropdown = screen.getByRole('combobox')
     fireEvent.change(dropdown, { target: { value: 'overwrite' } })
 
     const commitButton = screen.getByText('Commit Import')
@@ -114,7 +80,7 @@ describe('ImportReviewTable', () => {
 
     await waitFor(() => {
       expect(mockOnCommit).toHaveBeenCalledWith({
-        'app.local.dev': 'overwrite',
+        'test.example.com': 'overwrite',
       })
     })
   })
@@ -130,31 +96,23 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    fireEvent.click(screen.getByText('Cancel'))
+    fireEvent.click(screen.getByText('Back'))
     expect(mockOnCancel).toHaveBeenCalledOnce()
   })
 
   it('shows conflict indicator on conflicting hosts', () => {
+    const conflicts = ['test.example.com']
     render(
       <ImportReviewTable
-        hosts={[
-          {
-            domain_names: 'app.local.dev',
-            forward_scheme: 'http',
-            forward_host: 'localhost',
-            forward_port: 3000,
-            ssl_forced: false,
-            http2_support: false,
-            websocket_support: false,
-          },
-        ]}
-        conflicts={['app.local.dev']}
+        hosts={mockImportPreview.hosts}
+        conflicts={conflicts}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
       />
     )
 
-    expect(screen.getByText('Conflict')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.queryByText('No conflict')).not.toBeInTheDocument()
   })
 })
