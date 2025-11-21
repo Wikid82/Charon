@@ -58,7 +58,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Save snapshot for rollback
-	if _, err := m.saveSnapshot(config); err != nil {
+	snapshotPath, err := m.saveSnapshot(config)
+	if err != nil {
 		return fmt.Errorf("save snapshot: %w", err)
 	}
 
@@ -68,8 +69,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 	// Apply to Caddy
 	if err := m.client.Load(ctx, config); err != nil {
+		// Remove the failed snapshot so rollback uses the previous one
+		os.Remove(snapshotPath)
+
 		// Rollback on failure
 		if rollbackErr := m.rollback(ctx); rollbackErr != nil {
+			// If rollback fails, we still want to record the failure
+			m.recordConfigChange(configHash, false, err.Error())
 			return fmt.Errorf("apply failed: %w, rollback also failed: %v", err, rollbackErr)
 		}
 

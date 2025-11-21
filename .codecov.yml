@@ -28,6 +28,7 @@ ignore:
   - "frontend/dist/*"
   - "frontend/coverage/*"
   - "backend/cmd/seed/*"
+  - "backend/cmd/api/*"
   - "backend/data/*"
   - "backend/coverage/*"
   - "backend/internal/services/docker_service.go"

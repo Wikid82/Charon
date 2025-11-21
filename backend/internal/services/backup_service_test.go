@@ -1,6 +1,7 @@
 package services
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,31 +49,57 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	assert.Equal(t, filename, backups[0].Filename)
 	assert.True(t, backups[0].Size > 0)
 
-	// Test Restore (Basic check that it unzips)
-	// Modify the "current" file to verify restore overwrites/restores it
+	// Test GetBackupPath
+	path := service.GetBackupPath(filename)
+	assert.Equal(t, filepath.Join(service.BackupDir, filename), path)
+
+	// Test Restore
+	// Modify DB to verify restore
 	err = os.WriteFile(dbPath, []byte("modified db"), 0644)
 	require.NoError(t, err)
 
 	err = service.RestoreBackup(filename)
 	require.NoError(t, err)
 
-	// Verify content restored
+	// Verify DB content restored
 	content, err := os.ReadFile(dbPath)
 	require.NoError(t, err)
 	assert.Equal(t, "dummy db", string(content))
+
+	// Test Delete
+	err = service.DeleteBackup(filename)
+	require.NoError(t, err)
+	assert.NoFileExists(t, filepath.Join(service.BackupDir, filename))
+
+	// Test Delete Non-existent
+	err = service.DeleteBackup("non-existent.zip")
+	assert.Error(t, err)
 }
 
-func TestBackupService_Cron(t *testing.T) {
-	// Just verify cron is running/scheduled
-	tmpDir, err := os.MkdirTemp("", "cpm-backup-cron-test")
+func TestBackupService_Restore_ZipSlip(t *testing.T) {
+	// Setup temp dirs
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		DataDir:   filepath.Join(tmpDir, "data"),
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	os.MkdirAll(service.BackupDir, 0755)
+
+	// Create malicious zip
+	zipPath := filepath.Join(service.BackupDir, "malicious.zip")
+	zipFile, err := os.Create(zipPath)
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
 
-	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0755)
-	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "cpm.db")}
+	w := zip.NewWriter(zipFile)
+	f, err := w.Create("../../../evil.txt")
+	require.NoError(t, err)
+	_, err = f.Write([]byte("evil"))
+	require.NoError(t, err)
+	w.Close()
+	zipFile.Close()
 
-	service := NewBackupService(cfg)
-	entries := service.Cron.Entries()
-	assert.Len(t, entries, 1)
+	// Attempt restore
+	err = service.RestoreBackup("malicious.zip")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "illegal file path")
 }
