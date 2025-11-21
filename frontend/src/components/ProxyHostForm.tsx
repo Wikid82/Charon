@@ -179,8 +179,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Forward Details */}
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
+              <label htmlFor="forward-scheme" className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
               <select
+                id="forward-scheme"
                 value={formData.forward_scheme}
                 onChange={e => setFormData({ ...formData, forward_scheme: e.target.value })}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -190,8 +191,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Host</label>
+              <label htmlFor="forward-host" className="block text-sm font-medium text-gray-300 mb-2">Host</label>
               <input
+                id="forward-host"
                 type="text"
                 required
                 value={formData.forward_host}
@@ -201,8 +203,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Port</label>
+              <label htmlFor="forward-port" className="block text-sm font-medium text-gray-300 mb-2">Port</label>
               <input
+                id="forward-port"
                 type="number"
                 required
                 min="1"
