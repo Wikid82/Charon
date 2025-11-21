@@ -6,6 +6,7 @@ import client from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 
 const Setup: React.FC = () => {
   const navigate = useNavigate();
@@ -104,17 +105,19 @@ const Setup: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               helperText="This email will be used for Let's Encrypt certificate notifications and recovery."
             />
-            <Input
-              id="password"
-              name="password"
-              label="Password"
-              type="password"
-              required
-              minLength={8}
-              placeholder="********"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            />
+                        <div className="space-y-1">
+              <Input
+                id="password"
+                name="password"
+                label="Password"
+                type="password"
+                required
+                placeholder="••••••••"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              />
+              <PasswordStrengthMeter password={formData.password} />
+            </div>
           </div>
 
           {error && (

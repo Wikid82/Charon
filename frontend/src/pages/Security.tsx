@@ -7,6 +7,7 @@ import { toast } from '../utils/toast'
 import client from '../api/client'
 import { getProfile, regenerateApiKey } from '../api/user'
 import { Copy, RefreshCw, Shield } from 'lucide-react'
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
 
 export default function Security() {
   const [oldPassword, setOldPassword] = useState('')
@@ -80,13 +81,16 @@ export default function Security() {
               onChange={e => setOldPassword(e.target.value)}
               required
             />
-            <Input
-              label="New Password"
-              type="password"
-              value={newPassword}
-              onChange={e => setNewPassword(e.target.value)}
-              required
-            />
+            <div className="space-y-1">
+              <Input
+                label="New Password"
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                required
+              />
+              <PasswordStrengthMeter password={newPassword} />
+            </div>
             <Input
               label="Confirm New Password"
               type="password"
