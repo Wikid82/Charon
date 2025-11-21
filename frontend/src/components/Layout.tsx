@@ -39,6 +39,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
     { name: 'Settings', path: '/settings/system', icon: '⚙️' },
+    { name: 'Tasks', path: '/tasks/backups', icon: '📋' },
   ]
 
   return (
@@ -63,14 +64,16 @@ export default function Layout({ children }: LayoutProps) {
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
         <div className={`p-4 hidden lg:flex items-center justify-center`}>
-           {!isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">CPM+</h1>}
-           {isCollapsed && <h1 className="text-xl font-bold text-gray-900 dark:text-white">C+</h1>}
+           {/* Logo moved to header */}
         </div>
 
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.path || (item.path.startsWith('/settings') && location.pathname.startsWith(item.path) && item.path !== '/settings/system')
+              const isActive = location.pathname === item.path ||
+                (item.path.startsWith('/settings') && location.pathname.startsWith('/settings') && item.path === '/settings/system') ||
+                (item.path.startsWith('/tasks') && location.pathname.startsWith('/tasks'))
+
               return (
                 <Link
                   key={item.path}
@@ -144,6 +147,7 @@ export default function Layout({ children }: LayoutProps) {
         {/* Desktop Header */}
         <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800">
            <div className="w-1/3 flex items-center gap-4">
+             <h1 className="text-xl font-bold text-gray-900 dark:text-white mr-4">CPM+</h1>
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

@@ -21,6 +21,10 @@ export default function Account() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [emailValid, setEmailValid] = useState<boolean | null>(null)
+  const [confirmPasswordForUpdate, setConfirmPasswordForUpdate] = useState('')
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false)
+  const [pendingProfileUpdate, setPendingProfileUpdate] = useState<{name: string, email: string} | null>(null)
+  const [previousEmail, setPreviousEmail] = useState('')
   const [showEmailConfirmModal, setShowEmailConfirmModal] = useState(false)
 
   // Certificate Email State
@@ -119,32 +123,76 @@ export default function Account() {
     e.preventDefault()
     if (!emailValid) return
 
-    // Check if email changed and is different from current cert email
+    // Check if email changed
     if (email !== profile?.email) {
-        setShowEmailConfirmModal(true)
+        setPreviousEmail(profile?.email || '')
+        setPendingProfileUpdate({ name, email })
+        setShowPasswordPrompt(true)
         return
     }
 
     updateProfileMutation.mutate({ name, email })
   }
 
+  const handlePasswordPromptSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!pendingProfileUpdate) return
+
+    setShowPasswordPrompt(false)
+
+    // If email changed, we might need to ask about cert email too
+    // But first, let's update the profile with the password
+    updateProfileMutation.mutate({
+        name: pendingProfileUpdate.name,
+        email: pendingProfileUpdate.email,
+        current_password: confirmPasswordForUpdate
+    }, {
+        onSuccess: () => {
+            setConfirmPasswordForUpdate('')
+            // Check if we need to prompt for cert email
+            // We do this AFTER success to ensure profile is updated
+            // But wait, if we do it after success, the profile email is already new.
+            // The user wanted to be asked.
+            // Let's ask about cert email first? No, user said "Updateing email test the popup worked as expected"
+            // But "I chose to keep my certificate email as the old email and it changed anyway"
+            // This implies the logic below is flawed or the backend/frontend sync is weird.
+
+            // Let's show the cert email modal if the update was successful AND it was an email change
+            setShowEmailConfirmModal(true)
+        },
+        onError: () => {
+             setConfirmPasswordForUpdate('')
+        }
+    })
+  }
+
   const confirmEmailUpdate = (updateCertEmail: boolean) => {
     setShowEmailConfirmModal(false)
 
-    // Update profile
-    updateProfileMutation.mutate({ name, email }, {
-        onSuccess: () => {
-            if (updateCertEmail) {
-                updateSettingMutation.mutate({
-                    key: 'caddy.email',
-                    value: email,
-                    category: 'caddy'
-                })
-                setCertEmail(email)
-                setUseUserEmail(true)
-            }
+    if (updateCertEmail) {
+        updateSettingMutation.mutate({
+            key: 'caddy.email',
+            value: email,
+            category: 'caddy'
+        })
+        setCertEmail(email)
+        setUseUserEmail(true)
+    } else {
+        // If user chose NO, we must ensure the cert email stays as the OLD email.
+        // If settings['caddy.email'] is empty, it defaults to profile email (which is now NEW).
+        // So we must explicitly save the OLD email.
+        const savedEmail = settings?.['caddy.email']
+        if (!savedEmail && previousEmail) {
+             updateSettingMutation.mutate({
+                key: 'caddy.email',
+                value: previousEmail,
+                category: 'caddy'
+            })
+            // Update local state immediately
+            setCertEmail(previousEmail)
+            setUseUserEmail(false)
         }
-    })
+    }
   }
 
   const handleUpdateCertEmail = (e: React.FormEvent) => {
@@ -348,6 +396,43 @@ export default function Account() {
           </div>
         </div>
       </Card>
+
+      {/* Password Prompt Modal */}
+      {showPasswordPrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center gap-3 mb-4 text-blue-600 dark:text-blue-500">
+              <Shield className="w-6 h-6" />
+              <h3 className="text-lg font-bold">Confirm Password</h3>
+            </div>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              Please enter your current password to confirm these changes.
+            </p>
+            <form onSubmit={handlePasswordPromptSubmit} className="space-y-4">
+                <Input
+                    type="password"
+                    placeholder="Current Password"
+                    value={confirmPasswordForUpdate}
+                    onChange={(e) => setConfirmPasswordForUpdate(e.target.value)}
+                    required
+                    autoFocus
+                />
+                <div className="flex flex-col gap-3">
+                <Button type="submit" className="w-full" isLoading={updateProfileMutation.isPending}>
+                    Confirm & Update
+                </Button>
+                <Button type="button" onClick={() => {
+                    setShowPasswordPrompt(false)
+                    setConfirmPasswordForUpdate('')
+                    setPendingProfileUpdate(null)
+                }} variant="ghost" className="w-full text-gray-500">
+                    Cancel
+                </Button>
+                </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Email Update Confirmation Modal */}
       {showEmailConfirmModal && (

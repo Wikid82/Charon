@@ -37,3 +37,9 @@ repos:
         language: system
         files: '^frontend/.*\.(ts|tsx)$'
         pass_filenames: false
+      - id: frontend-lint
+        name: Frontend Lint (Fix)
+        entry: bash -c 'cd frontend && npm run lint -- --fix'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false

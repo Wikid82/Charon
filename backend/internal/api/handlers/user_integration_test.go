@@ -69,8 +69,9 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 	// 3. Update Profile (Change Email)
 	newEmail := "updated@example.com"
 	updateBody := map[string]string{
-		"name":  "Test User Updated",
-		"email": newEmail,
+		"name":             "Test User Updated",
+		"email":            newEmail,
+		"current_password": password,
 	}
 	jsonUpdate, _ := json.Marshal(updateBody)
 	req, _ = http.NewRequest("POST", "/user/profile", bytes.NewBuffer(jsonUpdate))

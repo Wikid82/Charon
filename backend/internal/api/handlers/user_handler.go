@@ -74,6 +74,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		Email:   strings.ToLower(req.Email),
 		Role:    "admin",
 		Enabled: true,
+		APIKey:  uuid.New().String(),
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -158,8 +159,9 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 }
 
 type UpdateProfileRequest struct {
-	Name  string `json:"name" binding:"required"`
-	Email string `json:"email" binding:"required,email"`
+	Name            string `json:"name" binding:"required"`
+	Email           string `json:"email" binding:"required,email"`
+	CurrentPassword string `json:"current_password"`
 }
 
 // UpdateProfile updates the authenticated user's profile.
@@ -176,6 +178,13 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
+	// Get current user
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
 	// Check if email is already taken by another user
 	req.Email = strings.ToLower(req.Email)
 	var count int64
@@ -187,6 +196,18 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	if count > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
 		return
+	}
+
+	// If email is changing, verify password
+	if req.Email != user.Email {
+		if req.CurrentPassword == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change email"})
+			return
+		}
+		if !user.CheckPassword(req.CurrentPassword) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+			return
+		}
 	}
 
 	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
