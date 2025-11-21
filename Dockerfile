@@ -11,7 +11,7 @@ ARG VCS_REF
 ARG CADDY_IMAGE=caddy:2.9.1-alpine
 
 # ---- Cross-Compilation Helpers ----
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.6.1 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
