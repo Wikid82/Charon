@@ -76,3 +76,5 @@ backend/coverage.txt
 codeql-db/
 codeql-results.sarif
 **.sarif
+codeql-results-js.sarif
+codeql-results-go.sarif
