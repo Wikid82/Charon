@@ -1,4 +1,4 @@
-name: Docker Build & Publish
+name: Docker Build, Publish & Test
 
 on:
   push:
@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - development
+  workflow_dispatch:
   workflow_call:
 
 env:
@@ -25,6 +26,10 @@ jobs:
       contents: read
       packages: write
       security-events: write
+
+    outputs:
+      skip_build: ${{ steps.skip.outputs.skip_build }}
+      digest: ${{ steps.build-and-push.outputs.digest }}
 
     steps:
       - name: Checkout repository
@@ -85,6 +90,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=pr-${{ github.ref_name }},enable=${{ github.event_name == 'pull_request' }}
+            type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
 
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
@@ -92,7 +99,6 @@ jobs:
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
-          # PRs: amd64 only, no push. Pushes: amd64+arm64, push.
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -105,7 +111,6 @@ jobs:
             VCS_REF=${{ github.sha }}
             CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
-      # Trivy steps only on push
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
@@ -132,3 +137,90 @@ jobs:
         uses: github/codeql-action/upload-sarif@e12f0178983d466f2f6028f5cc7a6d786fd97f4b # v4
         with:
           sarif_file: 'trivy-results.sarif'
+
+      - name: Create summary
+        if: steps.skip.outputs.skip_build != 'true'
+        run: |
+          echo "## 🎉 Docker Image Built Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: GitHub Container Registry (ghcr.io)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags**: " >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  test-image:
+    name: Test Docker Image
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Normalize image name
+        run: |
+          raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          echo "IMAGE_NAME=$(echo "$raw" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
+            echo "tag=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PROJECT_TOKEN }}
+
+      - name: Pull Docker image
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Run container
+        run: |
+          docker run -d \
+            --name test-container \
+            -p 8080:8080 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Test health endpoint (retries)
+        run: |
+          set +e
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v1/health || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "✅ Health check passed on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i/30: health not ready (code=$code); waiting..."
+            sleep 2
+          done
+          echo "❌ Health check failed after retries"
+          docker logs test-container || true
+          exit 1
+
+      - name: Check container logs
+        if: always()
+        run: docker logs test-container
+
+      - name: Stop container
+        if: always()
+        run: docker stop test-container && docker rm test-container
+
+      - name: Create test summary
+        if: always()
+        run: |
+          echo "## 🧪 Docker Image Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Health Check**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
