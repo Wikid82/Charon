@@ -224,3 +224,29 @@ func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestAuthHandler_ChangePassword_Errors(t *testing.T) {
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/change-password", handler.ChangePassword)
+
+	// 1. BindJSON error (checked before auth)
+	req, _ := http.NewRequest("POST", "/change-password", bytes.NewBufferString("invalid json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 2. Unauthorized (valid JSON but no user in context)
+	body := map[string]string{
+		"old_password": "oldpassword",
+		"new_password": "newpassword123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req, _ = http.NewRequest("POST", "/change-password", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}

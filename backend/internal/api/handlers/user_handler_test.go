@@ -350,3 +350,39 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, w.Code)
 	})
 }
+
+func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	// 1. Unauthorized (no userID)
+	r.PUT("/profile-no-auth", handler.UpdateProfile)
+	req, _ := http.NewRequest("PUT", "/profile-no-auth", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// Middleware for subsequent tests
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999)) // Non-existent ID
+		c.Next()
+	})
+	r.PUT("/profile", handler.UpdateProfile)
+
+	// 2. BindJSON error
+	req, _ = http.NewRequest("PUT", "/profile", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 3. User not found
+	body := map[string]string{"name": "New Name", "email": "new@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ = http.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

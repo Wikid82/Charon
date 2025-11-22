@@ -14,6 +14,7 @@ export interface ImportPreview {
     conflicts: string[];
     errors: string[];
   };
+  caddyfile_content?: string;
 }
 
 export const uploadCaddyfile = async (content: string): Promise<ImportPreview> => {
