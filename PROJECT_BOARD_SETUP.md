@@ -198,7 +198,7 @@ gh issue create \
 The GitHub Actions workflows require these permissions:
 
 - ✅ **`issues: write`** - To add labels (already included)
-- ✅ **`GITHUB_TOKEN`** - Automatically provided (already configured)
+- ✅ **`CPMP_TOKEN`** - Automatically provided (already configured)
 - ⚠️ **Project Board Access** - Ensure Actions can access projects
 
 ### To verify project access:

@@ -14,6 +14,7 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/server"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version"
+	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -38,6 +39,7 @@ func main() {
 	// Log to both stdout and file
 	mw := io.MultiWriter(os.Stdout, rotator)
 	log.SetOutput(mw)
+	gin.DefaultWriter = mw
 
 	// Handle CLI commands
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {

@@ -103,4 +103,4 @@ jobs:
               }
             }
         env:
-          GITHUB_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          CPMP_TOKEN: ${{ secrets.CPMP_TOKEN }}

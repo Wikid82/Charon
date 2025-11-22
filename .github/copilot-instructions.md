@@ -36,3 +36,8 @@
 - **Ignore Files**: When creating new file types, directories, or build artifacts, ALWAYS check and update `.gitignore`, `.dockerignore`, and `.codecov.yml` to ensure they are properly excluded or included as required.
 - The root `Dockerfile` builds the Go binary and the React static assets (multi-stage build).
 - Branch from `feature/**` and target `development`.
+
+## CI/CD & Commit Conventions
+- **Docker Builds**: The `docker-publish` workflow skips builds for commits starting with `chore:`.
+- **Triggering Builds**: To ensure a new Docker image is built (e.g., for testing on VPS), use `feat:`, `fix:`, or `perf:` prefixes.
+- **Beta Branch**: The `feature/beta-release` branch is configured to ALWAYS build, overriding the skip logic.

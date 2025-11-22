@@ -30,7 +30,7 @@ echo "Starting CPM+ management application..."
 if [ "$CPMP_DEBUG" = "1" ]; then
     DEBUG_PORT=${CPMP_DEBUG_PORT:-2345}
     echo "Running CPM+ under Delve (port $DEBUG_PORT)"
-    /usr/local/bin/dlv exec /app/cpmp --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --log -- &
+    /usr/local/bin/dlv exec /app/cpmp --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     /app/cpmp &
 fi
