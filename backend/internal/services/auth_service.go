@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
@@ -27,6 +28,7 @@ type Claims struct {
 }
 
 func (s *AuthService) Register(email, password, name string) (*models.User, error) {
+	email = strings.ToLower(email)
 	var count int64
 	s.db.Model(&models.User{}).Count(&count)
 
@@ -57,6 +59,7 @@ func (s *AuthService) Register(email, password, name string) (*models.User, erro
 }
 
 func (s *AuthService) Login(email, password string) (string, error) {
+	email = strings.ToLower(email)
 	var user models.User
 	if err := s.db.Where("email = ?", email).First(&user).Error; err != nil {
 		return "", errors.New("invalid credentials")
@@ -137,4 +140,12 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func (s *AuthService) GetUserByID(id uint) (*models.User, error) {
+	var user models.User
+	if err := s.db.First(&user, id).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }

@@ -31,9 +31,28 @@ repos:
         language: script
         files: '\.go$'
         pass_filenames: false
+        verbose: true
+      - id: go-vet
+        name: Go Vet
+        entry: bash -c 'cd backend && go vet ./...'
+        language: system
+        files: '\.go$'
+        pass_filenames: false
       - id: frontend-type-check
         name: Frontend TypeScript Check
         entry: bash -c 'cd frontend && npm run type-check'
         language: system
         files: '^frontend/.*\.(ts|tsx)$'
+        pass_filenames: false
+      - id: frontend-lint
+        name: Frontend Lint (Fix)
+        entry: bash -c 'cd frontend && npm run lint -- --fix'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+      - id: frontend-test
+        name: Frontend Tests
+        entry: bash -c 'cd frontend && npm test -- --run'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false

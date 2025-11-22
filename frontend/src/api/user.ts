@@ -17,3 +17,8 @@ export const regenerateApiKey = async (): Promise<{ api_key: string }> => {
   const response = await client.post('/user/api-key')
   return response.data
 }
+
+export const updateProfile = async (data: { name: string; email: string; current_password?: string }): Promise<{ message: string }> => {
+  const response = await client.post('/user/profile', data)
+  return response.data
+}

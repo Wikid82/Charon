@@ -7,6 +7,9 @@ import (
 // NewRouter creates a new Gin router with frontend static file serving.
 func NewRouter(frontendDir string) *gin.Engine {
 	router := gin.Default()
+	// Silence "trusted all proxies" warning by not trusting any by default.
+	// If running behind a proxy, this should be configured to trust that proxy's IP.
+	_ = router.SetTrustedProxies(nil)
 
 	// Serve frontend static files
 	if frontendDir != "" {

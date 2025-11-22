@@ -86,14 +86,9 @@ export default function Backups() {
   })
 
   const handleDownload = (filename: string) => {
-    // Direct download link
-    // Assuming we have a download endpoint that serves the file
-    // For now, we can use window.open or create a link element
-    // But we need an auth token.
-    // A better way is to use the API client to get a blob and download it.
-    // Or just show a toast as before if not implemented fully.
-    console.log('Download requested for:', filename)
-    toast.info('Download logic needs backend implementation for authenticated file serving')
+    // Trigger download via browser navigation
+    // The browser will send the auth cookie automatically
+    window.location.href = `/api/v1/backups/${filename}/download`
   }
 
   return (

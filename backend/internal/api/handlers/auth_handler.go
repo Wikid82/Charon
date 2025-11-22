@@ -69,7 +69,19 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	role, _ := c.Get("role")
-	c.JSON(http.StatusOK, gin.H{"user_id": userID, "role": role})
+
+	u, err := h.authService.GetUserByID(userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id": userID,
+		"role":    role,
+		"name":    u.Name,
+		"email":   u.Email,
+	})
 }
 
 type ChangePasswordRequest struct {

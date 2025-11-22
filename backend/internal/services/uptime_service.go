@@ -24,7 +24,7 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 // CheckHost checks a single host and creates a notification if it's down
 func (s *UptimeService) CheckHost(host string, port int) bool {
 	timeout := 5 * time.Second
-	target := fmt.Sprintf("%s:%d", host, port)
+	target := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	conn, err := net.DialTimeout("tcp", target, timeout)
 	if err != nil {
 		return false

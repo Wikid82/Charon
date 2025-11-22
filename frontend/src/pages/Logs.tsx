@@ -14,6 +14,7 @@ const Logs: React.FC = () => {
   const [search, setSearch] = useState('');
   const [host, setHost] = useState('');
   const [status, setStatus] = useState('');
+  const [level, setLevel] = useState('');
   const [page, setPage] = useState(0);
   const limit = 50;
 
@@ -33,12 +34,13 @@ const Logs: React.FC = () => {
     search,
     host,
     status,
+    level,
     limit,
     offset: page * limit
   };
 
   const { data: logData, isLoading: isLoadingContent, refetch: refetchContent } = useQuery({
-    queryKey: ['logContent', selectedLog, search, host, status, page],
+    queryKey: ['logContent', selectedLog, search, host, status, level, page],
     queryFn: () => selectedLog ? getLogContent(selectedLog, filter) : Promise.resolve(null),
     enabled: !!selectedLog,
   });
@@ -104,6 +106,8 @@ const Logs: React.FC = () => {
                 onHostChange={(v) => { setHost(v); setPage(0); }}
                 status={status}
                 onStatusChange={(v) => { setStatus(v); setPage(0); }}
+                level={level}
+                onLevelChange={(v) => { setLevel(v); setPage(0); }}
                 onRefresh={refetchContent}
                 onDownload={handleDownload}
                 isLoading={isLoadingContent}

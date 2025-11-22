@@ -14,7 +14,7 @@ export default function Dashboard() {
       try {
         const result = await checkHealth()
         setHealth(result)
-      } catch (err) {
+      } catch {
         setHealth({ status: 'error' })
       }
     }

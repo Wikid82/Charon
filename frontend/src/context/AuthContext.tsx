@@ -42,6 +42,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
+  const changePassword = async (oldPassword: string, newPassword: string) => {
+    await client.post('/auth/change-password', {
+      old_password: oldPassword,
+      new_password: newPassword,
+    });
+  };
+
   // Auto-logout logic
   useEffect(() => {
     if (!user) return;
@@ -77,7 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, changePassword, isAuthenticated: !!user, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

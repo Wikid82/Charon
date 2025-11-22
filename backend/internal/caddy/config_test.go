@@ -119,18 +119,15 @@ func TestGenerateConfig_Logging(t *testing.T) {
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com")
 	require.NoError(t, err)
 
-	// Verify logging config
+	// Verify logging configuration
 	require.NotNil(t, config.Logging)
 	require.NotNil(t, config.Logging.Logs)
-	require.Contains(t, config.Logging.Logs, "access")
-
-	logConfig := config.Logging.Logs["access"]
-	require.Equal(t, "INFO", logConfig.Level)
-	require.NotNil(t, logConfig.Writer)
-	require.Equal(t, "file", logConfig.Writer.Output)
-	require.Contains(t, logConfig.Writer.Filename, "access.log")
-	require.NotNil(t, logConfig.Writer.RollSize)
-	require.NotNil(t, logConfig.Writer.RollKeep)
+	require.NotNil(t, config.Logging.Logs["access"])
+	require.Equal(t, "DEBUG", config.Logging.Logs["access"].Level)
+	require.Contains(t, config.Logging.Logs["access"].Writer.Filename, "access.log")
+	require.Equal(t, 10, config.Logging.Logs["access"].Writer.RollSize)
+	require.Equal(t, 5, config.Logging.Logs["access"].Writer.RollKeep)
+	require.Equal(t, 7, config.Logging.Logs["access"].Writer.RollKeepDays)
 }
 
 func TestGenerateConfig_Advanced(t *testing.T) {

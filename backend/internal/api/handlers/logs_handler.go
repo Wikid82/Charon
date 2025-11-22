@@ -39,6 +39,7 @@ func (h *LogsHandler) Read(c *gin.Context) {
 		Search: c.Query("search"),
 		Host:   c.Query("host"),
 		Status: c.Query("status"),
+		Level:  c.Query("level"),
 		Limit:  limit,
 		Offset: offset,
 	}
@@ -74,5 +75,6 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		return
 	}
 
+	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(path)
 }

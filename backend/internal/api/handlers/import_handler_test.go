@@ -93,7 +93,9 @@ func TestImportHandler_GetPreview(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var result map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	hosts := result["hosts"].([]interface{})
+
+	preview := result["preview"].(map[string]interface{})
+	hosts := preview["hosts"].([]interface{})
 	assert.Len(t, hosts, 1)
 
 	// Verify status changed to reviewing
@@ -196,16 +198,234 @@ func TestImportHandler_Upload(t *testing.T) {
 	// ExtractHosts will return empty result
 	// processImport should succeed
 
-	// Wait, fake_caddy.sh needs to handle "version" command too for ValidateCaddyBinary
-	// The current fake_caddy.sh just echoes json.
-	// I should update fake_caddy.sh or create a better one.
+	assert.Equal(t, http.StatusOK, w.Code)
+}
 
-	// Let's assume it fails for now or check the response
-	// If it fails, it's likely due to ValidateCaddyBinary calling "version" and getting JSON
-	// But ValidateCaddyBinary just checks exit code 0.
-	// fake_caddy.sh exits with 0.
+func TestImportHandler_GetPreview_WithContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, "echo", tmpDir)
+	router := gin.New()
+	router.GET("/import/preview", handler.GetPreview)
+
+	// Case: Active session with source file
+	content := "example.com {\n  reverse_proxy localhost:8080\n}"
+	sourceFile := filepath.Join(tmpDir, "source.caddyfile")
+	err := os.WriteFile(sourceFile, []byte(content), 0644)
+	assert.NoError(t, err)
+
+	// Case: Active session with source file
+	session := models.ImportSession{
+		UUID:       uuid.NewString(),
+		Status:     "pending",
+		ParsedData: `{"hosts": []}`,
+		SourceFile: sourceFile,
+	}
+	db.Create(&session)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &result)
+	assert.NoError(t, err)
+
+	assert.Equal(t, content, result["caddyfile_content"])
+}
+
+func TestImportHandler_Commit_Errors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	// Case 1: Invalid JSON
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBufferString("invalid"))
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Case 2: Session not found
+	payload := map[string]interface{}{
+		"session_uuid": "non-existent",
+		"resolutions":  map[string]string{},
+	}
+	body, _ := json.Marshal(payload)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	// Case 3: Invalid ParsedData
+	session := models.ImportSession{
+		UUID:       "invalid-data-uuid",
+		Status:     "reviewing",
+		ParsedData: "invalid-json",
+	}
+	db.Create(&session)
+
+	payload = map[string]interface{}{
+		"session_uuid": "invalid-data-uuid",
+		"resolutions":  map[string]string{},
+	}
+	body, _ = json.Marshal(payload)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestImportHandler_Cancel_Errors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	router := gin.New()
+	router.DELETE("/import/cancel", handler.Cancel)
+
+	// Case 1: Session not found
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=non-existent", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestCheckMountedImport(t *testing.T) {
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	// Case 1: File does not exist
+	err := handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
+	assert.NoError(t, err)
+
+	// Case 2: File exists, not processed
+	err = os.WriteFile(mountPath, []byte("example.com"), 0644)
+	assert.NoError(t, err)
+
+	err = handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
+	assert.NoError(t, err)
+
+	// Check if session created
+	var count int64
+	db.Model(&models.ImportSession{}).Where("source_file = ?", mountPath).Count(&count)
+	assert.Equal(t, int64(1), count)
+
+	// Case 3: Already processed
+	err = handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
+	assert.NoError(t, err)
+}
+
+func TestImportHandler_Upload_Failure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Use fake caddy script that fails
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_fail.sh")
+
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir)
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+
+	payload := map[string]string{
+		"content":  "invalid caddyfile",
+		"filename": "Caddyfile",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	// The error message comes from processImport -> ImportFile -> "import failed: ..."
+	assert.Contains(t, resp["error"], "import failed")
+}
+
+func TestImportHandler_Upload_Conflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+
+	// Pre-create a host to cause conflict
+	db.Create(&models.ProxyHost{
+		DomainNames: "example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 9090,
+	})
+
+	// Use fake caddy script that returns hosts
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir)
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+
+	payload := map[string]string{
+		"content":  "example.com",
+		"filename": "Caddyfile",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify session created with conflict
+	var session models.ImportSession
+	db.First(&session)
+	assert.Equal(t, "pending", session.Status)
+	assert.Contains(t, session.ConflictReport, "Domain 'example.com' already exists")
+}
+
+func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	handler := handlers.NewImportHandler(db, "echo", tmpDir)
+	router := gin.New()
+	router.GET("/import/preview", handler.GetPreview)
+
+	// Create backup file
+	backupDir := filepath.Join(tmpDir, "backups")
+	os.MkdirAll(backupDir, 0755)
+	content := "backup content"
+	backupFile := filepath.Join(backupDir, "source.caddyfile")
+	os.WriteFile(backupFile, []byte(content), 0644)
+
+	// Case: Active session with missing source file but existing backup
+	session := models.ImportSession{
+		UUID:       uuid.NewString(),
+		Status:     "pending",
+		ParsedData: `{"hosts": []}`,
+		SourceFile: "/non/existent/source.caddyfile",
+	}
+	db.Create(&session)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &result)
+
+	assert.Equal(t, content, result["caddyfile_content"])
 }
 
 func TestImportHandler_RegisterRoutes(t *testing.T) {

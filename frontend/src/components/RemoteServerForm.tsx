@@ -91,7 +91,15 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
               <label className="block text-sm font-medium text-gray-300 mb-2">Provider</label>
               <select
                 value={formData.provider}
-                onChange={e => setFormData({ ...formData, provider: e.target.value })}
+                onChange={e => {
+                  const newProvider = e.target.value;
+                  setFormData({
+                    ...formData,
+                    provider: newProvider,
+                    // Set default port for Docker
+                    port: newProvider === 'docker' ? 2375 : (newProvider === 'generic' ? 22 : formData.port)
+                  })
+                }}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="generic">Generic</option>
@@ -124,15 +132,17 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
-              <input
-                type="text"
-                value={formData.username}
-                onChange={e => setFormData({ ...formData, username: e.target.value })}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            {formData.provider !== 'docker' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                <input
+                  type="text"
+                  value={formData.username}
+                  onChange={e => setFormData({ ...formData, username: e.target.value })}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
 
           <label className="flex items-center gap-3">

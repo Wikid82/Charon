@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/middleware"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
@@ -28,6 +29,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.Setting{},
 		&models.ImportSession{},
 		&models.Notification{},
+		&models.Domain{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -79,6 +81,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
 		protected.GET("/user/profile", userHandler.GetProfile)
+		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
 
 		// Updates
@@ -92,6 +95,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/notifications", notificationHandler.List)
 		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
 		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
+
+		// Domains
+		domainHandler := handlers.NewDomainHandler(db)
+		protected.GET("/domains", domainHandler.List)
+		protected.POST("/domains", domainHandler.Create)
+		protected.DELETE("/domains/:id", domainHandler.Delete)
 
 		// Docker
 		dockerService, err := services.NewDockerService()
@@ -121,7 +130,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		})
 	}
 
-	proxyHostHandler := handlers.NewProxyHostHandler(db)
+	// Caddy Manager
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir)
+
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager)
 	proxyHostHandler.RegisterRoutes(api)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(db)
