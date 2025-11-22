@@ -11,7 +11,9 @@ import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
 import SystemSettings from './pages/SystemSettings'
 import Account from './pages/Account'
+import Settings from './pages/Settings'
 import Backups from './pages/Backups'
+import Tasks from './pages/Tasks'
 import Logs from './pages/Logs'
 import Domains from './pages/Domains'
 import Login from './pages/Login'
@@ -41,14 +43,14 @@ export default function App() {
             <Route path="import" element={<ImportCaddy />} />
 
             {/* Settings Routes */}
-            <Route path="settings">
+            <Route path="settings" element={<Settings />}>
               <Route index element={<SystemSettings />} />
               <Route path="system" element={<SystemSettings />} />
               <Route path="account" element={<Account />} />
             </Route>
 
             {/* Tasks Routes */}
-            <Route path="tasks">
+            <Route path="tasks" element={<Tasks />}>
               <Route index element={<Backups />} />
               <Route path="backups" element={<Backups />} />
               <Route path="logs" element={<Logs />} />
