@@ -1,7 +1,7 @@
 version: '3.9'
 
 services:
-  app:
+  cpmp:
     image: ghcr.io/wikid82/cpmp:latest
     container_name: cpmp
     restart: unless-stopped
