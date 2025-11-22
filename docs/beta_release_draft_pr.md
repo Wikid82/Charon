@@ -20,6 +20,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 - de1160a fix: revert to PROJECT_TOKEN
 - 7aee12b fix: use GITHUB_TOKEN in release workflow
 - 0449681 docs: add beta-release draft PR summary
+- fc08514 docs: update beta-release draft PR summary with new commit
 
 ## Follow-ups (Not in This PR)
 - Frontend test coverage enhancement for `ProxyHostForm` (in progress separately).
