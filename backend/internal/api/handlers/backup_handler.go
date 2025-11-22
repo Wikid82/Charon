@@ -60,6 +60,7 @@ func (h *BackupHandler) Download(c *gin.Context) {
 		return
 	}
 
+	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(path)
 }
 

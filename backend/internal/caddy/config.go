@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
@@ -12,16 +13,17 @@ import (
 func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
-	// Or we can just use a relative path if Caddy's working directory is set correctly.
-	// In Docker, WORKDIR is /app, and storageDir passed here is usually /app/data/caddy.
-	// Let's put logs in /app/data/logs/access.log
-	logFile := "/app/data/logs/access.log"
+	// storageDir is .../data/caddy/data
+	// Dir -> .../data/caddy
+	// Dir -> .../data
+	logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
+	logFile := filepath.Join(logDir, "access.log")
 
 	config := &Config{
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
 				"access": {
-					Level: "INFO",
+					Level: "DEBUG",
 					Writer: &WriterConfig{
 						Output:       "file",
 						Filename:     logFile,

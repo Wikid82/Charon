@@ -18,7 +18,7 @@ jobs:
   analyze:
     name: CodeQL analysis (${{ matrix.language }})
     runs-on: ubuntu-latest
-    # Skip forked PRs where GITHUB_TOKEN lacks security-events permissions
+    # Skip forked PRs where CPMP_TOKEN lacks security-events permissions
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     permissions:
       contents: read

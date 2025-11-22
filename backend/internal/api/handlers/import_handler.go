@@ -94,14 +94,32 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 	session.Status = "reviewing"
 	h.db.Save(&session)
 
+	// Read original Caddyfile content if available
+	var caddyfileContent string
+	if session.SourceFile != "" {
+		// Try to read from the source file path (if it's a mounted file)
+		if content, err := os.ReadFile(session.SourceFile); err == nil {
+			caddyfileContent = string(content)
+		} else {
+			// If source file not readable (e.g. uploaded temp file deleted), try to find backup
+			// This is a best-effort attempt
+			backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
+			if content, err := os.ReadFile(backupPath); err == nil {
+				caddyfileContent = string(content)
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"session": gin.H{
-			"id":         session.UUID,
-			"state":      session.Status,
-			"created_at": session.CreatedAt,
-			"updated_at": session.UpdatedAt,
+			"id":          session.UUID,
+			"state":       session.Status,
+			"created_at":  session.CreatedAt,
+			"updated_at":  session.UpdatedAt,
+			"source_file": session.SourceFile,
 		},
-		"preview": result,
+		"preview":           result,
+		"caddyfile_content": caddyfileContent,
 	})
 }
 

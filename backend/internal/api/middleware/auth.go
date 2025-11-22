@@ -20,6 +20,14 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 		}
 
 		if authHeader == "" {
+			// Try query param
+			token := c.Query("token")
+			if token != "" {
+				authHeader = "Bearer " + token
+			}
+		}
+
+		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			return
 		}

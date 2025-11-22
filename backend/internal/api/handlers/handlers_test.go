@@ -259,7 +259,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 	}
 	db.Create(host)
 
-	handler := handlers.NewProxyHostHandler(db)
+	handler := handlers.NewProxyHostHandler(db, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -281,7 +281,7 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB()
 
-	handler := handlers.NewProxyHostHandler(db)
+	handler := handlers.NewProxyHostHandler(db, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 

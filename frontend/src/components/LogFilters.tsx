@@ -7,6 +7,8 @@ interface LogFiltersProps {
   onSearchChange: (value: string) => void;
   status: string;
   onStatusChange: (value: string) => void;
+  level: string;
+  onLevelChange: (value: string) => void;
   host: string;
   onHostChange: (value: string) => void;
   onRefresh: () => void;
@@ -19,6 +21,8 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
   onSearchChange,
   status,
   onStatusChange,
+  level,
+  onLevelChange,
   host,
   onHostChange,
   onRefresh,
@@ -48,6 +52,20 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           onChange={(e) => onHostChange(e.target.value)}
           className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
         />
+      </div>
+
+      <div className="w-full md:w-32">
+        <select
+          value={level}
+          onChange={(e) => onLevelChange(e.target.value)}
+          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+        >
+          <option value="">All Levels</option>
+          <option value="DEBUG">Debug</option>
+          <option value="INFO">Info</option>
+          <option value="WARN">Warn</option>
+          <option value="ERROR">Error</option>
+        </select>
       </div>
 
       <div className="w-full md:w-32">

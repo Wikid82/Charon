@@ -91,3 +91,31 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 	db.Where("key = ?", "new_key").First(&setting)
 	assert.Equal(t, "updated_value", setting.Value)
 }
+
+func TestSettingsHandler_Errors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	// Invalid JSON
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer([]byte("invalid")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Missing Key/Value
+	payload := map[string]string{
+		"key": "some_key",
+		// value missing
+	}
+	body, _ := json.Marshal(payload)
+	req, _ = http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

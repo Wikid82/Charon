@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -25,7 +25,6 @@ interface UpdateInfo {
 
 export default function SystemSettings() {
   const queryClient = useQueryClient()
-  const [caddyEmail, setCaddyEmail] = useState('')
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
 
   // Fetch Settings
@@ -35,12 +34,11 @@ export default function SystemSettings() {
   })
 
   // Update local state when settings load
-  useState(() => {
+  useEffect(() => {
     if (settings) {
-      if (settings['caddy.email']) setCaddyEmail(settings['caddy.email'])
       if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
     }
-  })
+  }, [settings])
 
   // Fetch Health/System Status
   const { data: health, isLoading: isLoadingHealth } = useQuery({
@@ -67,7 +65,6 @@ export default function SystemSettings() {
 
   const saveSettingsMutation = useMutation({
     mutationFn: async () => {
-      await updateSetting('caddy.email', caddyEmail, 'caddy', 'string')
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
     },
     onSuccess: () => {
@@ -90,16 +87,6 @@ export default function SystemSettings() {
       <Card className="p-6">
         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">General Configuration</h2>
         <div className="space-y-4">
-          <Input
-            label="Default Certificate Email"
-            type="email"
-            value={caddyEmail}
-            onChange={(e) => setCaddyEmail(e.target.value)}
-            placeholder="admin@example.com"
-          />
-          <p className="text-sm text-gray-500 dark:text-gray-400 -mt-2">
-            Email address for Let's Encrypt certificate notifications
-          </p>
           <Input
             label="Caddy Admin API Endpoint"
             type="text"
