@@ -13,10 +13,10 @@ Bridge the gap between Nginx Proxy Manager's simplicity and Caddy's modern desig
 
 ## Development Milestones
 
-### Milestone 1: Foundation & Alpha Build
+### Milestone 1: Foundation & Alpha Build (Completed)
 **Target**: Core functionality with basic proxy management and HTTPS
 
-### Milestone 2: Beta Build
+### Milestone 2: Beta Build (In Progress)
 **Target**: Full security features, SSO, and monitoring
 
 ### Milestone 3: Production v1.0

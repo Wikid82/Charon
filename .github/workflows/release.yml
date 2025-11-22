@@ -14,8 +14,8 @@ jobs:
     name: Build Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -33,7 +33,7 @@ jobs:
         working-directory: frontend
         run: tar -czf ../frontend-dist.tar.gz dist/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: frontend-dist
           path: frontend-dist.tar.gz
@@ -46,8 +46,8 @@ jobs:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
           go-version: '1.23'
 
@@ -66,7 +66,7 @@ jobs:
 
           go build -ldflags "-s -w -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${{ github.ref_name }}" -o ../cpmp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/api
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: backend-${{ matrix.goos }}-${{ matrix.goarch }}
           path: cpmp-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -79,8 +79,8 @@ jobs:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
           go-version: '1.23'
 
@@ -97,7 +97,7 @@ jobs:
             --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
             --output caddy-${{ matrix.goos }}-${{ matrix.goarch }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
           path: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -107,7 +107,7 @@ jobs:
     needs: [build-frontend, build-backend, build-caddy]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
           path: artifacts
 
@@ -115,7 +115,7 @@ jobs:
         run: ls -R artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           files: |
             artifacts/frontend-dist/frontend-dist.tar.gz

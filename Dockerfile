@@ -46,7 +46,14 @@ RUN apk add --no-cache clang lld
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
-RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest
+# Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
+# We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
+    DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
+    if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
+        mv "$DLV_PATH" /go/bin/dlv; \
+    fi && \
+    xx-verify /go/bin/dlv
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
@@ -105,6 +112,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/cpmp /app/cpmp
+# Copy Delve debugger (xx-go install places it in /go/bin)
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder

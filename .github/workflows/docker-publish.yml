@@ -5,12 +5,14 @@ on:
     branches:
       - main
       - development
+      - feature/beta-release
     tags:
       - 'v*.*.*'
   pull_request:
     branches:
       - main
       - development
+      - feature/beta-release
   workflow_dispatch:
   workflow_call:
 
@@ -33,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Determine skip condition
         id: skip
@@ -56,11 +58,11 @@ jobs:
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
 
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
 
       - name: Resolve Caddy base digest
         if: steps.skip.outputs.skip_build != 'true'
@@ -72,7 +74,7 @@ jobs:
 
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -81,12 +83,13 @@ jobs:
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
         id: meta
-        uses: docker/metadata-action@dbef88086f6cef02e264edb7dbf63250c17cef6c # v5.0.1
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.5.1
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/feature/beta-release' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -96,7 +99,7 @@ jobs:
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@v6 # v6.9.0
         with:
           context: .
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
@@ -113,7 +116,7 @@ jobs:
 
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        uses: aquasecurity/trivy-action@0.28.0 # 0.28.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
@@ -124,7 +127,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (SARIF)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
+        uses: aquasecurity/trivy-action@0.28.0 # 0.28.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
@@ -132,9 +135,19 @@ jobs:
           severity: 'CRITICAL,HIGH'
         continue-on-error: true
 
-      - name: Upload Trivy results
+      - name: Check Trivy SARIF exists
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: github/codeql-action/upload-sarif@e12f0178983d466f2f6028f5cc7a6d786fd97f4b # v4
+        id: trivy-check
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Trivy results
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        uses: github/codeql-action/upload-sarif@f079b8493333aace61c81488f8bd40919487bd9f # v3.26.13
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -177,7 +190,7 @@ jobs:
           fi
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
