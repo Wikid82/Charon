@@ -74,5 +74,6 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		return
 	}
 
+	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(path)
 }
