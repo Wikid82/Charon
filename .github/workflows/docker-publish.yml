@@ -43,6 +43,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
           HEAD_MSG: ${{ github.event.head_commit.message }}
+          REF: ${{ github.ref }}
         run: |
           should_skip=false
           pr_title=""
@@ -54,6 +55,13 @@ jobs:
           if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+
+          # Always build on beta-release branch to ensure artifacts for testing
+          if [[ "$REF" == "refs/heads/feature/beta-release" ]]; then
+            should_skip=false
+            echo "Force building on beta-release branch"
+          fi
+
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
