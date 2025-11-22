@@ -37,12 +37,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Normalize image name
+        run: |
+          echo "IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Determine skip condition
         id: skip
         env:
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
           HEAD_MSG: ${{ github.event.head_commit.message }}
+          REF: ${{ github.ref }}
         run: |
           should_skip=false
           pr_title=""
@@ -54,6 +59,13 @@ jobs:
           if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
+
+          # Always build on beta-release branch to ensure artifacts for testing
+          if [[ "$REF" == "refs/heads/feature/beta-release" ]]; then
+            should_skip=false
+            echo "Force building on beta-release branch"
+          fi
+
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
@@ -78,7 +90,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.PROJECT_TOKEN }}
+          password: ${{ secrets.CPMP_TOKEN }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
@@ -150,6 +162,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@f079b8493333aace61c81488f8bd40919487bd9f # v3.26.13
         with:
           sarif_file: 'trivy-results.sarif'
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create summary
         if: steps.skip.outputs.skip_build != 'true'
@@ -194,7 +207,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.PROJECT_TOKEN }}
+          password: ${{ secrets.CPMP_TOKEN }}
 
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}

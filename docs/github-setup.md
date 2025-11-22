@@ -10,7 +10,7 @@ The Docker build workflow uses GitHub Container Registry (GHCR) to store your im
 
 ### How It Works:
 
-GitHub Actions automatically uses the built-in `GITHUB_TOKEN` which has permission to:
+GitHub Actions automatically uses the built-in `CPMP_TOKEN` which has permission to:
 - ✅ Push images to `ghcr.io/wikid82/caddyproxymanagerplus`
 - ✅ Link images to your repository
 - ✅ Publish images for free (public repositories)
@@ -157,12 +157,12 @@ When you're ready to release a new version:
 ### Docker Build Fails
 
 **Problem**: "Error: denied: requested access to the resource is denied"
-- **Fix**: This shouldn't happen with `GITHUB_TOKEN` - check workflow permissions
+- **Fix**: This shouldn't happen with `CPMP_TOKEN` - check workflow permissions
 - **Verify**: Settings → Actions → General → Workflow permissions → "Read and write permissions" enabled
 
 **Problem**: Can't pull the image
 - **Fix**: Make the package public (see Step 1 above)
-- **Or**: Authenticate with GitHub: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
+- **Or**: Authenticate with GitHub: `echo $CPMP_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
 
 ### Docs Don't Deploy
 

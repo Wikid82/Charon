@@ -9,11 +9,12 @@ interface Props {
   hosts: HostPreview[]
   conflicts: string[]
   errors: string[]
+  caddyfileContent?: string
   onCommit: (resolutions: Record<string, string>) => Promise<void>
   onCancel: () => void
 }
 
-export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, onCancel }: Props) {
+export default function ImportReviewTable({ hosts, conflicts, errors, caddyfileContent, onCommit, onCancel }: Props) {
   const [resolutions, setResolutions] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     conflicts.forEach((d: string) => { init[d] = 'keep' })
@@ -21,6 +22,7 @@ export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, 
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showSource, setShowSource] = useState(false)
 
   const handleCommit = async () => {
     setSubmitting(true)
@@ -35,10 +37,25 @@ export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, 
   }
 
   return (
-    <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-white">Review Imported Hosts</h2>
-        <div className="flex gap-3">
+    <div className="space-y-6">
+      {caddyfileContent && (
+        <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between cursor-pointer" onClick={() => setShowSource(!showSource)}>
+            <h2 className="text-lg font-semibold text-white">Source Caddyfile Content</h2>
+            <span className="text-gray-400 text-sm">{showSource ? 'Hide' : 'Show'}</span>
+          </div>
+          {showSource && (
+            <div className="p-4 bg-gray-900 overflow-x-auto">
+              <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{caddyfileContent}</pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
+        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-white">Review Imported Hosts</h2>
+          <div className="flex gap-3">
           <button
             onClick={onCancel}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
@@ -116,6 +133,7 @@ export default function ImportReviewTable({ hosts, conflicts, errors, onCommit, 
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   )
 }
