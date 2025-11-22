@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 import { checkHealth } from '../api/health'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
-import { Menu } from 'lucide-react'
+import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface LayoutProps {
   children: ReactNode
@@ -20,11 +20,20 @@ export default function Layout({ children }: LayoutProps) {
     const saved = localStorage.getItem('sidebarCollapsed')
     return saved ? JSON.parse(saved) : false
   })
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const { logout, user } = useAuth()
 
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(isCollapsed))
   }, [isCollapsed])
+
+  const toggleMenu = (name: string) => {
+    setExpandedMenus(prev =>
+      prev.includes(name)
+        ? prev.filter(item => item !== name)
+        : [...prev, name]
+    )
+  }
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -41,6 +50,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
     {
       name: 'Settings',
+      path: '/settings',
       icon: '⚙️',
       children: [
         { name: 'System', path: '/settings/system', icon: '⚙️' },
@@ -49,6 +59,7 @@ export default function Layout({ children }: LayoutProps) {
     },
     {
       name: 'Tasks',
+      path: '/tasks',
       icon: '📋',
       children: [
         { name: 'Backups', path: '/tasks/backups', icon: '💾' },
@@ -86,38 +97,72 @@ export default function Layout({ children }: LayoutProps) {
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
               if (item.children) {
-                // Group Header
+                // Collapsible Group
+                const isExpanded = expandedMenus.includes(item.name)
+                const isActive = location.pathname.startsWith(item.path!)
+
+                // If sidebar is collapsed, render as a simple link (icon only)
+                if (isCollapsed) {
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.path!}
+                      onClick={() => setMobileSidebarOpen(false)}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors justify-center ${
+                        isActive
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                      }`}
+                      title={item.name}
+                    >
+                      <span className="text-lg">{item.icon}</span>
+                    </Link>
+                  )
+                }
+
+                // If sidebar is expanded, render as collapsible accordion
                 return (
-                  <div key={item.name} className="pt-4 first:pt-0">
-                    {!isCollapsed && (
-                      <h3 className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                        {item.name}
-                      </h3>
+                  <div key={item.name} className="space-y-1">
+                    <button
+                      onClick={() => toggleMenu(item.name)}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'text-blue-700 dark:text-blue-400'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg">{item.icon}</span>
+                        <span>{item.name}</span>
+                      </div>
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="pl-11 space-y-1">
+                        {item.children.map((child) => {
+                          const isChildActive = location.pathname === child.path
+                          return (
+                            <Link
+                              key={child.path}
+                              to={child.path!}
+                              onClick={() => setMobileSidebarOpen(false)}
+                              className={`block py-2 px-3 rounded-md text-sm transition-colors ${
+                                isChildActive
+                                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+                                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                              }`}
+                            >
+                              {child.name}
+                            </Link>
+                          )
+                        })}
+                      </div>
                     )}
-                    {isCollapsed && (
-                      <div className="h-px bg-gray-200 dark:bg-gray-700 my-2 mx-4" />
-                    )}
-                    <div className="space-y-1">
-                      {item.children.map((child) => {
-                        const isActive = location.pathname === child.path
-                        return (
-                          <Link
-                            key={child.path}
-                            to={child.path!}
-                            onClick={() => setMobileSidebarOpen(false)}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                              isActive
-                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
-                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
-                            } ${isCollapsed ? 'justify-center' : ''}`}
-                            title={isCollapsed ? child.name : ''}
-                          >
-                            <span className="text-lg">{child.icon}</span>
-                            {!isCollapsed && child.name}
-                          </Link>
-                        )
-                      })}
-                    </div>
                   </div>
                 )
               }
