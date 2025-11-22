@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
@@ -137,4 +138,32 @@ func TestProxyHostService_CRUD(t *testing.T) {
 
 	_, err = service.GetByID(host.ID)
 	assert.Error(t, err)
+}
+
+func TestProxyHostService_TestConnection(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	// 1. Invalid Input
+	err := service.TestConnection("", 80)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid host or port")
+
+	err = service.TestConnection("example.com", 0)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid host or port")
+
+	// 2. Connection Failure (Unreachable)
+	err = service.TestConnection("localhost", 54321)
+	assert.Error(t, err)
+
+	// 3. Connection Success
+	// Start a local listener
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer l.Close()
+	addr := l.Addr().(*net.TCPAddr)
+
+	err = service.TestConnection(addr.IP.String(), addr.Port)
+	assert.NoError(t, err)
 }

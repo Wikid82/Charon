@@ -9,6 +9,7 @@ vi.mock('../../api/system', () => ({
   getNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
   markAllNotificationsRead: vi.fn(),
+  checkUpdates: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -62,6 +63,11 @@ const mockNotifications: api.Notification[] = [
 describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.checkUpdates).mockResolvedValue({
+      available: false,
+      latest_version: '0.0.0',
+      changelog_url: '',
+    })
   })
 
   afterEach(() => {

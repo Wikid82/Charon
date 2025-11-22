@@ -29,7 +29,8 @@ RUN npm ci
 
 # Copy frontend source and build
 COPY frontend/ ./
-RUN npm run build
+RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
+    npm run build
 
 # ---- Backend Builder ----
 FROM --platform=$BUILDPLATFORM golang:alpine AS backend-builder
@@ -45,11 +46,18 @@ RUN apk add --no-cache clang lld
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
-RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest
+# Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
+# We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
+    DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
+    if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
+        mv "$DLV_PATH" /go/bin/dlv; \
+    fi && \
+    xx-verify /go/bin/dlv
 
 # Copy Go module files
 COPY backend/go.mod backend/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy backend source
 COPY backend/ ./
@@ -62,7 +70,9 @@ ARG BUILD_DATE=unknown
 # Build the Go binary with version information injected via ldflags
 # -gcflags "all=-N -l" disables optimizations and inlining for better debugging
 # xx-go handles CGO and cross-compilation flags automatically
-RUN CGO_ENABLED=1 xx-go build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 xx-go build \
     -gcflags "all=-N -l" \
     -a -installsuffix cgo \
     -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
@@ -78,10 +88,13 @@ ARG TARGETOS
 ARG TARGETARCH
 
 RUN apk add --no-cache git
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 # Build Caddy for the target architecture
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
     --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
     --output /usr/bin/caddy
@@ -99,6 +112,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/cpmp /app/cpmp
+# Copy Delve debugger (xx-go install places it in /go/bin)
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
 # Copy frontend build from frontend builder

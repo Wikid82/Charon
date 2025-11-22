@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,6 +24,7 @@ func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/setup", h.Setup)
 	r.GET("/profile", h.GetProfile)
 	r.POST("/regenerate-api-key", h.RegenerateAPIKey)
+	r.PUT("/profile", h.UpdateProfile)
 }
 
 // GetSetupStatus checks if the application needs initial setup (i.e., no users exist).
@@ -69,9 +71,10 @@ func (h *UserHandler) Setup(c *gin.Context) {
 	user := models.User{
 		UUID:    uuid.New().String(),
 		Name:    req.Name,
-		Email:   req.Email,
+		Email:   strings.ToLower(req.Email),
 		Role:    "admin",
 		Enabled: true,
+		APIKey:  uuid.New().String(),
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -153,4 +156,67 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		"role":    user.Role,
 		"api_key": user.APIKey,
 	})
+}
+
+type UpdateProfileRequest struct {
+	Name            string `json:"name" binding:"required"`
+	Email           string `json:"email" binding:"required,email"`
+	CurrentPassword string `json:"current_password"`
+}
+
+// UpdateProfile updates the authenticated user's profile.
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get current user
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Check if email is already taken by another user
+	req.Email = strings.ToLower(req.Email)
+	var count int64
+	if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check email availability"})
+		return
+	}
+
+	if count > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+		return
+	}
+
+	// If email is changing, verify password
+	if req.Email != user.Email {
+		if req.CurrentPassword == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change email"})
+			return
+		}
+		if !user.CheckPassword(req.CurrentPassword) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+			return
+		}
+	}
+
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"name":  req.Name,
+		"email": req.Email,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
 }

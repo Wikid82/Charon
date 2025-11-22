@@ -36,6 +36,7 @@ type LogFilter struct {
 	Search string `form:"search"`
 	Host   string `form:"host"`
 	Status string `form:"status"` // e.g., "200", "4xx", "5xx"
+	Level  string `form:"level"`
 	Limit  int    `form:"limit"`
 	Offset int    `form:"offset"`
 }
