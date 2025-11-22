@@ -22,6 +22,6 @@ jobs:
         uses: renovatebot/github-action@c91a61c730fa166439cd3e2c300c041590002b1d # v44.0.3
         with:
           configurationFile: .github/renovate.json
-          token: ${{ secrets.PROJECT_TOKEN }}
+          token: ${{ secrets.CPMP_TOKEN }}
         env:
           LOG_LEVEL: info

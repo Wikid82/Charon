@@ -40,7 +40,24 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-          {logs.map((log, idx) => (
+          {logs.map((log, idx) => {
+            // Check if this is a structured access log or a plain text system log
+            const isAccessLog = log.status > 0 || (log.request && log.request.method);
+
+            if (!isAccessLog) {
+              return (
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {format(new Date(log.ts * 1000), 'MMM d HH:mm:ss')}
+                  </td>
+                  <td colSpan={7} className="px-6 py-4 text-sm text-gray-900 dark:text-white font-mono whitespace-pre-wrap break-all">
+                    {log.msg}
+                  </td>
+                </tr>
+              );
+            }
+
+            return (
             <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                 {format(new Date(log.ts * 1000), 'MMM d HH:mm:ss')}
@@ -75,7 +92,7 @@ export const LogTable: React.FC<LogTableProps> = ({ logs, isLoading }) => {
                 {log.msg}
               </td>
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>

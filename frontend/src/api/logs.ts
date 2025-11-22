@@ -35,6 +35,7 @@ export interface LogFilter {
   search?: string;
   host?: string;
   status?: string;
+  level?: string;
   limit?: number;
   offset?: number;
 }
@@ -49,6 +50,7 @@ export const getLogContent = async (filename: string, filter: LogFilter = {}): P
   if (filter.search) params.append('search', filter.search);
   if (filter.host) params.append('host', filter.host);
   if (filter.status) params.append('status', filter.status);
+  if (filter.level) params.append('level', filter.level);
   if (filter.limit) params.append('limit', filter.limit.toString());
   if (filter.offset) params.append('offset', filter.offset.toString());
 

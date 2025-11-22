@@ -6,6 +6,8 @@ import client from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
+import { isValidEmail } from '../utils/validation';
 
 const Setup: React.FC = () => {
   const navigate = useNavigate();
@@ -17,6 +19,7 @@ const Setup: React.FC = () => {
     password: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [emailValid, setEmailValid] = useState<boolean | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['setupStatus'],
@@ -25,14 +28,29 @@ const Setup: React.FC = () => {
   });
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/');
+    if (formData.email) {
+      setEmailValid(isValidEmail(formData.email));
+    } else {
+      setEmailValid(null);
+    }
+  }, [formData.email]);
+
+  useEffect(() => {
+    // Wait for setup status to load
+    if (statusLoading) return;
+
+    // If setup is required, stay on this page (ignore stale auth)
+    if (status?.setupRequired) {
       return;
     }
-    if (status && !status.setupRequired) {
+
+    // If setup is NOT required, redirect based on auth
+    if (isAuthenticated) {
+      navigate('/');
+    } else {
       navigate('/login');
     }
-  }, [status, isAuthenticated, navigate]);
+  }, [status, statusLoading, isAuthenticated, navigate]);
 
   const mutation = useMutation({
     mutationFn: async (data: SetupRequest) => {
@@ -93,28 +111,35 @@ const Setup: React.FC = () => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
-            <Input
-              id="email"
-              name="email"
-              label="Email Address"
-              type="email"
-              required
-              placeholder="admin@example.com"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              helperText="This email will be used for Let's Encrypt certificate notifications and recovery."
-            />
-            <Input
-              id="password"
-              name="password"
-              label="Password"
-              type="password"
-              required
-              minLength={8}
-              placeholder="********"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            />
+            <div className="relative">
+              <Input
+                id="email"
+                name="email"
+                label="Email Address"
+                type="email"
+                required
+                placeholder="admin@example.com"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className={emailValid === false ? 'border-red-500 focus:ring-red-500' : emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
+              />
+              {emailValid === false && (
+                <p className="mt-1 text-xs text-red-500">Please enter a valid email address</p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Input
+                id="password"
+                name="password"
+                label="Password"
+                type="password"
+                required
+                placeholder="••••••••"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              />
+              <PasswordStrengthMeter password={formData.password} />
+            </div>
           </div>
 
           {error && (

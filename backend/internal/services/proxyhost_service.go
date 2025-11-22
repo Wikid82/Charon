@@ -3,6 +3,9 @@ package services
 import (
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -87,4 +90,20 @@ func (s *ProxyHostService) List() ([]models.ProxyHost, error) {
 		return nil, err
 	}
 	return hosts, nil
+}
+
+// TestConnection attempts to connect to the target host and port.
+func (s *ProxyHostService) TestConnection(host string, port int) error {
+	if host == "" || port <= 0 {
+		return errors.New("invalid host or port")
+	}
+
+	target := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", target, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	return nil
 }

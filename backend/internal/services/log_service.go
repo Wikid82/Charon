@@ -175,6 +175,13 @@ func (s *LogService) matchesFilter(entry models.CaddyAccessLog, filter models.Lo
 		}
 	}
 
+	// Level Filter
+	if filter.Level != "" {
+		if !strings.EqualFold(entry.Level, filter.Level) {
+			return false
+		}
+	}
+
 	// Host Filter
 	if filter.Host != "" {
 		if !strings.Contains(strings.ToLower(entry.Request.Host), strings.ToLower(filter.Host)) {

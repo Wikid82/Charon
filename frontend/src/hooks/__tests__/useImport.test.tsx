@@ -143,7 +143,7 @@ describe('useImport', () => {
       await result.current.commit({ 'test.com': 'skip' })
     })
 
-    expect(api.commitImport).toHaveBeenCalledWith({ 'test.com': 'skip' })
+    expect(api.commitImport).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
 
     await waitFor(() => {
       expect(result.current.session).toBeNull()

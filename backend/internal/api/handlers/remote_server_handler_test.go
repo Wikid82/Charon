@@ -16,6 +16,7 @@ import (
 )
 
 func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServerHandler) {
+	t.Helper()
 	db := setupTestDB()
 	// Ensure RemoteServer table exists
 	db.AutoMigrate(&models.RemoteServer{})
