@@ -10,7 +10,7 @@ Draft PR to merge hardened CI/release workflow changes from `feature/beta-releas
 - Extensive incremental documentation trail in `docs/beta_release_draft_pr.md` plus concise snapshot in `docs/beta_release_draft_pr_body_snapshot.md` for reviewers.
 
 ## Ahead Commits (Representative)
-Most recent snapshot commit: `e2fc0b80` (final body refresh). Full ordered list in `docs/beta_release_draft_pr.md`.
+Most recent snapshot commit: `18cf3cee` (PR body content file). Full ordered list in `docs/beta_release_draft_pr.md`.
 
 ## Review Checklist
 - Secret `PROJECT_TOKEN` exists and has required scopes.
@@ -23,7 +23,7 @@ Most recent snapshot commit: `e2fc0b80` (final body refresh). Full ordered list 
 
 ## Deferred Items (Out of Scope Here)
 - Frontend test coverage improvements (ProxyHostForm).
-- Observability/import validation expansions for later beta tasks.
+- Additional beta observability and import validation tasks.
 
 ## Actions After Approval
 1. Confirm CI draft run passes.
