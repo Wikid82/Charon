@@ -10,7 +10,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 - Documentation updates enumerating each incremental workflow/token adjustment for auditability.
 
 ## Commits Ahead of `feature/alpha-completion`
-(See `docs/beta_release_draft_pr.md` for full enumerated list.) Latest unique commit: `1cf0d26` (concise body snapshot).
+(See `docs/beta_release_draft_pr.md` for full enumerated list.) Latest unique commit: `75beff09` (updated body snapshot).
 
 ## Rationale
 Ensures alpha integration branch inherits hardened CI/release pipeline and updated secret naming policy before further alpha feature consolidation.
