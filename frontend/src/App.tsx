@@ -9,8 +9,6 @@ import ProxyHosts from './pages/ProxyHosts'
 import RemoteServers from './pages/RemoteServers'
 import ImportCaddy from './pages/ImportCaddy'
 import Certificates from './pages/Certificates'
-import SettingsLayout from './pages/SettingsLayout'
-import TasksLayout from './pages/TasksLayout'
 import SystemSettings from './pages/SystemSettings'
 import Account from './pages/Account'
 import Backups from './pages/Backups'
@@ -43,14 +41,14 @@ export default function App() {
             <Route path="import" element={<ImportCaddy />} />
 
             {/* Settings Routes */}
-            <Route path="settings" element={<SettingsLayout />}>
+            <Route path="settings">
               <Route index element={<SystemSettings />} />
               <Route path="system" element={<SystemSettings />} />
               <Route path="account" element={<Account />} />
             </Route>
 
             {/* Tasks Routes */}
-            <Route path="tasks" element={<TasksLayout />}>
+            <Route path="tasks">
               <Route index element={<Backups />} />
               <Route path="backups" element={<Backups />} />
               <Route path="logs" element={<Logs />} />

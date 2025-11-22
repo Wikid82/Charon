@@ -39,12 +39,26 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
-    { name: 'Settings', path: '/settings/system', icon: '⚙️' },
-    { name: 'Tasks', path: '/tasks/backups', icon: '📋' },
+    {
+      name: 'Settings',
+      icon: '⚙️',
+      children: [
+        { name: 'System', path: '/settings/system', icon: '⚙️' },
+        { name: 'Account', path: '/settings/account', icon: '🛡️' },
+      ]
+    },
+    {
+      name: 'Tasks',
+      icon: '📋',
+      children: [
+        { name: 'Backups', path: '/tasks/backups', icon: '💾' },
+        { name: 'Logs', path: '/tasks/logs', icon: '📝' },
+      ]
+    },
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-dark-bg flex transition-colors duration-200">
+    <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
         <h1 className="text-lg font-bold text-gray-900 dark:text-white">CPM+</h1>
@@ -71,14 +85,49 @@ export default function Layout({ children }: LayoutProps) {
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.path ||
-                (item.path.startsWith('/settings') && location.pathname.startsWith('/settings') && item.path === '/settings/system') ||
-                (item.path.startsWith('/tasks') && location.pathname.startsWith('/tasks'))
+              if (item.children) {
+                // Group Header
+                return (
+                  <div key={item.name} className="pt-4 first:pt-0">
+                    {!isCollapsed && (
+                      <h3 className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        {item.name}
+                      </h3>
+                    )}
+                    {isCollapsed && (
+                      <div className="h-px bg-gray-200 dark:bg-gray-700 my-2 mx-4" />
+                    )}
+                    <div className="space-y-1">
+                      {item.children.map((child) => {
+                        const isActive = location.pathname === child.path
+                        return (
+                          <Link
+                            key={child.path}
+                            to={child.path!}
+                            onClick={() => setMobileSidebarOpen(false)}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                              isActive
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-active dark:text-white'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                            } ${isCollapsed ? 'justify-center' : ''}`}
+                            title={isCollapsed ? child.name : ''}
+                          >
+                            <span className="text-lg">{child.icon}</span>
+                            {!isCollapsed && child.name}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              }
+
+              const isActive = location.pathname === item.path
 
               return (
                 <Link
                   key={item.path}
-                  to={item.path}
+                  to={item.path!}
                   onClick={() => setMobileSidebarOpen(false)}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                     isActive

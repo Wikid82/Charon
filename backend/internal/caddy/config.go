@@ -23,7 +23,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
 				"access": {
-					Level: "INFO",
+					Level: "DEBUG",
 					Writer: &WriterConfig{
 						Output:       "file",
 						Filename:     logFile,

@@ -39,6 +39,7 @@ func (h *LogsHandler) Read(c *gin.Context) {
 		Search: c.Query("search"),
 		Host:   c.Query("host"),
 		Status: c.Query("status"),
+		Level:  c.Query("level"),
 		Limit:  limit,
 		Offset: offset,
 	}
