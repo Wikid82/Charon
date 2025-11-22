@@ -47,10 +47,11 @@ RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
-# We move it to /go/bin/dlv so it's in a consistent location for the next stage.
+# We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
-    if [ ! -f /go/bin/dlv ]; then \
-        mv /go/bin/*/dlv /go/bin/dlv; \
+    DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
+    if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
+        mv "$DLV_PATH" /go/bin/dlv; \
     fi && \
     xx-verify /go/bin/dlv
 
