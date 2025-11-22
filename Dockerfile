@@ -46,8 +46,12 @@ RUN apk add --no-cache clang lld
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
-# Use GOBIN to force installation to /go/bin regardless of architecture
-RUN CGO_ENABLED=0 GOBIN=/go/bin xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
+# Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
+# We move it to /go/bin/dlv so it's in a consistent location for the next stage.
+RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
+    if [ ! -f /go/bin/dlv ]; then \
+        mv /go/bin/*/dlv /go/bin/dlv; \
+    fi && \
     xx-verify /go/bin/dlv
 
 # Copy Go module files
