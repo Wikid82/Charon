@@ -27,8 +27,8 @@ export const getImportPreview = async (): Promise<ImportPreview> => {
   return data;
 };
 
-export const commitImport = async (resolutions: Record<string, string>): Promise<void> => {
-  await client.post('/import/commit', { resolutions });
+export const commitImport = async (sessionUUID: string, resolutions: Record<string, string>): Promise<void> => {
+  await client.post('/import/commit', { session_uuid: sessionUUID, resolutions });
 };
 
 export const cancelImport = async (): Promise<void> => {
