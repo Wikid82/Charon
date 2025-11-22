@@ -39,6 +39,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 - 7e32857 docs: update beta-release draft PR summary with seventeenth update
 - 5a6aec1 docs: update beta-release draft PR summary with eighteenth update
 - 9169e61 docs: update beta-release draft PR summary with nineteenth update
+- 119364f docs: update beta-release draft PR summary with twentieth update
 
 ## Follow-ups (Not in This PR)
 - Frontend test coverage enhancement for `ProxyHostForm` (in progress separately).
