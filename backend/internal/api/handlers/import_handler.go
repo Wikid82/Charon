@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -182,6 +183,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	// Convert parsed hosts to ProxyHost models
 	proxyHosts := caddy.ConvertToProxyHosts(result.Hosts)
+	log.Printf("Import Commit: Parsed %d hosts, converted to %d proxy hosts", len(result.Hosts), len(proxyHosts))
 
 	created := 0
 	skipped := 0
@@ -202,9 +204,12 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		host.UUID = uuid.NewString()
 
 		if err := h.proxyHostSvc.Create(&host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+			errors = append(errors, errMsg)
+			log.Printf("Import Commit Error: %s", errMsg)
 		} else {
 			created++
+			log.Printf("Import Commit Success: Created host %s", host.DomainNames)
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,12 +161,24 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 								if upstream, ok := upstreams[0].(map[string]interface{}); ok {
 									dial, _ := upstream["dial"].(string)
 									if dial != "" {
-										parts := strings.Split(dial, ":")
-										if len(parts) == 2 {
-											host.ForwardHost = parts[0]
-											if _, err := fmt.Sscanf(parts[1], "%d", &host.ForwardPort); err != nil {
-												// Default to 80 if parsing fails, or handle error appropriately
-												// For now, just log or ignore, but at least we checked err
+										hostStr, portStr, err := net.SplitHostPort(dial)
+										if err == nil {
+											host.ForwardHost = hostStr
+											if _, err := fmt.Sscanf(portStr, "%d", &host.ForwardPort); err != nil {
+												host.ForwardPort = 80
+											}
+										} else {
+											// Fallback: assume dial is just the host or has some other format
+											// Try to handle simple "host:port" manually if net.SplitHostPort failed for some reason
+											// or assume it's just a host
+											parts := strings.Split(dial, ":")
+											if len(parts) == 2 {
+												host.ForwardHost = parts[0]
+												if _, err := fmt.Sscanf(parts[1], "%d", &host.ForwardPort); err != nil {
+													host.ForwardPort = 80
+												}
+											} else {
+												host.ForwardHost = dial
 												host.ForwardPort = 80
 											}
 										}
