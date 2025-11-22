@@ -9,6 +9,7 @@ vi.mock('../../api/system', () => ({
   getNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
   markAllNotificationsRead: vi.fn(),
+  checkUpdates: vi.fn(),
 }))
 
 const createWrapper = () => {

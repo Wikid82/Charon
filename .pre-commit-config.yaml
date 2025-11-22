@@ -50,3 +50,9 @@ repos:
         language: system
         files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false
+      - id: frontend-test
+        name: Frontend Tests
+        entry: bash -c 'cd frontend && npm test -- --run'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
