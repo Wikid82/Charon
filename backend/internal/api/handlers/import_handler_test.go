@@ -252,7 +252,7 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 	// Case 2: Session not found
 	payload := map[string]interface{}{
 		"session_uuid": "non-existent",
-		"resolutions": map[string]string{},
+		"resolutions":  map[string]string{},
 	}
 	body, _ := json.Marshal(payload)
 	w = httptest.NewRecorder()
@@ -270,7 +270,7 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 
 	payload = map[string]interface{}{
 		"session_uuid": "invalid-data-uuid",
-		"resolutions": map[string]string{},
+		"resolutions":  map[string]string{},
 	}
 	body, _ = json.Marshal(payload)
 	w = httptest.NewRecorder()
