@@ -21,6 +21,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 - 7aee12b fix: use GITHUB_TOKEN in release workflow
 - 0449681 docs: add beta-release draft PR summary
 - fc08514 docs: update beta-release draft PR summary with new commit
+- 18c3621 docs: update beta-release draft PR summary with second update
 
 ## Follow-ups (Not in This PR)
 - Frontend test coverage enhancement for `ProxyHostForm` (in progress separately).
