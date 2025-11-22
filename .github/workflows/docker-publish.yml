@@ -90,7 +90,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.PROJECT_TOKEN }}
+          password: ${{ secrets.CPMP_TOKEN }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
@@ -162,7 +162,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@f079b8493333aace61c81488f8bd40919487bd9f # v3.26.13
         with:
           sarif_file: 'trivy-results.sarif'
-          token: ${{ secrets.CPMP_GHPR_TOKEN }}
+          token: ${{ secrets.CPMP_TOKEN }}
 
       - name: Create summary
         if: steps.skip.outputs.skip_build != 'true'
@@ -207,7 +207,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.PROJECT_TOKEN }}
+          password: ${{ secrets.CPMP_TOKEN }}
 
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}

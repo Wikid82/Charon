@@ -14,7 +14,7 @@ Updated all workflows and documentation to use GitHub Container Registry (GHCR) 
 
 ### Benefits of GHCR:
 ✅ **No extra accounts needed** - Uses your GitHub account
-✅ **Automatic authentication** - Uses built-in `GITHUB_TOKEN`
+✅ **Automatic authentication** - Uses built-in `CPMP_TOKEN`
 ✅ **Free for public repos** - No Docker Hub rate limits
 ✅ **Integrated with repo** - Packages show up on your GitHub profile
 ✅ **Better security** - No need to store Docker Hub credentials
@@ -24,7 +24,7 @@ Updated all workflows and documentation to use GitHub Container Registry (GHCR) 
 #### 1. `.github/workflows/docker-build.yml`
 - Changed registry from `docker.io` to `ghcr.io`
 - Updated image name to use `${{ github.repository }}` (automatically resolves to `wikid82/caddyproxymanagerplus`)
-- Changed login action to use GitHub Container Registry with `GITHUB_TOKEN`
+- Changed login action to use GitHub Container Registry with `CPMP_TOKEN`
 - Updated all image references throughout workflow
 - Updated summary outputs to show GHCR URLs
 
@@ -55,7 +55,7 @@ env:
   with:
     registry: ghcr.io
     username: ${{ github.actor }}
-    password: ${{ secrets.GITHUB_TOKEN }}
+    password: ${{ secrets.CPMP_TOKEN }}
 ```
 
 #### 2. `docs/github-setup.md`

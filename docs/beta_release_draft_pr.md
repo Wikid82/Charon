@@ -5,7 +5,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 
 ## Changes Included
 1. Workflow Token Updates
-   - Replaced deprecated `GITHUB_TOKEN` usage with `PROJECT_TOKEN` per new GitHub token naming restrictions.
+   - Replaced deprecated `CPMP_TOKEN` usage with `CPMP_TOKEN` per new GitHub token naming restrictions.
    - Ensured consistent secret reference across `release.yml` and `renovate_prune.yml`.
 2. Release Workflow Adjustments
    - Fixed environment variable configuration for release publication.
@@ -16,9 +16,9 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
    - (Previously merged) Improvements to locate and package the `dlv` binary reliably in multi-arch builds.
 
 ## Commits Ahead of `feature/alpha-completion`
-- 6c8ba7b fix: replace GITHUB_TOKEN with PROJECT_TOKEN in workflows
-- de1160a fix: revert to PROJECT_TOKEN
-- 7aee12b fix: use GITHUB_TOKEN in release workflow
+- 6c8ba7b fix: replace CPMP_TOKEN with CPMP_TOKEN in workflows
+- de1160a fix: revert to CPMP_TOKEN
+- 7aee12b fix: use CPMP_TOKEN in release workflow
 - 0449681 docs: add beta-release draft PR summary
 - fc08514 docs: update beta-release draft PR summary with new commit
 - 18c3621 docs: update beta-release draft PR summary with second update
@@ -61,7 +61,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 
 ## Request
 Marking this as a DRAFT to allow review of token changes before merge. Please:
-- Confirm `PROJECT_TOKEN` exists in repo secrets.
+- Confirm `CPMP_TOKEN` exists in repo secrets.
 - Review for any missed workflow references.
 
 ---
