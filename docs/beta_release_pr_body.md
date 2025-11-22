@@ -10,7 +10,7 @@ Draft PR to merge hardened CI/release workflow changes from `feature/beta-releas
 - Extensive incremental documentation trail in `docs/beta_release_draft_pr.md` plus concise snapshot in `docs/beta_release_draft_pr_body_snapshot.md` for reviewers.
 
 ## Ahead Commits (Representative)
-Most recent snapshot commit: `b142c38f` (PR body content file update). Full ordered list in `docs/beta_release_draft_pr.md`.
+Most recent snapshot commit: `588c7511` (PR body content file update). Full ordered list in `docs/beta_release_draft_pr.md`.
 
 ## Review Checklist
 - Secret `PROJECT_TOKEN` exists and has required scopes.
