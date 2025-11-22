@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/middleware"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
@@ -129,7 +130,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		})
 	}
 
-	proxyHostHandler := handlers.NewProxyHostHandler(db)
+	// Caddy Manager
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir)
+
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager)
 	proxyHostHandler.RegisterRoutes(api)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(db)

@@ -407,15 +407,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <CircleHelp size={14} />
               </div>
             </label>
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={formData.enabled}
-                onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
-                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-300">Enabled</span>
-            </label>
           </div>
 
           {/* Advanced Config */}
@@ -431,6 +422,19 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               rows={4}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+
+          {/* Enabled Toggle */}
+          <div className="flex items-center justify-end pb-2">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.enabled}
+                onChange={e => setFormData({ ...formData, enabled: e.target.checked })}
+                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-white">Enable Proxy Host</span>
+            </label>
           </div>
 
           {/* Actions */}

@@ -7,19 +7,22 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
-	service *services.ProxyHostService
+	service      *services.ProxyHostService
+	caddyManager *caddy.Manager
 }
 
 // NewProxyHostHandler creates a new proxy host handler.
-func NewProxyHostHandler(db *gorm.DB) *ProxyHostHandler {
+func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager) *ProxyHostHandler {
 	return &ProxyHostHandler{
-		service: services.NewProxyHostService(db),
+		service:      services.NewProxyHostService(db),
+		caddyManager: caddyManager,
 	}
 }
 
@@ -64,6 +67,13 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
+	}
+
 	c.JSON(http.StatusCreated, host)
 }
 
@@ -100,6 +110,13 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, host)
 }
 
@@ -116,6 +133,13 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 	if err := h.service.Delete(host.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "proxy host deleted"})

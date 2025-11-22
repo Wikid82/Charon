@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
+import { Switch } from '../components/ui/Switch'
 
 export default function ProxyHosts() {
   const { hosts, loading, error, createHost, updateHost, deleteHost } = useProxyHosts()
@@ -111,15 +112,15 @@ export default function ProxyHosts() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 text-xs rounded ${
-                          host.enabled
-                            ? 'bg-green-900/30 text-green-400'
-                            : 'bg-gray-700 text-gray-400'
-                        }`}
-                      >
-                        {host.enabled ? 'Enabled' : 'Disabled'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={host.enabled}
+                          onCheckedChange={(checked) => updateHost(host.uuid, { enabled: checked })}
+                        />
+                        <span className={`text-sm ${host.enabled ? 'text-green-400' : 'text-gray-400'}`}>
+                          {host.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
