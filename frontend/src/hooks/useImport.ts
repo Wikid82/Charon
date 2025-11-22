@@ -43,7 +43,11 @@ export function useImport() {
   });
 
   const commitMutation = useMutation({
-    mutationFn: (resolutions: Record<string, string>) => commitImport(resolutions),
+    mutationFn: (resolutions: Record<string, string>) => {
+      const sessionId = statusQuery.data?.session?.id;
+      if (!sessionId) throw new Error("No active session");
+      return commitImport(sessionId, resolutions);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['import-preview'] });

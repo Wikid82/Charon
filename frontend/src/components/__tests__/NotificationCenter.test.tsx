@@ -63,6 +63,11 @@ const mockNotifications: api.Notification[] = [
 describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.checkUpdates).mockResolvedValue({
+      available: false,
+      latest_version: '0.0.0',
+      changelog_url: '',
+    })
   })
 
   afterEach(() => {
