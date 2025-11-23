@@ -146,9 +146,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Certificate routes
 	// Use cfg.CaddyConfigDir + "/data" for cert service
 	caddyDataDir := cfg.CaddyConfigDir + "/data"
-	certService := services.NewCertificateService(caddyDataDir)
+	certService := services.NewCertificateService(caddyDataDir, db)
 	certHandler := handlers.NewCertificateHandler(certService)
 	api.GET("/certificates", certHandler.List)
+	api.POST("/certificates", certHandler.Upload)
+	api.DELETE("/certificates/:id", certHandler.Delete)
 
 	return nil
 }

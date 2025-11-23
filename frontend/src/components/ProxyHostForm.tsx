@@ -4,6 +4,7 @@ import type { ProxyHost } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
+import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
 import { parse } from 'tldts'
 
@@ -27,10 +28,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     websocket_support: host?.websocket_support ?? true,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
+    certificate_id: host?.certificate_id,
   })
 
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
+  const { certificates } = useCertificates()
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
@@ -353,6 +356,25 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+
+          {/* SSL Certificate Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              SSL Certificate
+            </label>
+            <select
+              value={formData.certificate_id || 0}
+              onChange={e => setFormData({ ...formData, certificate_id: parseInt(e.target.value) || null })}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>Request a new SSL Certificate</option>
+              {certificates.filter(c => c.provider === 'custom').map(cert => (
+                <option key={cert.id} value={cert.id}>
+                  {cert.name} ({cert.domain})
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* SSL & Security Options */}

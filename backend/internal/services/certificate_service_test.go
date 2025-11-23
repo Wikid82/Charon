@@ -13,6 +13,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 )
 
 func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
@@ -50,7 +55,16 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	cs := NewCertificateService(tmpDir)
+	// Setup in-memory DB
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	cs := NewCertificateService(tmpDir, db)
 
 	// Case 1: Valid Certificate
 	domain := "example.com"
@@ -107,4 +121,57 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 		}
 	}
 	assert.True(t, foundExpired, "Should find expired certificate")
+}
+
+func TestCertificateService_UploadAndDelete(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	cs := NewCertificateService(tmpDir, db)
+
+	// Generate Cert
+	domain := "custom.example.com"
+	expiry := time.Now().Add(24 * time.Hour)
+	certPEM := generateTestCert(t, domain, expiry)
+	keyPEM := []byte("FAKE PRIVATE KEY")
+
+	// Test Upload
+	cert, err := cs.UploadCertificate("My Custom Cert", string(certPEM), string(keyPEM))
+	require.NoError(t, err)
+	assert.NotNil(t, cert)
+	assert.Equal(t, "My Custom Cert", cert.Name)
+	assert.Equal(t, "custom", cert.Provider)
+	assert.Equal(t, domain, cert.Domains)
+
+	// Verify it's in List
+	certs, err := cs.ListCertificates()
+	require.NoError(t, err)
+	var found bool
+	for _, c := range certs {
+		if c.ID == cert.ID {
+			found = true
+			assert.Equal(t, "custom", c.Provider)
+			break
+		}
+	}
+	assert.True(t, found)
+
+	// Test Delete
+	err = cs.DeleteCertificate(cert.ID)
+	require.NoError(t, err)
+
+	// Verify it's gone
+	certs, err = cs.ListCertificates()
+	require.NoError(t, err)
+	found = false
+	for _, c := range certs {
+		if c.ID == cert.ID {
+			found = true
+			break
+		}
+	}
+	assert.False(t, found)
 }
