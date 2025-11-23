@@ -33,6 +33,7 @@ func (h *RemoteServerHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/remote-servers/:uuid", h.Get)
 	router.PUT("/remote-servers/:uuid", h.Update)
 	router.DELETE("/remote-servers/:uuid", h.Delete)
+	router.POST("/remote-servers/test", h.TestConnectionCustom)
 	router.POST("/remote-servers/:uuid/test", h.TestConnection)
 }
 
@@ -165,6 +166,43 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 	now := time.Now().UTC()
 	server.LastChecked = &now
 	h.service.Update(server)
+
+	c.JSON(http.StatusOK, result)
+}
+
+// TestConnectionCustom tests connectivity to a host/port provided in the body
+func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
+	var req struct {
+		Host string `json:"host" binding:"required"`
+		Port int    `json:"port" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Test TCP connection with 5 second timeout
+	address := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+
+	result := gin.H{
+		"address":   address,
+		"timestamp": time.Now().UTC(),
+	}
+
+	if err != nil {
+		result["reachable"] = false
+		result["error"] = err.Error()
+		c.JSON(http.StatusOK, result)
+		return
+	}
+	defer conn.Close()
+
+	// Connection successful
+	result["reachable"] = true
+	result["latency_ms"] = time.Since(start).Milliseconds()
 
 	c.JSON(http.StatusOK, result)
 }
