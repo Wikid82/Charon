@@ -111,7 +111,7 @@ func TestProxyHostErrors(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir)
+	manager := caddy.NewManager(client, db, tmpDir, "")
 
 	// Setup Handler
 	h := NewProxyHostHandler(db, manager)
@@ -284,7 +284,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir)
+	manager := caddy.NewManager(client, db, tmpDir, "")
 
 	// Setup Handler
 	h := NewProxyHostHandler(db, manager)

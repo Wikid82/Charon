@@ -17,17 +17,19 @@ import (
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client    *Client
-	db        *gorm.DB
-	configDir string
+	client      *Client
+	db          *gorm.DB
+	configDir   string
+	frontendDir string
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string) *Manager {
 	return &Manager{
-		client:    client,
-		db:        db,
-		configDir: configDir,
+		client:      client,
+		db:          db,
+		configDir:   configDir,
+		frontendDir: frontendDir,
 	}
 }
 
@@ -47,7 +49,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

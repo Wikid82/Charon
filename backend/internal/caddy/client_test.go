@@ -30,7 +30,7 @@ func TestClient_Load_Success(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		},
-	}, "/tmp/caddy-data", "admin@example.com")
+	}, "/tmp/caddy-data", "admin@example.com", "")
 
 	err := client.Load(context.Background(), config)
 	require.NoError(t, err)
