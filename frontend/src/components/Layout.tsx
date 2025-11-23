@@ -84,7 +84,7 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Sidebar */}
       <aside className={`
-        fixed lg:static inset-y-0 left-0 z-30 transform transition-all duration-200 ease-in-out
+        fixed lg:fixed inset-y-0 left-0 z-30 transform transition-all duration-200 ease-in-out
         bg-white dark:bg-dark-sidebar border-r border-gray-200 dark:border-gray-800 flex flex-col
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
@@ -238,7 +238,7 @@ export default function Layout({ children }: LayoutProps) {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col">
+      <main className={`flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Desktop Header */}
         <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 relative">
            <div className="w-1/3 flex items-center gap-4">
