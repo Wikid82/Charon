@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -10,11 +11,15 @@ import (
 )
 
 type CertificateHandler struct {
-	service *services.CertificateService
+	service             *services.CertificateService
+	notificationService *services.NotificationService
 }
 
-func NewCertificateHandler(service *services.CertificateService) *CertificateHandler {
-	return &CertificateHandler{service: service}
+func NewCertificateHandler(service *services.CertificateService, ns *services.NotificationService) *CertificateHandler {
+	return &CertificateHandler{
+		service:             service,
+		notificationService: ns,
+	}
 }
 
 func (h *CertificateHandler) List(c *gin.Context) {
@@ -85,6 +90,20 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		return
 	}
 
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"cert",
+			"Certificate Uploaded",
+			fmt.Sprintf("Certificate %s uploaded", cert.Name),
+			map[string]interface{}{
+				"Name":    cert.Name,
+				"Domains": cert.Domains,
+				"Action":  "uploaded",
+			},
+		)
+	}
+
 	c.JSON(http.StatusCreated, cert)
 }
 
@@ -99,6 +118,19 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 	if err := h.service.DeleteCertificate(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"cert",
+			"Certificate Deleted",
+			fmt.Sprintf("Certificate ID %d deleted", id),
+			map[string]interface{}{
+				"ID":     id,
+				"Action": "deleted",
+			},
+		)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "certificate deleted"})

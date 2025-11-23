@@ -67,7 +67,8 @@ func TestCertificateHandler_List(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
-	handler := NewCertificateHandler(service)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -92,7 +93,8 @@ func TestCertificateHandler_Upload(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
-	handler := NewCertificateHandler(service)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -145,7 +147,8 @@ func TestCertificateHandler_Delete(t *testing.T) {
 	require.NotZero(t, cert.ID)
 
 	service := services.NewCertificateService(tmpDir, db)
-	handler := NewCertificateHandler(service)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

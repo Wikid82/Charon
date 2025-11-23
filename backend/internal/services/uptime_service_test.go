@@ -2,6 +2,7 @@ package services
 
 import (
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,64 +13,19 @@ import (
 )
 
 func setupUptimeTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := filepath.Join(t.TempDir(), "test.db") + "?_busy_timeout=5000&_journal_mode=WAL"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
-	err = db.AutoMigrate(&models.Notification{}, &models.Setting{}, &models.ProxyHost{})
+	err = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}, &models.Setting{}, &models.ProxyHost{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{})
 	if err != nil {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 	return db
 }
 
-func TestUptimeService_CheckHost(t *testing.T) {
-	db := setupUptimeTestDB(t)
-	ns := NewNotificationService(db)
-	us := NewUptimeService(db, ns)
-
-	// Test Case 1: Host is UP
-	// Start a listener on a random port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to start listener: %v", err)
-	}
-	defer listener.Close()
-
-	addr := listener.Addr().(*net.TCPAddr)
-	port := addr.Port
-
-	// Run check in a goroutine to accept connection if needed, but DialTimeout just needs handshake
-	// Actually DialTimeout will succeed if listener is accepting.
-	// We need to accept in a loop or just let it hang?
-	// net.Dial will succeed as soon as handshake is done.
-	// But we should probably accept to be clean.
-	go func() {
-		conn, err := listener.Accept()
-		if err == nil {
-			conn.Close()
-		}
-	}()
-
-	up := us.CheckHost("127.0.0.1", port)
-	assert.True(t, up, "Host should be UP")
-
-	// Test Case 2: Host is DOWN
-	// Use a port that is unlikely to be in use.
-	// Or just close the listener and try again on same port (might be TIME_WAIT issues though)
-	// Better to pick a random high port that nothing is listening on.
-	// But finding a free port is tricky.
-	// Let's just use a port we know is closed.
-	// Or use the same port after closing listener.
-	listener.Close()
-	// Give it a moment
-	time.Sleep(10 * time.Millisecond)
-
-	down := us.CheckHost("127.0.0.1", port)
-	assert.False(t, down, "Host should be DOWN")
-}
-
-func TestUptimeService_CheckAllHosts(t *testing.T) {
+func TestUptimeService_CheckAll(t *testing.T) {
 	db := setupUptimeTestDB(t)
 	ns := NewNotificationService(db)
 	us := NewUptimeService(db, ns)
@@ -82,6 +38,7 @@ func TestUptimeService_CheckAllHosts(t *testing.T) {
 	defer listener.Close()
 	addr := listener.Addr().(*net.TCPAddr)
 
+	// Accept connections in background
 	go func() {
 		for {
 			conn, err := listener.Accept()
@@ -111,34 +68,102 @@ func TestUptimeService_CheckAllHosts(t *testing.T) {
 	}
 	db.Create(&downHost)
 
-	disabledHost := models.ProxyHost{
-		UUID:        "uuid-3",
-		DomainNames: "disabled.example.com",
-		ForwardHost: "127.0.0.1",
-		ForwardPort: 54322,
-		Enabled:     false,
-	}
-	// Force Enabled=false by using map or Select
-	db.Create(&disabledHost)
-	db.Model(&disabledHost).Update("Enabled", false)
+	// Sync Monitors (this creates UptimeMonitor records)
+	err = us.SyncMonitors()
+	assert.NoError(t, err)
 
-	// Run CheckAllHosts
-	us.CheckAllHosts()
+	// Verify Monitors created
+	var monitors []models.UptimeMonitor
+	db.Find(&monitors)
+	assert.Equal(t, 2, len(monitors))
+
+	// Run CheckAll
+	// Since CheckAll runs goroutines, we need to wait a bit or use a waitgroup if we could inject it.
+	// But for this test, we can just wait a short time.
+	us.CheckAll()
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify Heartbeats
+	var heartbeats []models.UptimeHeartbeat
+	db.Find(&heartbeats)
+	assert.GreaterOrEqual(t, len(heartbeats), 2)
+
+	// Verify Status
+	var upMonitor models.UptimeMonitor
+	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
+	assert.Equal(t, "up", upMonitor.Status)
+
+	var downMonitor models.UptimeMonitor
+	db.Where("proxy_host_id = ?", downHost.ID).First(&downMonitor)
+	assert.Equal(t, "down", downMonitor.Status)
 
 	// Verify Notifications
+	// We expect 0 notifications because initial state transition from "pending" is ignored
 	var notifications []models.Notification
 	db.Find(&notifications)
+	assert.Equal(t, 0, len(notifications), "Should have 0 notifications on first run")
 
-	for _, n := range notifications {
-		t.Logf("Notification: %s - %s", n.Title, n.Message)
-	}
+	// Now let's flip the status to trigger notification
+	// Make upHost go DOWN
+	listener.Close()
+	time.Sleep(10 * time.Millisecond)
 
-	// We expect 1 notification for the downHost.
-	// upHost is UP -> no notification
-	// disabledHost is DISABLED -> no check -> no notification
-	assert.Equal(t, 1, len(notifications), "Should have 1 notification")
+	us.CheckAll()
+	time.Sleep(100 * time.Millisecond)
+
+	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
+	assert.Equal(t, "down", upMonitor.Status)
+
+	db.Find(&notifications)
+	assert.Equal(t, 1, len(notifications), "Should have 1 notification now")
 	if len(notifications) > 0 {
-		assert.Contains(t, notifications[0].Message, "down.example.com", "Notification should mention the down host")
-		assert.Equal(t, models.NotificationTypeError, notifications[0].Type)
+		assert.Contains(t, notifications[0].Message, "up.example.com", "Notification should mention the host")
 	}
+}
+
+func TestUptimeService_ListMonitors(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := NewUptimeService(db, ns)
+
+	db.Create(&models.UptimeMonitor{
+		Name: "Test Monitor",
+		Type: "http",
+		URL:  "http://example.com",
+	})
+
+	monitors, err := us.ListMonitors()
+	assert.NoError(t, err)
+	assert.Len(t, monitors, 1)
+	assert.Equal(t, "Test Monitor", monitors[0].Name)
+}
+
+func TestUptimeService_GetMonitorHistory(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := NewUptimeService(db, ns)
+
+	monitor := models.UptimeMonitor{
+		ID:   "monitor-1",
+		Name: "Test Monitor",
+	}
+	db.Create(&monitor)
+
+	db.Create(&models.UptimeHeartbeat{
+		MonitorID: monitor.ID,
+		Status:    "up",
+		Latency:   10,
+		CreatedAt: time.Now().Add(-1 * time.Minute),
+	})
+	db.Create(&models.UptimeHeartbeat{
+		MonitorID: monitor.ID,
+		Status:    "down",
+		Latency:   0,
+		CreatedAt: time.Now(),
+	})
+
+	history, err := us.GetMonitorHistory(monitor.ID, 100)
+	assert.NoError(t, err)
+	assert.Len(t, history, 2)
+	assert.Equal(t, "down", history[0].Status)
 }

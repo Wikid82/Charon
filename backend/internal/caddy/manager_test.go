@@ -189,3 +189,69 @@ func TestManager_RotateSnapshots(t *testing.T) {
 	// Should be 10 (kept)
 	assert.Equal(t, 10, count)
 }
+
+func TestManager_Rollback_Success(t *testing.T) {
+	// Mock Caddy Admin API
+	// First call succeeds (initial setup), second call fails (bad config), third call succeeds (rollback)
+	callCount := 0
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.URL.Path == "/load" && r.Method == "POST" {
+			if callCount == 2 {
+				w.WriteHeader(http.StatusInternalServerError) // Fail the second apply
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Setting{}, &models.CaddyConfig{}))
+
+	// Setup Manager
+	tmpDir := t.TempDir()
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, db, tmpDir, "")
+
+	// 1. Apply valid config (creates snapshot)
+	host1 := models.ProxyHost{
+		UUID:        "uuid-1",
+		DomainNames: "example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	db.Create(&host1)
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+
+	// Verify snapshot exists
+	snapshots, _ := manager.listSnapshots()
+	assert.Len(t, snapshots, 1)
+
+	// Sleep to ensure different timestamp for next snapshot
+	time.Sleep(1100 * time.Millisecond)
+
+	// 2. Apply another config (will fail at Caddy level)
+	host2 := models.ProxyHost{
+		UUID:        "uuid-2",
+		DomainNames: "fail.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8081,
+	}
+	db.Create(&host2)
+
+	// This should fail, trigger rollback, and succeed in rolling back
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "apply failed (rolled back)")
+
+	// Verify we still have 1 snapshot (the failed one was removed)
+	snapshots, _ = manager.listSnapshots()
+	assert.Len(t, snapshots, 1)
+}

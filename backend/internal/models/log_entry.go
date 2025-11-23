@@ -39,4 +39,5 @@ type LogFilter struct {
 	Level  string `form:"level"`
 	Limit  int    `form:"limit"`
 	Offset int    `form:"offset"`
+	Sort   string `form:"sort"`
 }

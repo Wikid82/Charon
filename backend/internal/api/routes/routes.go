@@ -29,6 +29,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.Setting{},
 		&models.ImportSession{},
 		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
 		&models.Domain{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
@@ -50,6 +53,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Log routes
 	logService := services.NewLogService(&cfg)
 	logsHandler := handlers.NewLogsHandler(logService)
+
+	// Notification Service (needed for multiple handlers)
+	notificationService := services.NewNotificationService(db)
 
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
@@ -90,14 +96,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/system/updates", updateHandler.Check)
 
 		// Notifications
-		notificationService := services.NewNotificationService(db)
 		notificationHandler := handlers.NewNotificationHandler(notificationService)
 		protected.GET("/notifications", notificationHandler.List)
 		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
 		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
 
 		// Domains
-		domainHandler := handlers.NewDomainHandler(db)
+		domainHandler := handlers.NewDomainHandler(db, notificationService)
 		protected.GET("/domains", domainHandler.List)
 		protected.POST("/domains", domainHandler.Create)
 		protected.DELETE("/domains/:id", domainHandler.Delete)
@@ -113,19 +118,36 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Uptime Service
 		uptimeService := services.NewUptimeService(db, notificationService)
+		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
+		protected.GET("/uptime/monitors", uptimeHandler.List)
+		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 
-		// Start background checker (every 5 minutes)
+		// Notification Providers
+		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
+		protected.GET("/notifications/providers", notificationProviderHandler.List)
+		protected.POST("/notifications/providers", notificationProviderHandler.Create)
+		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
+		protected.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
+		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
+
+		// Start background checker (every 1 minute)
 		go func() {
 			// Wait a bit for server to start
-			time.Sleep(1 * time.Minute)
-			ticker := time.NewTicker(5 * time.Minute)
+			time.Sleep(30 * time.Second)
+			// Initial sync
+			if err := uptimeService.SyncMonitors(); err != nil {
+				fmt.Printf("Failed to sync monitors: %v\n", err)
+			}
+
+			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
-				uptimeService.CheckAllHosts()
+				uptimeService.SyncMonitors()
+				uptimeService.CheckAll()
 			}
 		}()
 
 		protected.POST("/system/uptime/check", func(c *gin.Context) {
-			go uptimeService.CheckAllHosts()
+			go uptimeService.CheckAll()
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
 	}
@@ -134,10 +156,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir)
 
-	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager)
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
 	proxyHostHandler.RegisterRoutes(api)
 
-	remoteServerHandler := handlers.NewRemoteServerHandler(db)
+	remoteServerHandler := handlers.NewRemoteServerHandler(db, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
 
 	userHandler := handlers.NewUserHandler(db)
@@ -153,7 +175,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// or the volume mount 'caddy_data_local:/data'
 	caddyDataDir := "/data/caddy"
 	certService := services.NewCertificateService(caddyDataDir, db)
-	certHandler := handlers.NewCertificateHandler(certService)
+	certHandler := handlers.NewCertificateHandler(certService, notificationService)
 	api.GET("/certificates", certHandler.List)
 	api.POST("/certificates", certHandler.Upload)
 	api.DELETE("/certificates/:id", certHandler.Delete)

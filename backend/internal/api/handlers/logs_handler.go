@@ -43,6 +43,7 @@ func (h *LogsHandler) Read(c *gin.Context) {
 		Level:  c.Query("level"),
 		Limit:  limit,
 		Offset: offset,
+		Sort:   c.DefaultQuery("sort", "desc"),
 	}
 
 	logs, total, err := h.service.QueryLogs(filename, filter)
