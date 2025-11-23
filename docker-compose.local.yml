@@ -22,6 +22,8 @@ services:
       - CPM_CADDY_BINARY=caddy
       - CPM_IMPORT_CADDYFILE=/import/Caddyfile
       - CPM_IMPORT_DIR=/app/data/imports
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     cap_add:
       - SYS_PTRACE
     security_opt:

@@ -20,6 +20,8 @@ services:
       - CPM_CADDY_BINARY=caddy
       - CPM_IMPORT_CADDYFILE=/import/Caddyfile
       - CPM_IMPORT_DIR=/app/data/imports
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - cpm_data:/app/data
       - caddy_data:/data
