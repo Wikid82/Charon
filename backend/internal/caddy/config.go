@@ -10,7 +10,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -71,11 +71,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 	}
 
-	if len(hosts) == 0 {
+	if len(hosts) == 0 && frontendDir == "" {
 		return config, nil
 	}
 
-	// We already initialized srv0 above, so we just append routes to it
+	// Initialize routes slice
 	routes := make([]*Route, 0)
 
 	for _, host := range hosts {
@@ -143,6 +143,19 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 
 		routes = append(routes, route)
+	}
+
+	// Add catch-all 404 handler
+	// This matches any request that wasn't handled by previous routes
+	if frontendDir != "" {
+		catchAllRoute := &Route{
+			Handle: []Handler{
+				RewriteHandler("/unknown.html"),
+				FileServerHandler(frontendDir),
+			},
+			Terminal: true,
+		}
+		routes = append(routes, catchAllRoute)
 	}
 
 	config.Apps.HTTP.Servers["cpm_server"] = &Server{

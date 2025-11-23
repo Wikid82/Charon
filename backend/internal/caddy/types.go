@@ -141,6 +141,22 @@ func BlockExploitsHandler() Handler {
 	}
 }
 
+// RewriteHandler creates a rewrite handler.
+func RewriteHandler(uri string) Handler {
+	return Handler{
+		"handler": "rewrite",
+		"uri":     uri,
+	}
+}
+
+// FileServerHandler creates a file_server handler.
+func FileServerHandler(root string) Handler {
+	return Handler{
+		"handler": "file_server",
+		"root":    root,
+	}
+}
+
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
 	Automation *AutomationConfig `json:"automation,omitempty"`
