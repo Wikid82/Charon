@@ -23,6 +23,7 @@ export interface ProxyHost {
   locations: Location[];
   advanced_config?: string;
   enabled: boolean;
+  certificate_id?: number | null;
   created_at: string;
   updated_at: string;
 }

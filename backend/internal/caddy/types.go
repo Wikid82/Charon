@@ -159,7 +159,20 @@ func FileServerHandler(root string) Handler {
 
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
-	Automation *AutomationConfig `json:"automation,omitempty"`
+	Automation   *AutomationConfig   `json:"automation,omitempty"`
+	Certificates *CertificatesConfig `json:"certificates,omitempty"`
+}
+
+// CertificatesConfig configures manual certificate loading.
+type CertificatesConfig struct {
+	LoadPEM []LoadPEMConfig `json:"load_pem,omitempty"`
+}
+
+// LoadPEMConfig defines a PEM-loaded certificate.
+type LoadPEMConfig struct {
+	Certificate string   `json:"certificate"`
+	Key         string   `json:"key"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 // AutomationConfig controls certificate automation.

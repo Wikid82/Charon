@@ -85,6 +85,32 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 	}
 
+	// Collect custom certificates
+	customCerts := make(map[uint]models.SSLCertificate)
+	for _, host := range hosts {
+		if host.CertificateID != nil && host.Certificate != nil {
+			customCerts[*host.CertificateID] = *host.Certificate
+		}
+	}
+
+	if len(customCerts) > 0 {
+		var loadPEM []LoadPEMConfig
+		for _, cert := range customCerts {
+			loadPEM = append(loadPEM, LoadPEMConfig{
+				Certificate: cert.Certificate,
+				Key:         cert.PrivateKey,
+				Tags:        []string{cert.UUID},
+			})
+		}
+
+		if config.Apps.TLS == nil {
+			config.Apps.TLS = &TLSApp{}
+		}
+		config.Apps.TLS.Certificates = &CertificatesConfig{
+			LoadPEM: loadPEM,
+		}
+	}
+
 	if len(hosts) == 0 && frontendDir == "" {
 		return config, nil
 	}
