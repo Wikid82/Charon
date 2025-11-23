@@ -223,3 +223,44 @@ func TestNotificationService_SendExternal_Shoutrrr(t *testing.T) {
 	// Give it a moment to run goroutine
 	time.Sleep(100 * time.Millisecond)
 }
+
+func TestNormalizeURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceType string
+		rawURL      string
+		expected    string
+	}{
+		{
+			name:        "Discord HTTPS",
+			serviceType: "discord",
+			rawURL:      "https://discord.com/api/webhooks/123456789/abcdefg",
+			expected:    "discord://abcdefg@123456789",
+		},
+		{
+			name:        "Discord HTTPS with app",
+			serviceType: "discord",
+			rawURL:      "https://discordapp.com/api/webhooks/123456789/abcdefg",
+			expected:    "discord://abcdefg@123456789",
+		},
+		{
+			name:        "Discord Shoutrrr",
+			serviceType: "discord",
+			rawURL:      "discord://token@id",
+			expected:    "discord://token@id",
+		},
+		{
+			name:        "Other Service",
+			serviceType: "slack",
+			rawURL:      "https://hooks.slack.com/services/...",
+			expected:    "https://hooks.slack.com/services/...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeURL(tt.serviceType, tt.rawURL)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

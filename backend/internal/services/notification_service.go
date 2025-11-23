@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"text/template"
 	"time"
 
@@ -19,6 +20,20 @@ type NotificationService struct {
 
 func NewNotificationService(db *gorm.DB) *NotificationService {
 	return &NotificationService{DB: db}
+}
+
+var discordWebhookRegex = regexp.MustCompile(`^https://discord(?:app)?\.com/api/webhooks/(\d+)/([a-zA-Z0-9_-]+)`)
+
+func normalizeURL(serviceType, rawURL string) string {
+	if serviceType == "discord" {
+		matches := discordWebhookRegex.FindStringSubmatch(rawURL)
+		if len(matches) == 3 {
+			id := matches[1]
+			token := matches[2]
+			return fmt.Sprintf("discord://%s@%s", token, id)
+		}
+	}
+	return rawURL
 }
 
 // Internal Notifications (DB)
@@ -101,7 +116,8 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 			if p.Type == "webhook" {
 				s.sendCustomWebhook(p, data)
 			} else {
-				if err := shoutrrr.Send(p.URL, fmt.Sprintf("%s: %s", title, message)); err != nil {
+				url := normalizeURL(p.Type, p.URL)
+				if err := shoutrrr.Send(url, fmt.Sprintf("%s: %s", title, message)); err != nil {
 					log.Printf("Failed to send notification to %s: %v", p.Name, err)
 				}
 			}
@@ -155,7 +171,8 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		s.sendCustomWebhook(provider, data)
 		return nil
 	}
-	return shoutrrr.Send(provider.URL, "Test notification from CaddyProxyManager+")
+	url := normalizeURL(provider.Type, provider.URL)
+	return shoutrrr.Send(url, "Test notification from CaddyProxyManager+")
 }
 
 // Provider Management
