@@ -20,6 +20,8 @@ const Backups = lazy(() => import('./pages/Backups'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Logs = lazy(() => import('./pages/Logs'))
 const Domains = lazy(() => import('./pages/Domains'))
+const Uptime = lazy(() => import('./pages/Uptime'))
+const Notifications = lazy(() => import('./pages/Notifications'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 
@@ -45,6 +47,8 @@ export default function App() {
               <Route path="remote-servers" element={<RemoteServers />} />
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
+              <Route path="uptime" element={<Uptime />} />
+              <Route path="notifications" element={<Notifications />} />
               <Route path="import" element={<ImportCaddy />} />
 
               {/* Settings Routes */}

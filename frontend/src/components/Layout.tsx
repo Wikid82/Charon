@@ -47,6 +47,8 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
+    { name: 'Uptime', path: '/uptime', icon: '📈' },
+    { name: 'Notifications', path: '/notifications', icon: '🔔' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
     {
       name: 'Settings',
