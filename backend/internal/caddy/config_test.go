@@ -109,9 +109,10 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	_, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty domain")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	require.NoError(t, err)
+	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
+	require.Empty(t, config.Apps.HTTP.Servers["cpm_server"].Routes)
 }
 
 func TestGenerateConfig_Logging(t *testing.T) {
