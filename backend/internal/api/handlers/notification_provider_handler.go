@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
@@ -72,6 +73,8 @@ func (h *NotificationProviderHandler) Test(c *gin.Context) {
 	}
 
 	if err := h.service.TestProvider(provider); err != nil {
+		// Create internal notification for the failure
+		h.service.Create(models.NotificationTypeError, "Test Failed", fmt.Sprintf("Provider %s test failed: %v", provider.Name, err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
