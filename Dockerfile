@@ -74,7 +74,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build \
     -gcflags "all=-N -l" \
-    -a -installsuffix cgo \
     -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
@@ -104,7 +103,7 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for CPM+ (no bash needed)
-RUN apk --no-cache add ca-certificates sqlite-libs \
+RUN apk --no-cache add ca-certificates sqlite-libs tzdata \
     && apk --no-cache upgrade
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
