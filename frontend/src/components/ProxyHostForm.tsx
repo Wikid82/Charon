@@ -148,10 +148,29 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     setSelectedContainerId(containerId)
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
-      // Prefer internal IP if available, otherwise use container name
-      const host = container.ip || container.names[0]
-      // Use the first exposed port if available, otherwise default to 80
-      const port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+      // Default to internal IP and private port
+      let host = container.ip || container.names[0]
+      let port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+
+      // If using a Remote Server, try to use the Host IP and Mapped Public Port
+      if (connectionSource !== 'local' && connectionSource !== 'custom') {
+        const server = remoteServers.find(s => s.uuid === connectionSource)
+        if (server) {
+          // Use the Remote Server's Host IP (e.g. public/tailscale IP)
+          host = server.host
+
+          // Find a mapped public port
+          // We prefer the first mapped port we find
+          const mappedPort = container.ports?.find(p => p.public_port)
+          if (mappedPort) {
+            port = mappedPort.public_port
+          } else {
+            // If no public port is mapped, we can't reach it from outside
+            // But we'll leave the internal port as a fallback, though it likely won't work
+            console.warn('No public port mapped for container on remote server')
+          }
+        }
+      }
 
       let newDomainNames = formData.domain_names
       if (selectedDomain) {
