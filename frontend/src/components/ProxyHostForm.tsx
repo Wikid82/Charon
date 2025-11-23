@@ -6,7 +6,7 @@ import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
-// import { parse } from 'tldts'
+import { parse } from 'tldts'
 
 interface ProxyHostFormProps {
   host?: ProxyHost
@@ -52,12 +52,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }, [])
 
-  // import { parse } from 'tldts'
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
-interface ProxyHostFormProps {
-// ...existing code...
   const checkNewDomains = (input: string) => {
-    /*
     if (dontAskAgain) return
 
     const domainList = input.split(',').map(d => d.trim()).filter(d => d)
@@ -82,7 +79,6 @@ interface ProxyHostFormProps {
          }
       }
     }
-    */
   }
 
 
