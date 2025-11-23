@@ -10,7 +10,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -51,19 +51,34 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 	}
 
 	if acmeEmail != "" {
+		var issuers []interface{}
+
+		// Configure issuers based on provider preference
+		switch sslProvider {
+		case "letsencrypt":
+			issuers = append(issuers, map[string]interface{}{
+				"module": "acme",
+				"email":  acmeEmail,
+			})
+		case "zerossl":
+			issuers = append(issuers, map[string]interface{}{
+				"module": "zerossl",
+			})
+		default: // "both" or empty
+			issuers = append(issuers, map[string]interface{}{
+				"module": "acme",
+				"email":  acmeEmail,
+			})
+			issuers = append(issuers, map[string]interface{}{
+				"module": "zerossl",
+			})
+		}
+
 		config.Apps.TLS = &TLSApp{
 			Automation: &AutomationConfig{
 				Policies: []*AutomationPolicy{
 					{
-						IssuersRaw: []interface{}{
-							map[string]interface{}{
-								"module": "acme",
-								"email":  acmeEmail,
-							},
-							map[string]interface{}{
-								"module": "zerossl",
-							},
-						},
+						IssuersRaw: issuers,
 					},
 				},
 			},
