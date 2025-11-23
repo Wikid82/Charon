@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, NotificationProvider } from '../api/notifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Bell, Plus, Trash2, Edit2, Send } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 
 const ProviderForm: React.FC<{ 
@@ -23,6 +23,25 @@ const ProviderForm: React.FC<{
       notify_uptime: true
     }
   });
+
+  const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  
+  const testMutation = useMutation({
+    mutationFn: testProvider,
+    onSuccess: () => {
+      setTestStatus('success');
+      setTimeout(() => setTestStatus('idle'), 3000);
+    },
+    onError: () => {
+      setTestStatus('error');
+      setTimeout(() => setTestStatus('idle'), 3000);
+    }
+  });
+
+  const handleTest = () => {
+    const formData = watch();
+    testMutation.mutate(formData as any);
+  };
 
   const type = watch('type');
 
@@ -141,6 +160,18 @@ const ProviderForm: React.FC<{
 
       <div className="flex justify-end gap-2 pt-4">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button 
+          type="button" 
+          variant="secondary" 
+          onClick={handleTest}
+          disabled={testMutation.isPending}
+          className="min-w-[80px]"
+        >
+          {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 
+           testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> : 
+           testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> : 
+           "Test"}
+        </Button>
         <Button type="submit">Save</Button>
       </div>
     </form>

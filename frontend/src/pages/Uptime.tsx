@@ -7,7 +7,7 @@ import { formatDistanceToNow } from 'date-fns';
 const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
   const { data: history } = useQuery({
     queryKey: ['uptimeHistory', monitor.id],
-    queryFn: () => getMonitorHistory(monitor.id),
+    queryFn: () => getMonitorHistory(monitor.id, 60),
     refetchInterval: 60000,
   });
 
@@ -50,22 +50,30 @@ const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
         </div>
       </div>
 
-      {/* Simple History Bar */}
-      <div className="flex gap-0.5 h-8 items-end">
-        {history?.slice(0, 20).reverse().map((beat: any, i: number) => (
+      {/* Heartbeat Bar (Last 60 checks / 1 Hour) */}
+      <div className="flex gap-[2px] h-8 items-end" title="Last 60 checks (1 Hour)">
+        {/* Fill with empty bars if not enough history to keep alignment right-aligned */}
+        {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
+           <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
+        ))}
+        
+        {history?.slice().reverse().map((beat: any, i: number) => (
           <div
             key={i}
-            className={`flex-1 rounded-sm ${
+            className={`flex-1 rounded-sm transition-all duration-200 hover:scale-110 ${
               beat.status === 'up' 
-                ? 'bg-green-400 dark:bg-green-600 hover:bg-green-500' 
-                : 'bg-red-400 dark:bg-red-600 hover:bg-red-500'
+                ? 'bg-green-400 dark:bg-green-500 hover:bg-green-300' 
+                : 'bg-red-400 dark:bg-red-500 hover:bg-red-300'
             }`}
             style={{ height: '100%' }}
-            title={`${new Date(beat.created_at).toLocaleString()} - ${beat.latency}ms - ${beat.message}`}
+            title={`${new Date(beat.created_at).toLocaleString()}
+Status: ${beat.status.toUpperCase()}
+Latency: ${beat.latency}ms
+Message: ${beat.message}`}
           />
         ))}
         {(!history || history.length === 0) && (
-            <div className="w-full text-center text-xs text-gray-400">No history available</div>
+            <div className="absolute w-full text-center text-xs text-gray-400">No history available</div>
         )}
       </div>
     </div>
