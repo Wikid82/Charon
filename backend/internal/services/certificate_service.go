@@ -43,7 +43,7 @@ func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
 
 // ListCertificates returns both auto-generated and custom certificates.
 func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
-	var certs []CertificateInfo
+	certs := []CertificateInfo{}
 
 	// 1. Get Custom Certificates from DB
 	var dbCerts []models.SSLCertificate

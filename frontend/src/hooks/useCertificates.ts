@@ -2,13 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { getCertificates } from '../api/certificates'
 
 export function useCertificates() {
-  const { data: certificates = [], isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['certificates'],
     queryFn: getCertificates,
   })
 
   return {
-    certificates,
+    certificates: data || [],
     isLoading,
     error,
   }
