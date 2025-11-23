@@ -4,7 +4,7 @@ import * as api from '../api/domains'
 export function useDomains() {
   const queryClient = useQueryClient()
 
-  const { data: domains = [], isLoading, error } = useQuery({
+  const { data: domains = [], isLoading, isFetching, error } = useQuery({
     queryKey: ['domains'],
     queryFn: api.getDomains,
   })
@@ -26,6 +26,7 @@ export function useDomains() {
   return {
     domains,
     isLoading,
+    isFetching,
     error,
     createDomain: createMutation.mutateAsync,
     deleteDomain: deleteMutation.mutateAsync,

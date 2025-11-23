@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
 
 export default function ProxyHosts() {
-  const { hosts, loading, error, createHost, updateHost, deleteHost } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost } = useProxyHosts()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
 
@@ -42,7 +43,10 @@ export default function ProxyHosts() {
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-white">Proxy Hosts</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-white">Proxy Hosts</h1>
+          {isFetching && !loading && <Loader2 className="animate-spin text-blue-400" size={24} />}
+        </div>
         <button
           onClick={handleAdd}
           className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"

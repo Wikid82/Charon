@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useDomains } from '../hooks/useDomains'
-import { Trash2, Plus, Globe } from 'lucide-react'
+import { Trash2, Plus, Globe, Loader2 } from 'lucide-react'
 
 export default function Domains() {
-  const { domains, isLoading, error, createDomain, deleteDomain } = useDomains()
+  const { domains, isLoading, isFetching, error, createDomain, deleteDomain } = useDomains()
   const [newDomain, setNewDomain] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -38,7 +38,10 @@ export default function Domains() {
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold text-white">Domains</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-white">Domains</h1>
+          {isFetching && !isLoading && <Loader2 className="animate-spin text-blue-400" size={24} />}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
