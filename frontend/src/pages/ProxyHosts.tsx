@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, ExternalLink } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
+import { getSettings } from '../api/settings'
 import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
@@ -9,6 +11,20 @@ export default function ProxyHosts() {
   const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost } = useProxyHosts()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+  })
+
+  const linkBehavior = settings?.['ui.domain_link_behavior'] || 'new_tab'
+
+  const handleDomainClick = (e: React.MouseEvent, url: string) => {
+    if (linkBehavior === 'new_window') {
+      e.preventDefault()
+      window.open(url, '_blank', 'noopener,noreferrer,width=1024,height=768')
+    }
+  }
 
   const handleAdd = () => {
     setEditingHost(undefined)
@@ -94,7 +110,25 @@ export default function ProxyHosts() {
                 {hosts.map((host) => (
                   <tr key={host.uuid} className="hover:bg-gray-900/50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">{host.domain_names}</div>
+                      <div className="text-sm font-medium text-white">
+                        {host.domain_names.split(',').map((domain, i) => {
+                          const url = `${host.ssl_forced ? 'https' : 'http'}://${domain.trim()}`
+                          return (
+                            <div key={i} className="flex items-center gap-1">
+                              <a
+                                href={url}
+                                target={linkBehavior === 'same_tab' ? '_self' : '_blank'}
+                                rel="noopener noreferrer"
+                                onClick={(e) => handleDomainClick(e, url)}
+                                className="hover:text-blue-400 hover:underline flex items-center gap-1"
+                              >
+                                {domain.trim()}
+                                <ExternalLink size={12} className="opacity-50" />
+                              </a>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-300">
