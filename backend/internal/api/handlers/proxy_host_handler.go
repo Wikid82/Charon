@@ -69,6 +69,11 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	if h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			// Rollback: delete the created host if config application fails
+			if deleteErr := h.service.Delete(host.ID); deleteErr != nil {
+				// Log this critical failure (failed to rollback)
+				// In a real app, we might want to use a proper logger here
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}

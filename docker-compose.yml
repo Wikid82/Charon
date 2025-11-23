@@ -12,6 +12,7 @@ services:
       - "8080:8080"    # Management UI (CPM+)
     environment:
       - CPM_ENV=production
+      - TZ=UTC # Set timezone (e.g., America/New_York)
       - CPM_HTTP_PORT=8080
       - CPM_DB_PATH=/app/data/cpm.db
       - CPM_FRONTEND_DIR=/app/frontend/dist
