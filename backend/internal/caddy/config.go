@@ -62,7 +62,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 							},
 							map[string]interface{}{
 								"module": "zerossl",
-								"email":  acmeEmail,
 							},
 						},
 					},
