@@ -36,13 +36,12 @@ backend/data/*.db
 backend/cmd/api/data/*.db
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-*.code-workspace
+
 
 # Logs
 .trivy_logs
