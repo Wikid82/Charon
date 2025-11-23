@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -70,9 +71,9 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	if h.caddyManager != nil {
 		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			// Rollback: delete the created host if config application fails
+			fmt.Printf("Error applying config: %v\n", err) // Log to stdout
 			if deleteErr := h.service.Delete(host.ID); deleteErr != nil {
-				// Log this critical failure (failed to rollback)
-				// In a real app, we might want to use a proper logger here
+				fmt.Printf("Critical: Failed to rollback host %d: %v\n", host.ID, deleteErr)
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return

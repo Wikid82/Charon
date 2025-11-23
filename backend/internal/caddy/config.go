@@ -118,6 +118,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 
 		for _, d := range rawDomains {
 			d = strings.TrimSpace(d)
+			d = strings.ToLower(d) // Normalize to lowercase
 			if d == "" {
 				continue
 			}
