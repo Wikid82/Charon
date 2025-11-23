@@ -661,6 +661,8 @@ Implement alerting for critical events.
 - [ ] Add notification history log
 - [ ] Create alert rule templates
 - [ ] Implement notification rate limiting
+- [x] Implement granular notification preferences (Proxy Hosts, Remote Servers, Domains, Certs, Uptime)
+- [ ] Evaluate notification needs for all new features (Agent Task)
 
 **Acceptance Criteria**:
 - Alerts sent for critical events

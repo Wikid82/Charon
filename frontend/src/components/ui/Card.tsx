@@ -1,7 +1,7 @@
-import { ReactNode } from 'react'
+import { ReactNode, HTMLAttributes } from 'react'
 import { clsx } from 'clsx'
 
-interface CardProps {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   className?: string
   title?: string
@@ -9,9 +9,9 @@ interface CardProps {
   footer?: ReactNode
 }
 
-export function Card({ children, className, title, description, footer }: CardProps) {
+export function Card({ children, className, title, description, footer, ...props }: CardProps) {
   return (
-    <div className={clsx('bg-dark-card rounded-lg border border-gray-800 overflow-hidden', className)}>
+    <div className={clsx('bg-dark-card rounded-lg border border-gray-800 overflow-hidden', className)} {...props}>
       {(title || description) && (
         <div className="px-6 py-4 border-b border-gray-800">
           {title && <h3 className="text-lg font-medium text-white">{title}</h3>}
