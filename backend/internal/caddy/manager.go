@@ -48,8 +48,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		acmeEmail = acmeEmailSetting.Value
 	}
 
+	// Fetch SSL Provider setting
+	var sslProviderSetting models.Setting
+	var sslProvider string
+	if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&sslProviderSetting).Error; err == nil {
+		sslProvider = sslProviderSetting.Value
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

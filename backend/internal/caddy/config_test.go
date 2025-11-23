@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -31,7 +31,7 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -71,7 +71,7 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 	require.Len(t, config.Apps.HTTP.Servers["cpm_server"].Routes, 2)
 }
@@ -88,7 +88,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 
 	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
@@ -109,7 +109,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
 	require.Empty(t, config.Apps.HTTP.Servers["cpm_server"].Routes)
@@ -117,7 +117,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 
 func TestGenerateConfig_Logging(t *testing.T) {
 	hosts := []models.ProxyHost{}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 
 	// Verify logging configuration
@@ -155,7 +155,7 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
