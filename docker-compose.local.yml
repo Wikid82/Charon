@@ -51,3 +51,8 @@ volumes:
     driver: local
   caddy_config_local:
     driver: local
+
+networks:
+  default:
+    name: containers_default
+    external: true
