@@ -26,7 +26,7 @@ export const getMonitors = async () => {
   return response.data;
 };
 
-export const getMonitorHistory = async (id: string) => {
-  const response = await client.get<UptimeHeartbeat[]>(`/uptime/monitors/${id}/history`);
+export const getMonitorHistory = async (id: string, limit: number = 50) => {
+  const response = await client.get<UptimeHeartbeat[]>(`/uptime/monitors/${id}/history?limit=${limit}`);
   return response.data;
 };
