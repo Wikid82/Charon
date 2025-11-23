@@ -15,15 +15,17 @@ import (
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
-	service      *services.ProxyHostService
-	caddyManager *caddy.Manager
+	service             *services.ProxyHostService
+	caddyManager        *caddy.Manager
+	notificationService *services.NotificationService
 }
 
 // NewProxyHostHandler creates a new proxy host handler.
-func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager) *ProxyHostHandler {
+func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService) *ProxyHostHandler {
 	return &ProxyHostHandler{
-		service:      services.NewProxyHostService(db),
-		caddyManager: caddyManager,
+		service:             services.NewProxyHostService(db),
+		caddyManager:        caddyManager,
+		notificationService: ns,
 	}
 }
 
@@ -78,6 +80,20 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"proxy_host",
+			"Proxy Host Created",
+			fmt.Sprintf("Proxy Host %s (%s) created", host.Name, host.DomainNames),
+			map[string]interface{}{
+				"Name":    host.Name,
+				"Domains": host.DomainNames,
+				"Action":  "created",
+			},
+		)
 	}
 
 	c.JSON(http.StatusCreated, host)
@@ -146,6 +162,19 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
 		}
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"proxy_host",
+			"Proxy Host Deleted",
+			fmt.Sprintf("Proxy Host %s deleted", host.Name),
+			map[string]interface{}{
+				"Name":   host.Name,
+				"Action": "deleted",
+			},
+		)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "proxy host deleted"})

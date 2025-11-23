@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 func setupTestDB() *gorm.DB {
@@ -50,7 +51,8 @@ func TestRemoteServerHandler_List(t *testing.T) {
 	}
 	db.Create(server)
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -72,7 +74,8 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB()
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -115,7 +118,8 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	}
 	db.Create(server)
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -148,7 +152,8 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 	}
 	db.Create(server)
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -180,7 +185,8 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 	}
 	db.Create(server)
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -224,7 +230,8 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 	}
 	db.Create(server)
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -259,7 +266,8 @@ func TestProxyHostHandler_List(t *testing.T) {
 	}
 	db.Create(host)
 
-	handler := handlers.NewProxyHostHandler(db, nil)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewProxyHostHandler(db, nil, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -281,7 +289,8 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB()
 
-	handler := handlers.NewProxyHostHandler(db, nil)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewProxyHostHandler(db, nil, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -333,7 +342,8 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB()
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 

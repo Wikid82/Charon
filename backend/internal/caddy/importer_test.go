@@ -268,3 +268,10 @@ func TestBackupCaddyfile(t *testing.T) {
 	_, err = BackupCaddyfile("non-existent", backupDir)
 	assert.Error(t, err)
 }
+
+func TestDefaultExecutor_Execute(t *testing.T) {
+	executor := &DefaultExecutor{}
+	output, err := executor.Execute("echo", "hello")
+	assert.NoError(t, err)
+	assert.Equal(t, "hello\n", string(output))
+}

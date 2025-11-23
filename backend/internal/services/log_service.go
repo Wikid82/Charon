@@ -139,9 +139,11 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 		return nil, 0, err
 	}
 
-	// Reverse logs to show newest first
-	for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
-		logs[i], logs[j] = logs[j], logs[i]
+	// Reverse logs to show newest first (default) unless sort is asc
+	if filter.Sort != "asc" {
+		for i, j := 0, len(logs)-1; i < j; i, j = i+1, j-1 {
+			logs[i], logs[j] = logs[j], logs[i]
+		}
 	}
 
 	totalMatches = int64(len(logs))

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServerHandler) {
@@ -21,7 +22,8 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	// Ensure RemoteServer table exists
 	db.AutoMigrate(&models.RemoteServer{})
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(db, ns)
 
 	r := gin.Default()
 	api := r.Group("/api/v1")

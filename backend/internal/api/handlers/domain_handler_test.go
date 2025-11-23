@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 func setupDomainTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -23,7 +24,8 @@ func setupDomainTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Domain{}))
 
-	h := NewDomainHandler(db)
+	ns := services.NewNotificationService(db)
+	h := NewDomainHandler(db, ns)
 	r := gin.New()
 
 	// Manually register routes since DomainHandler doesn't have a RegisterRoutes method yet

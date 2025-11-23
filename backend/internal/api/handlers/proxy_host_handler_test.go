@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -27,7 +28,8 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 
-	h := NewProxyHostHandler(db, nil)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, nil, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -114,7 +116,8 @@ func TestProxyHostErrors(t *testing.T) {
 	manager := caddy.NewManager(client, db, tmpDir, "")
 
 	// Setup Handler
-	h := NewProxyHostHandler(db, manager)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, manager, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -287,7 +290,8 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	manager := caddy.NewManager(client, db, tmpDir, "")
 
 	// Setup Handler
-	h := NewProxyHostHandler(db, manager)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, manager, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)

@@ -16,13 +16,15 @@ import (
 
 // RemoteServerHandler handles HTTP requests for remote server management.
 type RemoteServerHandler struct {
-	service *services.RemoteServerService
+	service             *services.RemoteServerService
+	notificationService *services.NotificationService
 }
 
 // NewRemoteServerHandler creates a new remote server handler.
-func NewRemoteServerHandler(db *gorm.DB) *RemoteServerHandler {
+func NewRemoteServerHandler(db *gorm.DB, ns *services.NotificationService) *RemoteServerHandler {
 	return &RemoteServerHandler{
-		service: services.NewRemoteServerService(db),
+		service:             services.NewRemoteServerService(db),
+		notificationService: ns,
 	}
 }
 
@@ -63,6 +65,21 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 	if err := h.service.Create(&server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"remote_server",
+			"Remote Server Added",
+			fmt.Sprintf("Remote Server %s (%s:%d) added", server.Name, server.Host, server.Port),
+			map[string]interface{}{
+				"Name":   server.Name,
+				"Host":   server.Host,
+				"Port":   server.Port,
+				"Action": "created",
+			},
+		)
 	}
 
 	c.JSON(http.StatusCreated, server)
@@ -117,6 +134,19 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	if err := h.service.Delete(server.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"remote_server",
+			"Remote Server Deleted",
+			fmt.Sprintf("Remote Server %s deleted", server.Name),
+			map[string]interface{}{
+				"Name":   server.Name,
+				"Action": "deleted",
+			},
+		)
 	}
 
 	c.JSON(http.StatusNoContent, nil)
