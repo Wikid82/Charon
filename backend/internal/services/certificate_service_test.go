@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -56,7 +57,8 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Setup in-memory DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -126,7 +128,8 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 func TestCertificateService_UploadAndDelete(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
@@ -179,7 +182,8 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 func TestCertificateService_Persistence(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
@@ -246,4 +250,198 @@ func TestCertificateService_Persistence(t *testing.T) {
 	err = db.Where("domains = ? AND provider = ?", domain, "letsencrypt").First(&dbCert).Error
 	assert.Error(t, err, "Certificate should be removed from DB")
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
+}
+
+func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	cs := NewCertificateService(tmpDir, db)
+
+	t.Run("invalid PEM format", func(t *testing.T) {
+		cert, err := cs.UploadCertificate("Invalid", "not-a-valid-pem", "also-not-valid")
+		assert.Error(t, err)
+		assert.Nil(t, cert)
+		assert.Contains(t, err.Error(), "invalid certificate PEM")
+	})
+
+	t.Run("empty certificate", func(t *testing.T) {
+		cert, err := cs.UploadCertificate("Empty", "", "some-key")
+		assert.Error(t, err)
+		assert.Nil(t, cert)
+	})
+
+	t.Run("certificate without key allowed", func(t *testing.T) {
+		domain := "test.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		cert, err := cs.UploadCertificate("No Key", string(certPEM), "")
+		assert.NoError(t, err) // Uploading without key is allowed
+		assert.NotNil(t, cert)
+		assert.Equal(t, "", cert.PrivateKey)
+	})
+
+	t.Run("valid certificate with name", func(t *testing.T) {
+		domain := "valid.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		keyPEM := []byte("FAKE PRIVATE KEY")
+
+		cert, err := cs.UploadCertificate("Valid Cert", string(certPEM), string(keyPEM))
+		assert.NoError(t, err)
+		assert.NotNil(t, cert)
+		assert.Equal(t, "Valid Cert", cert.Name)
+		assert.Equal(t, domain, cert.Domains)
+		assert.Equal(t, "custom", cert.Provider)
+	})
+
+	t.Run("expired certificate can be uploaded", func(t *testing.T) {
+		domain := "expired-upload.com"
+		expiry := time.Now().Add(-24 * time.Hour) // Already expired
+		certPEM := generateTestCert(t, domain, expiry)
+		keyPEM := []byte("FAKE PRIVATE KEY")
+
+		cert, err := cs.UploadCertificate("Expired Upload", string(certPEM), string(keyPEM))
+		// Should still upload successfully, but status will be expired
+		assert.NoError(t, err)
+		assert.NotNil(t, cert)
+		assert.Equal(t, domain, cert.Domains)
+	})
+}
+
+func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
+	t.Run("empty certificates directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		assert.Len(t, certs, 0)
+	})
+
+	t.Run("certificates directory does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nonExistentDir := filepath.Join(tmpDir, "does-not-exist")
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(nonExistentDir, db)
+
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		assert.Len(t, certs, 0)
+	})
+
+	t.Run("invalid certificate files are skipped", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Create a cert file with invalid content
+		domain := "invalid.com"
+		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+
+		certPath := filepath.Join(certDir, domain+".crt")
+		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		// Invalid certs should be skipped
+		assert.Len(t, certs, 0)
+	})
+
+	t.Run("multiple certificates from different providers", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Create LE cert
+		domain1 := "le.example.com"
+		expiry1 := time.Now().Add(24 * time.Hour)
+		certPEM1 := generateTestCert(t, domain1, expiry1)
+		certDir1 := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain1)
+		err = os.MkdirAll(certDir1, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir1, domain1+".crt"), certPEM1, 0644)
+		require.NoError(t, err)
+
+		// Create custom cert via upload
+		domain2 := "custom.example.com"
+		expiry2 := time.Now().Add(48 * time.Hour)
+		certPEM2 := generateTestCert(t, domain2, expiry2)
+		_, err = cs.UploadCertificate("Custom", string(certPEM2), "FAKE KEY")
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		assert.NoError(t, err)
+		assert.Len(t, certs, 2)
+
+		// Verify both providers exist
+		providers := make(map[string]bool)
+		for _, c := range certs {
+			providers[c.Provider] = true
+		}
+		assert.True(t, providers["letsencrypt"])
+		assert.True(t, providers["custom"])
+	})
+}
+
+func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	cs := NewCertificateService(tmpDir, db)
+
+	t.Run("delete non-existent certificate", func(t *testing.T) {
+		err := cs.DeleteCertificate(99999)
+		assert.Error(t, err)
+		assert.Equal(t, gorm.ErrRecordNotFound, err)
+	})
+
+	t.Run("delete certificate when file already removed", func(t *testing.T) {
+		// Create and upload cert
+		domain := "to-delete.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("To Delete", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Manually remove the file (custom certs stored by numeric ID)
+		certPath := filepath.Join(tmpDir, "certificates", "custom", "cert.crt")
+		os.Remove(certPath)
+
+		// Delete should still work (DB cleanup)
+		err = cs.DeleteCertificate(cert.ID)
+		assert.NoError(t, err)
+
+		// Verify DB record is gone
+		var dbCert models.SSLCertificate
+		err = db.First(&dbCert, "id = ?", cert.ID).Error
+		assert.Error(t, err)
+	})
 }

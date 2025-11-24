@@ -114,7 +114,9 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 
 		go func(p models.NotificationProvider) {
 			if p.Type == "webhook" {
-				s.sendCustomWebhook(p, data)
+				if err := s.sendCustomWebhook(p, data); err != nil {
+					log.Printf("Failed to send webhook to %s: %v", p.Name, err)
+				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
 				if err := shoutrrr.Send(url, fmt.Sprintf("%s: %s", title, message)); err != nil {
@@ -125,7 +127,7 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 	}
 }
 
-func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, data map[string]interface{}) {
+func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, data map[string]interface{}) error {
 	// Default template if empty
 	tmplStr := p.Config
 	if tmplStr == "" {
@@ -135,27 +137,25 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 	// Parse template
 	tmpl, err := template.New("webhook").Parse(tmplStr)
 	if err != nil {
-		log.Printf("Failed to parse webhook template for %s: %v", p.Name, err)
-		return
+		return fmt.Errorf("failed to parse webhook template: %w", err)
 	}
 
 	var body bytes.Buffer
 	if err := tmpl.Execute(&body, data); err != nil {
-		log.Printf("Failed to execute webhook template for %s: %v", p.Name, err)
-		return
+		return fmt.Errorf("failed to execute webhook template: %w", err)
 	}
 
 	// Send Request
 	resp, err := http.Post(p.URL, "application/json", &body)
 	if err != nil {
-		log.Printf("Failed to send webhook to %s: %v", p.Name, err)
-		return
+		return fmt.Errorf("failed to send webhook: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		log.Printf("Webhook %s returned status: %d", p.Name, resp.StatusCode)
+		return fmt.Errorf("webhook returned status: %d", resp.StatusCode)
 	}
+	return nil
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
@@ -168,8 +168,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 			"Latency": 123,
 			"Time":    time.Now().Format(time.RFC3339),
 		}
-		s.sendCustomWebhook(provider, data)
-		return nil
+		return s.sendCustomWebhook(provider, data)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
 	return shoutrrr.Send(url, "Test notification from CaddyProxyManager+")

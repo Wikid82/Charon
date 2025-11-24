@@ -147,3 +147,85 @@ func TestBackupService_RunScheduledBackup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, backups, 1)
 }
+
+func TestBackupService_CreateBackup_Errors(t *testing.T) {
+	t.Run("missing database file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfg := &config.Config{DatabasePath: filepath.Join(tmpDir, "nonexistent.db")}
+		service := NewBackupService(cfg)
+
+		_, err := service.CreateBackup()
+		assert.Error(t, err)
+	})
+
+	t.Run("cannot create backup directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dbPath := filepath.Join(tmpDir, "cpm.db")
+		os.WriteFile(dbPath, []byte("test"), 0644)
+
+		// Create backup dir as a file to cause mkdir error
+		backupDir := filepath.Join(tmpDir, "backups")
+		os.WriteFile(backupDir, []byte("blocking"), 0644)
+
+		service := &BackupService{
+			DataDir:   tmpDir,
+			BackupDir: backupDir,
+		}
+
+		_, err := service.CreateBackup()
+		assert.Error(t, err)
+	})
+}
+
+func TestBackupService_RestoreBackup_Errors(t *testing.T) {
+	t.Run("non-existent backup", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			DataDir:   filepath.Join(tmpDir, "data"),
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0755)
+
+		err := service.RestoreBackup("nonexistent.zip")
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid zip file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			DataDir:   filepath.Join(tmpDir, "data"),
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0755)
+
+		// Create invalid zip
+		badZip := filepath.Join(service.BackupDir, "bad.zip")
+		os.WriteFile(badZip, []byte("not a zip"), 0644)
+
+		err := service.RestoreBackup("bad.zip")
+		assert.Error(t, err)
+	})
+}
+
+func TestBackupService_ListBackups_EmptyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		BackupDir: filepath.Join(tmpDir, "backups"),
+	}
+	os.MkdirAll(service.BackupDir, 0755)
+
+	backups, err := service.ListBackups()
+	require.NoError(t, err)
+	assert.Empty(t, backups)
+}
+
+func TestBackupService_ListBackups_MissingDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	service := &BackupService{
+		BackupDir: filepath.Join(tmpDir, "nonexistent"),
+	}
+
+	backups, err := service.ListBackups()
+	require.NoError(t, err)
+	assert.Empty(t, backups)
+}

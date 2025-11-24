@@ -151,38 +151,102 @@ func TestBackupHandler_Errors(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// 1. List Error (remove backup dir to cause ReadDir error)
+	// Note: Service now handles missing dir gracefully by returning empty list
 	os.RemoveAll(svc.BackupDir)
-	// Create a file with same name to cause ReadDir to fail (if it expects dir)
-	// Or just make it unreadable
-	// os.Chmod(svc.BackupDir, 0000) // Might not work as expected in all envs
-	// Simpler: if BackupDir doesn't exist, ListBackups returns error?
-	// os.ReadDir returns error if dir doesn't exist.
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusInternalServerError, resp.Code)
-
-	// 2. Create Error (make backup dir read-only or non-existent)
-	// If we removed it above, CreateBackup might try to create it?
-	// NewBackupService creates it. CreateBackup uses it.
-	// If we create a file named "backups" where the dir should be, MkdirAll might fail?
-	// Or just make the parent dir read-only.
-
-	// Let's try path traversal for Download/Delete/Restore to cover those errors
-
-	// 3. Create Error (make backup dir read-only)
-	// We can't easily make the dir read-only for the service without affecting other tests or requiring root.
-	// But we can mock the service or use a different config.
-	// If we set BackupDir to a non-existent dir that cannot be created?
-	// NewBackupService creates it.
-	// If we set BackupDir to a file?
-
-	// Let's skip Create error for now and focus on what we can test.
-	// We can test Download Not Found (already covered).
+	require.Equal(t, http.StatusOK, resp.Code)
+	var list []interface{}
+	json.Unmarshal(resp.Body.Bytes(), &list)
+	require.Empty(t, list)
 
 	// 4. Delete Error (Not Found)
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/missing.zip", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestBackupHandler_List_Success(t *testing.T) {
+	router, _, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a backup first
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	// Now list should return it
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var backups []services.BackupFile
+	err := json.Unmarshal(resp.Body.Bytes(), &backups)
+	require.NoError(t, err)
+	require.Len(t, backups, 1)
+	require.Contains(t, backups[0].Filename, "backup_")
+}
+
+func TestBackupHandler_Create_Success(t *testing.T) {
+	router, _, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var result map[string]string
+	json.Unmarshal(resp.Body.Bytes(), &result)
+	require.NotEmpty(t, result["filename"])
+	require.Contains(t, result["filename"], "backup_")
+}
+
+func TestBackupHandler_Download_Success(t *testing.T) {
+	router, _, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Create backup
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var result map[string]string
+	json.Unmarshal(resp.Body.Bytes(), &result)
+	filename := result["filename"]
+
+	// Download it
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/"+filename+"/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Header().Get("Content-Type"), "application")
+}
+
+func TestBackupHandler_PathTraversal(t *testing.T) {
+	router, _, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Try path traversal in Delete
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/backups/../../../etc/passwd", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// Try path traversal in Download
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/../../../etc/passwd/download", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+
+	// Try path traversal in Restore
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/../../../etc/passwd/restore", nil)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)

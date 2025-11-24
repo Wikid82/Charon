@@ -62,6 +62,9 @@ func (s *BackupService) RunScheduledBackup() {
 func (s *BackupService) ListBackups() ([]BackupFile, error) {
 	entries, err := os.ReadDir(s.BackupDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []BackupFile{}, nil
+		}
 		return nil, err
 	}
 
@@ -106,6 +109,10 @@ func (s *BackupService) CreateBackup() (string, error) {
 	// Files/Dirs to backup
 	// 1. Database
 	dbPath := filepath.Join(s.DataDir, "cpm.db")
+	// Ensure DB exists before backing up
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("database file not found: %s", dbPath)
+	}
 	if err := s.addToZip(w, dbPath, "cpm.db"); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
 	}
