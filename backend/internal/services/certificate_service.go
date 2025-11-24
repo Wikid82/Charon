@@ -43,12 +43,129 @@ func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
 
 // ListCertificates returns both auto-generated and custom certificates.
 func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
-	certs := []CertificateInfo{}
+	// First, scan Caddy data directory for auto-generated certificates and persist them.
+	certRoot := filepath.Join(s.dataDir, "certificates")
+	fmt.Printf("CertificateService: scanning cert directory: %s\n", certRoot)
 
-	// 1. Get Custom Certificates from DB
+	foundDomains := map[string]struct{}{}
+
+	// If the cert root does not exist, skip scanning but still return DB entries below
+	if _, err := os.Stat(certRoot); err == nil {
+		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				fmt.Printf("CertificateService: walk error for %s: %v\n", path, err)
+				return nil
+			}
+
+			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
+				fmt.Printf("CertificateService: found cert file: %s\n", path)
+				certData, err := os.ReadFile(path)
+				if err != nil {
+					fmt.Printf("CertificateService: failed to read cert file %s: %v\n", path, err)
+					return nil
+				}
+
+				block, _ := pem.Decode(certData)
+				if block == nil {
+					fmt.Printf("CertificateService: pem decode failed for %s\n", path)
+					return nil
+				}
+
+				cert, err := x509.ParseCertificate(block.Bytes)
+				if err != nil {
+					fmt.Printf("CertificateService: failed to parse cert %s: %v\n", path, err)
+					return nil
+				}
+
+				domain := cert.Subject.CommonName
+				if domain == "" && len(cert.DNSNames) > 0 {
+					domain = cert.DNSNames[0]
+				}
+				if domain == "" {
+					return nil
+				}
+
+				foundDomains[domain] = struct{}{}
+
+				// Determine expiry
+				expiresAt := cert.NotAfter
+
+				// Upsert into DB for provider 'letsencrypt'
+				var existing models.SSLCertificate
+				res := s.db.Where("provider = ? AND domains = ?", "letsencrypt", domain).First(&existing)
+				if res.Error != nil {
+					if res.Error == gorm.ErrRecordNotFound {
+						// Create new record
+						now := time.Now()
+						newCert := models.SSLCertificate{
+							UUID:        uuid.New().String(),
+							Name:        domain,
+							Provider:    "letsencrypt",
+							Domains:     domain,
+							Certificate: string(certData),
+							PrivateKey:  "",
+							ExpiresAt:   &expiresAt,
+							AutoRenew:   true,
+							CreatedAt:   now,
+							UpdatedAt:   now,
+						}
+						if err := s.db.Create(&newCert).Error; err != nil {
+							fmt.Printf("CertificateService: failed to create DB cert for %s: %v\n", domain, err)
+						}
+					} else {
+						fmt.Printf("CertificateService: db error querying cert %s: %v\n", domain, res.Error)
+					}
+				} else {
+					// Update expiry/certificate content if changed
+					updated := false
+					existing.ExpiresAt = &expiresAt
+					if existing.Certificate != string(certData) {
+						existing.Certificate = string(certData)
+						updated = true
+					}
+					if updated {
+						existing.UpdatedAt = time.Now()
+						if err := s.db.Save(&existing).Error; err != nil {
+							fmt.Printf("CertificateService: failed to update DB cert for %s: %v\n", domain, err)
+						}
+					} else {
+						// still update ExpiresAt if needed
+						if err := s.db.Model(&existing).Update("expires_at", &expiresAt).Error; err != nil {
+							fmt.Printf("CertificateService: failed to update expiry for %s: %v\n", domain, err)
+						}
+					}
+				}
+			}
+			return nil
+		})
+	} else {
+		if os.IsNotExist(err) {
+			fmt.Printf("CertificateService: cert directory does not exist: %s\n", certRoot)
+		} else {
+			fmt.Printf("CertificateService: failed to stat cert directory: %v\n", err)
+		}
+	}
+
+	// Delete stale DB entries for provider 'letsencrypt' not found on disk
+	var acmeCerts []models.SSLCertificate
+	if err := s.db.Where("provider = ?", "letsencrypt").Find(&acmeCerts).Error; err == nil {
+		for _, c := range acmeCerts {
+			if _, ok := foundDomains[c.Domains]; !ok {
+				// remove stale record
+				if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
+					fmt.Printf("CertificateService: failed to delete stale cert %s: %v\n", c.Domains, err)
+				} else {
+					fmt.Printf("CertificateService: removed stale DB cert for %s\n", c.Domains)
+				}
+			}
+		}
+	}
+
+	// Finally, fetch all certificates from DB to build the response (includes custom and persisted ACME)
+	certs := []CertificateInfo{}
 	var dbCerts []models.SSLCertificate
 	if err := s.db.Find(&dbCerts).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch custom certs: %w", err)
+		return nil, fmt.Errorf("failed to fetch certs from DB: %w", err)
 	}
 
 	for _, c := range dbCerts {
@@ -61,68 +178,21 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 			}
 		}
 
+		expires := time.Time{}
+		if c.ExpiresAt != nil {
+			expires = *c.ExpiresAt
+		}
+
 		certs = append(certs, CertificateInfo{
 			ID:        c.ID,
 			UUID:      c.UUID,
 			Name:      c.Name,
 			Domain:    c.Domains,
-			Issuer:    c.Provider, // "custom" or "self-signed"
-			ExpiresAt: *c.ExpiresAt,
+			Issuer:    c.Provider,
+			ExpiresAt: expires,
 			Status:    status,
 			Provider:  c.Provider,
 		})
-	}
-
-	// 2. Scan Caddy data directory for auto-generated certificates
-	certRoot := filepath.Join(s.dataDir, "certificates")
-	err := filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
-		}
-
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
-			// Parse the certificate
-			certData, err := os.ReadFile(path)
-			if err != nil {
-				return nil // Skip unreadable
-			}
-
-			block, _ := pem.Decode(certData)
-			if block == nil {
-				return nil
-			}
-
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return nil
-			}
-
-			// Determine status
-			status := "valid"
-			if time.Now().After(cert.NotAfter) {
-				status = "expired"
-			} else if time.Now().AddDate(0, 0, 30).After(cert.NotAfter) {
-				status = "expiring"
-			}
-
-			// Avoid duplicates if we somehow have them (though DB ones are custom)
-			certs = append(certs, CertificateInfo{
-				Domain:    cert.Subject.CommonName,
-				Issuer:    cert.Issuer.CommonName,
-				ExpiresAt: cert.NotAfter,
-				Status:    status,
-				Provider:  "letsencrypt", // Assuming auto-generated are mostly LE/ZeroSSL
-			})
-		}
-		return nil
-	})
-
-	if err != nil {
-		// Log error but return what we have?
-		fmt.Printf("Error walking cert dir: %v\n", err)
 	}
 
 	return certs, nil

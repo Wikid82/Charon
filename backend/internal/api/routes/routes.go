@@ -170,6 +170,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
 	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
 	caddyDataDir := cfg.CaddyConfigDir + "/data"
+	fmt.Printf("Using Caddy data directory for certificates scan: %s\n", caddyDataDir)
 	certService := services.NewCertificateService(caddyDataDir, db)
 	certHandler := handlers.NewCertificateHandler(certService, notificationService)
 	api.GET("/certificates", certHandler.List)
