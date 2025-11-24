@@ -56,13 +56,13 @@ const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
         {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
         ))}
-        
+
         {history?.slice().reverse().map((beat: any, i: number) => (
           <div
             key={i}
             className={`flex-1 rounded-sm transition-all duration-200 hover:scale-110 ${
-              beat.status === 'up' 
-                ? 'bg-green-400 dark:bg-green-500 hover:bg-green-300' 
+              beat.status === 'up'
+                ? 'bg-green-400 dark:bg-green-500 hover:bg-green-300'
                 : 'bg-red-400 dark:bg-red-500 hover:bg-red-300'
             }`}
             style={{ height: '100%' }}
