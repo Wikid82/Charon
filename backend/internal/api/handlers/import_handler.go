@@ -82,42 +82,40 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 		Order("created_at DESC").
 		First(&session).Error
 
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no pending import"})
-		return
-	}
+	if err == nil {
+		// DB session found
+		var result caddy.ImportResult
+		if err := json.Unmarshal([]byte(session.ParsedData), &result); err == nil {
+			// Update status to reviewing
+			session.Status = "reviewing"
+			h.db.Save(&session)
 
-	var result caddy.ImportResult
-	if err := json.Unmarshal([]byte(session.ParsedData), &result); err == nil {
-		// Update status to reviewing
-		session.Status = "reviewing"
-		h.db.Save(&session)
-
-		// Read original Caddyfile content if available
-		var caddyfileContent string
-		if session.SourceFile != "" {
-			if content, err := os.ReadFile(session.SourceFile); err == nil {
-				caddyfileContent = string(content)
-			} else {
-				backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
-				if content, err := os.ReadFile(backupPath); err == nil {
+			// Read original Caddyfile content if available
+			var caddyfileContent string
+			if session.SourceFile != "" {
+				if content, err := os.ReadFile(session.SourceFile); err == nil {
 					caddyfileContent = string(content)
+				} else {
+					backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
+					if content, err := os.ReadFile(backupPath); err == nil {
+						caddyfileContent = string(content)
+					}
 				}
 			}
-		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"session": gin.H{
-				"id":          session.UUID,
-				"state":       session.Status,
-				"created_at":  session.CreatedAt,
-				"updated_at":  session.UpdatedAt,
-				"source_file": session.SourceFile,
-			},
-			"preview":           result,
-			"caddyfile_content": caddyfileContent,
-		})
-		return
+			c.JSON(http.StatusOK, gin.H{
+				"session": gin.H{
+					"id":          session.UUID,
+					"state":       session.Status,
+					"created_at":  session.CreatedAt,
+					"updated_at":  session.UpdatedAt,
+					"source_file": session.SourceFile,
+				},
+				"preview":           result,
+				"caddyfile_content": caddyfileContent,
+			})
+			return
+		}
 	}
 
 	// No DB session found or failed to parse session. Try transient preview from mountPath.
