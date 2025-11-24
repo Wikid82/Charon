@@ -57,15 +57,18 @@ export default function CertificateList() {
                     <StatusBadge status={cert.status} />
                   </td>
                   <td className="px-6 py-4">
-                    {cert.provider === 'custom' && cert.id && (
+                    {cert.id && (cert.provider === 'custom' || cert.issuer?.includes('staging')) && (
                       <button
                         onClick={() => {
-                          if (confirm('Are you sure you want to delete this certificate?')) {
+                          const message = cert.provider === 'custom' 
+                            ? 'Are you sure you want to delete this certificate?'
+                            : 'Delete this staging certificate? It will be regenerated on next request.'
+                          if (confirm(message)) {
                             deleteMutation.mutate(cert.id!)
                           }
                         }}
                         className="text-red-400 hover:text-red-300 transition-colors"
-                        title="Delete Certificate"
+                        title={cert.provider === 'custom' ? 'Delete Certificate' : 'Delete Staging Certificate'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

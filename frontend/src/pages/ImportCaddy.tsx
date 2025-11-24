@@ -146,6 +146,7 @@ api.example.com {
         <ImportReviewTable
           hosts={preview.preview.hosts}
           conflicts={preview.preview.conflicts}
+          conflictDetails={preview.conflict_details}
           errors={preview.preview.errors}
           caddyfileContent={preview.caddyfile_content}
           onCommit={handleCommit}

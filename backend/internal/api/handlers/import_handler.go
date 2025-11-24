@@ -192,15 +192,34 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 				caddyfileContent = string(content)
 			}
 
-			// Check for conflicts with existing hosts and append raw domain names
+			// Check for conflicts with existing hosts and build conflict details
 			existingHosts, _ := h.proxyHostSvc.List()
-			existingDomains := make(map[string]bool)
+			existingDomainsMap := make(map[string]models.ProxyHost)
 			for _, eh := range existingHosts {
-				existingDomains[eh.DomainNames] = true
+				existingDomainsMap[eh.DomainNames] = eh
 			}
+
+			conflictDetails := make(map[string]gin.H)
 			for _, ph := range transient.Hosts {
-				if existingDomains[ph.DomainNames] {
+				if existing, found := existingDomainsMap[ph.DomainNames]; found {
 					transient.Conflicts = append(transient.Conflicts, ph.DomainNames)
+					conflictDetails[ph.DomainNames] = gin.H{
+						"existing": gin.H{
+							"forward_scheme": existing.ForwardScheme,
+							"forward_host":   existing.ForwardHost,
+							"forward_port":   existing.ForwardPort,
+							"ssl_forced":     existing.SSLForced,
+							"websocket":      existing.WebsocketSupport,
+							"enabled":        existing.Enabled,
+						},
+						"imported": gin.H{
+							"forward_scheme": ph.ForwardScheme,
+							"forward_host":   ph.ForwardHost,
+							"forward_port":   ph.ForwardPort,
+							"ssl_forced":     ph.SSLForced,
+							"websocket":      ph.WebsocketSupport,
+						},
+					}
 				}
 			}
 
@@ -208,6 +227,7 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 				"session":           gin.H{"id": sid, "state": "transient", "source_file": h.mountPath},
 				"preview":           transient,
 				"caddyfile_content": caddyfileContent,
+				"conflict_details":  conflictDetails,
 			})
 			return
 		}
@@ -249,21 +269,41 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Check for conflicts with existing hosts and append raw domain names
+	// Check for conflicts with existing hosts and build conflict details
 	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomains := make(map[string]bool)
+	existingDomainsMap := make(map[string]models.ProxyHost)
 	for _, eh := range existingHosts {
-		existingDomains[eh.DomainNames] = true
+		existingDomainsMap[eh.DomainNames] = eh
 	}
+
+	conflictDetails := make(map[string]gin.H)
 	for _, ph := range result.Hosts {
-		if existingDomains[ph.DomainNames] {
+		if existing, found := existingDomainsMap[ph.DomainNames]; found {
 			result.Conflicts = append(result.Conflicts, ph.DomainNames)
+			conflictDetails[ph.DomainNames] = gin.H{
+				"existing": gin.H{
+					"forward_scheme": existing.ForwardScheme,
+					"forward_host":   existing.ForwardHost,
+					"forward_port":   existing.ForwardPort,
+					"ssl_forced":     existing.SSLForced,
+					"websocket":      existing.WebsocketSupport,
+					"enabled":        existing.Enabled,
+				},
+				"imported": gin.H{
+					"forward_scheme": ph.ForwardScheme,
+					"forward_host":   ph.ForwardHost,
+					"forward_port":   ph.ForwardPort,
+					"ssl_forced":     ph.SSLForced,
+					"websocket":      ph.WebsocketSupport,
+				},
+			}
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"session": gin.H{"id": sid, "state": "transient", "source_file": tempPath},
-		"preview": result,
+		"session":          gin.H{"id": sid, "state": "transient", "source_file": tempPath},
+		"conflict_details": conflictDetails,
+		"preview":          result,
 	})
 }
 
@@ -398,7 +438,7 @@ func detectImportDirectives(content string) []string {
 func (h *ImportHandler) Commit(c *gin.Context) {
 	var req struct {
 		SessionUUID string            `json:"session_uuid" binding:"required"`
-		Resolutions map[string]string `json:"resolutions"` // domain -> action (skip, rename, merge)
+		Resolutions map[string]string `json:"resolutions"` // domain -> action (keep/skip, overwrite, rename)
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -457,7 +497,8 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	for _, host := range proxyHosts {
 		action := req.Resolutions[host.DomainNames]
 
-		if action == "skip" {
+		// "keep" means keep existing (don't import), same as "skip"
+		if action == "skip" || action == "keep" {
 			skipped++
 			continue
 		}
