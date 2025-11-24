@@ -139,10 +139,9 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 				for _, hostMatcher := range match.Host {
 					domain := hostMatcher
 
-					// Check for duplicate domains
+					// Check for duplicate domains (report domain names only)
 					if seenDomains[domain] {
-						result.Conflicts = append(result.Conflicts,
-							fmt.Sprintf("Duplicate domain detected: %s", domain))
+						result.Conflicts = append(result.Conflicts, domain)
 						continue
 					}
 					seenDomains[domain] = true

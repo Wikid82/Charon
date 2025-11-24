@@ -138,7 +138,7 @@ func TestImporter_ExtractHosts(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, result.Hosts, 1)
 	assert.Len(t, result.Conflicts, 1)
-	assert.Contains(t, result.Conflicts[0], "Duplicate domain detected")
+	assert.Equal(t, "example.com", result.Conflicts[0])
 
 	// Test Case 5: Unsupported Features
 	unsupportedJSON := []byte(`{

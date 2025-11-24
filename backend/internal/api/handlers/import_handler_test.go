@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -34,7 +35,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	db := setupImportTestDB(t)
 
 	// Case 1: No active session
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.GET("/import/status", handler.GetStatus)
 
@@ -68,7 +69,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 func TestImportHandler_GetPreview(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.GET("/import/preview", handler.GetPreview)
 
@@ -107,7 +108,7 @@ func TestImportHandler_GetPreview(t *testing.T) {
 func TestImportHandler_Cancel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.DELETE("/import/cancel", handler.Cancel)
 
@@ -131,7 +132,7 @@ func TestImportHandler_Cancel(t *testing.T) {
 func TestImportHandler_Commit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.POST("/import/commit", handler.Commit)
 
@@ -178,7 +179,7 @@ func TestImportHandler_Upload(t *testing.T) {
 	os.Chmod(fakeCaddy, 0755)
 
 	tmpDir := t.TempDir()
-	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir)
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
 	router.POST("/import/upload", handler.Upload)
 
@@ -205,7 +206,7 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
-	handler := handlers.NewImportHandler(db, "echo", tmpDir)
+	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
 	router := gin.New()
 	router.GET("/import/preview", handler.GetPreview)
 
@@ -239,7 +240,7 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 func TestImportHandler_Commit_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.POST("/import/commit", handler.Commit)
 
@@ -282,7 +283,7 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 func TestImportHandler_Cancel_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.DELETE("/import/cancel", handler.Cancel)
 
@@ -314,10 +315,10 @@ func TestCheckMountedImport(t *testing.T) {
 	err = handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
 	assert.NoError(t, err)
 
-	// Check if session created
+	// Check if session created (transient preview behavior: no DB session should be created)
 	var count int64
 	db.Model(&models.ImportSession{}).Where("source_file = ?", mountPath).Count(&count)
-	assert.Equal(t, int64(1), count)
+	assert.Equal(t, int64(0), count)
 
 	// Case 3: Already processed
 	err = handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
@@ -333,7 +334,7 @@ func TestImportHandler_Upload_Failure(t *testing.T) {
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_fail.sh")
 
 	tmpDir := t.TempDir()
-	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir)
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
 	router.POST("/import/upload", handler.Upload)
 
@@ -370,7 +371,7 @@ func TestImportHandler_Upload_Conflict(t *testing.T) {
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
 
 	tmpDir := t.TempDir()
-	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir)
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
 	router.POST("/import/upload", handler.Upload)
 
@@ -386,18 +387,27 @@ func TestImportHandler_Upload_Conflict(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	// Verify session created with conflict
-	var session models.ImportSession
-	db.First(&session)
-	assert.Equal(t, "pending", session.Status)
-	assert.Contains(t, session.ConflictReport, "Domain 'example.com' already exists")
+	// Verify response contains conflict in preview (upload is transient)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	preview := resp["preview"].(map[string]interface{})
+	conflicts := preview["conflicts"].([]interface{})
+	found := false
+	for _, c := range conflicts {
+		if c.(string) == "example.com" || strings.Contains(c.(string), "example.com") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected conflict for example.com in preview")
 }
 
 func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 	tmpDir := t.TempDir()
-	handler := handlers.NewImportHandler(db, "echo", tmpDir)
+	handler := handlers.NewImportHandler(db, "echo", tmpDir, "")
 	router := gin.New()
 	router.GET("/import/preview", handler.GetPreview)
 
@@ -430,7 +440,7 @@ func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 
 func TestImportHandler_RegisterRoutes(t *testing.T) {
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
@@ -445,7 +455,7 @@ func TestImportHandler_RegisterRoutes(t *testing.T) {
 func TestImportHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
-	handler := handlers.NewImportHandler(db, "echo", "/tmp")
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.POST("/import/upload", handler.Upload)
 	router.POST("/import/commit", handler.Commit)
