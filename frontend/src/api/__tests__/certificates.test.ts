@@ -35,9 +35,9 @@ describe('certificates API', () => {
     vi.mocked(client.post).mockResolvedValue({ data: mockCert });
     const certFile = new File(['cert'], 'cert.pem', { type: 'text/plain' });
     const keyFile = new File(['key'], 'key.pem', { type: 'text/plain' });
-    
+
     const result = await uploadCertificate('My Cert', certFile, keyFile);
-    
+
     expect(client.post).toHaveBeenCalledWith('/certificates', expect.any(FormData), {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
