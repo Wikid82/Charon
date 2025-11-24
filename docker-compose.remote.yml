@@ -1,0 +1,19 @@
+version: '3.9'
+
+services:
+  # Run this service on your REMOTE servers (not the one running CPMP)
+  # to allow CPMP to discover containers running there.
+  docker-socket-proxy:
+    image: alpine/socat
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    ports:
+      # Expose port 2375.
+      # ⚠️ SECURITY WARNING: Ensure this port is NOT accessible from the public internet!
+      # Use a VPN (Tailscale, WireGuard) or a private local network (LAN).
+      - "2375:2375"
+    volumes:
+      # Give the proxy access to the host's Docker socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Forward TCP traffic from port 2375 to the internal Docker socket
+    command: tcp-listen:2375,fork,reuseaddr unix-connect:/var/run/docker.sock

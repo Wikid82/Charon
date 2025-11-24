@@ -1,0 +1,221 @@
+package routes
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/middleware"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+)
+
+// Register wires up API routes and performs automatic migrations.
+func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// AutoMigrate all models for Issue #5 persistence layer
+	if err := db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.CaddyConfig{},
+		&models.RemoteServer{},
+		&models.SSLCertificate{},
+		&models.AccessList{},
+		&models.User{},
+		&models.Setting{},
+		&models.ImportSession{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.Domain{},
+	); err != nil {
+		return fmt.Errorf("auto migrate: %w", err)
+	}
+
+	router.GET("/api/v1/health", handlers.HealthHandler)
+
+	api := router.Group("/api/v1")
+
+	// Auth routes
+	authService := services.NewAuthService(db, cfg)
+	authHandler := handlers.NewAuthHandler(authService)
+	authMiddleware := middleware.AuthMiddleware(authService)
+
+	// Backup routes
+	backupService := services.NewBackupService(&cfg)
+	backupHandler := handlers.NewBackupHandler(backupService)
+
+	// Log routes
+	logService := services.NewLogService(&cfg)
+	logsHandler := handlers.NewLogsHandler(logService)
+
+	// Notification Service (needed for multiple handlers)
+	notificationService := services.NewNotificationService(db)
+
+	api.POST("/auth/login", authHandler.Login)
+	api.POST("/auth/register", authHandler.Register)
+
+	protected := api.Group("/")
+	protected.Use(authMiddleware)
+	{
+		protected.POST("/auth/logout", authHandler.Logout)
+		protected.GET("/auth/me", authHandler.Me)
+		protected.POST("/auth/change-password", authHandler.ChangePassword)
+
+		// Backups
+		protected.GET("/backups", backupHandler.List)
+		protected.POST("/backups", backupHandler.Create)
+		protected.DELETE("/backups/:filename", backupHandler.Delete)
+		protected.GET("/backups/:filename/download", backupHandler.Download)
+		protected.POST("/backups/:filename/restore", backupHandler.Restore)
+
+		// Logs
+		protected.GET("/logs", logsHandler.List)
+		protected.GET("/logs/:filename", logsHandler.Read)
+		protected.GET("/logs/:filename/download", logsHandler.Download)
+
+		// Settings
+		settingsHandler := handlers.NewSettingsHandler(db)
+		protected.GET("/settings", settingsHandler.GetSettings)
+		protected.POST("/settings", settingsHandler.UpdateSetting)
+
+		// User Profile & API Key
+		userHandler := handlers.NewUserHandler(db)
+		protected.GET("/user/profile", userHandler.GetProfile)
+		protected.POST("/user/profile", userHandler.UpdateProfile)
+		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
+
+		// Updates
+		updateService := services.NewUpdateService()
+		updateHandler := handlers.NewUpdateHandler(updateService)
+		protected.GET("/system/updates", updateHandler.Check)
+
+		// Notifications
+		notificationHandler := handlers.NewNotificationHandler(notificationService)
+		protected.GET("/notifications", notificationHandler.List)
+		protected.POST("/notifications/:id/read", notificationHandler.MarkAsRead)
+		protected.POST("/notifications/read-all", notificationHandler.MarkAllAsRead)
+
+		// Domains
+		domainHandler := handlers.NewDomainHandler(db, notificationService)
+		protected.GET("/domains", domainHandler.List)
+		protected.POST("/domains", domainHandler.Create)
+		protected.DELETE("/domains/:id", domainHandler.Delete)
+
+		// Docker
+		dockerService, err := services.NewDockerService()
+		if err == nil { // Only register if Docker is available
+			dockerHandler := handlers.NewDockerHandler(dockerService)
+			dockerHandler.RegisterRoutes(protected)
+		} else {
+			fmt.Printf("Warning: Docker service unavailable: %v\n", err)
+		}
+
+		// Uptime Service
+		uptimeService := services.NewUptimeService(db, notificationService)
+		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
+		protected.GET("/uptime/monitors", uptimeHandler.List)
+		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
+
+		// Notification Providers
+		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
+		protected.GET("/notifications/providers", notificationProviderHandler.List)
+		protected.POST("/notifications/providers", notificationProviderHandler.Create)
+		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
+		protected.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
+		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
+
+		// Start background checker (every 1 minute)
+		go func() {
+			// Wait a bit for server to start
+			time.Sleep(30 * time.Second)
+			// Initial sync
+			if err := uptimeService.SyncMonitors(); err != nil {
+				fmt.Printf("Failed to sync monitors: %v\n", err)
+			}
+
+			ticker := time.NewTicker(1 * time.Minute)
+			for range ticker.C {
+				uptimeService.SyncMonitors()
+				uptimeService.CheckAll()
+			}
+		}()
+
+		protected.POST("/system/uptime/check", func(c *gin.Context) {
+			go uptimeService.CheckAll()
+			c.JSON(200, gin.H{"message": "Uptime check started"})
+		})
+	}
+
+	// Caddy Manager
+	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir)
+
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
+	proxyHostHandler.RegisterRoutes(api)
+
+	remoteServerHandler := handlers.NewRemoteServerHandler(db, notificationService)
+	remoteServerHandler.RegisterRoutes(api)
+
+	userHandler := handlers.NewUserHandler(db)
+	userHandler.RegisterRoutes(api)
+
+	// Certificate routes
+	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
+	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
+	caddyDataDir := cfg.CaddyConfigDir + "/data"
+	fmt.Printf("Using Caddy data directory for certificates scan: %s\n", caddyDataDir)
+	certService := services.NewCertificateService(caddyDataDir, db)
+	certHandler := handlers.NewCertificateHandler(certService, notificationService)
+	api.GET("/certificates", certHandler.List)
+	api.POST("/certificates", certHandler.Upload)
+	api.DELETE("/certificates/:id", certHandler.Delete)
+
+	// Initial Caddy Config Sync
+	go func() {
+		// Wait for Caddy to be ready (max 30 seconds)
+		ctx := context.Background()
+		timeout := time.After(30 * time.Second)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		ready := false
+		for {
+			select {
+			case <-timeout:
+				fmt.Println("Timeout waiting for Caddy to be ready")
+				return
+			case <-ticker.C:
+				if err := caddyManager.Ping(ctx); err == nil {
+					ready = true
+					goto Apply
+				}
+			}
+		}
+
+	Apply:
+		if ready {
+			// Apply config
+			if err := caddyManager.ApplyConfig(ctx); err != nil {
+				fmt.Printf("Failed to apply initial Caddy config: %v\n", err)
+			} else {
+				fmt.Printf("Successfully applied initial Caddy config\n")
+			}
+		}
+	}()
+
+	return nil
+}
+
+// RegisterImportHandler wires up import routes with config dependencies.
+func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir, mountPath string) {
+	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
+	api := router.Group("/api/v1")
+	importHandler.RegisterRoutes(api)
+}

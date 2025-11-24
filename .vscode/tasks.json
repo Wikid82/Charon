@@ -1,0 +1,59 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+				{
+			"label": "Git Remove Cached",
+			"type": "shell",
+			"command": "git rm -r --cached .",
+			"group": "test"
+		},
+		{
+			"label": "Run Pre-commit (All Files)",
+			"type": "shell",
+			"command": "${workspaceFolder}/.venv/bin/pre-commit run --all-files",
+			"group": "test"
+		},
+		{
+			"label": "Build & Run Local Docker",
+			"type": "shell",
+			"command": "docker build --build-arg VCS_REF=$(git rev-parse HEAD) -t cpmp:local . && docker compose -f docker-compose.local.yml up -d",
+			"group": "test"
+		},
+		{
+			"label": "Run Local Docker (debug)",
+			"type": "shell",
+			"command": "docker run --rm -it --name cpmp-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -p 8080:8080 -p 2345:2345 -e CPM_ENV=development -e CPMP_DEBUG=1 cpmp:local",
+			"group": "test"
+		},
+		{
+			"label": "Run Trivy Scan (Local)",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"run",
+				"--rm",
+				"-v",
+				"/var/run/docker.sock:/var/run/docker.sock",
+				"-v",
+				"${userHome}/.cache/trivy:/root/.cache/trivy",
+				"-v",
+				"${workspaceFolder}/.trivy_logs:/logs",
+				"aquasec/trivy:latest",
+				"image",
+				"--severity",
+				"CRITICAL,HIGH",
+				"--output",
+				"/logs/trivy-report.txt",
+				"cpmp:local"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Run CodeQL Scan (Local)",
+			"type": "shell",
+			"command": "${workspaceFolder}/tools/codeql_scan.sh",
+			"group": "test"
+		}
+	]
+}
