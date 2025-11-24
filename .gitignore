@@ -80,3 +80,4 @@ codeql-results-js.sarif
 codeql-results-go.sarif
 remote_logs/Unconfirmed 312410.crdownload
 .vscode/launch.json
+docker-compose.local.yml
