@@ -6,15 +6,15 @@ import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 
-const ProviderForm: React.FC<{ 
-  initialData?: Partial<NotificationProvider>; 
-  onClose: () => void; 
+const ProviderForm: React.FC<{
+  initialData?: Partial<NotificationProvider>;
+  onClose: () => void;
   onSubmit: (data: any) => void;
 }> = ({ initialData, onClose, onSubmit }) => {
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
-    defaultValues: initialData || { 
-      type: 'discord', 
-      enabled: true, 
+    defaultValues: initialData || {
+      type: 'discord',
+      enabled: true,
       config: '',
       notify_proxy_hosts: true,
       notify_remote_servers: true,
@@ -25,7 +25,7 @@ const ProviderForm: React.FC<{
   });
 
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  
+
   const testMutation = useMutation({
     mutationFn: testProvider,
     onSuccess: () => {
@@ -160,16 +160,16 @@ const ProviderForm: React.FC<{
 
       <div className="flex justify-end gap-2 pt-4">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button 
-          type="button" 
-          variant="secondary" 
+        <Button
+          type="button"
+          variant="secondary"
           onClick={handleTest}
           disabled={testMutation.isPending}
           className="min-w-[80px]"
         >
-          {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 
-           testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> : 
-           testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> : 
+          {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
+           testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
+           testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> :
            "Test"}
         </Button>
         <Button type="submit">Save</Button>
@@ -235,9 +235,9 @@ const Notifications: React.FC = () => {
       {isAdding && (
         <Card className="p-6 mb-6 border-blue-500 border-2">
           <h3 className="text-lg font-medium mb-4">Add New Provider</h3>
-          <ProviderForm 
-            onClose={() => setIsAdding(false)} 
-            onSubmit={(data) => createMutation.mutate(data)} 
+          <ProviderForm
+            onClose={() => setIsAdding(false)}
+            onSubmit={(data) => createMutation.mutate(data)}
           />
         </Card>
       )}
@@ -246,10 +246,10 @@ const Notifications: React.FC = () => {
         {providers?.map((provider) => (
           <Card key={provider.id} className="p-4">
             {editingId === provider.id ? (
-              <ProviderForm 
-                initialData={provider} 
-                onClose={() => setEditingId(null)} 
-                onSubmit={(data) => updateMutation.mutate({ id: provider.id, data })} 
+              <ProviderForm
+                initialData={provider}
+                onClose={() => setEditingId(null)}
+                onSubmit={(data) => updateMutation.mutate({ id: provider.id, data })}
               />
             ) : (
               <div className="flex items-center justify-between">
@@ -267,11 +267,11 @@ const Notifications: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
-                  <Button 
-                    variant="secondary" 
-                    size="sm" 
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => testMutation.mutate(provider)}
                     isLoading={testMutation.isPending}
                     title="Send Test Notification"
@@ -281,9 +281,9 @@ const Notifications: React.FC = () => {
                   <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)}>
                     <Edit2 className="w-4 h-4" />
                   </Button>
-                  <Button 
-                    variant="danger" 
-                    size="sm" 
+                  <Button
+                    variant="danger"
+                    size="sm"
                     onClick={() => {
                       if (confirm('Are you sure?')) deleteMutation.mutate(provider.id);
                     }}
