@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -43,6 +44,8 @@ func (h *ImportHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/import/status", h.GetStatus)
 	router.GET("/import/preview", h.GetPreview)
 	router.POST("/import/upload", h.Upload)
+	router.POST("/import/upload-multi", h.UploadMulti)
+	router.POST("/import/detect-imports", h.DetectImports)
 	router.POST("/import/commit", h.Commit)
 	router.DELETE("/import/cancel", h.Cancel)
 }
@@ -222,6 +225,133 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		"session": gin.H{"id": sid, "state": "transient", "source_file": tempPath},
 		"preview": result,
 	})
+}
+
+// DetectImports analyzes Caddyfile content and returns detected import directives.
+func (h *ImportHandler) DetectImports(c *gin.Context) {
+	var req struct {
+		Content string `json:"content" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	imports := detectImportDirectives(req.Content)
+	c.JSON(http.StatusOK, gin.H{
+		"has_imports": len(imports) > 0,
+		"imports":     imports,
+	})
+}
+
+// UploadMulti handles upload of main Caddyfile + multiple site files.
+func (h *ImportHandler) UploadMulti(c *gin.Context) {
+	var req struct {
+		Files []struct {
+			Filename string `json:"filename" binding:"required"`
+			Content  string `json:"content" binding:"required"`
+		} `json:"files" binding:"required,min=1"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate: at least one file must be named "Caddyfile" or have no path separator
+	hasCaddyfile := false
+	for _, f := range req.Files {
+		if f.Filename == "Caddyfile" || !strings.Contains(f.Filename, "/") {
+			hasCaddyfile = true
+			break
+		}
+	}
+	if !hasCaddyfile {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "must include a main Caddyfile"})
+		return
+	}
+
+	// Create session directory
+	sid := uuid.NewString()
+	sessionDir := filepath.Join(h.importDir, "uploads", sid)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
+		return
+	}
+
+	// Write all files
+	mainCaddyfile := ""
+	for _, f := range req.Files {
+		if strings.TrimSpace(f.Content) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("file '%s' is empty", f.Filename)})
+			return
+		}
+
+		// Clean filename and create subdirectories if needed
+		cleanName := filepath.Clean(f.Filename)
+		targetPath := filepath.Join(sessionDir, cleanName)
+
+		// Create parent directory if file is in a subdirectory
+		if dir := filepath.Dir(targetPath); dir != sessionDir {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create directory for %s", f.Filename)})
+				return
+			}
+		}
+
+		if err := os.WriteFile(targetPath, []byte(f.Content), 0644); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s", f.Filename)})
+			return
+		}
+
+		// Track main Caddyfile
+		if cleanName == "Caddyfile" || !strings.Contains(cleanName, "/") {
+			mainCaddyfile = targetPath
+		}
+	}
+
+	// Parse the main Caddyfile (which will automatically resolve imports)
+	result, err := h.importerservice.ImportFile(mainCaddyfile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
+		return
+	}
+
+	// Check for conflicts
+	existingHosts, _ := h.proxyHostSvc.List()
+	existingDomains := make(map[string]bool)
+	for _, eh := range existingHosts {
+		existingDomains[eh.DomainNames] = true
+	}
+	for _, ph := range result.Hosts {
+		if existingDomains[ph.DomainNames] {
+			result.Conflicts = append(result.Conflicts, ph.DomainNames)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session": gin.H{"id": sid, "state": "transient", "source_file": mainCaddyfile},
+		"preview": result,
+	})
+}
+
+// detectImportDirectives scans Caddyfile content for import directives.
+func detectImportDirectives(content string) []string {
+	imports := []string{}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "import ") {
+			path := strings.TrimSpace(strings.TrimPrefix(trimmed, "import"))
+			// Remove any trailing comments
+			if idx := strings.Index(path, "#"); idx != -1 {
+				path = strings.TrimSpace(path[:idx])
+			}
+			imports = append(imports, path)
+		}
+	}
+	return imports
 }
 
 // Commit finalizes the import with user's conflict resolutions.
