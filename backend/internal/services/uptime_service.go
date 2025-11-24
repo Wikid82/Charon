@@ -161,8 +161,16 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	// Send Notification if status changed
 	if oldStatus != "pending" && oldStatus != status {
 		title := fmt.Sprintf("Monitor %s is %s", monitor.Name, status)
+
+		nType := models.NotificationTypeInfo
+		if status == "down" {
+			nType = models.NotificationTypeError
+		} else if status == "up" {
+			nType = models.NotificationTypeSuccess
+		}
+
 		s.NotificationService.Create(
-			models.NotificationTypeInfo,
+			nType,
 			title,
 			fmt.Sprintf("Monitor %s changed status from %s to %s. Latency: %dms. Message: %s", monitor.Name, oldStatus, status, latency, msg),
 		)

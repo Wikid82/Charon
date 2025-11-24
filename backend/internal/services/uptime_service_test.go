@@ -116,6 +116,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	assert.Equal(t, 1, len(notifications), "Should have 1 notification now")
 	if len(notifications) > 0 {
 		assert.Contains(t, notifications[0].Message, upHost.DomainNames, "Notification should mention the host")
+		assert.Equal(t, models.NotificationTypeError, notifications[0].Type, "Notification type should be error for DOWN event")
 	}
 }
 
