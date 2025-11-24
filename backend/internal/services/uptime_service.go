@@ -34,19 +34,29 @@ func (s *UptimeService) SyncMonitors() error {
 	for _, host := range hosts {
 		var monitor models.UptimeMonitor
 		err := s.DB.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+
+		domains := strings.Split(host.DomainNames, ",")
+		firstDomain := ""
+		if len(domains) > 0 {
+			firstDomain = strings.TrimSpace(domains[0])
+		}
+
+		// Construct the public URL (default to http, client follows redirects)
+		publicURL := fmt.Sprintf("http://%s", firstDomain)
+		internalURL := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+
 		if err == gorm.ErrRecordNotFound {
 			// Create new monitor
-			domains := strings.Split(host.DomainNames, ",")
 			name := host.Name
-			if name == "" && len(domains) > 0 {
-				name = domains[0]
+			if name == "" {
+				name = firstDomain
 			}
 
 			monitor = models.UptimeMonitor{
 				ProxyHostID: &host.ID,
 				Name:        name,
-				Type:        "tcp", // Default to TCP check of upstream
-				URL:         fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort),
+				Type:        "http", // Check public access
+				URL:         publicURL,
 				Interval:    60,
 				Enabled:     true,
 				Status:      "pending",
@@ -55,10 +65,14 @@ func (s *UptimeService) SyncMonitors() error {
 				log.Printf("Failed to create monitor for host %d: %v", host.ID, err)
 			}
 		} else if err == nil {
-			// Update existing monitor if needed (e.g. if upstream changed)
-			// For now, we won't overwrite user changes, but we could sync URL here
-			// monitor.URL = fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
-			// s.DB.Save(&monitor)
+			// Update existing monitor if it looks like it's using the old default (TCP to internal upstream)
+			// We check if it matches the internal upstream URL to avoid overwriting custom user settings
+			if monitor.Type == "tcp" && monitor.URL == internalURL {
+				monitor.Type = "http"
+				monitor.URL = publicURL
+				s.DB.Save(&monitor)
+				log.Printf("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
+			}
 		}
 	}
 	return nil
