@@ -20,7 +20,7 @@ export function useImport() {
     queryFn: getImportStatus,
     refetchInterval: (query) => {
       const data = query.state.data;
-      // Poll if we have a pending session in reviewing state
+      // Poll if we have a pending session in reviewing state (but not transient, as those don't change)
       if (data?.has_pending && data?.session?.state === 'reviewing') {
         return 3000;
       }
@@ -31,7 +31,7 @@ export function useImport() {
   const previewQuery = useQuery({
     queryKey: ['import-preview'],
     queryFn: getImportPreview,
-    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending'),
+    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending' || statusQuery.data?.session?.state === 'transient'),
   });
 
   const uploadMutation = useMutation({

@@ -2,9 +2,10 @@ import client from './client';
 
 export interface ImportSession {
   id: string;
-  state: 'pending' | 'reviewing' | 'completed' | 'failed';
+  state: 'pending' | 'reviewing' | 'completed' | 'failed' | 'transient';
   created_at: string;
   updated_at: string;
+  source_file?: string;
 }
 
 export interface ImportPreview {

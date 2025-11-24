@@ -33,11 +33,13 @@ func TestRegisterImportHandler(t *testing.T) {
 	routeInfo := router.Routes()
 
 	expectedRoutes := map[string]bool{
-		"GET /api/v1/import/status":    false,
-		"GET /api/v1/import/preview":   false,
-		"POST /api/v1/import/upload":   false,
-		"POST /api/v1/import/commit":   false,
-		"DELETE /api/v1/import/cancel": false,
+		"GET /api/v1/import/status":          false,
+		"GET /api/v1/import/preview":         false,
+		"POST /api/v1/import/upload":         false,
+		"POST /api/v1/import/upload-multi":   false,
+		"POST /api/v1/import/detect-imports": false,
+		"POST /api/v1/import/commit":         false,
+		"DELETE /api/v1/import/cancel":       false,
 	}
 
 	for _, route := range routeInfo {

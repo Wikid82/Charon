@@ -712,3 +712,160 @@ func TestImportHandler_Errors(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestImportHandler_DetectImports(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/detect-imports", handler.DetectImports)
+
+	tests := []struct {
+		name      string
+		content   string
+		hasImport bool
+		imports   []string
+	}{
+		{
+			name:      "no imports",
+			content:   "example.com { reverse_proxy localhost:8080 }",
+			hasImport: false,
+			imports:   []string{},
+		},
+		{
+			name:      "single import",
+			content:   "import sites/*\nexample.com { reverse_proxy localhost:8080 }",
+			hasImport: true,
+			imports:   []string{"sites/*"},
+		},
+		{
+			name:      "multiple imports",
+			content:   "import sites/*\nimport config/ssl.conf\nexample.com { reverse_proxy localhost:8080 }",
+			hasImport: true,
+			imports:   []string{"sites/*", "config/ssl.conf"},
+		},
+		{
+			name:      "import with comment",
+			content:   "import sites/* # Load all sites\nexample.com { reverse_proxy localhost:8080 }",
+			hasImport: true,
+			imports:   []string{"sites/*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload := map[string]string{"content": tt.content}
+			body, _ := json.Marshal(payload)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/import/detect-imports", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+
+			var resp map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.hasImport, resp["has_imports"])
+
+			imports := resp["imports"].([]interface{})
+			assert.Len(t, imports, len(tt.imports))
+		})
+	}
+}
+
+func TestImportHandler_UploadMulti(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload-multi", handler.UploadMulti)
+
+	t.Run("single Caddyfile", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "Caddyfile", "content": "example.com"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.NotNil(t, resp["session"])
+		assert.NotNil(t, resp["preview"])
+	})
+
+	t.Run("Caddyfile with site files", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "Caddyfile", "content": "import sites/*\n"},
+				{"filename": "sites/site1", "content": "site1.com"},
+				{"filename": "sites/site2", "content": "site2.com"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		session := resp["session"].(map[string]interface{})
+		assert.Equal(t, "transient", session["state"])
+	})
+
+	t.Run("missing Caddyfile", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "sites/site1", "content": "site1.com"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("empty file content", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "Caddyfile", "content": "example.com"},
+				{"filename": "sites/site1", "content": "   "},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.Contains(t, resp["error"], "empty")
+	})
+}
