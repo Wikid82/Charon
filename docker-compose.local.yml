@@ -34,6 +34,7 @@ services:
       - caddy_data_local:/data
       - caddy_config_local:/config
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      - ./backend:/app/backend:ro # Mount source for debugging
       # Mount your existing Caddyfile for automatic import (optional)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
       # - ./sites:/import/sites:ro # If your Caddyfile imports other files
