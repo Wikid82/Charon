@@ -214,8 +214,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 }
 
 // RegisterImportHandler wires up import routes with config dependencies.
-func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir string) {
-	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir)
+func RegisterImportHandler(router *gin.Engine, db *gorm.DB, caddyBinary, importDir, mountPath string) {
+	importHandler := handlers.NewImportHandler(db, caddyBinary, importDir, mountPath)
 	api := router.Group("/api/v1")
 	importHandler.RegisterRoutes(api)
 }

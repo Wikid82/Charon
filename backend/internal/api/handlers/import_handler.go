@@ -24,15 +24,17 @@ type ImportHandler struct {
 	proxyHostSvc    *services.ProxyHostService
 	importerservice *caddy.Importer
 	importDir       string
+	mountPath       string
 }
 
 // NewImportHandler creates a new import handler.
-func NewImportHandler(db *gorm.DB, caddyBinary, importDir string) *ImportHandler {
+func NewImportHandler(db *gorm.DB, caddyBinary, importDir, mountPath string) *ImportHandler {
 	return &ImportHandler{
 		db:              db,
 		proxyHostSvc:    services.NewProxyHostService(db),
 		importerservice: caddy.NewImporter(caddyBinary),
 		importDir:       importDir,
+		mountPath:       mountPath,
 	}
 }
 
@@ -86,42 +88,77 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 	}
 
 	var result caddy.ImportResult
-	if err := json.Unmarshal([]byte(session.ParsedData), &result); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse import data"})
+	if err := json.Unmarshal([]byte(session.ParsedData), &result); err == nil {
+		// Update status to reviewing
+		session.Status = "reviewing"
+		h.db.Save(&session)
+
+		// Read original Caddyfile content if available
+		var caddyfileContent string
+		if session.SourceFile != "" {
+			if content, err := os.ReadFile(session.SourceFile); err == nil {
+				caddyfileContent = string(content)
+			} else {
+				backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
+				if content, err := os.ReadFile(backupPath); err == nil {
+					caddyfileContent = string(content)
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"session": gin.H{
+				"id":          session.UUID,
+				"state":       session.Status,
+				"created_at":  session.CreatedAt,
+				"updated_at":  session.UpdatedAt,
+				"source_file": session.SourceFile,
+			},
+			"preview":           result,
+			"caddyfile_content": caddyfileContent,
+		})
 		return
 	}
 
-	// Update status to reviewing
-	session.Status = "reviewing"
-	h.db.Save(&session)
+	// No DB session found or failed to parse session. Try transient preview from mountPath.
+	if h.mountPath != "" {
+		if _, err := os.Stat(h.mountPath); err == nil {
+			// Parse mounted Caddyfile transiently
+			transient, err := h.importerservice.ImportFile(h.mountPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse mounted Caddyfile"})
+				return
+			}
 
-	// Read original Caddyfile content if available
-	var caddyfileContent string
-	if session.SourceFile != "" {
-		// Try to read from the source file path (if it's a mounted file)
-		if content, err := os.ReadFile(session.SourceFile); err == nil {
-			caddyfileContent = string(content)
-		} else {
-			// If source file not readable (e.g. uploaded temp file deleted), try to find backup
-			// This is a best-effort attempt
-			backupPath := filepath.Join(h.importDir, "backups", filepath.Base(session.SourceFile))
-			if content, err := os.ReadFile(backupPath); err == nil {
+			// Build a transient session id (not persisted)
+			sid := uuid.NewString()
+			var caddyfileContent string
+			if content, err := os.ReadFile(h.mountPath); err == nil {
 				caddyfileContent = string(content)
 			}
+
+			// Check for conflicts with existing hosts and append raw domain names
+			existingHosts, _ := h.proxyHostSvc.List()
+			existingDomains := make(map[string]bool)
+			for _, eh := range existingHosts {
+				existingDomains[eh.DomainNames] = true
+			}
+			for _, ph := range transient.Hosts {
+				if existingDomains[ph.DomainNames] {
+					transient.Conflicts = append(transient.Conflicts, ph.DomainNames)
+				}
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"session":           gin.H{"id": sid, "state": "transient", "source_file": h.mountPath},
+				"preview":           transient,
+				"caddyfile_content": caddyfileContent,
+			})
+			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"session": gin.H{
-			"id":          session.UUID,
-			"state":       session.Status,
-			"created_at":  session.CreatedAt,
-			"updated_at":  session.UpdatedAt,
-			"source_file": session.SourceFile,
-		},
-		"preview":           result,
-		"caddyfile_content": caddyfileContent,
-	})
+	c.JSON(http.StatusNotFound, gin.H{"error": "no pending import"})
 }
 
 // Upload handles manual Caddyfile upload or paste.
@@ -136,25 +173,43 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// Create temporary file
-	tempPath := filepath.Join(h.importDir, fmt.Sprintf("upload-%s.caddyfile", uuid.NewString()))
-	if err := os.MkdirAll(h.importDir, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create import directory"})
+	// Save upload to import/uploads/<uuid>.caddyfile and return transient preview (do not persist yet)
+	sid := uuid.NewString()
+	uploadsDir := filepath.Join(h.importDir, "uploads")
+	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
 	}
 
+	tempPath := filepath.Join(uploadsDir, fmt.Sprintf("%s.caddyfile", sid))
 	if err := os.WriteFile(tempPath, []byte(req.Content), 0644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
 	}
 
-	// Process the uploaded file
-	if err := h.processImport(tempPath, req.Filename); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// Parse uploaded file transiently
+	result, err := h.importerservice.ImportFile(tempPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "upload processed, ready for review"})
+	// Check for conflicts with existing hosts and append raw domain names
+	existingHosts, _ := h.proxyHostSvc.List()
+	existingDomains := make(map[string]bool)
+	for _, eh := range existingHosts {
+		existingDomains[eh.DomainNames] = true
+	}
+	for _, ph := range result.Hosts {
+		if existingDomains[ph.DomainNames] {
+			result.Conflicts = append(result.Conflicts, ph.DomainNames)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session": gin.H{"id": sid, "state": "transient", "source_file": tempPath},
+		"preview": result,
+	})
 }
 
 // Commit finalizes the import with user's conflict resolutions.
@@ -169,16 +224,44 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		return
 	}
 
+	// Try to find a DB-backed session first
 	var session models.ImportSession
-	if err := h.db.Where("uuid = ? AND status = ?", req.SessionUUID, "reviewing").First(&session).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found or not in reviewing state"})
-		return
-	}
-
-	var result caddy.ImportResult
-	if err := json.Unmarshal([]byte(session.ParsedData), &result); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse import data"})
-		return
+	var result *caddy.ImportResult
+	if err := h.db.Where("uuid = ? AND status = ?", req.SessionUUID, "reviewing").First(&session).Error; err == nil {
+		// DB session found
+		if err := json.Unmarshal([]byte(session.ParsedData), &result); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse import data"})
+			return
+		}
+	} else {
+		// No DB session: check for uploaded temp file
+		uploadsPath := filepath.Join(h.importDir, "uploads", fmt.Sprintf("%s.caddyfile", req.SessionUUID))
+		if _, err := os.Stat(uploadsPath); err == nil {
+			r, err := h.importerservice.ImportFile(uploadsPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse uploaded file"})
+				return
+			}
+			result = r
+			// We'll create a committed DB session after applying
+			session = models.ImportSession{UUID: req.SessionUUID, SourceFile: uploadsPath}
+		} else if h.mountPath != "" {
+			if _, err := os.Stat(h.mountPath); err == nil {
+				r, err := h.importerservice.ImportFile(h.mountPath)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse mounted Caddyfile"})
+					return
+				}
+				result = r
+				session = models.ImportSession{UUID: req.SessionUUID, SourceFile: h.mountPath}
+			} else {
+				c.JSON(http.StatusNotFound, gin.H{"error": "session not found or file missing"})
+				return
+			}
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+			return
+		}
 	}
 
 	// Convert parsed hosts to ProxyHost models
@@ -213,12 +296,21 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		}
 	}
 
-	// Mark session as committed
+	// Persist an import session record now that user confirmed
 	now := time.Now()
 	session.Status = "committed"
 	session.CommittedAt = &now
 	session.UserResolutions = string(mustMarshal(req.Resolutions))
-	h.db.Save(&session)
+	// If ParsedData/ConflictReport not set, fill from result
+	if session.ParsedData == "" {
+		session.ParsedData = string(mustMarshal(result))
+	}
+	if session.ConflictReport == "" {
+		session.ConflictReport = string(mustMarshal(result.Conflicts))
+	}
+	if err := h.db.Save(&session).Error; err != nil {
+		log.Printf("Warning: failed to save import session: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
@@ -236,15 +328,23 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 	}
 
 	var session models.ImportSession
-	if err := h.db.Where("uuid = ?", sessionUUID).First(&session).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+	if err := h.db.Where("uuid = ?", sessionUUID).First(&session).Error; err == nil {
+		session.Status = "rejected"
+		h.db.Save(&session)
+		c.JSON(http.StatusOK, gin.H{"message": "import cancelled"})
 		return
 	}
 
-	session.Status = "rejected"
-	h.db.Save(&session)
+	// If no DB session, check for uploaded temp file and delete it
+	uploadsPath := filepath.Join(h.importDir, "uploads", fmt.Sprintf("%s.caddyfile", sessionUUID))
+	if _, err := os.Stat(uploadsPath); err == nil {
+		os.Remove(uploadsPath)
+		c.JSON(http.StatusOK, gin.H{"message": "transient upload cancelled"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "import cancelled"})
+	// If neither exists, return not found
+	c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 }
 
 // processImport handles the import logic for both mounted and uploaded files.
@@ -269,8 +369,8 @@ func (h *ImportHandler) processImport(caddyfilePath, originalName string) error 
 
 	for _, parsed := range result.Hosts {
 		if existingDomains[parsed.DomainNames] {
-			result.Conflicts = append(result.Conflicts,
-				fmt.Sprintf("Domain '%s' already exists in CPM+", parsed.DomainNames))
+			// Append the raw domain name so frontend can match conflicts against domain strings
+			result.Conflicts = append(result.Conflicts, parsed.DomainNames)
 		}
 	}
 
@@ -299,10 +399,12 @@ func (h *ImportHandler) processImport(caddyfilePath, originalName string) error 
 // CheckMountedImport checks for mounted Caddyfile on startup.
 func CheckMountedImport(db *gorm.DB, mountPath, caddyBinary, importDir string) error {
 	if _, err := os.Stat(mountPath); os.IsNotExist(err) {
-		return nil // No mounted file, skip
+		// If mount is gone, remove any pending/reviewing sessions created previously for this mount
+		db.Where("source_file = ? AND status IN ?", mountPath, []string{"pending", "reviewing"}).Delete(&models.ImportSession{})
+		return nil // No mounted file, nothing to import
 	}
 
-	// Check if already processed
+	// Check if already processed (includes committed to avoid re-imports)
 	var count int64
 	db.Model(&models.ImportSession{}).Where("source_file = ? AND status IN ?",
 		mountPath, []string{"pending", "reviewing", "committed"}).Count(&count)
@@ -311,8 +413,8 @@ func CheckMountedImport(db *gorm.DB, mountPath, caddyBinary, importDir string) e
 		return nil // Already processed
 	}
 
-	handler := NewImportHandler(db, caddyBinary, importDir)
-	return handler.processImport(mountPath, mountPath)
+	// Do not create a DB session automatically for mounted imports; preview will be transient.
+	return nil
 }
 
 func mustMarshal(v interface{}) []byte {
