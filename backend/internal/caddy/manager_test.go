@@ -45,7 +45,7 @@ func TestManager_ApplyConfig(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "")
+	manager := NewManager(client, db, tmpDir, "", false)
 
 	// Create a host
 	host := models.ProxyHost{
@@ -82,7 +82,7 @@ func TestManager_ApplyConfig_Failure(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "")
+	manager := NewManager(client, db, tmpDir, "", false)
 
 	// Create a host
 	host := models.ProxyHost{
@@ -117,7 +117,7 @@ func TestManager_Ping(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, nil, "", "")
+	manager := NewManager(client, nil, "", "", false)
 
 	err := manager.Ping(context.Background())
 	assert.NoError(t, err)
@@ -136,7 +136,7 @@ func TestManager_GetCurrentConfig(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, nil, "", "")
+	manager := NewManager(client, nil, "", "", false)
 
 	config, err := manager.GetCurrentConfig(context.Background())
 	assert.NoError(t, err)
@@ -161,7 +161,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "")
+	manager := NewManager(client, db, tmpDir, "", false)
 
 	// Create 15 dummy config files
 	for i := 0; i < 15; i++ {
@@ -217,7 +217,7 @@ func TestManager_Rollback_Success(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "")
+	manager := NewManager(client, db, tmpDir, "", false)
 
 	// 1. Apply valid config (creates snapshot)
 	host1 := models.ProxyHost{

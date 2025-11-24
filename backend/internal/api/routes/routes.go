@@ -155,7 +155,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	// Caddy Manager
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir)
+	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging)
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
 	proxyHostHandler.RegisterRoutes(api)

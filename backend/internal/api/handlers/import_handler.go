@@ -58,18 +58,38 @@ func (h *ImportHandler) GetStatus(c *gin.Context) {
 		First(&session).Error
 
 	if err == gorm.ErrRecordNotFound {
-		// No DB session, check if there's a mounted Caddyfile available for transient preview
+		// No pending/reviewing session, check if there's a mounted Caddyfile available for transient preview
 		if h.mountPath != "" {
-			if _, err := os.Stat(h.mountPath); err == nil {
-				c.JSON(http.StatusOK, gin.H{
-					"has_pending": true,
-					"session": gin.H{
-						"id":          "transient",
-						"state":       "transient",
-						"source_file": h.mountPath,
-					},
-				})
-				return
+			if fileInfo, err := os.Stat(h.mountPath); err == nil {
+				// Check if this mount has already been committed recently
+				var committedSession models.ImportSession
+				err := h.db.Where("source_file = ? AND status = ?", h.mountPath, "committed").
+					Order("committed_at DESC").
+					First(&committedSession).Error
+
+				// Allow re-import if:
+				// 1. Never committed before (err == gorm.ErrRecordNotFound), OR
+				// 2. File was modified after last commit
+				allowImport := err == gorm.ErrRecordNotFound
+				if !allowImport && committedSession.CommittedAt != nil {
+					fileMod := fileInfo.ModTime()
+					commitTime := *committedSession.CommittedAt
+					allowImport = fileMod.After(commitTime)
+				}
+
+				if allowImport {
+					// Mount file is available for import
+					c.JSON(http.StatusOK, gin.H{
+						"has_pending": true,
+						"session": gin.H{
+							"id":          "transient",
+							"state":       "transient",
+							"source_file": h.mountPath,
+						},
+					})
+					return
+				}
+				// Mount file was already committed and hasn't been modified, don't offer it again
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"has_pending": false})
@@ -137,7 +157,27 @@ func (h *ImportHandler) GetPreview(c *gin.Context) {
 
 	// No DB session found or failed to parse session. Try transient preview from mountPath.
 	if h.mountPath != "" {
-		if _, err := os.Stat(h.mountPath); err == nil {
+		if fileInfo, err := os.Stat(h.mountPath); err == nil {
+			// Check if this mount has already been committed recently
+			var committedSession models.ImportSession
+			err := h.db.Where("source_file = ? AND status = ?", h.mountPath, "committed").
+				Order("committed_at DESC").
+				First(&committedSession).Error
+
+			// Allow preview if:
+			// 1. Never committed before (err == gorm.ErrRecordNotFound), OR
+			// 2. File was modified after last commit
+			allowPreview := err == gorm.ErrRecordNotFound
+			if !allowPreview && committedSession.CommittedAt != nil {
+				allowPreview = fileInfo.ModTime().After(*committedSession.CommittedAt)
+			}
+
+			if !allowPreview {
+				// Mount file was already committed and hasn't been modified, don't offer preview again
+				c.JSON(http.StatusNotFound, gin.H{"error": "no pending import"})
+				return
+			}
+
 			// Parse mounted Caddyfile transiently
 			transient, err := h.importerservice.ImportFile(h.mountPath)
 			if err != nil {
