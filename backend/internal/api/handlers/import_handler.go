@@ -55,6 +55,20 @@ func (h *ImportHandler) GetStatus(c *gin.Context) {
 		First(&session).Error
 
 	if err == gorm.ErrRecordNotFound {
+		// No DB session, check if there's a mounted Caddyfile available for transient preview
+		if h.mountPath != "" {
+			if _, err := os.Stat(h.mountPath); err == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"has_pending": true,
+					"session": gin.H{
+						"id":          "transient",
+						"state":       "transient",
+						"source_file": h.mountPath,
+					},
+				})
+				return
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{"has_pending": false})
 		return
 	}

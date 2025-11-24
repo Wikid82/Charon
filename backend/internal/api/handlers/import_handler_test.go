@@ -34,7 +34,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
 
-	// Case 1: No active session
+	// Case 1: No active session, no mount
 	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
 	router := gin.New()
 	router.GET("/import/status", handler.GetStatus)
@@ -49,21 +49,43 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, false, resp["has_pending"])
 
-	// Case 2: Active session
-	session := models.ImportSession{
-		UUID:       uuid.NewString(),
-		Status:     "pending",
-		ParsedData: `{"hosts": []}`,
-	}
-	db.Create(&session)
+	// Case 2: No DB session but has mounted Caddyfile
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+	os.WriteFile(mountPath, []byte("example.com"), 0644)
+
+	handler2 := handlers.NewImportHandler(db, "echo", "/tmp", mountPath)
+	router2 := gin.New()
+	router2.GET("/import/status", handler2.GetStatus)
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	router2.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, true, resp["has_pending"])
+	session := resp["session"].(map[string]interface{})
+	assert.Equal(t, "transient", session["state"])
+	assert.Equal(t, mountPath, session["source_file"])
+
+	// Case 3: Active DB session (takes precedence over mount)
+	dbSession := models.ImportSession{
+		UUID:       uuid.NewString(),
+		Status:     "pending",
+		ParsedData: `{"hosts": []}`,
+	}
+	db.Create(&dbSession)
+
+	w = httptest.NewRecorder()
+	router2.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, true, resp["has_pending"])
+	session = resp["session"].(map[string]interface{})
+	assert.Equal(t, "pending", session["state"]) // DB session, not transient
 }
 
 func TestImportHandler_GetPreview(t *testing.T) {
