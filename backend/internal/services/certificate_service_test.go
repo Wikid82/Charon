@@ -175,3 +175,75 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	}
 	assert.False(t, found)
 }
+
+func TestCertificateService_Persistence(t *testing.T) {
+	// Setup
+	tmpDir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	cs := NewCertificateService(tmpDir, db)
+
+	// 1. Create a fake ACME cert file
+	domain := "persist.example.com"
+	expiry := time.Now().Add(24 * time.Hour)
+	certPEM := generateTestCert(t, domain, expiry)
+
+	certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+	err = os.MkdirAll(certDir, 0755)
+	require.NoError(t, err)
+
+	certPath := filepath.Join(certDir, domain+".crt")
+	err = os.WriteFile(certPath, certPEM, 0644)
+	require.NoError(t, err)
+
+	// 2. Call ListCertificates to trigger scan and persistence
+	certs, err := cs.ListCertificates()
+	require.NoError(t, err)
+
+	// Verify it's in the returned list
+	var foundInList bool
+	for _, c := range certs {
+		if c.Domain == domain {
+			foundInList = true
+			assert.Equal(t, "letsencrypt", c.Provider)
+			break
+		}
+	}
+	assert.True(t, foundInList, "Certificate should be in the returned list")
+
+	// 3. Verify it's in the DB
+	var dbCert models.SSLCertificate
+	err = db.Where("domains = ? AND provider = ?", domain, "letsencrypt").First(&dbCert).Error
+	assert.NoError(t, err, "Certificate should be persisted to DB")
+	assert.Equal(t, domain, dbCert.Name)
+	assert.Equal(t, string(certPEM), dbCert.Certificate)
+
+	// 4. Delete the certificate via Service (which should delete the file)
+	err = cs.DeleteCertificate(dbCert.ID)
+	require.NoError(t, err)
+
+	// Verify file is gone
+	_, err = os.Stat(certPath)
+	assert.True(t, os.IsNotExist(err), "Cert file should be deleted")
+
+	// 5. Call ListCertificates again to trigger cleanup (though DB row is already gone)
+	certs, err = cs.ListCertificates()
+	require.NoError(t, err)
+
+	// Verify it's NOT in the returned list
+	foundInList = false
+	for _, c := range certs {
+		if c.Domain == domain {
+			foundInList = true
+			break
+		}
+	}
+	assert.False(t, foundInList, "Certificate should NOT be in the returned list after deletion")
+
+	// 6. Verify it's gone from the DB
+	err = db.Where("domains = ? AND provider = ?", domain, "letsencrypt").First(&dbCert).Error
+	assert.Error(t, err, "Certificate should be removed from DB")
+	assert.Equal(t, gorm.ErrRecordNotFound, err)
+}

@@ -145,3 +145,45 @@ func TestBackupLifecycle(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 }
+
+func TestBackupHandler_Errors(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// 1. List Error (remove backup dir to cause ReadDir error)
+	os.RemoveAll(svc.BackupDir)
+	// Create a file with same name to cause ReadDir to fail (if it expects dir)
+	// Or just make it unreadable
+	// os.Chmod(svc.BackupDir, 0000) // Might not work as expected in all envs
+	// Simpler: if BackupDir doesn't exist, ListBackups returns error?
+	// os.ReadDir returns error if dir doesn't exist.
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+
+	// 2. Create Error (make backup dir read-only or non-existent)
+	// If we removed it above, CreateBackup might try to create it?
+	// NewBackupService creates it. CreateBackup uses it.
+	// If we create a file named "backups" where the dir should be, MkdirAll might fail?
+	// Or just make the parent dir read-only.
+
+	// Let's try path traversal for Download/Delete/Restore to cover those errors
+
+	// 3. Create Error (make backup dir read-only)
+	// We can't easily make the dir read-only for the service without affecting other tests or requiring root.
+	// But we can mock the service or use a different config.
+	// If we set BackupDir to a non-existent dir that cannot be created?
+	// NewBackupService creates it.
+	// If we set BackupDir to a file?
+
+	// Let's skip Create error for now and focus on what we can test.
+	// We can test Download Not Found (already covered).
+
+	// 4. Delete Error (Not Found)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/missing.zip", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+}
