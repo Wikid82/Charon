@@ -264,3 +264,309 @@ func TestNormalizeURL(t *testing.T) {
 		})
 	}
 }
+
+func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("invalid URL", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  "://invalid-url",
+		}
+		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		err := svc.sendCustomWebhook(provider, data)
+		assert.Error(t, err)
+	})
+
+	t.Run("unreachable host", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  "http://192.0.2.1:9999", // TEST-NET-1, unreachable
+		}
+		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		// Set short timeout for client if possible, but here we just expect error
+		// Note: http.Client default timeout is 0 (no timeout), but OS might timeout
+		// We can't easily change client timeout here without modifying service
+		// So we might skip this or just check if it returns error eventually
+		// But for unit test speed, we should probably mock or use a closed port on localhost
+		// Using a closed port on localhost is faster
+		provider.URL = "http://127.0.0.1:54321" // Assuming this port is closed
+		err := svc.sendCustomWebhook(provider, data)
+		assert.Error(t, err)
+	})
+
+	t.Run("server returns error", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  ts.URL,
+		}
+		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		err := svc.sendCustomWebhook(provider, data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+	})
+
+	t.Run("valid custom payload template", func(t *testing.T) {
+		receivedBody := ""
+		received := make(chan struct{})
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&body)
+			if custom, ok := body["custom"]; ok {
+				receivedBody = custom.(string)
+			}
+			w.WriteHeader(http.StatusOK)
+			close(received)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Type:   "webhook",
+			URL:    ts.URL,
+			Config: `{"custom": "Test: {{.Title}}"}`,
+		}
+		data := map[string]interface{}{"Title": "My Title", "Message": "Test Message"}
+		svc.sendCustomWebhook(provider, data)
+
+		select {
+		case <-received:
+			assert.Equal(t, "Test: My Title", receivedBody)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("Timeout waiting for webhook")
+		}
+	})
+
+	t.Run("default payload without template", func(t *testing.T) {
+		receivedContent := ""
+		received := make(chan struct{})
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&body)
+			if content, ok := body["content"]; ok {
+				receivedContent = content.(string)
+			}
+			w.WriteHeader(http.StatusOK)
+			close(received)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  ts.URL,
+			// Config is empty, so default template is used: {"content": "{{.Title}}: {{.Message}}"}
+		}
+		data := map[string]interface{}{"Title": "Default Title", "Message": "Test Message"}
+		svc.sendCustomWebhook(provider, data)
+
+		select {
+		case <-received:
+			assert.Equal(t, "Default Title: Test Message", receivedContent)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("Timeout waiting for webhook")
+		}
+	})
+}
+
+func TestNotificationService_TestProvider_Errors(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("unsupported provider type", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "unsupported",
+			URL:  "http://example.com",
+		}
+		err := svc.TestProvider(provider)
+		assert.Error(t, err)
+		// Shoutrrr returns "unknown service" for unsupported schemes
+		assert.Contains(t, err.Error(), "unknown service")
+	})
+
+	t.Run("webhook with invalid URL", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  "://invalid",
+		}
+		err := svc.TestProvider(provider)
+		assert.Error(t, err)
+	})
+
+	t.Run("discord with invalid URL format", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "discord",
+			URL:  "invalid-discord-url",
+		}
+		err := svc.TestProvider(provider)
+		assert.Error(t, err)
+	})
+
+	t.Run("slack with unreachable webhook", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "slack",
+			URL:  "https://hooks.slack.com/services/INVALID/WEBHOOK/URL",
+		}
+		err := svc.TestProvider(provider)
+		// Shoutrrr will return error for unreachable/invalid webhook
+		assert.Error(t, err)
+	})
+
+	t.Run("webhook success", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  ts.URL,
+		}
+		err := svc.TestProvider(provider)
+		assert.NoError(t, err)
+	})
+}
+
+func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
+	t.Run("no enabled providers", func(t *testing.T) {
+		db := setupNotificationTestDB(t)
+		svc := NewNotificationService(db)
+
+		provider := models.NotificationProvider{
+			Name:    "Disabled",
+			Type:    "webhook",
+			URL:     "http://example.com",
+			Enabled: false,
+		}
+		svc.CreateProvider(&provider)
+
+		// Should complete without error
+		svc.SendExternal("proxy_host", "Title", "Message", nil)
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("provider filtered by category", func(t *testing.T) {
+		db := setupNotificationTestDB(t)
+		svc := NewNotificationService(db)
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("Should not call webhook")
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Name:             "Filtered",
+			Type:             "webhook",
+			URL:              ts.URL,
+			Enabled:          true,
+			NotifyProxyHosts: false,
+			NotifyUptime:     false,
+			NotifyCerts:      false,
+		}
+		// Create provider first (might get defaults)
+		err := db.Create(&provider).Error
+		require.NoError(t, err)
+
+		// Force update to false using map (to bypass zero value check)
+		err = db.Model(&provider).Updates(map[string]interface{}{
+			"notify_proxy_hosts":    false,
+			"notify_uptime":         false,
+			"notify_certs":          false,
+			"notify_remote_servers": false,
+			"notify_domains":        false,
+		}).Error
+		require.NoError(t, err)
+
+		// Verify DB state
+		var saved models.NotificationProvider
+		db.First(&saved, "id = ?", provider.ID)
+		require.False(t, saved.NotifyProxyHosts, "NotifyProxyHosts should be false")
+		require.False(t, saved.NotifyUptime, "NotifyUptime should be false")
+		require.False(t, saved.NotifyCerts, "NotifyCerts should be false")
+
+		svc.SendExternal("proxy_host", "Title", "Message", nil)
+		svc.SendExternal("uptime", "Title", "Message", nil)
+		svc.SendExternal("cert", "Title", "Message", nil)
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("custom data passed to webhook", func(t *testing.T) {
+		db := setupNotificationTestDB(t)
+		svc := NewNotificationService(db)
+
+		receivedCustom := ""
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&body)
+			if custom, ok := body["custom"]; ok {
+				receivedCustom = custom.(string)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Name:             "Custom Data",
+			Type:             "webhook",
+			URL:              ts.URL,
+			Enabled:          true,
+			NotifyProxyHosts: true,
+			Config:           `{"custom": "{{.CustomField}}"}`,
+		}
+		svc.CreateProvider(&provider)
+
+		customData := map[string]interface{}{
+			"CustomField": "test-value",
+		}
+		svc.SendExternal("proxy_host", "Title", "Message", customData)
+		time.Sleep(100 * time.Millisecond)
+
+		assert.Equal(t, "test-value", receivedCustom)
+	})
+}
+
+func TestNotificationService_CreateProvider_Validation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("creates provider with defaults", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Name: "Test",
+			Type: "webhook",
+			URL:  "http://example.com",
+		}
+		err := svc.CreateProvider(&provider)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, provider.ID)
+		assert.False(t, provider.Enabled) // Default
+	})
+
+	t.Run("updates existing provider", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Name:    "Original",
+			Type:    "webhook",
+			URL:     "http://example.com",
+			Enabled: true,
+		}
+		err := svc.CreateProvider(&provider)
+		assert.NoError(t, err)
+
+		provider.Name = "Updated"
+		err = svc.UpdateProvider(&provider)
+		assert.NoError(t, err)
+
+		var updated models.NotificationProvider
+		db.First(&updated, "id = ?", provider.ID)
+		assert.Equal(t, "Updated", updated.Name)
+	})
+
+	t.Run("deletes non-existent provider", func(t *testing.T) {
+		err := svc.DeleteProvider("non-existent-id")
+		// Should not error on missing provider
+		assert.NoError(t, err)
+	})
+}

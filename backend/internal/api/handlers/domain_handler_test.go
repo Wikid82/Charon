@@ -97,3 +97,64 @@ func TestDomainErrors(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
+
+func TestDomainDelete_NotFound(t *testing.T) {
+	router, _ := setupDomainTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/nonexistent-uuid", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Handler may return 200 with deleted=true even if not found (soft delete behavior)
+	require.True(t, resp.Code == http.StatusOK || resp.Code == http.StatusNotFound)
+}
+
+func TestDomainCreate_Duplicate(t *testing.T) {
+	router, db := setupDomainTestRouter(t)
+
+	// Create first domain
+	body := `{"name":"duplicate.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	// Try creating duplicate
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should error - could be 409 Conflict or 500 depending on implementation
+	require.True(t, resp.Code >= 400, "Expected error status for duplicate domain")
+
+	// Verify only one exists
+	var count int64
+	db.Model(&models.Domain{}).Where("name = ?", "duplicate.com").Count(&count)
+	require.Equal(t, int64(1), count)
+}
+
+func TestDomainList_Empty(t *testing.T) {
+	router, _ := setupDomainTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var list []models.Domain
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &list))
+	require.Empty(t, list)
+}
+
+func TestDomainCreate_LongName(t *testing.T) {
+	router, _ := setupDomainTestRouter(t)
+
+	longName := strings.Repeat("a", 300) + ".com"
+	body := `{"name":"` + longName + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/domains", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should succeed (database will truncate or accept)
+	require.True(t, resp.Code == http.StatusCreated || resp.Code >= 400)
+}

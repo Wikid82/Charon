@@ -166,3 +166,80 @@ func TestCertificateHandler_Delete(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
+
+func TestCertificateHandler_Upload_Errors(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	service := services.NewCertificateService(tmpDir, db)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/certificates", handler.Upload)
+
+	// Test invalid multipart (missing files)
+	req, _ := http.NewRequest("POST", "/certificates", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "multipart/form-data")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Test missing certificate file
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	writer.WriteField("name", "Missing Cert")
+	part, _ := writer.CreateFormFile("key_file", "key.pem")
+	part.Write([]byte("KEY"))
+	writer.Close()
+
+	req, _ = http.NewRequest("POST", "/certificates", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCertificateHandler_Delete_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.NotificationProvider{}))
+
+	service := services.NewCertificateService(tmpDir, db)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.DELETE("/certificates/:id", handler.Delete)
+
+	req, _ := http.NewRequest("DELETE", "/certificates/99999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	// Service returns gorm.ErrRecordNotFound, handler should convert to 500 or 404
+	assert.True(t, w.Code >= 400)
+}
+
+func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+	service := services.NewCertificateService(tmpDir, db)
+	ns := services.NewNotificationService(db)
+	handler := NewCertificateHandler(service, ns)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.DELETE("/certificates/:id", handler.Delete)
+
+	req, _ := http.NewRequest("DELETE", "/certificates/invalid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
