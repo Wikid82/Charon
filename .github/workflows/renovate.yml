@@ -1,0 +1,27 @@
+name: Renovate
+
+on:
+  schedule:
+    - cron: '0 5 * * *' # daily 05:00 EST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          fetch-depth: 1
+      - name: Run Renovate
+        uses: renovatebot/github-action@03026bd55840025343414baec5d9337c5f9c7ea7 # v44.0.4
+        with:
+          configurationFile: .github/renovate.json
+          token: ${{ secrets.CPMP_TOKEN }}
+        env:
+          LOG_LEVEL: info

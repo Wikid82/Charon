@@ -1,0 +1,59 @@
+repos:
+  - repo: local
+    hooks:
+      - id: python-compile
+        name: python compile check
+        entry: tools/python_compile_check.sh
+        language: script
+        files: ".*\\.py$"
+        pass_filenames: false
+        always_run: true
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|.*\.tsbuildinfo$)'
+      - id: trailing-whitespace
+        exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|.*\.tsbuildinfo$)'
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: dockerfile-check
+        name: dockerfile validation
+        entry: tools/dockerfile_check.sh
+        language: script
+        files: "Dockerfile.*"
+        pass_filenames: true
+      - id: go-test-coverage
+        name: Go Test Coverage
+        entry: scripts/go-test-coverage.sh
+        language: script
+        files: '\.go$'
+        pass_filenames: false
+        verbose: true
+      - id: go-vet
+        name: Go Vet
+        entry: bash -c 'cd backend && go vet ./...'
+        language: system
+        files: '\.go$'
+        pass_filenames: false
+      - id: frontend-type-check
+        name: Frontend TypeScript Check
+        entry: bash -c 'cd frontend && npm run type-check'
+        language: system
+        files: '^frontend/.*\.(ts|tsx)$'
+        pass_filenames: false
+      - id: frontend-lint
+        name: Frontend Lint (Fix)
+        entry: bash -c 'cd frontend && npm run lint -- --fix'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+      - id: frontend-test-coverage
+        name: Frontend Test Coverage
+        entry: scripts/frontend-test-coverage.sh
+        language: script
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+        verbose: true

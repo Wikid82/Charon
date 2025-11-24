@@ -1,0 +1,222 @@
+package handlers
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+)
+
+type UserHandler struct {
+	DB *gorm.DB
+}
+
+func NewUserHandler(db *gorm.DB) *UserHandler {
+	return &UserHandler{DB: db}
+}
+
+func (h *UserHandler) RegisterRoutes(r *gin.RouterGroup) {
+	r.GET("/setup", h.GetSetupStatus)
+	r.POST("/setup", h.Setup)
+	r.GET("/profile", h.GetProfile)
+	r.POST("/regenerate-api-key", h.RegenerateAPIKey)
+	r.PUT("/profile", h.UpdateProfile)
+}
+
+// GetSetupStatus checks if the application needs initial setup (i.e., no users exist).
+func (h *UserHandler) GetSetupStatus(c *gin.Context) {
+	var count int64
+	if err := h.DB.Model(&models.User{}).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check setup status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"setupRequired": count == 0,
+	})
+}
+
+type SetupRequest struct {
+	Name     string `json:"name" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// Setup creates the initial admin user and configures the ACME email.
+func (h *UserHandler) Setup(c *gin.Context) {
+	// 1. Check if setup is allowed
+	var count int64
+	if err := h.DB.Model(&models.User{}).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check setup status"})
+		return
+	}
+
+	if count > 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Setup already completed"})
+		return
+	}
+
+	// 2. Parse request
+	var req SetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 3. Create User
+	user := models.User{
+		UUID:    uuid.New().String(),
+		Name:    req.Name,
+		Email:   strings.ToLower(req.Email),
+		Role:    "admin",
+		Enabled: true,
+		APIKey:  uuid.New().String(),
+	}
+
+	if err := user.SetPassword(req.Password); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	// 4. Create Setting for ACME Email
+	acmeEmailSetting := models.Setting{
+		Key:      "caddy.acme_email",
+		Value:    req.Email,
+		Type:     "string",
+		Category: "caddy",
+	}
+
+	// Transaction to ensure both succeed
+	err := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		// Use Save to update if exists (though it shouldn't in fresh setup) or create
+		if err := tx.Where(models.Setting{Key: "caddy.acme_email"}).Assign(models.Setting{Value: req.Email}).FirstOrCreate(&acmeEmailSetting).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "Setup completed successfully",
+		"user": gin.H{
+			"id":    user.ID,
+			"email": user.Email,
+			"name":  user.Name,
+		},
+	})
+}
+
+// RegenerateAPIKey generates a new API key for the authenticated user.
+func (h *UserHandler) RegenerateAPIKey(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	apiKey := uuid.New().String()
+
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Update("api_key", apiKey).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update API key"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"api_key": apiKey})
+}
+
+// GetProfile returns the current user's profile including API key.
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":      user.ID,
+		"email":   user.Email,
+		"name":    user.Name,
+		"role":    user.Role,
+		"api_key": user.APIKey,
+	})
+}
+
+type UpdateProfileRequest struct {
+	Name            string `json:"name" binding:"required"`
+	Email           string `json:"email" binding:"required,email"`
+	CurrentPassword string `json:"current_password"`
+}
+
+// UpdateProfile updates the authenticated user's profile.
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get current user
+	var user models.User
+	if err := h.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Check if email is already taken by another user
+	req.Email = strings.ToLower(req.Email)
+	var count int64
+	if err := h.DB.Model(&models.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check email availability"})
+		return
+	}
+
+	if count > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+		return
+	}
+
+	// If email is changing, verify password
+	if req.Email != user.Email {
+		if req.CurrentPassword == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Current password is required to change email"})
+			return
+		}
+		if !user.CheckPassword(req.CurrentPassword) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
+			return
+		}
+	}
+
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"name":  req.Name,
+		"email": req.Email,
+	}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
+}

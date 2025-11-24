@@ -1,0 +1,4 @@
+version: 1
+exclude:
+  - frontend/dist/**
+  - frontend/node_modules/**
