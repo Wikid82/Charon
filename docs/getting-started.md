@@ -188,6 +188,44 @@ The app stores everything in a database. The Docker command above saves it in `c
 
 ---
 
+## ⚙️ Environment Variables (Advanced)
+
+Want to customize how the app runs? You can set these options:
+
+### Common Options
+
+| Variable | Default | What It Does |
+|----------|---------|--------------|
+| `CPM_ENV` | `development` | Set to `production` for live use |
+| `CPM_HTTP_PORT` | `8080` | Change the web interface port |
+| `CPM_ACME_STAGING` | `false` | Use Let's Encrypt staging (see below) |
+
+### 🧪 Development Mode: ACME Staging
+
+**Problem:** Testing SSL certificates repeatedly can hit Let's Encrypt rate limits (50 certs/week)
+
+**Solution:** Use staging mode for development!
+
+```bash
+docker run -d \
+  -p 8080:8080 \
+  -e CPM_ACME_STAGING=true \
+  -v caddy_data:/app/data \
+  --name caddy-proxy-manager \
+  ghcr.io/wikid82/cpmp:latest
+```
+
+**What happens:**
+- ✅ No rate limits
+- ⚠️ Certificates are "fake" (untrusted by browsers)
+- Perfect for testing
+
+**For production:** Remove `CPM_ACME_STAGING` or set to `false`
+
+📖 **Learn more:** [ACME Staging Guide](acme-staging.md)
+
+---
+
 ## 🐛 Something Not Working?
 
 ### App Won't Start
@@ -204,6 +242,11 @@ The app stores everything in a database. The Docker command above saves it in `c
 - **Check your Caddyfile syntax** - paste it at [Caddy Validate](https://caddyserver.com/docs/caddyfile)
 - **Look at the error message** - it usually tells you what's wrong
 - **Start with a simple file** - test with just one site first
+
+### Hit Let's Encrypt Rate Limit
+- **Use staging mode** - set `CPM_ACME_STAGING=true` (see above)
+- **Wait a week** - limits reset weekly
+- **Check current limits** - visit [Let's Encrypt Status](https://letsencrypt.status.io/)
 
 ---
 

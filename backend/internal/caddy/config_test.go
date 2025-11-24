@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -31,7 +31,7 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -71,7 +71,7 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.Len(t, config.Apps.HTTP.Servers["cpm_server"].Routes, 2)
 }
@@ -88,7 +88,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 
 	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
@@ -109,7 +109,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
 	require.Empty(t, config.Apps.HTTP.Servers["cpm_server"].Routes)
@@ -117,7 +117,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 
 func TestGenerateConfig_Logging(t *testing.T) {
 	hosts := []models.ProxyHost{}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 
 	// Verify logging configuration
@@ -155,7 +155,7 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -188,5 +188,48 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 	// Check HSTS
 	hstsHandler := mainRoute.Handle[0]
 	require.Equal(t, "headers", hstsHandler["handler"])
+}
+
+func TestGenerateConfig_ACMEStaging(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "test-uuid",
+			DomainNames: "test.example.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	// Test with staging enabled
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true)
+	require.NoError(t, err)
+	require.NotNil(t, config.Apps.TLS)
+	require.NotNil(t, config.Apps.TLS.Automation)
+	require.Len(t, config.Apps.TLS.Automation.Policies, 1)
+
+	issuers := config.Apps.TLS.Automation.Policies[0].IssuersRaw
+	require.Len(t, issuers, 1)
+
+	acmeIssuer := issuers[0].(map[string]interface{})
+	require.Equal(t, "acme", acmeIssuer["module"])
+	require.Equal(t, "admin@example.com", acmeIssuer["email"])
+	require.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", acmeIssuer["ca"])
+
+	// Test with staging disabled (production)
+	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false)
+	require.NoError(t, err)
+	require.NotNil(t, config.Apps.TLS)
+	require.NotNil(t, config.Apps.TLS.Automation)
+	require.Len(t, config.Apps.TLS.Automation.Policies, 1)
+
+	issuers = config.Apps.TLS.Automation.Policies[0].IssuersRaw
+	require.Len(t, issuers, 1)
+
+	acmeIssuer = issuers[0].(map[string]interface{})
+	require.Equal(t, "acme", acmeIssuer["module"])
+	require.Equal(t, "admin@example.com", acmeIssuer["email"])
+	_, hasCA := acmeIssuer["ca"]
+	require.False(t, hasCA, "Production mode should not set ca field (uses default)")
 	// We can't easily check the map content without casting, but we know it's there.
 }

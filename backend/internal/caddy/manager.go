@@ -21,15 +21,17 @@ type Manager struct {
 	db          *gorm.DB
 	configDir   string
 	frontendDir string
+	acmeStaging bool
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool) *Manager {
 	return &Manager{
 		client:      client,
 		db:          db,
 		configDir:   configDir,
 		frontendDir: frontendDir,
+		acmeStaging: acmeStaging,
 	}
 }
 
@@ -56,7 +58,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

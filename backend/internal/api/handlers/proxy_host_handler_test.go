@@ -113,7 +113,7 @@ func TestProxyHostErrors(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir, "")
+	manager := caddy.NewManager(client, db, tmpDir, "", false)
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)
@@ -300,7 +300,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir, "")
+	manager := caddy.NewManager(client, db, tmpDir, "", false)
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)
