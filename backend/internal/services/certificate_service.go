@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
 func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 	// First, scan Caddy data directory for auto-generated certificates and persist them.
 	certRoot := filepath.Join(s.dataDir, "certificates")
-	fmt.Printf("CertificateService: scanning cert directory: %s\n", certRoot)
+	log.Printf("CertificateService: scanning cert directory: %s\n", certRoot)
 
 	foundDomains := map[string]struct{}{}
 
@@ -53,27 +54,27 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 	if _, err := os.Stat(certRoot); err == nil {
 		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				fmt.Printf("CertificateService: walk error for %s: %v\n", path, err)
+				log.Printf("CertificateService: walk error for %s: %v\n", path, err)
 				return nil
 			}
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
-				fmt.Printf("CertificateService: found cert file: %s\n", path)
+				log.Printf("CertificateService: found cert file: %s\n", path)
 				certData, err := os.ReadFile(path)
 				if err != nil {
-					fmt.Printf("CertificateService: failed to read cert file %s: %v\n", path, err)
+					log.Printf("CertificateService: failed to read cert file %s: %v\n", path, err)
 					return nil
 				}
 
 				block, _ := pem.Decode(certData)
 				if block == nil {
-					fmt.Printf("CertificateService: pem decode failed for %s\n", path)
+					log.Printf("CertificateService: pem decode failed for %s\n", path)
 					return nil
 				}
 
 				cert, err := x509.ParseCertificate(block.Bytes)
 				if err != nil {
-					fmt.Printf("CertificateService: failed to parse cert %s: %v\n", path, err)
+					log.Printf("CertificateService: failed to parse cert %s: %v\n", path, err)
 					return nil
 				}
 
@@ -110,10 +111,10 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 							UpdatedAt:   now,
 						}
 						if err := s.db.Create(&newCert).Error; err != nil {
-							fmt.Printf("CertificateService: failed to create DB cert for %s: %v\n", domain, err)
+							log.Printf("CertificateService: failed to create DB cert for %s: %v\n", domain, err)
 						}
 					} else {
-						fmt.Printf("CertificateService: db error querying cert %s: %v\n", domain, res.Error)
+						log.Printf("CertificateService: db error querying cert %s: %v\n", domain, res.Error)
 					}
 				} else {
 					// Update expiry/certificate content if changed
@@ -126,12 +127,12 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 					if updated {
 						existing.UpdatedAt = time.Now()
 						if err := s.db.Save(&existing).Error; err != nil {
-							fmt.Printf("CertificateService: failed to update DB cert for %s: %v\n", domain, err)
+							log.Printf("CertificateService: failed to update DB cert for %s: %v\n", domain, err)
 						}
 					} else {
 						// still update ExpiresAt if needed
 						if err := s.db.Model(&existing).Update("expires_at", &expiresAt).Error; err != nil {
-							fmt.Printf("CertificateService: failed to update expiry for %s: %v\n", domain, err)
+							log.Printf("CertificateService: failed to update expiry for %s: %v\n", domain, err)
 						}
 					}
 				}
@@ -140,9 +141,9 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 		})
 	} else {
 		if os.IsNotExist(err) {
-			fmt.Printf("CertificateService: cert directory does not exist: %s\n", certRoot)
+			log.Printf("CertificateService: cert directory does not exist: %s\n", certRoot)
 		} else {
-			fmt.Printf("CertificateService: failed to stat cert directory: %v\n", err)
+			log.Printf("CertificateService: failed to stat cert directory: %v\n", err)
 		}
 	}
 
@@ -153,9 +154,9 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 			if _, ok := foundDomains[c.Domains]; !ok {
 				// remove stale record
 				if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
-					fmt.Printf("CertificateService: failed to delete stale cert %s: %v\n", c.Domains, err)
+					log.Printf("CertificateService: failed to delete stale cert %s: %v\n", c.Domains, err)
 				} else {
-					fmt.Printf("CertificateService: removed stale DB cert for %s\n", c.Domains)
+					log.Printf("CertificateService: removed stale DB cert for %s\n", c.Domains)
 				}
 			}
 		}
@@ -236,7 +237,39 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM string) (*m
 	return sslCert, nil
 }
 
-// DeleteCertificate removes a custom certificate.
+// DeleteCertificate removes a certificate.
 func (s *CertificateService) DeleteCertificate(id uint) error {
+	var cert models.SSLCertificate
+	if err := s.db.First(&cert, id).Error; err != nil {
+		return err
+	}
+
+	if cert.Provider == "letsencrypt" {
+		// Best-effort file deletion
+		certRoot := filepath.Join(s.dataDir, "certificates")
+		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
+				if info.Name() == cert.Domains+".crt" {
+					// Found it
+					log.Printf("CertificateService: deleting ACME cert file %s", path)
+					if err := os.Remove(path); err != nil {
+						log.Printf("CertificateService: failed to delete cert file: %v", err)
+					}
+					// Try to delete key as well
+					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
+					if _, err := os.Stat(keyPath); err == nil {
+						os.Remove(keyPath)
+					}
+					// Also try to delete the json meta file
+					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
+					if _, err := os.Stat(jsonPath); err == nil {
+						os.Remove(jsonPath)
+					}
+				}
+			}
+			return nil
+		})
+	}
+
 	return s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error
 }

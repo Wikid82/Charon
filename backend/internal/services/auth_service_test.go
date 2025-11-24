@@ -129,3 +129,23 @@ func TestAuthService_ValidateToken(t *testing.T) {
 	_, err = service.ValidateToken("invalid.token.string")
 	assert.Error(t, err)
 }
+
+func TestAuthService_GetUserByID(t *testing.T) {
+	db := setupAuthTestDB(t)
+	cfg := config.Config{JWTSecret: "test-secret"}
+	service := NewAuthService(db, cfg)
+
+	// Setup user
+	user, err := service.Register("test@example.com", "password123", "Test User")
+	require.NoError(t, err)
+
+	// Test 1: Get existing user
+	foundUser, err := service.GetUserByID(user.ID)
+	require.NoError(t, err)
+	assert.Equal(t, user.ID, foundUser.ID)
+	assert.Equal(t, user.Email, foundUser.Email)
+
+	// Test 2: Get non-existent user
+	_, err = service.GetUserByID(999)
+	assert.Error(t, err)
+}

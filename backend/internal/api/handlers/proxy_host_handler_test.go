@@ -267,6 +267,19 @@ func TestProxyHostConnection(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 }
 
+func TestProxyHostHandler_List_Error(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+}
+
 func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Mock Caddy Admin API
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

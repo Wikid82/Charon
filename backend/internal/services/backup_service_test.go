@@ -125,3 +125,25 @@ func TestBackupService_PathTraversal(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid filename")
 }
+
+func TestBackupService_RunScheduledBackup(t *testing.T) {
+	// Setup temp dirs
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	os.MkdirAll(dataDir, 0755)
+
+	// Create dummy DB
+	dbPath := filepath.Join(dataDir, "cpm.db")
+	os.WriteFile(dbPath, []byte("dummy db"), 0644)
+
+	cfg := &config.Config{DatabasePath: dbPath}
+	service := NewBackupService(cfg)
+
+	// Run scheduled backup manually
+	service.RunScheduledBackup()
+
+	// Verify backup created
+	backups, err := service.ListBackups()
+	require.NoError(t, err)
+	assert.Len(t, backups, 1)
+}

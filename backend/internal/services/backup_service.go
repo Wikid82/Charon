@@ -40,20 +40,22 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	}
 
 	// Schedule daily backup at 3 AM
-	_, err := s.Cron.AddFunc("0 3 * * *", func() {
-		fmt.Println("Starting scheduled backup...")
-		if name, err := s.CreateBackup(); err != nil {
-			fmt.Printf("Scheduled backup failed: %v\n", err)
-		} else {
-			fmt.Printf("Scheduled backup created: %s\n", name)
-		}
-	})
+	_, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
 	if err != nil {
 		fmt.Printf("Failed to schedule backup: %v\n", err)
 	}
 	s.Cron.Start()
 
 	return s
+}
+
+func (s *BackupService) RunScheduledBackup() {
+	fmt.Println("Starting scheduled backup...")
+	if name, err := s.CreateBackup(); err != nil {
+		fmt.Printf("Scheduled backup failed: %v\n", err)
+	} else {
+		fmt.Printf("Scheduled backup created: %s\n", name)
+	}
 }
 
 // ListBackups returns all backup files sorted by time (newest first)

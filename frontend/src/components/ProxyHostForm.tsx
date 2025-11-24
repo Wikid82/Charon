@@ -304,10 +304,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="domain-names" className="block text-sm font-medium text-gray-300 mb-2">
                 Domain Names (comma-separated)
               </label>
               <input
+                id="domain-names"
                 type="text"
                 required
                 value={formData.domain_names}

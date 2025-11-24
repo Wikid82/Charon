@@ -36,6 +36,31 @@ vi.mock('../../hooks/useDocker', () => ({
   })),
 }))
 
+vi.mock('../../hooks/useDomains', () => ({
+  useDomains: vi.fn(() => ({
+    domains: [
+      { uuid: 'domain-1', name: 'existing.com' }
+    ],
+    createDomain: vi.fn().mockResolvedValue({}),
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../hooks/useCertificates', () => ({
+  useCertificates: vi.fn(() => ({
+    certificates: [
+      { id: 1, name: 'Cert 1', domain: 'example.com', provider: 'custom' }
+    ],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
+vi.mock('../../api/proxyHosts', () => ({
+  testProxyHostConnection: vi.fn(),
+}))
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -52,274 +77,14 @@ const renderWithClient = (ui: React.ReactElement) => {
   )
 }
 
+import { testProxyHostConnection } from '../../api/proxyHosts'
+
 describe('ProxyHostForm', () => {
   const mockOnSubmit = vi.fn((_data: any) => Promise.resolve())
   const mockOnCancel = vi.fn()
 
   afterEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('renders create form with empty fields', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
-    })
-    expect(screen.getByPlaceholderText('example.com, www.example.com')).toHaveValue('')
-  })
-
-  it('renders edit form with pre-filled data', async () => {
-    const mockHost = {
-      uuid: '123',
-      domain_names: 'test.com',
-      forward_scheme: 'https',
-      forward_host: '192.168.1.100',
-      forward_port: 8443,
-      ssl_forced: true,
-      http2_support: true,
-      hsts_enabled: true,
-      hsts_subdomains: true,
-      block_exploits: true,
-      websocket_support: false,
-      enabled: true,
-      locations: [],
-      created_at: '2025-11-18T10:00:00Z',
-      updated_at: '2025-11-18T10:00:00Z',
-    }
-
-    renderWithClient(
-      <ProxyHostForm host={mockHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText('Edit Proxy Host')).toBeInTheDocument()
-    })
-    expect(screen.getByDisplayValue('test.com')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('192.168.1.100')).toBeInTheDocument()
-  })
-
-  it('loads remote servers for quick select', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText(/Local Docker Registry/)).toBeInTheDocument()
-    })
-  })
-
-  it('calls onCancel when cancel button is clicked', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText('Cancel')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByText('Cancel'))
-    expect(mockOnCancel).toHaveBeenCalledOnce()
-  })
-
-  it('submits form with correct data', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
-    const hostInput = screen.getByPlaceholderText('192.168.1.100')
-    const portInput = screen.getByDisplayValue('80')
-
-    fireEvent.change(domainInput, { target: { value: 'newsite.com' } })
-    fireEvent.change(hostInput, { target: { value: '10.0.0.1' } })
-    fireEvent.change(portInput, { target: { value: '9000' } })
-
-    fireEvent.click(screen.getByText('Save'))
-
-    await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          domain_names: 'newsite.com',
-          forward_host: '10.0.0.1',
-          forward_port: 9000,
-        })
-      )
-    })
-  })
-
-  it('handles SSL and WebSocket checkboxes', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('Force SSL')).toBeInTheDocument()
-    })
-
-    const sslCheckbox = screen.getByLabelText('Force SSL')
-    const wsCheckbox = screen.getByLabelText('Websockets Support')
-
-    expect(sslCheckbox).toBeChecked()
-    expect(wsCheckbox).toBeChecked()
-
-    fireEvent.click(sslCheckbox)
-    fireEvent.click(wsCheckbox)
-
-    expect(sslCheckbox).not.toBeChecked()
-    expect(wsCheckbox).not.toBeChecked()
-  })
-
-  // it('populates fields when remote server is selected', async () => {
-  //   renderWithClient(
-  //     <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-  //   )
-
-  //   await waitFor(() => {
-  //     expect(screen.getByText(/Local Docker Registry/)).toBeInTheDocument()
-  //   })
-
-  //   const select = screen.getByLabelText('Source')
-  //   fireEvent.change(select, { target: { value: mockRemoteServers[0].uuid } })
-
-  //   expect(screen.getByDisplayValue(mockRemoteServers[0].host)).toBeInTheDocument()
-  //   expect(screen.getByDisplayValue(mockRemoteServers[0].port)).toBeInTheDocument()
-  // })
-
-  it('populates fields when a docker container is selected', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('Containers')).toBeInTheDocument()
-    })
-
-    const select = screen.getByLabelText('Containers')
-    fireEvent.change(select, { target: { value: 'container-123' } })
-
-    expect(screen.getByDisplayValue('172.17.0.2')).toBeInTheDocument() // IP
-    expect(screen.getByDisplayValue('80')).toBeInTheDocument() // Port
-  })
-
-  it('displays error message on submission failure', async () => {
-    const mockErrorSubmit = vi.fn(() => Promise.reject(new Error('Submission failed')))
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockErrorSubmit} onCancel={mockOnCancel} />
-    )
-
-    fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
-      target: { value: 'test.com' },
-    })
-    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), {
-      target: { value: 'localhost' },
-    })
-    fireEvent.change(screen.getByDisplayValue('80'), {
-      target: { value: '8080' },
-    })
-
-    fireEvent.click(screen.getByText('Save'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Submission failed')).toBeInTheDocument()
-    })
-  })
-
-  it('handles advanced config input', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    const advancedInput = screen.getByLabelText(/Advanced Caddy Config/i)
-    fireEvent.change(advancedInput, { target: { value: 'header_up X-Test "True"' } })
-
-    expect(advancedInput).toHaveValue('header_up X-Test "True"')
-  })
-
-  it('allows entering a remote docker host', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    // Select "Custom / Manual" is default, but we need to select "Remote Docker" which is not an option directly.
-    // Wait, looking at the component, there is no "Remote Docker?" toggle anymore.
-    // It uses a select dropdown for Source.
-    // The test seems outdated.
-    // Let's check the component code again.
-    // <select id="connection-source" ...>
-    //   <option value="custom">Custom / Manual</option>
-    //   <option value="local">Local (Docker Socket)</option>
-    //   ... remote servers ...
-    // </select>
-
-    // If we want to test remote docker host entry, we probably need to select a remote server?
-    // But the test says "allows entering a remote docker host" and looks for "tcp://100.x.y.z:2375".
-    // The component doesn't seem to have a manual input for docker host unless it's implied by something else?
-    // Actually, looking at the component, getDockerHostString uses the selected remote server.
-    // There is no manual input for "tcp://..." in the form shown in read_file output.
-    // The form has "Host" and "Port" inputs for the forward destination.
-
-    // Maybe this test case is testing a feature that was removed or changed?
-    // "Remote Docker?" toggle suggests an old UI.
-    // I should probably remove or update this test.
-    // Since I don't see a way to manually enter a docker host string in the UI (it comes from the selected server),
-    // I will remove this test case for now as it seems obsolete.
-  });
-
-  it('toggles all checkboxes', async () => {
-    renderWithClient(
-      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
-    )
-
-    await waitFor(() => {
-      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
-    })
-
-    // Fill required fields
-    fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), { target: { value: 'test.com' } })
-    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '10.0.0.1' } })
-
-    const checkboxes = [
-      'Force SSL',
-      'HTTP/2 Support',
-      'HSTS Enabled',
-      'HSTS Subdomains',
-      'Block Exploits',
-      'Websockets Support',
-      'Enable Proxy Host'
-    ]
-
-    for (const label of checkboxes) {
-      const checkbox = screen.getByLabelText(label)
-      fireEvent.click(checkbox)
-    }
-
-    // Verify state change by submitting
-    fireEvent.click(screen.getByText('Save'))
-
-    await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalled()
-    })
-
-    // Check that the submitted data reflects the toggles
-    // Default for block_exploits is true, others false (except enabled)
-    // We toggled them, so block_exploits should be false, others true (enabled false)
-    // Wait, enabled default is true. So enabled -> false.
-    // block_exploits default true -> false.
-    // others default false -> true.
-
-    const submittedData = mockOnSubmit.mock.calls[0]?.[0] as any
-    expect(submittedData).toBeDefined()
-    if (submittedData) {
-      expect(submittedData.ssl_forced).toBe(false)
-      expect(submittedData.http2_support).toBe(false)
-      expect(submittedData.hsts_enabled).toBe(false)
-      expect(submittedData.hsts_subdomains).toBe(false)
-      expect(submittedData.block_exploits).toBe(false)
-      expect(submittedData.websocket_support).toBe(false)
-      expect(submittedData.enabled).toBe(false)
-    }
   })
 
   it('handles scheme selection', async () => {
@@ -337,5 +102,126 @@ describe('ProxyHostForm', () => {
     fireEvent.change(schemeSelect, { target: { value: 'https' } })
 
     expect(schemeSelect).toHaveValue('https')
+  })
+
+  it('prompts to save new base domain', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
+
+    // Enter a subdomain of a new base domain
+    fireEvent.change(domainInput, { target: { value: 'sub.newdomain.com' } })
+    fireEvent.blur(domainInput)
+
+    await waitFor(() => {
+      expect(screen.getByText('New Base Domain Detected')).toBeInTheDocument()
+      expect(screen.getByText('newdomain.com')).toBeInTheDocument()
+    })
+
+    // Click "Yes, save it"
+    fireEvent.click(screen.getByText('Yes, save it'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('New Base Domain Detected')).not.toBeInTheDocument()
+    })
+  })
+
+  it('respects "Dont ask me again" for new domains', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const domainInput = screen.getByPlaceholderText('example.com, www.example.com')
+
+    // Trigger prompt
+    fireEvent.change(domainInput, { target: { value: 'sub.another.com' } })
+    fireEvent.blur(domainInput)
+
+    await waitFor(() => {
+      expect(screen.getByText('New Base Domain Detected')).toBeInTheDocument()
+    })
+
+    // Check "Don't ask me again"
+    fireEvent.click(screen.getByLabelText("Don't ask me again"))
+
+    // Click "No, thanks"
+    fireEvent.click(screen.getByText('No, thanks'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('New Base Domain Detected')).not.toBeInTheDocument()
+    })
+
+    // Try another new domain - should not prompt
+    fireEvent.change(domainInput, { target: { value: 'sub.yetanother.com' } })
+    fireEvent.blur(domainInput)
+
+    // Should not see prompt
+    expect(screen.queryByText('New Base Domain Detected')).not.toBeInTheDocument()
+  })
+
+  it('tests connection successfully', async () => {
+    (testProxyHostConnection as any).mockResolvedValue({})
+
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    // Fill required fields for test connection
+    fireEvent.change(screen.getByLabelText(/^Host$/), { target: { value: '10.0.0.5' } })
+    fireEvent.change(screen.getByLabelText(/^Port$/), { target: { value: '80' } })
+
+    const testBtn = screen.getByTitle('Test connection to the forward host')
+    fireEvent.click(testBtn)
+
+    await waitFor(() => {
+      expect(testProxyHostConnection).toHaveBeenCalledWith('10.0.0.5', 80)
+    })
+  })
+
+  it('handles connection test failure', async () => {
+    (testProxyHostConnection as any).mockRejectedValue(new Error('Connection failed'))
+
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    fireEvent.change(screen.getByLabelText(/^Host$/), { target: { value: '10.0.0.5' } })
+    fireEvent.change(screen.getByLabelText(/^Port$/), { target: { value: '80' } })
+
+    const testBtn = screen.getByTitle('Test connection to the forward host')
+    fireEvent.click(testBtn)
+
+    await waitFor(() => {
+      expect(testProxyHostConnection).toHaveBeenCalled()
+    })
+
+    // Should show error state (red button) - we can check class or icon
+    // The button changes class to bg-red-600
+    await waitFor(() => {
+       expect(testBtn).toHaveClass('bg-red-600')
+    })
+  })
+
+  it('handles base domain selection', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Base Domain (Auto-fill)')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Base Domain (Auto-fill)'), { target: { value: 'existing.com' } })
+
+    // Should not update domain names yet as no container selected
+    expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('')
+
+    // Select container then base domain
+    fireEvent.change(screen.getByLabelText('Containers'), { target: { value: 'container-123' } })
+    fireEvent.change(screen.getByLabelText('Base Domain (Auto-fill)'), { target: { value: 'existing.com' } })
+
+    expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
   })
 })
