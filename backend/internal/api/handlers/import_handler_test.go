@@ -452,6 +452,203 @@ func TestImportHandler_RegisterRoutes(t *testing.T) {
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
 
+func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+
+	// Create a mounted Caddyfile
+	content := "example.com"
+	err := os.WriteFile(mountPath, []byte(content), 0644)
+	assert.NoError(t, err)
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
+	router := gin.New()
+	router.GET("/import/preview", handler.GetPreview)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "Response body: %s", w.Body.String())
+	var result map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &result)
+	assert.NoError(t, err)
+
+	// Verify transient session
+	session, ok := result["session"].(map[string]interface{})
+	assert.True(t, ok, "session should be present in response")
+	assert.Equal(t, "transient", session["state"])
+	assert.Equal(t, mountPath, session["source_file"])
+
+	// Verify preview contains hosts
+	preview, ok := result["preview"].(map[string]interface{})
+	assert.True(t, ok, "preview should be present in response")
+	assert.NotNil(t, preview["hosts"])
+
+	// Verify content
+	assert.Equal(t, content, result["caddyfile_content"])
+}
+
+func TestImportHandler_Commit_TransientUpload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+	router.POST("/import/commit", handler.Commit)
+
+	// First upload to create transient session
+	uploadPayload := map[string]string{
+		"content":  "uploaded.com",
+		"filename": "Caddyfile",
+	}
+	uploadBody, _ := json.Marshal(uploadPayload)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(uploadBody))
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Extract session ID
+	var uploadResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &uploadResp)
+	session := uploadResp["session"].(map[string]interface{})
+	sessionID := session["id"].(string)
+
+	// Now commit the transient upload
+	commitPayload := map[string]interface{}{
+		"session_uuid": sessionID,
+		"resolutions": map[string]string{
+			"uploaded.com": "import",
+		},
+	}
+	commitBody, _ := json.Marshal(commitPayload)
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/import/commit", bytes.NewBuffer(commitBody))
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify host created
+	var host models.ProxyHost
+	err := db.Where("domain_names = ?", "uploaded.com").First(&host).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "uploaded.com", host.DomainNames)
+
+	// Verify session persisted
+	var importSession models.ImportSession
+	err = db.Where("uuid = ?", sessionID).First(&importSession).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "committed", importSession.Status)
+}
+
+func TestImportHandler_Commit_TransientMount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
+
+	// Create a mounted Caddyfile
+	err := os.WriteFile(mountPath, []byte("mounted.com"), 0644)
+	assert.NoError(t, err)
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	// Commit the mount with a random session ID (transient)
+	sessionID := uuid.NewString()
+	commitPayload := map[string]interface{}{
+		"session_uuid": sessionID,
+		"resolutions": map[string]string{
+			"mounted.com": "import",
+		},
+	}
+	commitBody, _ := json.Marshal(commitPayload)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(commitBody))
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify host created
+	var host models.ProxyHost
+	err = db.Where("domain_names = ?", "mounted.com").First(&host).Error
+	assert.NoError(t, err)
+
+	// Verify session persisted
+	var importSession models.ImportSession
+	err = db.Where("uuid = ?", sessionID).First(&importSession).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "committed", importSession.Status)
+}
+
+func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Use fake caddy script
+	cwd, _ := os.Getwd()
+	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
+	os.Chmod(fakeCaddy, 0755)
+
+	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
+	router := gin.New()
+	router.POST("/import/upload", handler.Upload)
+	router.DELETE("/import/cancel", handler.Cancel)
+
+	// Upload to create transient file
+	uploadPayload := map[string]string{
+		"content":  "test.com",
+		"filename": "Caddyfile",
+	}
+	uploadBody, _ := json.Marshal(uploadPayload)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(uploadBody))
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Extract session ID and file path
+	var uploadResp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &uploadResp)
+	session := uploadResp["session"].(map[string]interface{})
+	sessionID := session["id"].(string)
+	sourceFile := session["source_file"].(string)
+
+	// Verify file exists
+	_, err := os.Stat(sourceFile)
+	assert.NoError(t, err)
+
+	// Cancel should delete the file
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("DELETE", "/import/cancel?session_uuid="+sessionID, nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify file deleted
+	_, err = os.Stat(sourceFile)
+	assert.True(t, os.IsNotExist(err))
+}
+
 func TestImportHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
