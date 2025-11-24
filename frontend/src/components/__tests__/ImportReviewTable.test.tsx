@@ -16,6 +16,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={[]}
+        conflictDetails={{}}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
@@ -32,6 +33,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={conflicts}
+        conflictDetails={{}}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
@@ -49,6 +51,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={[]}
+        conflictDetails={{}}
         errors={errors}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
@@ -66,6 +69,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={conflicts}
+        conflictDetails={{}}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
@@ -90,6 +94,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={[]}
+        conflictDetails={{}}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}
@@ -106,6 +111,7 @@ describe('ImportReviewTable', () => {
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
         conflicts={conflicts}
+        conflictDetails={{}}
         errors={[]}
         onCommit={mockOnCommit}
         onCancel={mockOnCancel}

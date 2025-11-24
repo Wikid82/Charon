@@ -89,13 +89,45 @@ This is **expected** when using staging. Staging certificates are signed by a fa
 ### Switching from staging to production
 1. Set `CPM_ACME_STAGING=false` (or remove the variable)
 2. Restart the container
-3. Delete the old staging certificates: `docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*`
-4. Certificates will be automatically reissued from production
+3. **Clean up staging certificates** (choose one method):
+   
+   **Option A - Via UI (Recommended):**
+   - Go to **Certificates** page in the web interface
+   - Delete any certificates with "acme-staging" in the issuer name
+   
+   **Option B - Via Terminal:**
+   ```bash
+   docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*
+   docker exec cpmp rm -rf /data/acme/acme-staging*
+   ```
+
+4. Certificates will be automatically reissued from production on next request
 
 ### Switching from production to staging
 1. Set `CPM_ACME_STAGING=true`
 2. Restart the container
-3. Optionally delete old production certificates to force immediate reissue
+3. **Optional:** Delete production certificates to force immediate reissue
+   ```bash
+   docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-v02.api.letsencrypt.org-directory
+   docker exec cpmp rm -rf /data/acme/acme-v02.api.letsencrypt.org-directory
+   ```
+
+### Cleaning up old certificates
+Caddy automatically manages certificate renewal and cleanup. However, if you need to manually clear certificates:
+
+**Remove all ACME certificates (both staging and production):**
+```bash
+docker exec cpmp rm -rf /app/data/caddy/data/acme/*
+docker exec cpmp rm -rf /data/acme/*
+```
+
+**Remove only staging certificates:**
+```bash
+docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*
+docker exec cpmp rm -rf /data/acme/acme-staging*
+```
+
+After deletion, restart your proxy hosts or container to trigger fresh certificate requests.
 
 ## Best Practices
 

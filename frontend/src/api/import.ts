@@ -16,6 +16,23 @@ export interface ImportPreview {
     errors: string[];
   };
   caddyfile_content?: string;
+  conflict_details?: Record<string, {
+    existing: {
+      forward_scheme: string;
+      forward_host: string;
+      forward_port: number;
+      ssl_forced: boolean;
+      websocket: boolean;
+      enabled: boolean;
+    };
+    imported: {
+      forward_scheme: string;
+      forward_host: string;
+      forward_port: number;
+      ssl_forced: boolean;
+      websocket: boolean;
+    };
+  }>;
 }
 
 export const uploadCaddyfile = async (content: string): Promise<ImportPreview> => {
