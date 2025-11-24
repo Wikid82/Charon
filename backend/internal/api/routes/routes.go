@@ -167,14 +167,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	userHandler.RegisterRoutes(api)
 
 	// Certificate routes
-	// Use cfg.CaddyConfigDir + "/data" for cert service
-	// In Docker, Caddy stores data in /data, so we should look there
-	// But our config might point elsewhere.
-	// Let's use the standard Caddy data directory which is usually /data in the container
-	// or respect XDG_DATA_HOME if set.
-	// For now, let's assume /data/caddy/certificates based on standard Caddy docker image
-	// or the volume mount 'caddy_data_local:/data'
-	caddyDataDir := "/data/caddy"
+	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
+	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
+	caddyDataDir := cfg.CaddyConfigDir + "/data"
 	certService := services.NewCertificateService(caddyDataDir, db)
 	certHandler := handlers.NewCertificateHandler(certService, notificationService)
 	api.GET("/certificates", certHandler.List)
