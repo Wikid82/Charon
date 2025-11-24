@@ -41,8 +41,12 @@ func (s *UptimeService) SyncMonitors() error {
 			firstDomain = strings.TrimSpace(domains[0])
 		}
 
-		// Construct the public URL (default to http, client follows redirects)
-		publicURL := fmt.Sprintf("http://%s", firstDomain)
+		// Construct the public URL
+		scheme := "http"
+		if host.SSLForced {
+			scheme = "https"
+		}
+		publicURL := fmt.Sprintf("%s://%s", scheme, firstDomain)
 		internalURL := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
 
 		if err == gorm.ErrRecordNotFound {
@@ -73,6 +77,13 @@ func (s *UptimeService) SyncMonitors() error {
 				s.DB.Save(&monitor)
 				log.Printf("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
 			}
+
+			// Upgrade to HTTPS if SSL is forced and we are currently checking HTTP
+			if host.SSLForced && strings.HasPrefix(monitor.URL, "http://") {
+				monitor.URL = strings.Replace(monitor.URL, "http://", "https://", 1)
+				s.DB.Save(&monitor)
+				log.Printf("Upgraded monitor for host %d to HTTPS: %s", host.ID, monitor.URL)
+			}
 		}
 	}
 	return nil
@@ -102,7 +113,8 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		resp, err := client.Get(monitor.URL)
 		if err == nil {
 			defer resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			// Accept 2xx, 3xx, and 401/403 (Unauthorized/Forbidden often means the service is up but protected)
+			if (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == 401 || resp.StatusCode == 403 {
 				success = true
 				msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
 			} else {
