@@ -1,3 +1,0 @@
-example.com {
-  reverse_proxy localhost
-}
