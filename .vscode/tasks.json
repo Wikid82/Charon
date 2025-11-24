@@ -1,6 +1,12 @@
 {
 	"version": "2.0.0",
 	"tasks": [
+				{
+			"label": "Git Remove Cached",
+			"type": "shell",
+			"command": "git rm -r --cached .",
+			"group": "test"
+		},
 		{
 			"label": "Run Pre-commit (All Files)",
 			"type": "shell",
