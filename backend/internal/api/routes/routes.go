@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -179,6 +180,39 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	api.GET("/certificates", certHandler.List)
 	api.POST("/certificates", certHandler.Upload)
 	api.DELETE("/certificates/:id", certHandler.Delete)
+
+	// Initial Caddy Config Sync
+	go func() {
+		// Wait for Caddy to be ready (max 30 seconds)
+		ctx := context.Background()
+		timeout := time.After(30 * time.Second)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		ready := false
+		for {
+			select {
+			case <-timeout:
+				fmt.Println("Timeout waiting for Caddy to be ready")
+				return
+			case <-ticker.C:
+				if err := caddyManager.Ping(ctx); err == nil {
+					ready = true
+					goto Apply
+				}
+			}
+		}
+
+	Apply:
+		if ready {
+			// Apply config
+			if err := caddyManager.ApplyConfig(ctx); err != nil {
+				fmt.Printf("Failed to apply initial Caddy config: %v\n", err)
+			} else {
+				fmt.Printf("Successfully applied initial Caddy config\n")
+			}
+		}
+	}()
 
 	return nil
 }
