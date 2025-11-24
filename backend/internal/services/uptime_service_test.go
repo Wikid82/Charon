@@ -1,7 +1,9 @@
 package services
 
 import (
+	"fmt"
 	"net"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -30,29 +32,26 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	ns := NewNotificationService(db)
 	us := NewUptimeService(db, ns)
 
-	// Create a dummy listener for a "UP" host
+	// Create a dummy HTTP server for a "UP" host
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to start listener: %v", err)
 	}
-	defer listener.Close()
 	addr := listener.Addr().(*net.TCPAddr)
 
-	// Accept connections in background
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			conn.Close()
-		}
-	}()
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go server.Serve(listener)
+	defer server.Close()
 
 	// Seed ProxyHosts
+	// We use the listener address as the "DomainName" so the monitor checks this HTTP server
 	upHost := models.ProxyHost{
 		UUID:        "uuid-1",
-		DomainNames: "up.example.com",
+		DomainNames: fmt.Sprintf("127.0.0.1:%d", addr.Port),
 		ForwardHost: "127.0.0.1",
 		ForwardPort: addr.Port,
 		Enabled:     true,
@@ -61,9 +60,9 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	downHost := models.ProxyHost{
 		UUID:        "uuid-2",
-		DomainNames: "down.example.com",
+		DomainNames: "down.example.com", // This won't resolve or connect
 		ForwardHost: "127.0.0.1",
-		ForwardPort: 54321, // Assuming this is closed
+		ForwardPort: 54321,
 		Enabled:     true,
 	}
 	db.Create(&downHost)
@@ -78,10 +77,8 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	assert.Equal(t, 2, len(monitors))
 
 	// Run CheckAll
-	// Since CheckAll runs goroutines, we need to wait a bit or use a waitgroup if we could inject it.
-	// But for this test, we can just wait a short time.
 	us.CheckAll()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond) // Increased wait time for HTTP check
 
 	// Verify Heartbeats
 	var heartbeats []models.UptimeHeartbeat
@@ -104,12 +101,13 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	assert.Equal(t, 0, len(notifications), "Should have 0 notifications on first run")
 
 	// Now let's flip the status to trigger notification
-	// Make upHost go DOWN
+	// Make upHost go DOWN by closing the listener
+	server.Close()
 	listener.Close()
 	time.Sleep(10 * time.Millisecond)
 
 	us.CheckAll()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
 	assert.Equal(t, "down", upMonitor.Status)
@@ -117,7 +115,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	db.Find(&notifications)
 	assert.Equal(t, 1, len(notifications), "Should have 1 notification now")
 	if len(notifications) > 0 {
-		assert.Contains(t, notifications[0].Message, "up.example.com", "Notification should mention the host")
+		assert.Contains(t, notifications[0].Message, upHost.DomainNames, "Notification should mention the host")
 	}
 }
 
