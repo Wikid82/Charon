@@ -69,6 +69,17 @@ func (s *UptimeService) SyncMonitors() error {
 				log.Printf("Failed to create monitor for host %d: %v", host.ID, err)
 			}
 		} else if err == nil {
+			// Always sync the name from proxy host
+			newName := host.Name
+			if newName == "" {
+				newName = firstDomain
+			}
+			if monitor.Name != newName {
+				monitor.Name = newName
+				s.DB.Save(&monitor)
+				log.Printf("Updated monitor name for host %d to: %s", host.ID, newName)
+			}
+
 			// Update existing monitor if it looks like it's using the old default (TCP to internal upstream)
 			// We check if it matches the internal upstream URL to avoid overwriting custom user settings
 			if monitor.Type == "tcp" && monitor.URL == internalURL {
@@ -189,7 +200,7 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 
 func (s *UptimeService) ListMonitors() ([]models.UptimeMonitor, error) {
 	var monitors []models.UptimeMonitor
-	result := s.DB.Find(&monitors)
+	result := s.DB.Order("name ASC").Find(&monitors)
 	return monitors, result.Error
 }
 

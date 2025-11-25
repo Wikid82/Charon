@@ -439,6 +439,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	var req struct {
 		SessionUUID string            `json:"session_uuid" binding:"required"`
 		Resolutions map[string]string `json:"resolutions"` // domain -> action (keep/skip, overwrite, rename)
+		Names       map[string]string `json:"names"`       // domain -> custom name
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -504,6 +505,11 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	for _, host := range proxyHosts {
 		action := req.Resolutions[host.DomainNames]
+
+		// Apply custom name from user input
+		if customName, ok := req.Names[host.DomainNames]; ok && customName != "" {
+			host.Name = customName
+		}
 
 		// "keep" means keep existing (don't import), same as "skip"
 		if action == "skip" || action == "keep" {

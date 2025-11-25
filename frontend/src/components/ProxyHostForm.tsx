@@ -135,11 +135,20 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(getDockerHostString())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setNameError(null)
+
+    // Validate name is required
+    if (!formData.name.trim()) {
+      setNameError('Name is required')
+      setLoading(false)
+      return
+    }
 
     try {
       await onSubmit(formData)
@@ -230,19 +239,31 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Name Field */}
           <div>
             <label htmlFor="proxy-name" className="block text-sm font-medium text-gray-300 mb-2">
-              Name
+              Name <span className="text-red-400">*</span>
             </label>
             <input
               id="proxy-name"
               type="text"
+              required
               value={formData.name}
-              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              onChange={e => {
+                setFormData({ ...formData, name: e.target.value })
+                if (nameError && e.target.value.trim()) {
+                  setNameError(null)
+                }
+              }}
               placeholder="My Service"
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                nameError ? 'border-red-500' : 'border-gray-700'
+              }`}
             />
-            <p className="text-xs text-gray-500 mt-1">
-              A friendly name to identify this proxy host (optional)
-            </p>
+            {nameError ? (
+              <p className="text-xs text-red-400 mt-1">{nameError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                A friendly name to identify this proxy host
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
