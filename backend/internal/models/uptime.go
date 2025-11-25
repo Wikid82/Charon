@@ -19,9 +19,12 @@ type UptimeMonitor struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Current Status (Cached)
-	Status    string    `json:"status"` // up, down, maintenance, pending
-	LastCheck time.Time `json:"last_check"`
-	Latency   int64     `json:"latency"` // ms
+	Status           string    `json:"status"` // up, down, maintenance, pending
+	LastCheck        time.Time `json:"last_check"`
+	Latency          int64     `json:"latency"` // ms
+	FailureCount     int       `json:"failure_count"`
+	LastStatusChange time.Time `json:"last_status_change"`
+	MaxRetries       int       `json:"max_retries" gorm:"default:3"`
 }
 
 type UptimeHeartbeat struct {

@@ -90,10 +90,11 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Build Caddy for the target architecture
+# Build Caddy for the target architecture with caddy-security plugin
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
+    --with github.com/greenpau/caddy-security \
     --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
     --output /usr/bin/caddy

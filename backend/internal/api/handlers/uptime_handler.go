@@ -36,3 +36,20 @@ func (h *UptimeHandler) GetHistory(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, history)
 }
+
+func (h *UptimeHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	monitor, err := h.service.UpdateMonitor(id, updates)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, monitor)
+}

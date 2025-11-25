@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -33,6 +34,7 @@ func setupUptimeHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	uptime := api.Group("/uptime")
 	uptime.GET("", handler.List)
 	uptime.GET("/:id/history", handler.GetHistory)
+	uptime.PUT("/:id", handler.Update)
 
 	return r, db
 }
@@ -96,4 +98,65 @@ func TestUptimeHandler_GetHistory(t *testing.T) {
 	assert.Len(t, history, 2)
 	// Should be ordered by created_at desc
 	assert.Equal(t, "down", history[0].Status)
+}
+
+func TestUptimeHandler_Update(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		r, db := setupUptimeHandlerTest(t)
+
+		monitorID := "monitor-update"
+		monitor := models.UptimeMonitor{
+			ID:         monitorID,
+			Name:       "Original Name",
+			Interval:   30,
+			MaxRetries: 3,
+		}
+		db.Create(&monitor)
+
+		updates := map[string]interface{}{
+			"interval":    60,
+			"max_retries": 5,
+		}
+		body, _ := json.Marshal(updates)
+
+		req, _ := http.NewRequest("PUT", "/api/v1/uptime/"+monitorID, bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var result models.UptimeMonitor
+		err := json.Unmarshal(w.Body.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, 60, result.Interval)
+		assert.Equal(t, 5, result.MaxRetries)
+	})
+
+	t.Run("invalid_json", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		req, _ := http.NewRequest("PUT", "/api/v1/uptime/monitor-1", bytes.NewBuffer([]byte("invalid")))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		updates := map[string]interface{}{
+			"interval": 60,
+		}
+		body, _ := json.Marshal(updates)
+
+		req, _ := http.NewRequest("PUT", "/api/v1/uptime/nonexistent", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
 }

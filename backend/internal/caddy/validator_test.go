@@ -25,7 +25,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 		},
 	}
 
-	config, _ := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil)
+	config, _ := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
 	err := Validate(config)
 	require.NoError(t, err)
 }

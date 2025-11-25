@@ -24,6 +24,8 @@ type ProxyHost struct {
 	ForwardAuthBypass  string          `json:"forward_auth_bypass" gorm:"type:text"` // Comma-separated paths
 	CertificateID      *uint           `json:"certificate_id"`
 	Certificate        *SSLCertificate `json:"certificate" gorm:"foreignKey:CertificateID"`
+	AuthPolicyID       *uint           `json:"auth_policy_id"` // Built-in SSO policy
+	AuthPolicy         *AuthPolicy     `json:"auth_policy" gorm:"foreignKey:AuthPolicyID"`
 	Locations          []Location      `json:"locations" gorm:"foreignKey:ProxyHostID;constraint:OnDelete:CASCADE"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`

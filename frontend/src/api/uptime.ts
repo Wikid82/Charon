@@ -10,6 +10,7 @@ export interface UptimeMonitor {
   status: string;
   last_check: string;
   latency: number;
+  max_retries: number;
 }
 
 export interface UptimeHeartbeat {
@@ -28,5 +29,10 @@ export const getMonitors = async () => {
 
 export const getMonitorHistory = async (id: string, limit: number = 50) => {
   const response = await client.get<UptimeHeartbeat[]>(`/uptime/monitors/${id}/history?limit=${limit}`);
+  return response.data;
+};
+
+export const updateMonitor = async (id: string, data: Partial<UptimeMonitor>) => {
+  const response = await client.put<UptimeMonitor>(`/uptime/monitors/${id}`, data);
   return response.data;
 };
