@@ -30,7 +30,7 @@ func TestClient_Load_Success(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		},
-	}, "/tmp/caddy-data", "admin@example.com", "", "", false)
+	}, "/tmp/caddy-data", "admin@example.com", "", "", false, nil)
 
 	err := client.Load(context.Background(), config)
 	require.NoError(t, err)
@@ -92,4 +92,72 @@ func TestClient_Ping_Unreachable(t *testing.T) {
 	client := NewClient("http://localhost:9999")
 	err := client.Ping(context.Background())
 	require.Error(t, err)
+}
+
+func TestClient_GetConfig_Failure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	_, err := client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "500")
+}
+
+func TestClient_GetConfig_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("invalid json"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	_, err := client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode response")
+}
+
+func TestClient_Ping_Failure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.Ping(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "503")
+}
+
+func TestClient_RequestCreationErrors(t *testing.T) {
+	// Use a control character in URL to force NewRequest error
+	client := NewClient("http://example.com" + string(byte(0x7f)))
+
+	err := client.Load(context.Background(), &Config{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	_, err = client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	err = client.Ping(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+}
+
+func TestClient_NetworkErrors(t *testing.T) {
+	// Use a closed port to force connection error
+	client := NewClient("http://127.0.0.1:0")
+
+	err := client.Load(context.Background(), &Config{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "execute request")
+
+	_, err = client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "execute request")
 }

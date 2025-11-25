@@ -50,6 +50,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Uptime', path: '/uptime', icon: '📈' },
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
+    { name: 'Security', path: '/security', icon: '🛡️' },
     {
       name: 'Settings',
       path: '/settings',

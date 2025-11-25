@@ -10,7 +10,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, forwardAuthConfig *models.ForwardAuthConfig) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -196,6 +196,30 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
+		// Add Forward Auth if enabled for this host
+		if host.ForwardAuthEnabled && forwardAuthConfig != nil && forwardAuthConfig.Address != "" {
+			// Parse bypass paths
+			var bypassPaths []string
+			if host.ForwardAuthBypass != "" {
+				rawPaths := strings.Split(host.ForwardAuthBypass, ",")
+				for _, p := range rawPaths {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						bypassPaths = append(bypassPaths, p)
+					}
+				}
+			}
+
+			// If we have bypass paths, we need to conditionally apply auth
+			if len(bypassPaths) > 0 {
+				// Create a subroute that only applies auth to non-bypass paths
+				// This is complex - for now, add auth unconditionally and handle bypass in a separate route
+				// A better approach: create bypass routes BEFORE auth routes
+			}
+
+			handlers = append(handlers, ForwardAuthHandler(forwardAuthConfig.Address, forwardAuthConfig.TrustForwardHeader))
+		}
+
 		// Add HSTS header if enabled
 		if host.HSTSEnabled {
 			hstsValue := "max-age=31536000"
@@ -210,6 +234,32 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Add exploit blocking if enabled
 		if host.BlockExploits {
 			handlers = append(handlers, BlockExploitsHandler())
+		}
+
+		// Handle bypass routes FIRST if Forward Auth is enabled
+		if host.ForwardAuthEnabled && host.ForwardAuthBypass != "" {
+			rawPaths := strings.Split(host.ForwardAuthBypass, ",")
+			for _, p := range rawPaths {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				// Create bypass route without auth
+				dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+				bypassRoute := &Route{
+					Match: []Match{
+						{
+							Host: uniqueDomains,
+							Path: []string{p, p + "/*"},
+						},
+					},
+					Handle: []Handler{
+						ReverseProxyHandler(dial, host.WebsocketSupport),
+					},
+					Terminal: true,
+				}
+				routes = append(routes, bypassRoute)
+			}
 		}
 
 		// Handle custom locations first (more specific routes)

@@ -4,6 +4,7 @@ import { RemoteServer } from '../hooks/useRemoteServers'
 export const mockProxyHosts: ProxyHost[] = [
   {
     uuid: '123e4567-e89b-12d3-a456-426614174000',
+    name: 'App Local',
     domain_names: 'app.local.dev',
     forward_scheme: 'http',
     forward_host: 'localhost',
@@ -14,6 +15,8 @@ export const mockProxyHosts: ProxyHost[] = [
     hsts_subdomains: false,
     block_exploits: true,
     websocket_support: true,
+    forward_auth_enabled: false,
+    forward_auth_bypass: '',
     locations: [],
     advanced_config: undefined,
     enabled: true,
@@ -22,6 +25,7 @@ export const mockProxyHosts: ProxyHost[] = [
   },
   {
     uuid: '223e4567-e89b-12d3-a456-426614174001',
+    name: 'API Local',
     domain_names: 'api.local.dev',
     forward_scheme: 'http',
     forward_host: '192.168.1.100',
@@ -32,6 +36,8 @@ export const mockProxyHosts: ProxyHost[] = [
     hsts_subdomains: false,
     block_exploits: true,
     websocket_support: false,
+    forward_auth_enabled: false,
+    forward_auth_bypass: '',
     locations: [],
     advanced_config: undefined,
     enabled: true,

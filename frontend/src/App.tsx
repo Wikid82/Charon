@@ -13,6 +13,7 @@ const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const Certificates = lazy(() => import('./pages/Certificates'))
+const Security = lazy(() => import('./pages/Security'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
 const Account = lazy(() => import('./pages/Account'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="import" element={<ImportCaddy />} />
+              <Route path="security" element={<Security />} />
 
               {/* Settings Routes */}
               <Route path="settings" element={<Settings />}>

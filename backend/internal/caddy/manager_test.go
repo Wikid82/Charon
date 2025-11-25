@@ -40,7 +40,7 @@ func TestManager_ApplyConfig(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
 
 	// Setup Manager
 	tmpDir := t.TempDir()
@@ -77,7 +77,7 @@ func TestManager_ApplyConfig_Failure(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
 
 	// Setup Manager
 	tmpDir := t.TempDir()
@@ -158,7 +158,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
 
 	client := NewClient(caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false)
@@ -212,7 +212,7 @@ func TestManager_Rollback_Success(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
 
 	// Setup Manager
 	tmpDir := t.TempDir()
@@ -254,4 +254,79 @@ func TestManager_Rollback_Success(t *testing.T) {
 	// Verify we still have 1 snapshot (the failed one was removed)
 	snapshots, _ = manager.listSnapshots()
 	assert.Len(t, snapshots, 1)
+}
+
+func TestManager_ApplyConfig_DBError(t *testing.T) {
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
+
+	// Setup Manager
+	tmpDir := t.TempDir()
+	client := NewClient("http://localhost")
+	manager := NewManager(client, db, tmpDir, "", false)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch proxy hosts")
+}
+
+func TestManager_ApplyConfig_ValidationError(t *testing.T) {
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
+
+	// Setup Manager with a file as configDir to force saveSnapshot error
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config-file")
+	os.WriteFile(configDir, []byte("not a dir"), 0644)
+
+	client := NewClient("http://localhost")
+	manager := NewManager(client, db, configDir, "", false)
+
+	host := models.ProxyHost{
+		DomainNames: "example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	db.Create(&host)
+
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "save snapshot")
+}
+
+func TestManager_Rollback_Failure(t *testing.T) {
+	// Mock Caddy Admin API - Always Fail
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer caddyServer.Close()
+
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.ForwardAuthConfig{}))
+
+	// Setup Manager
+	tmpDir := t.TempDir()
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, db, tmpDir, "", false)
+
+	// Create a dummy snapshot manually so rollback has something to try
+	os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0644)
+
+	// Apply Config - will fail, try rollback, rollback will fail
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "rollback also failed")
 }

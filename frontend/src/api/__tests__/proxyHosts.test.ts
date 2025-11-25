@@ -26,6 +26,7 @@ describe('proxyHosts API', () => {
 
   const mockHost: ProxyHost = {
     uuid: '123',
+    name: 'Example Host',
     domain_names: 'example.com',
     forward_scheme: 'http',
     forward_host: 'localhost',
@@ -36,6 +37,8 @@ describe('proxyHosts API', () => {
     hsts_subdomains: false,
     block_exploits: false,
     websocket_support: false,
+    forward_auth_enabled: false,
+    forward_auth_bypass: '',
     locations: [],
     enabled: true,
     created_at: '2023-01-01',

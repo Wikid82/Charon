@@ -27,6 +27,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
+    forward_auth_enabled: host?.forward_auth_enabled ?? false,
+    forward_auth_bypass: host?.forward_auth_bypass || '',
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
@@ -497,6 +499,43 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <CircleHelp size={14} />
               </div>
             </label>
+          </div>
+
+          {/* Forward Auth */}
+          <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700 space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={formData.forward_auth_enabled}
+                  onChange={e => setFormData({ ...formData, forward_auth_enabled: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-300">Enable Forward Auth (SSO)</span>
+              </label>
+              <div title="Protects this service using your configured global authentication provider (e.g. Authelia, Authentik)." className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
+            </div>
+
+            {formData.forward_auth_enabled && (
+              <div>
+                <label htmlFor="forward-auth-bypass" className="block text-sm font-medium text-gray-300 mb-2">
+                  Bypass Paths (Optional)
+                </label>
+                <textarea
+                  id="forward-auth-bypass"
+                  value={formData.forward_auth_bypass}
+                  onChange={e => setFormData({ ...formData, forward_auth_bypass: e.target.value })}
+                  placeholder="/api/webhook, /public/*"
+                  rows={2}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Comma-separated list of paths to exclude from authentication.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Advanced Config */}
