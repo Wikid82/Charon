@@ -149,9 +149,14 @@ export default function ProxyHosts() {
                             </span>
                           )}
                         </div>
-                        {host.certificate && (
+                        {host.certificate && host.certificate.provider === 'custom' && (
                           <div className="text-xs text-gray-400">
-                            {host.certificate.name} ({host.certificate.provider})
+                            {host.certificate.name} (Custom)
+                          </div>
+                        )}
+                        {host.ssl_forced && !host.certificate && (
+                          <div className="text-xs text-blue-400">
+                            Let's Encrypt (Auto)
                           </div>
                         )}
                       </div>
