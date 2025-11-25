@@ -24,6 +24,9 @@ type AuthUser struct {
 	PasswordHash string `gorm:"not null" json:"-"` // Never expose in JSON
 	Enabled      bool   `gorm:"default:true" json:"enabled"`
 
+	// Additional emails for linking identities (comma-separated)
+	AdditionalEmails string `json:"additional_emails"`
+
 	// Authorization
 	Roles string `json:"roles"` // Comma-separated roles (e.g., "admin,user")
 

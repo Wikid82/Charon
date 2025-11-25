@@ -68,13 +68,11 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
-# -gcflags "all=-N -l" disables optimizations and inlining for better debugging
 # xx-go handles CGO and cross-compilation flags automatically
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build \
-    -gcflags "all=-N -l" \
-    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
+    -ldflags "-s -w -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
     -o cpmp ./cmd/api

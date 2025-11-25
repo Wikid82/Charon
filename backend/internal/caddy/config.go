@@ -23,7 +23,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
 				"access": {
-					Level: "DEBUG",
+					Level: "INFO",
 					Writer: &WriterConfig{
 						Output:       "file",
 						Filename:     logFile,
@@ -440,21 +440,41 @@ func convertAuthUsersToConfig(users []models.AuthUser) []map[string]interface{} 
 			continue
 		}
 
-		userConfig := map[string]interface{}{
-			"username": user.Username,
-			"email":    user.Email,
-			"password": user.PasswordHash, // Already bcrypt hashed
+		// Helper to create user config
+		createUserConfig := func(username, email string) map[string]interface{} {
+			cfg := map[string]interface{}{
+				"username": username,
+				"email":    email,
+				"password": user.PasswordHash, // Already bcrypt hashed
+			}
+
+			if user.Name != "" {
+				cfg["name"] = user.Name
+			}
+
+			if user.Roles != "" {
+				cfg["roles"] = strings.Split(user.Roles, ",")
+			}
+			return cfg
 		}
 
-		if user.Name != "" {
-			userConfig["name"] = user.Name
-		}
+		// Add primary user
+		result = append(result, createUserConfig(user.Username, user.Email))
 
-		if user.Roles != "" {
-			userConfig["roles"] = strings.Split(user.Roles, ",")
+		// Add additional emails as alias users
+		if user.AdditionalEmails != "" {
+			emails := strings.Split(user.AdditionalEmails, ",")
+			for i, email := range emails {
+				email = strings.TrimSpace(email)
+				if email == "" {
+					continue
+				}
+				// Create a derived username for the alias
+				// We use a predictable suffix so it doesn't change
+				aliasUsername := fmt.Sprintf("%s_alt%d", user.Username, i+1)
+				result = append(result, createUserConfig(aliasUsername, email))
+			}
 		}
-
-		result = append(result, userConfig)
 	}
 	return result
 }

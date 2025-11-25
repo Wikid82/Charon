@@ -45,12 +45,13 @@ func (h *AuthUserHandler) Get(c *gin.Context) {
 
 // CreateRequest represents the request body for creating an auth user
 type CreateAuthUserRequest struct {
-	Username   string `json:"username" binding:"required"`
-	Email      string `json:"email" binding:"required,email"`
-	Name       string `json:"name"`
-	Password   string `json:"password" binding:"required,min=8"`
-	Roles      string `json:"roles"`
-	MFAEnabled bool   `json:"mfa_enabled"`
+	Username         string `json:"username" binding:"required"`
+	Email            string `json:"email" binding:"required,email"`
+	Name             string `json:"name"`
+	Password         string `json:"password" binding:"required,min=8"`
+	Roles            string `json:"roles"`
+	MFAEnabled       bool   `json:"mfa_enabled"`
+	AdditionalEmails string `json:"additional_emails"`
 }
 
 // Create creates a new auth user
@@ -62,12 +63,13 @@ func (h *AuthUserHandler) Create(c *gin.Context) {
 	}
 
 	user := models.AuthUser{
-		Username:   req.Username,
-		Email:      req.Email,
-		Name:       req.Name,
-		Roles:      req.Roles,
-		MFAEnabled: req.MFAEnabled,
-		Enabled:    true,
+		Username:         req.Username,
+		Email:            req.Email,
+		Name:             req.Name,
+		Roles:            req.Roles,
+		MFAEnabled:       req.MFAEnabled,
+		AdditionalEmails: req.AdditionalEmails,
+		Enabled:          true,
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -85,12 +87,13 @@ func (h *AuthUserHandler) Create(c *gin.Context) {
 
 // UpdateRequest represents the request body for updating an auth user
 type UpdateAuthUserRequest struct {
-	Email      *string `json:"email,omitempty"`
-	Name       *string `json:"name,omitempty"`
-	Password   *string `json:"password,omitempty"`
-	Roles      *string `json:"roles,omitempty"`
-	Enabled    *bool   `json:"enabled,omitempty"`
-	MFAEnabled *bool   `json:"mfa_enabled,omitempty"`
+	Email            *string `json:"email,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	Password         *string `json:"password,omitempty"`
+	Roles            *string `json:"roles,omitempty"`
+	Enabled          *bool   `json:"enabled,omitempty"`
+	MFAEnabled       *bool   `json:"mfa_enabled,omitempty"`
+	AdditionalEmails *string `json:"additional_emails,omitempty"`
 }
 
 // Update updates an existing auth user
@@ -132,6 +135,9 @@ func (h *AuthUserHandler) Update(c *gin.Context) {
 	}
 	if req.MFAEnabled != nil {
 		user.MFAEnabled = *req.MFAEnabled
+	}
+	if req.AdditionalEmails != nil {
+		user.AdditionalEmails = *req.AdditionalEmails
 	}
 
 	if err := h.db.Save(&user).Error; err != nil {

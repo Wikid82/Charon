@@ -124,7 +124,7 @@ func TestGenerateConfig_Logging(t *testing.T) {
 	require.NotNil(t, config.Logging)
 	require.NotNil(t, config.Logging.Logs)
 	require.NotNil(t, config.Logging.Logs["access"])
-	require.Equal(t, "DEBUG", config.Logging.Logs["access"].Level)
+	require.Equal(t, "INFO", config.Logging.Logs["access"].Level)
 	require.Contains(t, config.Logging.Logs["access"].Writer.Filename, "access.log")
 	require.Equal(t, 10, config.Logging.Logs["access"].Writer.RollSize)
 	require.Equal(t, 5, config.Logging.Logs["access"].Writer.RollKeep)
