@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuthProviders } from '../../hooks/useSecurity';
 import { Button } from '../../components/ui/Button';
 import { Plus, Edit, Trash2, Globe } from 'lucide-react';
@@ -18,6 +18,47 @@ interface ProviderFormData {
   display_name: string;
   enabled: boolean;
 }
+
+interface HelpTooltipProps {
+  content: React.ReactNode;
+  position?: 'left' | 'right';
+}
+
+const HelpTooltip = ({ content, position = 'left' }: HelpTooltipProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnter = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setIsOpen(true);
+  };
+
+  const handleMouseLeave = () => {
+    timeoutRef.current = setTimeout(() => {
+      setIsOpen(false);
+    }, 300);
+  };
+
+  return (
+    <div className="relative inline-block" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      <button
+        type="button"
+        className="w-4 h-4 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 flex items-center justify-center text-xs cursor-help"
+        onClick={(e) => e.preventDefault()}
+      >
+        ?
+      </button>
+      {isOpen && (
+        <div
+          className={`absolute bottom-6 ${position === 'left' ? 'left-0' : 'right-0'} bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-72 z-10 shadow-lg border border-gray-700`}
+        >
+          {content}
+          <div className={`absolute top-full ${position === 'left' ? 'left-1' : 'right-1'} border-4 border-transparent border-t-gray-800`}></div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function Providers() {
   const { providers, createProvider, updateProvider, deleteProvider, isLoading } = useAuthProviders();
@@ -230,23 +271,18 @@ export default function Providers() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <label className="block text-sm font-medium text-gray-400">Client ID</label>
-                    <div className="group relative">
-                      <button
-                        type="button"
-                        className="w-4 h-4 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 flex items-center justify-center text-xs"
-                        title="OAuth Client ID help"
-                      >
-                        ?
-                      </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 left-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-72 z-10 shadow-lg">
-                        <div className="mb-2">The public identifier for your OAuth application.</div>
-                        <div className="space-y-1">
-                          <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
-                          <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
-                        </div>
-                        <div className="absolute top-full left-4 border-4 border-transparent border-t-gray-800"></div>
-                      </div>
-                    </div>
+                    <HelpTooltip
+                      position="left"
+                      content={
+                        <>
+                          <div className="mb-2">The public identifier for your OAuth application.</div>
+                          <div className="space-y-1">
+                            <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
+                            <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
+                          </div>
+                        </>
+                      }
+                    />
                   </div>
                   <input
                     type="text"
@@ -262,23 +298,18 @@ export default function Providers() {
                     <label className="block text-sm font-medium text-gray-400">
                       {editingProvider ? 'Client Secret (leave blank to keep)' : 'Client Secret'}
                     </label>
-                    <div className="group relative">
-                      <button
-                        type="button"
-                        className="w-4 h-4 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 flex items-center justify-center text-xs"
-                        title="OAuth Client Secret help"
-                      >
-                        ?
-                      </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-72 z-10 shadow-lg">
-                        <div className="mb-2">The private key for your OAuth application. Keep this secret and secure!</div>
-                        <div className="space-y-1">
-                          <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
-                          <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
-                        </div>
-                        <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800"></div>
-                      </div>
-                    </div>
+                    <HelpTooltip
+                      position="right"
+                      content={
+                        <>
+                          <div className="mb-2">The private key for your OAuth application. Keep this secret and secure!</div>
+                          <div className="space-y-1">
+                            <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
+                            <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
+                          </div>
+                        </>
+                      }
+                    />
                   </div>
                   <input
                     type="password"
