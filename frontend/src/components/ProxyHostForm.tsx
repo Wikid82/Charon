@@ -372,9 +372,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value={0}>Request a new SSL Certificate</option>
-              {certificates.filter(c => c.provider === 'custom').map(cert => (
+              {certificates.map(cert => (
                 <option key={cert.id} value={cert.id}>
-                  {cert.name} ({cert.domain})
+                  {cert.name} ({cert.provider})
                 </option>
               ))}
             </select>

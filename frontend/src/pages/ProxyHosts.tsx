@@ -136,16 +136,23 @@ export default function ProxyHosts() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-2">
-                        {host.ssl_forced && (
-                          <span className="px-2 py-1 text-xs bg-green-900/30 text-green-400 rounded">
-                            SSL
-                          </span>
-                        )}
-                        {host.websocket_support && (
-                          <span className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 rounded">
-                            WS
-                          </span>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          {host.ssl_forced && (
+                            <span className="px-2 py-1 text-xs bg-green-900/30 text-green-400 rounded">
+                              SSL
+                            </span>
+                          )}
+                          {host.websocket_support && (
+                            <span className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 rounded">
+                              WS
+                            </span>
+                          )}
+                        </div>
+                        {host.certificate && (
+                          <div className="text-xs text-gray-400">
+                            {host.certificate.name} ({host.certificate.provider})
+                          </div>
                         )}
                       </div>
                     </td>
