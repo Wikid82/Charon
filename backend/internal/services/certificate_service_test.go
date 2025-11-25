@@ -445,3 +445,291 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestCertificateService_StagingCertificates(t *testing.T) {
+	t.Run("staging certificate detected by path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Create staging cert in acme-staging directory
+		domain := "staging.example.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		// Staging path contains "acme-staging"
+		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+
+		// Should be detected as staging
+		assert.Equal(t, "letsencrypt-staging", certs[0].Provider)
+		assert.Equal(t, "untrusted", certs[0].Status)
+	})
+
+	t.Run("production cert preferred over staging", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		domain := "both.example.com"
+		expiry := time.Now().Add(60 * 24 * time.Hour) // 60 days - outside expiring window
+		certPEM := generateTestCert(t, domain, expiry)
+
+		// Create staging cert first (alphabetically comes before production)
+		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(stagingDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		// Create production cert
+		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(prodDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+
+		// Production should win
+		assert.Equal(t, "letsencrypt", certs[0].Provider)
+		assert.Equal(t, "valid", certs[0].Status)
+	})
+
+	t.Run("upgrade from staging to production", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		domain := "upgrade.example.com"
+		expiry := time.Now().Add(60 * 24 * time.Hour) // 60 days - outside expiring window
+		certPEM := generateTestCert(t, domain, expiry)
+
+		// First, create only staging cert
+		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(stagingDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		// Scan - should be staging
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Equal(t, "letsencrypt-staging", certs[0].Provider)
+
+		// Now add production cert
+		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(prodDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		// Rescan - should be upgraded to production
+		certs, err = cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Equal(t, "letsencrypt", certs[0].Provider)
+		assert.Equal(t, "valid", certs[0].Status)
+	})
+}
+
+func TestCertificateService_ExpiringStatus(t *testing.T) {
+	t.Run("certificate expiring within 30 days", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Expiring in 15 days (within 30 day threshold)
+		domain := "expiring.example.com"
+		expiry := time.Now().Add(15 * 24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Equal(t, "expiring", certs[0].Status)
+	})
+
+	t.Run("certificate valid for more than 30 days", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Expiring in 60 days (outside 30 day threshold)
+		domain := "valid-long.example.com"
+		expiry := time.Now().Add(60 * 24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Equal(t, "valid", certs[0].Status)
+	})
+
+	t.Run("staging cert always untrusted even if expiring", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Staging cert expiring soon
+		domain := "staging-expiring.example.com"
+		expiry := time.Now().Add(5 * 24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		require.NoError(t, err)
+
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		// Staging takes priority over expiring for status
+		assert.Equal(t, "untrusted", certs[0].Status)
+		assert.Equal(t, "letsencrypt-staging", certs[0].Provider)
+	})
+}
+
+func TestCertificateService_StaleCertCleanup(t *testing.T) {
+	t.Run("stale DB entries removed when file deleted", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		domain := "stale.example.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+
+		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
+		certPath := filepath.Join(certDir, domain+".crt")
+		err = os.MkdirAll(certDir, 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(certPath, certPEM, 0644)
+		require.NoError(t, err)
+
+		// First scan - should create DB entry
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+
+		// Delete the file
+		err = os.Remove(certPath)
+		require.NoError(t, err)
+
+		// Second scan - should remove stale DB entry
+		certs, err = cs.ListCertificates()
+		require.NoError(t, err)
+		assert.Len(t, certs, 0)
+
+		// Verify DB is clean
+		var count int64
+		db.Model(&models.SSLCertificate{}).Count(&count)
+		assert.Equal(t, int64(0), count)
+	})
+}
+
+func TestCertificateService_CertificateWithSANs(t *testing.T) {
+	t.Run("certificate with SANs uses joined domains", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := NewCertificateService(tmpDir, db)
+
+		// Generate cert with SANs
+		domain := "san.example.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCertWithSANs(t, domain, []string{"san.example.com", "www.san.example.com", "api.san.example.com"}, expiry)
+		keyPEM := []byte("FAKE PRIVATE KEY")
+
+		cert, err := cs.UploadCertificate("SAN Cert", string(certPEM), string(keyPEM))
+		require.NoError(t, err)
+		assert.NotNil(t, cert)
+		// Should have joined SANs
+		assert.Contains(t, cert.Domains, "san.example.com")
+		assert.Contains(t, cert.Domains, "www.san.example.com")
+		assert.Contains(t, cert.Domains, "api.san.example.com")
+	})
+}
+
+// generateTestCertWithSANs generates a test certificate with Subject Alternative Names
+func generateTestCertWithSANs(t *testing.T, cn string, sans []string, expiry time.Time) []byte {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: cn,
+		},
+		DNSNames:  sans,
+		NotBefore: time.Now(),
+		NotAfter:  expiry,
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+}

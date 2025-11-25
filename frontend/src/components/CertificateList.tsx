@@ -98,12 +98,14 @@ function StatusBadge({ status }: { status: string }) {
     valid: 'bg-green-900/30 text-green-400 border-green-800',
     expiring: 'bg-yellow-900/30 text-yellow-400 border-yellow-800',
     expired: 'bg-red-900/30 text-red-400 border-red-800',
+    untrusted: 'bg-orange-900/30 text-orange-400 border-orange-800',
   }
 
   const labels = {
     valid: 'Valid',
     expiring: 'Expiring Soon',
     expired: 'Expired',
+    untrusted: 'Untrusted (Staging)',
   }
 
   const style = styles[status as keyof typeof styles] || styles.valid

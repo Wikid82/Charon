@@ -24,8 +24,8 @@ type CertificateInfo struct {
 	Domain    string    `json:"domain"`
 	Issuer    string    `json:"issuer"`
 	ExpiresAt time.Time `json:"expires_at"`
-	Status    string    `json:"status"`   // "valid", "expiring", "expired"
-	Provider  string    `json:"provider"` // "letsencrypt", "custom"
+	Status    string    `json:"status"`   // "valid", "expiring", "expired", "untrusted"
+	Provider  string    `json:"provider"` // "letsencrypt", "letsencrypt-staging", "custom"
 }
 
 // CertificateService manages certificate retrieval and parsing.
@@ -91,9 +91,17 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 				// Determine expiry
 				expiresAt := cert.NotAfter
 
-				// Upsert into DB for provider 'letsencrypt'
+				// Detect if this is a staging certificate by checking the path
+				// Staging certs are in acme-staging-v02.api.letsencrypt.org-directory
+				provider := "letsencrypt"
+				if strings.Contains(path, "acme-staging") {
+					provider = "letsencrypt-staging"
+					log.Printf("CertificateService: detected staging certificate for %s (path: %s)", domain, path)
+				}
+
+				// Upsert into DB
 				var existing models.SSLCertificate
-				res := s.db.Where("provider = ? AND domains = ?", "letsencrypt", domain).First(&existing)
+				res := s.db.Where("domains = ?", domain).First(&existing)
 				if res.Error != nil {
 					if res.Error == gorm.ErrRecordNotFound {
 						// Create new record
@@ -101,7 +109,7 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 						newCert := models.SSLCertificate{
 							UUID:        uuid.New().String(),
 							Name:        domain,
-							Provider:    "letsencrypt",
+							Provider:    provider,
 							Domains:     domain,
 							Certificate: string(certData),
 							PrivateKey:  "",
@@ -117,11 +125,32 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 						log.Printf("CertificateService: db error querying cert %s: %v\n", domain, res.Error)
 					}
 				} else {
-					// Update expiry/certificate content if changed
+					// Update expiry/certificate content and provider if changed
+					// But only upgrade staging->production, never downgrade production->staging
 					updated := false
 					existing.ExpiresAt = &expiresAt
-					if existing.Certificate != string(certData) {
+
+					// Determine if we should update the cert
+					// Production certs always win over staging certs
+					isExistingStaging := strings.Contains(existing.Provider, "staging")
+					isNewStaging := strings.Contains(provider, "staging")
+					shouldUpdateCert := false
+
+					if isExistingStaging && !isNewStaging {
+						// Upgrade from staging to production - always update
+						shouldUpdateCert = true
+						log.Printf("CertificateService: upgrading %s from staging to production cert", domain)
+					} else if !isExistingStaging && isNewStaging {
+						// Don't downgrade from production to staging - skip
+						log.Printf("CertificateService: skipping staging cert for %s - production cert already exists", domain)
+					} else if existing.Certificate != string(certData) {
+						// Same type but different content - update
+						shouldUpdateCert = true
+					}
+
+					if shouldUpdateCert {
 						existing.Certificate = string(certData)
+						existing.Provider = provider
 						updated = true
 					}
 					if updated {
@@ -147,9 +176,9 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 		}
 	}
 
-	// Delete stale DB entries for provider 'letsencrypt' not found on disk
+	// Delete stale DB entries for ACME certs not found on disk
 	var acmeCerts []models.SSLCertificate
-	if err := s.db.Where("provider = ?", "letsencrypt").Find(&acmeCerts).Error; err == nil {
+	if err := s.db.Where("provider LIKE ?", "letsencrypt%").Find(&acmeCerts).Error; err == nil {
 		for _, c := range acmeCerts {
 			if _, ok := foundDomains[c.Domains]; !ok {
 				// remove stale record
@@ -171,7 +200,11 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 
 	for _, c := range dbCerts {
 		status := "valid"
-		if c.ExpiresAt != nil {
+
+		// Staging certificates are untrusted by browsers
+		if strings.Contains(c.Provider, "staging") {
+			status = "untrusted"
+		} else if c.ExpiresAt != nil {
 			if time.Now().After(*c.ExpiresAt) {
 				status = "expired"
 			} else if time.Now().AddDate(0, 0, 30).After(*c.ExpiresAt) {

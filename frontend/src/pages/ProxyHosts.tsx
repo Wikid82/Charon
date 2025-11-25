@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Loader2, ExternalLink } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Loader2, ExternalLink, AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
+import { useCertificates } from '../hooks/useCertificates'
 import { getSettings } from '../api/settings'
 import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
@@ -9,6 +10,7 @@ import { Switch } from '../components/ui/Switch'
 
 export default function ProxyHosts() {
   const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost } = useProxyHosts()
+  const { certificates } = useCertificates()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
 
@@ -18,6 +20,15 @@ export default function ProxyHosts() {
   })
 
   const linkBehavior = settings?.['ui.domain_link_behavior'] || 'new_tab'
+
+  // Create a map of domain -> certificate status for quick lookup
+  const certStatusByDomain = useMemo(() => {
+    const map: Record<string, { status: string; provider: string }> = {}
+    certificates.forEach(cert => {
+      map[cert.domain] = { status: cert.status, provider: cert.provider }
+    })
+    return map
+  }, [certificates])
 
   const handleDomainClick = (e: React.MouseEvent, url: string) => {
     if (linkBehavior === 'new_window') {
@@ -136,30 +147,53 @@ export default function ProxyHosts() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col gap-2">
-                        <div className="flex gap-2">
-                          {host.ssl_forced && (
-                            <span className="px-2 py-1 text-xs bg-green-900/30 text-green-400 rounded">
-                              SSL
-                            </span>
-                          )}
-                          {host.websocket_support && (
-                            <span className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 rounded">
-                              WS
-                            </span>
-                          )}
-                        </div>
-                        {host.certificate && host.certificate.provider === 'custom' && (
-                          <div className="text-xs text-gray-400">
-                            {host.certificate.name} (Custom)
+                      {(() => {
+                        // Get the primary domain to look up cert status
+                        const primaryDomain = host.domain_names.split(',')[0]?.trim()
+                        const certInfo = certStatusByDomain[primaryDomain]
+                        const isUntrusted = certInfo?.status === 'untrusted'
+                        const isStaging = certInfo?.provider?.includes('staging')
+
+                        return (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                              {host.ssl_forced && (
+                                isUntrusted || isStaging ? (
+                                  <span className="px-2 py-1 text-xs bg-orange-900/30 text-orange-400 rounded flex items-center gap-1">
+                                    <AlertTriangle size={12} />
+                                    SSL (Staging)
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-1 text-xs bg-green-900/30 text-green-400 rounded">
+                                    SSL
+                                  </span>
+                                )
+                              )}
+                              {host.websocket_support && (
+                                <span className="px-2 py-1 text-xs bg-blue-900/30 text-blue-400 rounded">
+                                  WS
+                                </span>
+                              )}
+                            </div>
+                            {host.certificate && host.certificate.provider === 'custom' && (
+                              <div className="text-xs text-gray-400">
+                                {host.certificate.name} (Custom)
+                              </div>
+                            )}
+                            {host.ssl_forced && !host.certificate && (
+                              isUntrusted || isStaging ? (
+                                <div className="text-xs text-orange-400">
+                                  ⚠️ Staging cert - browsers won't trust
+                                </div>
+                              ) : (
+                                <div className="text-xs text-blue-400">
+                                  Let's Encrypt (Auto)
+                                </div>
+                              )
+                            )}
                           </div>
-                        )}
-                        {host.ssl_forced && !host.certificate && (
-                          <div className="text-xs text-blue-400">
-                            Let's Encrypt (Auto)
-                          </div>
-                        )}
-                      </div>
+                        )
+                      })()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
