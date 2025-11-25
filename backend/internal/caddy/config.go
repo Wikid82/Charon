@@ -10,7 +10,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, forwardAuthConfig *models.ForwardAuthConfig) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, forwardAuthConfig *models.ForwardAuthConfig, authUsers []models.AuthUser, authProviders []models.AuthProvider, authPolicies []models.AuthPolicy) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -130,6 +130,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 	}
 
+	// Configure Security App (Built-in SSO) if we have users or providers
+	if len(authUsers) > 0 || len(authProviders) > 0 {
+		config.Apps.Security = generateSecurityApp(authUsers, authProviders, authPolicies)
+	}
+
 	if len(hosts) == 0 && frontendDir == "" {
 		return config, nil
 	}
@@ -196,7 +201,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
-		// Add Forward Auth if enabled for this host
+		// Add Built-in SSO (caddy-security) if a policy is assigned
+		if host.AuthPolicyID != nil && host.AuthPolicy != nil && host.AuthPolicy.Enabled {
+			// Inject authentication portal check
+			handlers = append(handlers, SecurityAuthHandler("cpmp_portal"))
+			// Inject authorization policy check
+			handlers = append(handlers, SecurityAuthzHandler(host.AuthPolicy.Name))
+		}
+
+		// Add Forward Auth if enabled for this host (legacy forward auth, not SSO)
 		if host.ForwardAuthEnabled && forwardAuthConfig != nil && forwardAuthConfig.Address != "" {
 			// Parse bypass paths
 			var bypassPaths []string
@@ -321,4 +334,127 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 	}
 
 	return config, nil
+}
+
+// generateSecurityApp creates the caddy-security app configuration.
+func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.AuthProvider, authPolicies []models.AuthPolicy) *SecurityApp {
+	securityApp := &SecurityApp{
+		Authentication: &AuthenticationConfig{
+			Portals: make(map[string]*AuthPortal),
+		},
+		Authorization: &AuthorizationConfig{
+			Policies: make(map[string]*AuthzPolicy),
+		},
+	}
+
+	// Create the main authentication portal
+	portal := &AuthPortal{
+		Name:           "cpmp_portal",
+		CookieDomain:   "",    // Will use request host
+		CookieLifetime: 86400, // 24 hours
+		TokenLifetime:  3600,  // 1 hour
+		Backends:       make([]AuthBackend, 0),
+		UISettings: map[string]interface{}{
+			"theme": "basic",
+		},
+		EnableIdentityToken: true,
+	}
+
+	// Add local backend if we have local users
+	if len(authUsers) > 0 {
+		localBackend := AuthBackend{
+			Name:   "local",
+			Method: "local",
+			Realm:  "local",
+			Config: map[string]interface{}{
+				"users": convertAuthUsersToConfig(authUsers),
+			},
+		}
+		portal.Backends = append(portal.Backends, localBackend)
+	}
+
+	// Add OAuth providers
+	for _, provider := range authProviders {
+		if !provider.Enabled {
+			continue
+		}
+
+		oauthBackend := AuthBackend{
+			Name:   provider.Name,
+			Method: "oauth2",
+			Realm:  provider.Type,
+			Config: map[string]interface{}{
+				"client_id":     provider.ClientID,
+				"client_secret": provider.ClientSecret,
+				"driver":        provider.Type,
+			},
+		}
+
+		// Add provider-specific config
+		if provider.IssuerURL != "" {
+			oauthBackend.Config["base_auth_url"] = provider.IssuerURL
+		}
+		if provider.AuthURL != "" {
+			oauthBackend.Config["authorization_url"] = provider.AuthURL
+		}
+		if provider.TokenURL != "" {
+			oauthBackend.Config["token_url"] = provider.TokenURL
+		}
+		if provider.Scopes != "" {
+			oauthBackend.Config["scopes"] = strings.Split(provider.Scopes, ",")
+		}
+
+		portal.Backends = append(portal.Backends, oauthBackend)
+	}
+
+	securityApp.Authentication.Portals["cpmp_portal"] = portal
+
+	// Generate authorization policies
+	for _, policy := range authPolicies {
+		if !policy.Enabled {
+			continue
+		}
+
+		authzPolicy := &AuthzPolicy{
+			RequireMFA: policy.RequireMFA,
+		}
+
+		if policy.AllowedRoles != "" {
+			authzPolicy.AllowedRoles = strings.Split(policy.AllowedRoles, ",")
+		}
+		if policy.AllowedUsers != "" {
+			authzPolicy.AllowedUsers = strings.Split(policy.AllowedUsers, ",")
+		}
+
+		securityApp.Authorization.Policies[policy.Name] = authzPolicy
+	}
+
+	return securityApp
+}
+
+// convertAuthUsersToConfig converts AuthUser models to caddy-security user config format.
+func convertAuthUsersToConfig(users []models.AuthUser) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0)
+	for _, user := range users {
+		if !user.Enabled {
+			continue
+		}
+
+		userConfig := map[string]interface{}{
+			"username": user.Username,
+			"email":    user.Email,
+			"password": user.PasswordHash, // Already bcrypt hashed
+		}
+
+		if user.Name != "" {
+			userConfig["name"] = user.Name
+		}
+
+		if user.Roles != "" {
+			userConfig["roles"] = strings.Split(user.Roles, ",")
+		}
+
+		result = append(result, userConfig)
+	}
+	return result
 }

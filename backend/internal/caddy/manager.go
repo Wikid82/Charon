@@ -64,8 +64,23 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		forwardAuthPtr = &forwardAuthConfig
 	}
 
+	// Fetch Built-in SSO data
+	var authUsers []models.AuthUser
+	m.db.Where("enabled = ?", true).Find(&authUsers)
+
+	var authProviders []models.AuthProvider
+	m.db.Where("enabled = ?", true).Find(&authProviders)
+
+	var authPolicies []models.AuthPolicy
+	m.db.Where("enabled = ?", true).Find(&authPolicies)
+
+	// Preload AuthPolicy for hosts
+	if err := m.db.Preload("AuthPolicy").Find(&hosts).Error; err != nil {
+		return fmt.Errorf("fetch proxy hosts with auth policies: %w", err)
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, forwardAuthPtr)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, forwardAuthPtr, authUsers, authProviders, authPolicies)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

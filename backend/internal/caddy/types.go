@@ -51,8 +51,9 @@ type Storage struct {
 
 // Apps contains all Caddy app modules.
 type Apps struct {
-	HTTP *HTTPApp `json:"http,omitempty"`
-	TLS  *TLSApp  `json:"tls,omitempty"`
+	HTTP     *HTTPApp     `json:"http,omitempty"`
+	TLS      *TLSApp      `json:"tls,omitempty"`
+	Security *SecurityApp `json:"security,omitempty"`
 }
 
 // HTTPApp configures the HTTP app.
@@ -232,4 +233,64 @@ type AutomationConfig struct {
 type AutomationPolicy struct {
 	Subjects   []string      `json:"subjects,omitempty"`
 	IssuersRaw []interface{} `json:"issuers,omitempty"`
+}
+
+// SecurityApp configures the caddy-security plugin for SSO/authentication.
+type SecurityApp struct {
+	Authentication *AuthenticationConfig `json:"authentication,omitempty"`
+	Authorization  *AuthorizationConfig  `json:"authorization,omitempty"`
+}
+
+// AuthenticationConfig defines authentication portals and providers.
+type AuthenticationConfig struct {
+	Portals map[string]*AuthPortal `json:"portals,omitempty"`
+}
+
+// AuthPortal represents an authentication portal configuration.
+type AuthPortal struct {
+	Name                string                 `json:"name,omitempty"`
+	UISettings          map[string]interface{} `json:"ui,omitempty"`
+	CookieDomain        string                 `json:"cookie_domain,omitempty"`
+	CookieLifetime      int                    `json:"cookie_lifetime,omitempty"`
+	Backends            []AuthBackend          `json:"backends,omitempty"`
+	TransformUsername   map[string]interface{} `json:"transform_username,omitempty"`
+	EnableIdentityToken bool                   `json:"enable_identity_token,omitempty"`
+	TokenLifetime       int                    `json:"token_lifetime,omitempty"`
+}
+
+// AuthBackend represents an authentication backend (local or OAuth).
+type AuthBackend struct {
+	Name   string                 `json:"name"`
+	Method string                 `json:"method"` // "local", "oauth2", "saml"
+	Realm  string                 `json:"realm,omitempty"`
+	Config map[string]interface{} `json:"config,omitempty"`
+}
+
+// AuthorizationConfig defines authorization policies.
+type AuthorizationConfig struct {
+	Policies map[string]*AuthzPolicy `json:"policies,omitempty"`
+}
+
+// AuthzPolicy represents an authorization policy.
+type AuthzPolicy struct {
+	AllowedRoles   []string               `json:"allowed_roles,omitempty"`
+	AllowedUsers   []string               `json:"allowed_users,omitempty"`
+	RequireMFA     bool                   `json:"require_mfa,omitempty"`
+	ValidateMethod map[string]interface{} `json:"validate_method,omitempty"`
+}
+
+// SecurityAuthHandler creates a caddy-security authentication handler.
+func SecurityAuthHandler(portalName string) Handler {
+	return Handler{
+		"handler": "authentication",
+		"portal":  portalName,
+	}
+}
+
+// SecurityAuthzHandler creates a caddy-security authorization handler.
+func SecurityAuthzHandler(policyName string) Handler {
+	return Handler{
+		"handler": "authorization",
+		"policy":  policyName,
+	}
 }

@@ -77,7 +77,11 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	assert.Equal(t, 2, len(monitors))
 
 	// Run CheckAll
-	us.CheckAll()
+	// We need to run it multiple times because default MaxRetries is 3
+	for i := 0; i < 3; i++ {
+		us.CheckAll()
+		time.Sleep(50 * time.Millisecond)
+	}
 	time.Sleep(200 * time.Millisecond) // Increased wait time for HTTP check
 
 	// Verify Heartbeats
@@ -106,7 +110,11 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	listener.Close()
 	time.Sleep(10 * time.Millisecond)
 
-	us.CheckAll()
+	// Run CheckAll multiple times to exceed MaxRetries
+	for i := 0; i < 3; i++ {
+		us.CheckAll()
+		time.Sleep(50 * time.Millisecond)
+	}
 	time.Sleep(200 * time.Millisecond)
 
 	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
@@ -357,7 +365,11 @@ func TestUptimeService_CheckMonitor_EdgeCases(t *testing.T) {
 		err = us.SyncMonitors()
 		assert.NoError(t, err)
 
-		us.CheckAll()
+		// Run CheckAll multiple times to exceed MaxRetries
+		for i := 0; i < 3; i++ {
+			us.CheckAll()
+			time.Sleep(50 * time.Millisecond)
+		}
 		time.Sleep(200 * time.Millisecond)
 
 		var monitor models.UptimeMonitor
@@ -456,5 +468,89 @@ func TestUptimeService_ListMonitors_EdgeCases(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, monitors, 1)
 		assert.Equal(t, host.ID, *monitors[0].ProxyHostID)
+	})
+}
+
+func TestUptimeService_UpdateMonitor(t *testing.T) {
+	t.Run("update max_retries", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		monitor := models.UptimeMonitor{
+			ID:         "update-test",
+			Name:       "Update Test",
+			Type:       "http",
+			URL:        "http://example.com",
+			MaxRetries: 3,
+			Interval:   60,
+		}
+		db.Create(&monitor)
+
+		updates := map[string]interface{}{
+			"max_retries": 5,
+		}
+
+		result, err := us.UpdateMonitor(monitor.ID, updates)
+		assert.NoError(t, err)
+		assert.Equal(t, 5, result.MaxRetries)
+	})
+
+	t.Run("update interval", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		monitor := models.UptimeMonitor{
+			ID:       "update-interval",
+			Name:     "Interval Test",
+			Interval: 60,
+		}
+		db.Create(&monitor)
+
+		updates := map[string]interface{}{
+			"interval": 120,
+		}
+
+		result, err := us.UpdateMonitor(monitor.ID, updates)
+		assert.NoError(t, err)
+		assert.Equal(t, 120, result.Interval)
+	})
+
+	t.Run("update non-existent monitor", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		updates := map[string]interface{}{
+			"max_retries": 5,
+		}
+
+		_, err := us.UpdateMonitor("non-existent", updates)
+		assert.Error(t, err)
+	})
+
+	t.Run("update multiple fields", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		monitor := models.UptimeMonitor{
+			ID:         "multi-update",
+			Name:       "Multi Update Test",
+			MaxRetries: 3,
+			Interval:   60,
+		}
+		db.Create(&monitor)
+
+		updates := map[string]interface{}{
+			"max_retries": 10,
+			"interval":    300,
+		}
+
+		result, err := us.UpdateMonitor(monitor.ID, updates)
+		assert.NoError(t, err)
+		assert.Equal(t, 10, result.MaxRetries)
+		assert.Equal(t, 300, result.Interval)
 	})
 }

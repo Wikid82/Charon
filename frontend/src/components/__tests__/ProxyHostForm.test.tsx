@@ -57,6 +57,16 @@ vi.mock('../../hooks/useCertificates', () => ({
   })),
 }))
 
+vi.mock('../../hooks/useSecurity', () => ({
+  useAuthPolicies: vi.fn(() => ({
+    policies: [
+      { id: 1, name: 'Admin Only', description: 'Requires admin role' }
+    ],
+    isLoading: false,
+    error: null,
+  })),
+}))
+
 vi.mock('../../api/proxyHosts', () => ({
   testProxyHostConnection: vi.fn(),
 }))
@@ -230,7 +240,9 @@ describe('ProxyHostForm', () => {
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    const toggle = screen.getByLabelText('Enable Forward Auth (SSO)')
+    // The Forward Auth toggle now uses "Enable External Forward Auth" label
+    // and only appears when no Access Policy is selected (default is no policy)
+    const toggle = screen.getByLabelText('Enable External Forward Auth')
     expect(toggle).not.toBeChecked()
 
     // Bypass field should not be visible initially

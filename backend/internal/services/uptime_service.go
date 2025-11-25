@@ -148,15 +148,42 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	}
 
 	latency := time.Since(start).Milliseconds()
-	status := "down"
+
+	// Determine new status based on success and retries
+	newStatus := monitor.Status
+
 	if success {
-		status = "up"
+		// If it was down or pending, it's now up immediately
+		if monitor.Status != "up" {
+			newStatus = "up"
+		}
+		// Reset failure count on success
+		monitor.FailureCount = 0
+	} else {
+		// Increment failure count
+		monitor.FailureCount++
+
+		// Only mark as down if we exceeded max retries
+		// Default MaxRetries to 3 if 0 (legacy records)
+		maxRetries := monitor.MaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 3
+		}
+
+		if monitor.FailureCount >= maxRetries {
+			newStatus = "down"
+		}
 	}
 
-	// Record Heartbeat
+	// Record Heartbeat (always record the raw result)
+	heartbeatStatus := "down"
+	if success {
+		heartbeatStatus = "up"
+	}
+
 	heartbeat := models.UptimeHeartbeat{
 		MonitorID: monitor.ID,
-		Status:    status,
+		Status:    heartbeatStatus,
 		Latency:   latency,
 		Message:   msg,
 	}
@@ -164,35 +191,64 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 
 	// Update Monitor Status
 	oldStatus := monitor.Status
-	monitor.Status = status
+	statusChanged := oldStatus != newStatus && oldStatus != "pending"
+
+	// Calculate duration if status changed
+	var durationStr string
+	if statusChanged && !monitor.LastStatusChange.IsZero() {
+		duration := time.Since(monitor.LastStatusChange)
+		durationStr = duration.Round(time.Second).String()
+	}
+
+	monitor.Status = newStatus
 	monitor.LastCheck = time.Now()
 	monitor.Latency = latency
+
+	if statusChanged {
+		monitor.LastStatusChange = time.Now()
+	}
+
 	s.DB.Save(&monitor)
 
 	// Send Notification if status changed
-	if oldStatus != "pending" && oldStatus != status {
-		title := fmt.Sprintf("Monitor %s is %s", monitor.Name, status)
+	if statusChanged {
+		title := fmt.Sprintf("Monitor %s is %s", monitor.Name, strings.ToUpper(newStatus))
 
 		nType := models.NotificationTypeInfo
-		if status == "down" {
+		if newStatus == "down" {
 			nType = models.NotificationTypeError
-		} else if status == "up" {
+		} else if newStatus == "up" {
 			nType = models.NotificationTypeSuccess
 		}
+
+		// Construct rich message
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Service: %s\n", monitor.Name))
+		sb.WriteString(fmt.Sprintf("Status: %s\n", strings.ToUpper(newStatus)))
+		sb.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format(time.RFC1123)))
+
+		if durationStr != "" {
+			sb.WriteString(fmt.Sprintf("Duration: %s\n", durationStr))
+		}
+
+		sb.WriteString(fmt.Sprintf("Reason: %s\n", msg))
 
 		s.NotificationService.Create(
 			nType,
 			title,
-			fmt.Sprintf("Monitor %s changed status from %s to %s. Latency: %dms. Message: %s", monitor.Name, oldStatus, status, latency, msg),
+			sb.String(),
 		)
 
 		data := map[string]interface{}{
-			"Name":    monitor.Name,
-			"Status":  status,
-			"Latency": latency,
-			"Message": msg,
+			"Name":     monitor.Name,
+			"Status":   strings.ToUpper(newStatus),
+			"Latency":  latency,
+			"Message":  msg,
+			"Duration": durationStr,
+			"Time":     time.Now().Format(time.RFC1123),
+			"URL":      monitor.URL,
 		}
-		s.NotificationService.SendExternal("uptime", title, msg, data)
+		s.NotificationService.SendExternal("uptime", title, sb.String(), data)
 	}
 }
 
@@ -208,4 +264,27 @@ func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.Uptime
 	var heartbeats []models.UptimeHeartbeat
 	result := s.DB.Where("monitor_id = ?", id).Order("created_at desc").Limit(limit).Find(&heartbeats)
 	return heartbeats, result.Error
+}
+
+func (s *UptimeService) UpdateMonitor(id string, updates map[string]interface{}) (*models.UptimeMonitor, error) {
+	var monitor models.UptimeMonitor
+	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+
+	// Whitelist allowed fields to update
+	allowedUpdates := make(map[string]interface{})
+	if val, ok := updates["max_retries"]; ok {
+		allowedUpdates["max_retries"] = val
+	}
+	if val, ok := updates["interval"]; ok {
+		allowedUpdates["interval"] = val
+	}
+	// Add other fields as needed, but be careful not to overwrite SyncMonitors logic
+
+	if err := s.DB.Model(&monitor).Updates(allowedUpdates).Error; err != nil {
+		return nil, err
+	}
+
+	return &monitor, nil
 }

@@ -119,7 +119,9 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
-				if err := shoutrrr.Send(url, fmt.Sprintf("%s: %s", title, message)); err != nil {
+				// Use newline for better formatting in chat apps
+				msg := fmt.Sprintf("%s\n\n%s", title, message)
+				if err := shoutrrr.Send(url, msg); err != nil {
 					log.Printf("Failed to send notification to %s: %v", p.Name, err)
 				}
 			}

@@ -1,10 +1,10 @@
-import React, { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getMonitors, getMonitorHistory } from '../api/uptime';
-import { Activity, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getMonitors, getMonitorHistory, updateMonitor, UptimeMonitor } from '../api/uptime';
+import { Activity, ArrowUp, ArrowDown, Settings, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
+const MonitorCard: React.FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void }> = ({ monitor, onEdit }) => {
   const { data: history } = useQuery({
     queryKey: ['uptimeHistory', monitor.id],
     queryFn: () => getMonitorHistory(monitor.id, 60),
@@ -19,7 +19,7 @@ const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
         <div>
           <h3 className="font-semibold text-lg text-gray-900 dark:text-white">{monitor.name}</h3>
           <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
-            <a href={`http://${monitor.url}`} target="_blank" rel="noreferrer" className="hover:underline">
+            <a href={monitor.url} target="_blank" rel="noreferrer" className="hover:underline">
               {monitor.url}
             </a>
             <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs">
@@ -27,11 +27,20 @@ const MonitorCard: React.FC<{ monitor: any }> = ({ monitor }) => {
             </span>
           </div>
         </div>
-        <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-          isUp ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-        }`}>
-          {isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
-          {monitor.status.toUpperCase()}
+        <div className="flex items-center gap-2">
+            <button
+                onClick={() => onEdit(monitor)}
+                className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+                title="Configure Monitor"
+            >
+                <Settings size={16} />
+            </button>
+            <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+            isUp ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+            }`}>
+            {isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
+            {monitor.status.toUpperCase()}
+            </div>
         </div>
       </div>
 
@@ -80,12 +89,96 @@ Message: ${beat.message}`}
   );
 };
 
+const EditMonitorModal: React.FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({ monitor, onClose }) => {
+    const queryClient = useQueryClient();
+    const [maxRetries, setMaxRetries] = useState(monitor.max_retries || 3);
+    const [interval, setInterval] = useState(monitor.interval || 60);
+
+    const mutation = useMutation({
+        mutationFn: (data: Partial<UptimeMonitor>) => updateMonitor(monitor.id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['monitors'] });
+            onClose();
+        },
+    });
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        mutation.mutate({ max_retries: maxRetries, interval });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-white">Configure Monitor</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                        <X size={24} />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">
+                            Max Retries
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={maxRetries}
+                            onChange={(e) => setMaxRetries(parseInt(e.target.value))}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                            Number of consecutive failures before sending an alert.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">
+                            Check Interval (seconds)
+                        </label>
+                        <input
+                            type="number"
+                            min="10"
+                            max="3600"
+                            value={interval}
+                            onChange={(e) => setInterval(parseInt(e.target.value))}
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={mutation.isPending}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                            {mutation.isPending ? 'Saving...' : 'Save Changes'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
 const Uptime: React.FC = () => {
   const { data: monitors, isLoading } = useQuery({
     queryKey: ['monitors'],
     queryFn: getMonitors,
     refetchInterval: 30000,
   });
+
+  const [editingMonitor, setEditingMonitor] = useState<UptimeMonitor | null>(null);
 
   // Sort monitors alphabetically by name
   const sortedMonitors = useMemo(() => {
@@ -113,7 +206,7 @@ const Uptime: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {sortedMonitors.map((monitor) => (
-          <MonitorCard key={monitor.id} monitor={monitor} />
+          <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
         ))}
         {sortedMonitors.length === 0 && (
           <div className="col-span-full text-center py-12 text-gray-500">
@@ -121,6 +214,10 @@ const Uptime: React.FC = () => {
           </div>
         )}
       </div>
+
+      {editingMonitor && (
+        <EditMonitorModal monitor={editingMonitor} onClose={() => setEditingMonitor(null)} />
+      )}
     </div>
   );
 };
