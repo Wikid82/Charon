@@ -253,17 +253,17 @@ func TestGenerateSecurityApp(t *testing.T) {
 		require.NotNil(t, app)
 		require.NotNil(t, app.Config)
 
-		// Check Identity Providers
-		require.Len(t, app.Config.IdentityProviders, 1)
-		localProvider := app.Config.IdentityProviders[0]
-		require.Equal(t, "local", localProvider.Name)
-		require.Equal(t, "local", localProvider.Kind)
+		// Check Identity Stores
+		require.Len(t, app.Config.IdentityStores, 1)
+		localStore := app.Config.IdentityStores[0]
+		require.Equal(t, "local", localStore.Name)
+		require.Equal(t, "local", localStore.Kind)
 
 		// Check Portal
 		require.Len(t, app.Config.AuthenticationPortals, 1)
 		portal := app.Config.AuthenticationPortals[0]
 		require.Equal(t, "cpmp_portal", portal.Name)
-		require.Contains(t, portal.IdentityProviders, "local")
+		require.Contains(t, portal.IdentityStores, "local")
 	})
 
 	t.Run("with disabled users", func(t *testing.T) {
@@ -273,10 +273,10 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(users, nil, nil)
 
-		require.Len(t, app.Config.IdentityProviders, 1)
-		localProvider := app.Config.IdentityProviders[0]
+		require.Len(t, app.Config.IdentityStores, 1)
+		localStore := app.Config.IdentityStores[0]
 
-		usersConfig := localProvider.Params["users"].([]map[string]interface{})
+		usersConfig := localStore.Params["users"].([]map[string]interface{})
 		require.Len(t, usersConfig, 1)
 		require.Equal(t, "active", usersConfig[0]["username"])
 	})

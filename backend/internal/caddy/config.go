@@ -341,6 +341,7 @@ func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.Aut
 	securityConfig := &SecurityConfig{
 		AuthenticationPortals: make([]*AuthPortal, 0),
 		IdentityProviders:     make([]*IdentityProvider, 0),
+		IdentityStores:        make([]*IdentityStore, 0),
 		AuthorizationPolicies: make([]*AuthzPolicy, 0),
 	}
 
@@ -361,11 +362,12 @@ func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.Aut
 			"profile_enabled": true,
 		},
 		IdentityProviders: make([]string, 0),
+		IdentityStores:    make([]string, 0),
 	}
 
 	// Add local backend if we have local users
 	if len(authUsers) > 0 {
-		localProvider := &IdentityProvider{
+		localStore := &IdentityStore{
 			Name: "local",
 			Kind: "local",
 			Params: map[string]interface{}{
@@ -373,8 +375,8 @@ func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.Aut
 				"users": convertAuthUsersToConfig(authUsers),
 			},
 		}
-		securityConfig.IdentityProviders = append(securityConfig.IdentityProviders, localProvider)
-		portal.IdentityProviders = append(portal.IdentityProviders, "local")
+		securityConfig.IdentityStores = append(securityConfig.IdentityStores, localStore)
+		portal.IdentityStores = append(portal.IdentityStores, "local")
 	}
 
 	// Add OAuth providers

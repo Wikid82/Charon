@@ -246,6 +246,7 @@ type SecurityConfig struct {
 	AuthenticationPortals []*AuthPortal       `json:"authentication_portals,omitempty"`
 	AuthorizationPolicies []*AuthzPolicy      `json:"authorization_policies,omitempty"`
 	IdentityProviders     []*IdentityProvider `json:"identity_providers,omitempty"`
+	IdentityStores        []*IdentityStore    `json:"identity_stores,omitempty"`
 }
 
 // AuthPortal represents an authentication portal configuration.
@@ -255,6 +256,7 @@ type AuthPortal struct {
 	CookieDomain          string                 `json:"cookie_domain,omitempty"`
 	CookieConfig          map[string]interface{} `json:"cookie_config,omitempty"`
 	IdentityProviders     []string               `json:"identity_providers,omitempty"`
+	IdentityStores        []string               `json:"identity_stores,omitempty"`
 	TokenValidatorOptions map[string]interface{} `json:"token_validator_options,omitempty"`
 	CryptoKeyStoreConfig  map[string]interface{} `json:"crypto_key_store_config,omitempty"`
 	TokenGrantorOptions   map[string]interface{} `json:"token_grantor_options,omitempty"`
@@ -267,7 +269,14 @@ type AuthPortal struct {
 // IdentityProvider represents an identity provider configuration.
 type IdentityProvider struct {
 	Name   string                 `json:"name"`
-	Kind   string                 `json:"kind"` // "oauth", "local", etc.
+	Kind   string                 `json:"kind"` // "oauth", "saml"
+	Params map[string]interface{} `json:"params,omitempty"`
+}
+
+// IdentityStore represents an identity store configuration.
+type IdentityStore struct {
+	Name   string                 `json:"name"`
+	Kind   string                 `json:"kind"` // "local", "ldap"
 	Params map[string]interface{} `json:"params,omitempty"`
 }
 
