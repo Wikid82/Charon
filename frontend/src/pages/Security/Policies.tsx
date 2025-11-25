@@ -59,8 +59,9 @@ export default function Policies() {
       }
       setIsModalOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to save policy');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      toast.error(err.response?.data?.error || 'Failed to save policy');
     }
   };
 
@@ -69,8 +70,9 @@ export default function Policies() {
       try {
         await deletePolicy(uuid);
         toast.success('Policy deleted successfully');
-      } catch (error: any) {
-        toast.error(error.response?.data?.error || 'Failed to delete policy');
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { error?: string } } };
+        toast.error(err.response?.data?.error || 'Failed to delete policy');
       }
     }
   };

@@ -606,55 +606,6 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 }
 
-// processImport handles the import logic for both mounted and uploaded files.
-func (h *ImportHandler) processImport(caddyfilePath, originalName string) error {
-	// Validate Caddy binary
-	if err := h.importerservice.ValidateCaddyBinary(); err != nil {
-		return fmt.Errorf("caddy binary not available: %w", err)
-	}
-
-	// Parse and extract hosts
-	result, err := h.importerservice.ImportFile(caddyfilePath)
-	if err != nil {
-		return fmt.Errorf("import failed: %w", err)
-	}
-
-	// Check for conflicts with existing hosts
-	existingHosts, _ := h.proxyHostSvc.List()
-	existingDomains := make(map[string]bool)
-	for _, host := range existingHosts {
-		existingDomains[host.DomainNames] = true
-	}
-
-	for _, parsed := range result.Hosts {
-		if existingDomains[parsed.DomainNames] {
-			// Append the raw domain name so frontend can match conflicts against domain strings
-			result.Conflicts = append(result.Conflicts, parsed.DomainNames)
-		}
-	}
-
-	// Create import session
-	session := models.ImportSession{
-		UUID:           uuid.NewString(),
-		SourceFile:     originalName,
-		Status:         "pending",
-		ParsedData:     string(mustMarshal(result)),
-		ConflictReport: string(mustMarshal(result.Conflicts)),
-	}
-
-	if err := h.db.Create(&session).Error; err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-
-	// Backup original file
-	if _, err := caddy.BackupCaddyfile(caddyfilePath, filepath.Join(h.importDir, "backups")); err != nil {
-		// Non-fatal, log and continue
-		fmt.Printf("Warning: failed to backup Caddyfile: %v\n", err)
-	}
-
-	return nil
-}
-
 // CheckMountedImport checks for mounted Caddyfile on startup.
 func CheckMountedImport(db *gorm.DB, mountPath, caddyBinary, importDir string) error {
 	if _, err := os.Stat(mountPath); os.IsNotExist(err) {

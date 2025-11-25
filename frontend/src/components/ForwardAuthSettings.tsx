@@ -35,7 +35,7 @@ export default function ForwardAuthSettings() {
       queryClient.invalidateQueries({ queryKey: ['forwardAuth'] });
       toast.success('Forward Auth configuration saved');
     },
-    onError: (error: any) => {
+    onError: (error: Error & { response?: { data?: { error?: string } } }) => {
       toast.error(error.response?.data?.error || 'Failed to save configuration');
     },
   });
@@ -45,7 +45,7 @@ export default function ForwardAuthSettings() {
       const template = templates[provider];
       setFormData({
         ...formData,
-        provider: provider as any,
+        provider: provider as 'authelia' | 'authentik' | 'pomerium' | 'custom',
         address: template.address,
         trust_forward_header: template.trust_forward_header,
       });

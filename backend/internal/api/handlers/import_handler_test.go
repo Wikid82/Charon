@@ -216,10 +216,10 @@ func TestImportHandler_Upload(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// The fake caddy script returns empty JSON, so import might fail or succeed with empty result
-	// But processImport calls ImportFile which calls ParseCaddyfile which calls caddy adapt
+	// But Upload calls ImportFile which calls ParseCaddyfile which calls caddy adapt
 	// fake_caddy.sh echoes `{"apps":{}}`
 	// ExtractHosts will return empty result
-	// processImport should succeed
+	// Upload should succeed
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -373,7 +373,7 @@ func TestImportHandler_Upload_Failure(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	// The error message comes from processImport -> ImportFile -> "import failed: ..."
+	// The error message comes from Upload -> ImportFile -> "import failed: ..."
 	assert.Contains(t, resp["error"], "import failed")
 }
 

@@ -75,8 +75,9 @@ export default function Providers() {
       }
       setIsModalOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to save provider');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      toast.error(err.response?.data?.error || 'Failed to save provider');
     }
   };
 
@@ -85,8 +86,9 @@ export default function Providers() {
       try {
         await deleteProvider(uuid);
         toast.success('Provider deleted successfully');
-      } catch (error: any) {
-        toast.error(error.response?.data?.error || 'Failed to delete provider');
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { error?: string } } };
+        toast.error(err.response?.data?.error || 'Failed to delete provider');
       }
     }
   };
@@ -214,7 +216,7 @@ export default function Providers() {
                   <label className="block text-sm font-medium text-gray-400 mb-1">Type</label>
                   <select
                     value={formData.type}
-                    onChange={e => setFormData({ ...formData, type: e.target.value as any })}
+                    onChange={e => setFormData({ ...formData, type: e.target.value as 'google' | 'github' | 'oidc' })}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="oidc">Generic OIDC</option>
@@ -236,9 +238,13 @@ export default function Providers() {
                       >
                         ?
                       </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-64 z-10 shadow-lg">
-                        The public identifier for your OAuth application. Found in your provider's developer console.
-                        <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800"></div>
+                      <div className="invisible group-hover:visible absolute bottom-6 left-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-72 z-10 shadow-lg">
+                        <div className="mb-2">The public identifier for your OAuth application.</div>
+                        <div className="space-y-1">
+                          <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
+                          <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
+                        </div>
+                        <div className="absolute top-full left-4 border-4 border-transparent border-t-gray-800"></div>
                       </div>
                     </div>
                   </div>
@@ -264,8 +270,12 @@ export default function Providers() {
                       >
                         ?
                       </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-64 z-10 shadow-lg">
-                        The private key for your OAuth application. Keep this secret and secure!
+                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-72 z-10 shadow-lg">
+                        <div className="mb-2">The private key for your OAuth application. Keep this secret and secure!</div>
+                        <div className="space-y-1">
+                          <div><strong>Google:</strong> <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Google Cloud Console</a></div>
+                          <div><strong>GitHub:</strong> <a href="https://github.com/settings/developers" target="_blank" rel="noopener" className="text-blue-300 hover:text-blue-200 underline">Developer Settings</a></div>
+                        </div>
                         <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800"></div>
                       </div>
                     </div>

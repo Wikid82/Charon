@@ -49,7 +49,8 @@ func (s *UptimeService) SyncMonitors() error {
 		publicURL := fmt.Sprintf("%s://%s", scheme, firstDomain)
 		internalURL := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
 
-		if err == gorm.ErrRecordNotFound {
+		switch err {
+		case gorm.ErrRecordNotFound:
 			// Create new monitor
 			name := host.Name
 			if name == "" {
@@ -68,7 +69,7 @@ func (s *UptimeService) SyncMonitors() error {
 			if err := s.DB.Create(&monitor).Error; err != nil {
 				log.Printf("Failed to create monitor for host %d: %v", host.ID, err)
 			}
-		} else if err == nil {
+		case nil:
 			// Always sync the name from proxy host
 			newName := host.Name
 			if newName == "" {
@@ -215,9 +216,10 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		title := fmt.Sprintf("Monitor %s is %s", monitor.Name, strings.ToUpper(newStatus))
 
 		nType := models.NotificationTypeInfo
-		if newStatus == "down" {
+		switch newStatus {
+		case "down":
 			nType = models.NotificationTypeError
-		} else if newStatus == "up" {
+		case "up":
 			nType = models.NotificationTypeSuccess
 		}
 

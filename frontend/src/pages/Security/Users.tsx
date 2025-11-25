@@ -41,8 +41,9 @@ export default function Users() {
       }
       setIsModalOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to save user');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      toast.error(err.response?.data?.error || 'Failed to save user');
     }
   };
 
@@ -51,8 +52,9 @@ export default function Users() {
       try {
         await deleteUser(uuid);
         toast.success('User deleted successfully');
-      } catch (error: any) {
-        toast.error(error.response?.data?.error || 'Failed to delete user');
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { error?: string } } };
+        toast.error(err.response?.data?.error || 'Failed to delete user');
       }
     }
   };
