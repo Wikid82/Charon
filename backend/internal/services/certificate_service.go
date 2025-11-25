@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,23 +31,39 @@ type CertificateInfo struct {
 
 // CertificateService manages certificate retrieval and parsing.
 type CertificateService struct {
-	dataDir string
-	db      *gorm.DB
+	dataDir     string
+	db          *gorm.DB
+	cache       []CertificateInfo
+	cacheMu     sync.RWMutex
+	lastScan    time.Time
+	scanTTL     time.Duration
+	initialized bool
 }
 
 // NewCertificateService creates a new certificate service.
 func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
-	return &CertificateService{
+	svc := &CertificateService{
 		dataDir: dataDir,
 		db:      db,
+		scanTTL: 5 * time.Minute, // Only rescan disk every 5 minutes
 	}
+	// Perform initial scan in background
+	go func() {
+		if err := svc.SyncFromDisk(); err != nil {
+			log.Printf("CertificateService: initial sync failed: %v", err)
+		}
+	}()
+	return svc
 }
 
-// ListCertificates returns both auto-generated and custom certificates.
-func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
-	// First, scan Caddy data directory for auto-generated certificates and persist them.
+// SyncFromDisk scans the certificate directory and syncs with database.
+// This is called on startup and can be triggered manually for refresh.
+func (s *CertificateService) SyncFromDisk() error {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
 	certRoot := filepath.Join(s.dataDir, "certificates")
-	log.Printf("CertificateService: scanning cert directory: %s\n", certRoot)
+	log.Printf("CertificateService: scanning cert directory: %s", certRoot)
 
 	foundDomains := map[string]struct{}{}
 
@@ -59,22 +76,21 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 			}
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
-				log.Printf("CertificateService: found cert file: %s\n", path)
 				certData, err := os.ReadFile(path)
 				if err != nil {
-					log.Printf("CertificateService: failed to read cert file %s: %v\n", path, err)
+					log.Printf("CertificateService: failed to read cert file %s: %v", path, err)
 					return nil
 				}
 
 				block, _ := pem.Decode(certData)
 				if block == nil {
-					log.Printf("CertificateService: pem decode failed for %s\n", path)
+					// Silently skip invalid PEM files
 					return nil
 				}
 
 				cert, err := x509.ParseCertificate(block.Bytes)
 				if err != nil {
-					log.Printf("CertificateService: failed to parse cert %s: %v\n", path, err)
+					log.Printf("CertificateService: failed to parse cert %s: %v", path, err)
 					return nil
 				}
 
@@ -96,7 +112,6 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 				provider := "letsencrypt"
 				if strings.Contains(path, "acme-staging") {
 					provider = "letsencrypt-staging"
-					log.Printf("CertificateService: detected staging certificate for %s (path: %s)", domain, path)
 				}
 
 				// Upsert into DB
@@ -139,10 +154,8 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 					if isExistingStaging && !isNewStaging {
 						// Upgrade from staging to production - always update
 						shouldUpdateCert = true
-						log.Printf("CertificateService: upgrading %s from staging to production cert", domain)
 					} else if !isExistingStaging && isNewStaging {
 						// Don't downgrade from production to staging - skip
-						log.Printf("CertificateService: skipping staging cert for %s - production cert already exists", domain)
 					} else if existing.Certificate != string(certData) {
 						// Same type but different content - update
 						shouldUpdateCert = true
@@ -191,13 +204,26 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 		}
 	}
 
-	// Finally, fetch all certificates from DB to build the response (includes custom and persisted ACME)
-	certs := []CertificateInfo{}
-	var dbCerts []models.SSLCertificate
-	if err := s.db.Find(&dbCerts).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch certs from DB: %w", err)
+	// Update cache from DB
+	if err := s.refreshCacheFromDB(); err != nil {
+		return fmt.Errorf("failed to refresh cache: %w", err)
 	}
 
+	s.lastScan = time.Now()
+	s.initialized = true
+	log.Printf("CertificateService: disk sync complete, %d certificates cached", len(s.cache))
+	return nil
+}
+
+// refreshCacheFromDB updates the in-memory cache from the database.
+// Must be called with cacheMu held.
+func (s *CertificateService) refreshCacheFromDB() error {
+	var dbCerts []models.SSLCertificate
+	if err := s.db.Find(&dbCerts).Error; err != nil {
+		return fmt.Errorf("failed to fetch certs from DB: %w", err)
+	}
+
+	certs := make([]CertificateInfo, 0, len(dbCerts))
 	for _, c := range dbCerts {
 		status := "valid"
 
@@ -229,7 +255,60 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 		})
 	}
 
-	return certs, nil
+	s.cache = certs
+	return nil
+}
+
+// ListCertificates returns cached certificate info.
+// Fast path: returns from cache if available.
+// Triggers background rescan if cache is stale.
+func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
+	s.cacheMu.RLock()
+	if s.initialized && time.Since(s.lastScan) < s.scanTTL {
+		// Cache is fresh, return it
+		result := make([]CertificateInfo, len(s.cache))
+		copy(result, s.cache)
+		s.cacheMu.RUnlock()
+		return result, nil
+	}
+	s.cacheMu.RUnlock()
+
+	// Cache is stale or not initialized - need to refresh
+	// If not initialized, do a blocking sync
+	if !s.initialized {
+		if err := s.SyncFromDisk(); err != nil {
+			// Fall back to DB query
+			s.cacheMu.Lock()
+			err := s.refreshCacheFromDB()
+			s.cacheMu.Unlock()
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Trigger background rescan for stale cache
+		go func() {
+			if err := s.SyncFromDisk(); err != nil {
+				log.Printf("CertificateService: background sync failed: %v", err)
+			}
+		}()
+	}
+
+	// Return current cache (may be slightly stale)
+	s.cacheMu.RLock()
+	result := make([]CertificateInfo, len(s.cache))
+	copy(result, s.cache)
+	s.cacheMu.RUnlock()
+	return result, nil
+}
+
+// InvalidateCache clears the cache, forcing a blocking resync on next ListCertificates call.
+func (s *CertificateService) InvalidateCache() {
+	s.cacheMu.Lock()
+	s.lastScan = time.Time{}
+	s.initialized = false // Force blocking resync
+	s.cache = nil
+	s.cacheMu.Unlock()
 }
 
 // UploadCertificate saves a new custom certificate.
@@ -266,6 +345,9 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM string) (*m
 	if err := s.db.Create(sslCert).Error; err != nil {
 		return nil, err
 	}
+
+	// Invalidate cache so the new cert appears immediately
+	s.InvalidateCache()
 
 	return sslCert, nil
 }
@@ -304,5 +386,10 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 		})
 	}
 
-	return s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error
+	err := s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error
+	if err == nil {
+		// Invalidate cache so the deleted cert disappears immediately
+		s.InvalidateCache()
+	}
+	return err
 }

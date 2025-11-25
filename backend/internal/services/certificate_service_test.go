@@ -21,6 +21,16 @@ import (
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 )
 
+// newTestCertificateService creates a CertificateService for testing without
+// starting the background scan goroutine. Tests must call SyncFromDisk() explicitly.
+func newTestCertificateService(dataDir string, db *gorm.DB) *CertificateService {
+	return &CertificateService{
+		dataDir: dataDir,
+		db:      db,
+		scanTTL: 5 * time.Minute,
+	}
+}
+
 func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -66,7 +76,7 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
 
-	cs := NewCertificateService(tmpDir, db)
+	cs := newTestCertificateService(tmpDir, db)
 
 	// Case 1: Valid Certificate
 	domain := "example.com"
@@ -110,6 +120,10 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	err = os.WriteFile(expiredCertPath, expiredCertPEM, 0644)
 	assert.NoError(t, err)
 
+	// Force rescan to pick up new cert
+	err = cs.SyncFromDisk()
+	assert.NoError(t, err)
+
 	certs, err = cs.ListCertificates()
 	assert.NoError(t, err)
 	assert.Len(t, certs, 2)
@@ -133,7 +147,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-	cs := NewCertificateService(tmpDir, db)
+	cs := newTestCertificateService(tmpDir, db)
 
 	// Generate Cert
 	domain := "custom.example.com"
@@ -187,7 +201,7 @@ func TestCertificateService_Persistence(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-	cs := NewCertificateService(tmpDir, db)
+	cs := newTestCertificateService(tmpDir, db)
 
 	// 1. Create a fake ACME cert file
 	domain := "persist.example.com"
@@ -202,7 +216,10 @@ func TestCertificateService_Persistence(t *testing.T) {
 	err = os.WriteFile(certPath, certPEM, 0644)
 	require.NoError(t, err)
 
-	// 2. Call ListCertificates to trigger scan and persistence
+	// 2. Sync from disk and call ListCertificates
+	err = cs.SyncFromDisk()
+	require.NoError(t, err)
+
 	certs, err := cs.ListCertificates()
 	require.NoError(t, err)
 
@@ -259,7 +276,7 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-	cs := NewCertificateService(tmpDir, db)
+	cs := newTestCertificateService(tmpDir, db)
 
 	t.Run("invalid PEM format", func(t *testing.T) {
 		cert, err := cs.UploadCertificate("Invalid", "not-a-valid-pem", "also-not-valid")
@@ -321,7 +338,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		certs, err := cs.ListCertificates()
 		assert.NoError(t, err)
@@ -336,7 +353,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(nonExistentDir, db)
+		cs := newTestCertificateService(nonExistentDir, db)
 
 		certs, err := cs.ListCertificates()
 		assert.NoError(t, err)
@@ -350,7 +367,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Create a cert file with invalid content
 		domain := "invalid.com"
@@ -375,7 +392,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Create LE cert
 		domain1 := "le.example.com"
@@ -415,7 +432,7 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-	cs := NewCertificateService(tmpDir, db)
+	cs := newTestCertificateService(tmpDir, db)
 
 	t.Run("delete non-existent certificate", func(t *testing.T) {
 		err := cs.DeleteCertificate(99999)
@@ -454,7 +471,7 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Create staging cert in acme-staging directory
 		domain := "staging.example.com"
@@ -468,6 +485,8 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
 		require.NoError(t, err)
 
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -484,7 +503,7 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		domain := "both.example.com"
 		expiry := time.Now().Add(60 * 24 * time.Hour) // 60 days - outside expiring window
@@ -504,6 +523,8 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0644)
 		require.NoError(t, err)
 
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -520,7 +541,7 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		domain := "upgrade.example.com"
 		expiry := time.Now().Add(60 * 24 * time.Hour) // 60 days - outside expiring window
@@ -534,6 +555,8 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		require.NoError(t, err)
 
 		// Scan - should be staging
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -547,6 +570,8 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 		require.NoError(t, err)
 
 		// Rescan - should be upgraded to production
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err = cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -563,7 +588,7 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Expiring in 15 days (within 30 day threshold)
 		domain := "expiring.example.com"
@@ -576,6 +601,8 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
 		require.NoError(t, err)
 
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -589,7 +616,7 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Expiring in 60 days (outside 30 day threshold)
 		domain := "valid-long.example.com"
@@ -602,6 +629,8 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
 		require.NoError(t, err)
 
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -615,7 +644,7 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Staging cert expiring soon
 		domain := "staging-expiring.example.com"
@@ -628,6 +657,8 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
 		require.NoError(t, err)
 
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -645,7 +676,7 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		domain := "stale.example.com"
 		expiry := time.Now().Add(24 * time.Hour)
@@ -659,6 +690,8 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		// First scan - should create DB entry
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err := cs.ListCertificates()
 		require.NoError(t, err)
 		require.Len(t, certs, 1)
@@ -668,6 +701,8 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		// Second scan - should remove stale DB entry
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
 		certs, err = cs.ListCertificates()
 		require.NoError(t, err)
 		assert.Len(t, certs, 0)
@@ -687,7 +722,7 @@ func TestCertificateService_CertificateWithSANs(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := NewCertificateService(tmpDir, db)
+		cs := newTestCertificateService(tmpDir, db)
 
 		// Generate cert with SANs
 		domain := "san.example.com"
@@ -702,6 +737,113 @@ func TestCertificateService_CertificateWithSANs(t *testing.T) {
 		assert.Contains(t, cert.Domains, "san.example.com")
 		assert.Contains(t, cert.Domains, "www.san.example.com")
 		assert.Contains(t, cert.Domains, "api.san.example.com")
+	})
+}
+
+func TestCertificateService_CacheBehavior(t *testing.T) {
+	t.Run("cache returns consistent results", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Create a cert
+		domain := "cache.example.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		keyPEM := []byte("FAKE PRIVATE KEY")
+
+		cert, err := cs.UploadCertificate("Cache Test", string(certPEM), string(keyPEM))
+		require.NoError(t, err)
+		require.NotNil(t, cert)
+
+		// First call populates cache
+		certs1, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs1, 1)
+
+		// Second call returns from cache
+		certs2, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs2, 1)
+
+		// Both should return the same cert
+		assert.Equal(t, certs1[0].ID, certs2[0].ID)
+	})
+
+	t.Run("invalidate cache forces resync", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		cs := newTestCertificateService(tmpDir, db)
+
+		// Create a cert via upload (auto-invalidates)
+		certPEM := generateTestCert(t, "invalidate.example.com", time.Now().Add(24*time.Hour))
+		_, err = cs.UploadCertificate("Invalidate Test", string(certPEM), "")
+		require.NoError(t, err)
+
+		// Get list (should have 1)
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+
+		// Manually add a cert to DB (simulating external change)
+		dbCert := models.SSLCertificate{
+			Name:        "External Cert",
+			Provider:    "custom",
+			Domains:     "external.example.com",
+			Certificate: "fake-cert",
+		}
+		require.NoError(t, db.Create(&dbCert).Error)
+
+		// Cache still returns old result
+		certs, err = cs.ListCertificates()
+		require.NoError(t, err)
+		assert.Len(t, certs, 1) // Cache hasn't updated
+
+		// Invalidate and resync
+		cs.InvalidateCache()
+		certs, err = cs.ListCertificates()
+		require.NoError(t, err)
+		assert.Len(t, certs, 2) // Now sees both
+	})
+
+	t.Run("refreshCacheFromDB used when directory nonexistent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+
+		// Point to non-existent directory
+		cs := newTestCertificateService(filepath.Join(tmpDir, "nonexistent"), db)
+
+		// Pre-populate DB
+		expiry := time.Now().Add(24 * time.Hour)
+		dbCert := models.SSLCertificate{
+			Name:        "DB Cert",
+			Provider:    "custom",
+			Domains:     "db.example.com",
+			ExpiresAt:   &expiry,
+			Certificate: "fake-cert",
+		}
+		require.NoError(t, db.Create(&dbCert).Error)
+
+		// Sync should succeed via DB fallback
+		err = cs.SyncFromDisk()
+		require.NoError(t, err)
+
+		// List should return cert from DB
+		certs, err := cs.ListCertificates()
+		require.NoError(t, err)
+		require.Len(t, certs, 1)
+		assert.Equal(t, "db.example.com", certs[0].Domain)
 	})
 }
 
