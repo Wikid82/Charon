@@ -31,16 +31,18 @@ export default function CertificateList() {
       let comparison = 0
 
       switch (sortColumn) {
-        case 'name':
+        case 'name': {
           const aName = (a.name || a.domain || '').toLowerCase()
           const bName = (b.name || b.domain || '').toLowerCase()
           comparison = aName.localeCompare(bName)
           break
-        case 'expires':
+        }
+        case 'expires': {
           const aDate = new Date(a.expires_at).getTime()
           const bDate = new Date(b.expires_at).getTime()
           comparison = aDate - bDate
           break
+        }
       }
 
       return sortDirection === 'asc' ? comparison : -comparison
