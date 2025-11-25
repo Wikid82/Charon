@@ -193,7 +193,7 @@ export default function Providers() {
       {/* Provider Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-dark-card rounded-lg border border-gray-800 max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-white mb-4">
               {editingProvider ? 'Edit Provider' : 'Add Provider'}
             </h3>
@@ -236,10 +236,9 @@ export default function Providers() {
                       >
                         ?
                       </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap z-10 shadow-lg">
-                        The public identifier for your OAuth application.<br/>
-                        Found in your provider's developer console (e.g., Google Cloud Console, GitHub Developer Settings).
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-64 z-10 shadow-lg">
+                        The public identifier for your OAuth application. Found in your provider's developer console.
+                        <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800"></div>
                       </div>
                     </div>
                   </div>
@@ -265,10 +264,9 @@ export default function Providers() {
                       >
                         ?
                       </button>
-                      <div className="invisible group-hover:visible absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap z-10 shadow-lg">
-                        The private key for your OAuth application.<br/>
-                        Keep this secret and secure! Generate/regenerate in your provider's developer console.
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                      <div className="invisible group-hover:visible absolute bottom-6 right-0 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 w-64 z-10 shadow-lg">
+                        The private key for your OAuth application. Keep this secret and secure!
+                        <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800"></div>
                       </div>
                     </div>
                   </div>
