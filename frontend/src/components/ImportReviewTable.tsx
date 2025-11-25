@@ -136,7 +136,7 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
               const hasConflict = conflicts.includes(domain)
               const isExpanded = expandedRows.has(domain)
               const details = conflictDetails?.[domain]
-              
+
               return (
                 <>
                   <tr key={`${domain}-${idx}`} className="hover:bg-gray-900/50">
@@ -186,7 +186,7 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
                       )}
                     </td>
                   </tr>
-                  
+
                   {hasConflict && isExpanded && details && (
                     <tr key={`${domain}-details`} className="bg-gray-900/30">
                       <td colSpan={3} className="px-6 py-4">
@@ -298,19 +298,19 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
 }
 
 function getRecommendation(details: ConflictDetail): string {
-  const hasTargetChange = 
+  const hasTargetChange =
     details.imported.forward_host !== details.existing.forward_host ||
     details.imported.forward_port !== details.existing.forward_port ||
     details.imported.forward_scheme !== details.existing.forward_scheme
-  
-  const hasConfigChange = 
+
+  const hasConfigChange =
     details.imported.ssl_forced !== details.existing.ssl_forced ||
     details.imported.websocket !== details.existing.websocket
 
   if (hasTargetChange) {
     return 'The imported configuration points to a different backend server. Choose "Replace" if you want to update the target, or "Keep Existing" if the current setup is correct.'
   }
-  
+
   if (hasConfigChange) {
     return 'The imported configuration has different SSL or WebSocket settings. Choose "Replace" to update these settings, or "Keep Existing" to maintain current configuration.'
   }

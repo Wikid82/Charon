@@ -90,11 +90,11 @@ This is **expected** when using staging. Staging certificates are signed by a fa
 1. Set `CPM_ACME_STAGING=false` (or remove the variable)
 2. Restart the container
 3. **Clean up staging certificates** (choose one method):
-   
+
    **Option A - Via UI (Recommended):**
    - Go to **Certificates** page in the web interface
    - Delete any certificates with "acme-staging" in the issuer name
-   
+
    **Option B - Via Terminal:**
    ```bash
    docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*

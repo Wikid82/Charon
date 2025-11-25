@@ -49,7 +49,16 @@ export default function CertificateList() {
                 <tr key={cert.id || cert.domain} className="hover:bg-gray-800/50 transition-colors">
                   <td className="px-6 py-4 font-medium text-white">{cert.name || '-'}</td>
                   <td className="px-6 py-4 font-medium text-white">{cert.domain}</td>
-                  <td className="px-6 py-4">{cert.issuer}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span>{cert.issuer}</span>
+                      {cert.issuer?.toLowerCase().includes('staging') && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded">
+                          STAGING
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4">
                     {new Date(cert.expires_at).toLocaleDateString()}
                   </td>
@@ -60,7 +69,7 @@ export default function CertificateList() {
                     {cert.id && (cert.provider === 'custom' || cert.issuer?.includes('staging')) && (
                       <button
                         onClick={() => {
-                          const message = cert.provider === 'custom' 
+                          const message = cert.provider === 'custom'
                             ? 'Are you sure you want to delete this certificate?'
                             : 'Delete this staging certificate? It will be regenerated on next request.'
                           if (confirm(message)) {
