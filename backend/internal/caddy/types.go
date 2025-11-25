@@ -238,46 +238,52 @@ type AutomationPolicy struct {
 
 // SecurityApp configures the caddy-security plugin for SSO/authentication.
 type SecurityApp struct {
-	Authentication *AuthenticationConfig `json:"authentication,omitempty"`
-	Authorization  *AuthorizationConfig  `json:"authorization,omitempty"`
+	Config *SecurityConfig `json:"config,omitempty"`
 }
 
-// AuthenticationConfig defines authentication portals and providers.
-type AuthenticationConfig struct {
-	Portals map[string]*AuthPortal `json:"portals,omitempty"`
+// SecurityConfig holds the configuration for caddy-security.
+type SecurityConfig struct {
+	AuthenticationPortals []*AuthPortal       `json:"authentication_portals,omitempty"`
+	AuthorizationPolicies []*AuthzPolicy      `json:"authorization_policies,omitempty"`
+	IdentityProviders     []*IdentityProvider `json:"identity_providers,omitempty"`
 }
 
 // AuthPortal represents an authentication portal configuration.
 type AuthPortal struct {
-	Name                string                 `json:"name,omitempty"`
-	UISettings          map[string]interface{} `json:"ui,omitempty"`
-	CookieDomain        string                 `json:"cookie_domain,omitempty"`
-	CookieLifetime      int                    `json:"cookie_lifetime,omitempty"`
-	Backends            []AuthBackend          `json:"backends,omitempty"`
-	TransformUsername   map[string]interface{} `json:"transform_username,omitempty"`
-	EnableIdentityToken bool                   `json:"enable_identity_token,omitempty"`
-	TokenLifetime       int                    `json:"token_lifetime,omitempty"`
+	Name                  string                 `json:"name,omitempty"`
+	UISettings            map[string]interface{} `json:"ui,omitempty"`
+	CookieDomain          string                 `json:"cookie_domain,omitempty"`
+	CookieConfig          map[string]interface{} `json:"cookie_config,omitempty"`
+	IdentityProviders     []string               `json:"identity_providers,omitempty"`
+	TokenValidatorOptions map[string]interface{} `json:"token_validator_options,omitempty"`
+	CryptoKeyStoreConfig  map[string]interface{} `json:"crypto_key_store_config,omitempty"`
+	TokenGrantorOptions   map[string]interface{} `json:"token_grantor_options,omitempty"`
+	PortalAdminRoles      map[string]bool        `json:"portal_admin_roles,omitempty"`
+	PortalUserRoles       map[string]bool        `json:"portal_user_roles,omitempty"`
+	PortalGuestRoles      map[string]bool        `json:"portal_guest_roles,omitempty"`
+	API                   map[string]interface{} `json:"api,omitempty"`
 }
 
-// AuthBackend represents an authentication backend (local or OAuth).
-type AuthBackend struct {
+// IdentityProvider represents an identity provider configuration.
+type IdentityProvider struct {
 	Name   string                 `json:"name"`
-	Method string                 `json:"method"` // "local", "oauth2", "saml"
-	Realm  string                 `json:"realm,omitempty"`
-	Config map[string]interface{} `json:"config,omitempty"`
-}
-
-// AuthorizationConfig defines authorization policies.
-type AuthorizationConfig struct {
-	Policies map[string]*AuthzPolicy `json:"policies,omitempty"`
+	Kind   string                 `json:"kind"` // "oauth", "local", etc.
+	Params map[string]interface{} `json:"params,omitempty"`
 }
 
 // AuthzPolicy represents an authorization policy.
 type AuthzPolicy struct {
-	AllowedRoles   []string               `json:"allowed_roles,omitempty"`
-	AllowedUsers   []string               `json:"allowed_users,omitempty"`
-	RequireMFA     bool                   `json:"require_mfa,omitempty"`
-	ValidateMethod map[string]interface{} `json:"validate_method,omitempty"`
+	Name                   string            `json:"name,omitempty"`
+	AuthURLPath            string            `json:"auth_url_path,omitempty"`
+	AuthRedirectQueryParam string            `json:"auth_redirect_query_param,omitempty"`
+	AuthRedirectStatusCode int               `json:"auth_redirect_status_code,omitempty"`
+	AccessListRules        []*AccessListRule `json:"access_list_rules,omitempty"`
+}
+
+// AccessListRule represents a rule in an authorization policy.
+type AccessListRule struct {
+	Conditions []string `json:"conditions,omitempty"`
+	Action     string   `json:"action,omitempty"`
 }
 
 // SecurityAuthHandler creates a caddy-security authentication handler.
