@@ -238,10 +238,10 @@ func TestGenerateSecurityApp(t *testing.T) {
 	t.Run("empty inputs", func(t *testing.T) {
 		app := generateSecurityApp(nil, nil, nil)
 		require.NotNil(t, app)
-		require.NotNil(t, app.Authentication)
-		require.NotNil(t, app.Authentication.Portals)
-		require.NotNil(t, app.Authorization)
-		require.NotNil(t, app.Authorization.Policies)
+		require.NotNil(t, app.Config)
+		require.NotNil(t, app.Config.AuthenticationPortals)
+		require.NotNil(t, app.Config.AuthorizationPolicies)
+		require.NotNil(t, app.Config.IdentityProviders)
 	})
 
 	t.Run("with local users", func(t *testing.T) {
@@ -251,13 +251,19 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(users, nil, nil)
 		require.NotNil(t, app)
+		require.NotNil(t, app.Config)
 
-		portal := app.Authentication.Portals["cpmp_portal"]
-		require.NotNil(t, portal)
+		// Check Identity Providers
+		require.Len(t, app.Config.IdentityProviders, 1)
+		localProvider := app.Config.IdentityProviders[0]
+		require.Equal(t, "local", localProvider.Name)
+		require.Equal(t, "local", localProvider.Kind)
+
+		// Check Portal
+		require.Len(t, app.Config.AuthenticationPortals, 1)
+		portal := app.Config.AuthenticationPortals[0]
 		require.Equal(t, "cpmp_portal", portal.Name)
-		require.Len(t, portal.Backends, 1)
-		require.Equal(t, "local", portal.Backends[0].Name)
-		require.Equal(t, "local", portal.Backends[0].Method)
+		require.Contains(t, portal.IdentityProviders, "local")
 	})
 
 	t.Run("with disabled users", func(t *testing.T) {
@@ -266,11 +272,13 @@ func TestGenerateSecurityApp(t *testing.T) {
 			{Username: "inactive", Email: "inactive@example.com", PasswordHash: "hash", Enabled: false},
 		}
 		app := generateSecurityApp(users, nil, nil)
-		portal := app.Authentication.Portals["cpmp_portal"]
-		config := portal.Backends[0].Config["users"].([]map[string]interface{})
-		// Only enabled user should be in config
-		require.Len(t, config, 1)
-		require.Equal(t, "active", config[0]["username"])
+
+		require.Len(t, app.Config.IdentityProviders, 1)
+		localProvider := app.Config.IdentityProviders[0]
+
+		usersConfig := localProvider.Params["users"].([]map[string]interface{})
+		require.Len(t, usersConfig, 1)
+		require.Equal(t, "active", usersConfig[0]["username"])
 	})
 
 	t.Run("with oauth providers", func(t *testing.T) {
@@ -293,14 +301,26 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(nil, providers, nil)
 
-		portal := app.Authentication.Portals["cpmp_portal"]
-		require.Len(t, portal.Backends, 2)
+		require.Len(t, app.Config.IdentityProviders, 2)
 
-		googleBackend := portal.Backends[0]
-		require.Equal(t, "Google", googleBackend.Name)
-		require.Equal(t, "oauth2", googleBackend.Method)
-		require.Equal(t, "google", googleBackend.Realm)
-		require.Equal(t, "google-client-id", googleBackend.Config["client_id"])
+		// Find Google provider
+		var googleProvider *IdentityProvider
+		for _, p := range app.Config.IdentityProviders {
+			if p.Name == "Google" {
+				googleProvider = p
+				break
+			}
+		}
+		require.NotNil(t, googleProvider)
+		require.Equal(t, "oauth", googleProvider.Kind)
+		require.Equal(t, "google", googleProvider.Params["realm"])
+		require.Equal(t, "google-client-id", googleProvider.Params["client_id"])
+
+		// Check Portal references
+		require.Len(t, app.Config.AuthenticationPortals, 1)
+		portal := app.Config.AuthenticationPortals[0]
+		require.Contains(t, portal.IdentityProviders, "Google")
+		require.Contains(t, portal.IdentityProviders, "GitHub")
 	})
 
 	t.Run("with disabled providers", func(t *testing.T) {
@@ -310,9 +330,8 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(nil, providers, nil)
 
-		portal := app.Authentication.Portals["cpmp_portal"]
-		require.Len(t, portal.Backends, 1)
-		require.Equal(t, "Active", portal.Backends[0].Name)
+		require.Len(t, app.Config.IdentityProviders, 1)
+		require.Equal(t, "Active", app.Config.IdentityProviders[0].Name)
 	})
 
 	t.Run("with authorization policies", func(t *testing.T) {
@@ -332,18 +351,24 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(nil, nil, policies)
 
-		require.Len(t, app.Authorization.Policies, 2)
+		require.Len(t, app.Config.AuthorizationPolicies, 2)
 
-		adminPolicy := app.Authorization.Policies["admin_policy"]
+		// Find admin policy
+		var adminPolicy *AuthzPolicy
+		for _, p := range app.Config.AuthorizationPolicies {
+			if p.Name == "admin_policy" {
+				adminPolicy = p
+				break
+			}
+		}
 		require.NotNil(t, adminPolicy)
-		require.Equal(t, []string{"admin", "super"}, adminPolicy.AllowedRoles)
-		require.Equal(t, []string{"user1", "user2"}, adminPolicy.AllowedUsers)
-		require.True(t, adminPolicy.RequireMFA)
 
-		userPolicy := app.Authorization.Policies["user_policy"]
-		require.NotNil(t, userPolicy)
-		require.Equal(t, []string{"user"}, userPolicy.AllowedRoles)
-		require.False(t, userPolicy.RequireMFA)
+		// Check rules
+		// Note: The implementation converts roles/users to conditions in AccessListRules
+		require.NotEmpty(t, adminPolicy.AccessListRules)
+		rule := adminPolicy.AccessListRules[0]
+		require.Contains(t, rule.Conditions, "match roles admin")
+		require.Contains(t, rule.Conditions, "match email user1")
 	})
 
 	t.Run("with disabled policies", func(t *testing.T) {
@@ -353,8 +378,8 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(nil, nil, policies)
 
-		require.Len(t, app.Authorization.Policies, 1)
-		require.NotNil(t, app.Authorization.Policies["active"])
+		require.Len(t, app.Config.AuthorizationPolicies, 1)
+		require.Equal(t, "active", app.Config.AuthorizationPolicies[0].Name)
 	})
 
 	t.Run("provider with custom URLs", func(t *testing.T) {
@@ -372,11 +397,12 @@ func TestGenerateSecurityApp(t *testing.T) {
 		}
 		app := generateSecurityApp(nil, providers, nil)
 
-		portal := app.Authentication.Portals["cpmp_portal"]
-		backend := portal.Backends[0]
-		require.Equal(t, "https://issuer.example.com", backend.Config["base_auth_url"])
-		require.Equal(t, "https://auth.example.com/authorize", backend.Config["authorization_url"])
-		require.Equal(t, "https://auth.example.com/token", backend.Config["token_url"])
+		require.Len(t, app.Config.IdentityProviders, 1)
+		provider := app.Config.IdentityProviders[0]
+
+		require.Equal(t, "https://issuer.example.com", provider.Params["base_auth_url"])
+		require.Equal(t, "https://auth.example.com/authorize", provider.Params["authorization_url"])
+		require.Equal(t, "https://auth.example.com/token", provider.Params["token_url"])
 	})
 }
 

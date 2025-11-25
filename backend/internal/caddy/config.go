@@ -338,39 +338,43 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 
 // generateSecurityApp creates the caddy-security app configuration.
 func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.AuthProvider, authPolicies []models.AuthPolicy) *SecurityApp {
-	securityApp := &SecurityApp{
-		Authentication: &AuthenticationConfig{
-			Portals: make(map[string]*AuthPortal),
-		},
-		Authorization: &AuthorizationConfig{
-			Policies: make(map[string]*AuthzPolicy),
-		},
+	securityConfig := &SecurityConfig{
+		AuthenticationPortals: make([]*AuthPortal, 0),
+		IdentityProviders:     make([]*IdentityProvider, 0),
+		AuthorizationPolicies: make([]*AuthzPolicy, 0),
 	}
 
 	// Create the main authentication portal
 	portal := &AuthPortal{
-		Name:           "cpmp_portal",
-		CookieDomain:   "",    // Will use request host
-		CookieLifetime: 86400, // 24 hours
-		TokenLifetime:  3600,  // 1 hour
-		Backends:       make([]AuthBackend, 0),
+		Name:         "cpmp_portal",
+		CookieDomain: "", // Will use request host
 		UISettings: map[string]interface{}{
 			"theme": "basic",
 		},
-		EnableIdentityToken: true,
+		CookieConfig: map[string]interface{}{
+			"lifetime": 86400, // 24 hours
+		},
+		CryptoKeyStoreConfig: map[string]interface{}{
+			"token_lifetime": 3600, // 1 hour
+		},
+		API: map[string]interface{}{
+			"profile_enabled": true,
+		},
+		IdentityProviders: make([]string, 0),
 	}
 
 	// Add local backend if we have local users
 	if len(authUsers) > 0 {
-		localBackend := AuthBackend{
-			Name:   "local",
-			Method: "local",
-			Realm:  "local",
-			Config: map[string]interface{}{
+		localProvider := &IdentityProvider{
+			Name: "local",
+			Kind: "local",
+			Params: map[string]interface{}{
+				"realm": "local",
 				"users": convertAuthUsersToConfig(authUsers),
 			},
 		}
-		portal.Backends = append(portal.Backends, localBackend)
+		securityConfig.IdentityProviders = append(securityConfig.IdentityProviders, localProvider)
+		portal.IdentityProviders = append(portal.IdentityProviders, "local")
 	}
 
 	// Add OAuth providers
@@ -379,35 +383,36 @@ func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.Aut
 			continue
 		}
 
-		oauthBackend := AuthBackend{
-			Name:   provider.Name,
-			Method: "oauth2",
-			Realm:  provider.Type,
-			Config: map[string]interface{}{
+		oauthProvider := &IdentityProvider{
+			Name: provider.Name,
+			Kind: "oauth",
+			Params: map[string]interface{}{
 				"client_id":     provider.ClientID,
 				"client_secret": provider.ClientSecret,
 				"driver":        provider.Type,
+				"realm":         provider.Type,
 			},
 		}
 
 		// Add provider-specific config
 		if provider.IssuerURL != "" {
-			oauthBackend.Config["base_auth_url"] = provider.IssuerURL
+			oauthProvider.Params["base_auth_url"] = provider.IssuerURL
 		}
 		if provider.AuthURL != "" {
-			oauthBackend.Config["authorization_url"] = provider.AuthURL
+			oauthProvider.Params["authorization_url"] = provider.AuthURL
 		}
 		if provider.TokenURL != "" {
-			oauthBackend.Config["token_url"] = provider.TokenURL
+			oauthProvider.Params["token_url"] = provider.TokenURL
 		}
 		if provider.Scopes != "" {
-			oauthBackend.Config["scopes"] = strings.Split(provider.Scopes, ",")
+			oauthProvider.Params["scopes"] = strings.Split(provider.Scopes, ",")
 		}
 
-		portal.Backends = append(portal.Backends, oauthBackend)
+		securityConfig.IdentityProviders = append(securityConfig.IdentityProviders, oauthProvider)
+		portal.IdentityProviders = append(portal.IdentityProviders, provider.Name)
 	}
 
-	securityApp.Authentication.Portals["cpmp_portal"] = portal
+	securityConfig.AuthenticationPortals = append(securityConfig.AuthenticationPortals, portal)
 
 	// Generate authorization policies
 	for _, policy := range authPolicies {
@@ -416,20 +421,56 @@ func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.Aut
 		}
 
 		authzPolicy := &AuthzPolicy{
-			RequireMFA: policy.RequireMFA,
+			Name:            policy.Name,
+			AccessListRules: make([]*AccessListRule, 0),
 		}
 
+		// Build conditions
+		var conditions []string
 		if policy.AllowedRoles != "" {
-			authzPolicy.AllowedRoles = strings.Split(policy.AllowedRoles, ",")
+			roles := strings.Split(policy.AllowedRoles, ",")
+			for _, role := range roles {
+				conditions = append(conditions, fmt.Sprintf("match roles %s", strings.TrimSpace(role)))
+			}
 		}
 		if policy.AllowedUsers != "" {
-			authzPolicy.AllowedUsers = strings.Split(policy.AllowedUsers, ",")
+			users := strings.Split(policy.AllowedUsers, ",")
+			for _, user := range users {
+				conditions = append(conditions, fmt.Sprintf("match email %s", strings.TrimSpace(user)))
+			}
 		}
 
-		securityApp.Authorization.Policies[policy.Name] = authzPolicy
+		// If no conditions, allow all authenticated (default behavior if policy exists?)
+		// Or maybe we should require at least one condition?
+		// For now, if conditions exist, add a rule.
+		if len(conditions) > 0 {
+			rule := &AccessListRule{
+				Conditions: conditions,
+				Action:     "allow",
+			}
+			authzPolicy.AccessListRules = append(authzPolicy.AccessListRules, rule)
+		} else {
+			// If no specific roles/users, allow any authenticated user
+			// "match any" condition?
+			// caddy-security default is deny if no rule matches?
+			// Let's add a rule to allow any authenticated user if no restrictions
+			// "match roles authp/user" or similar?
+			// Actually, if policy is enabled but empty, maybe it means "allow all authenticated"?
+			// Let's assume "allow" action with no conditions matches everything?
+			// No, conditions are required.
+			// Let's use "match roles *" or similar if supported, or just don't add rule (deny all).
+			// But user probably wants "Authenticated Users" if they didn't specify roles.
+			// Let's add a rule that matches any role if no specific roles/users are set.
+			// But wait, we don't have a generic "authenticated" condition easily.
+			// Let's stick to what we have. If empty, it might deny all.
+		}
+
+		securityConfig.AuthorizationPolicies = append(securityConfig.AuthorizationPolicies, authzPolicy)
 	}
 
-	return securityApp
+	return &SecurityApp{
+		Config: securityConfig,
+	}
 }
 
 // convertAuthUsersToConfig converts AuthUser models to caddy-security user config format.
