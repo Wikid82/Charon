@@ -6,7 +6,7 @@ export interface Certificate {
   domain: string
   issuer: string
   expires_at: string
-  status: 'valid' | 'expiring' | 'expired'
+  status: 'valid' | 'expiring' | 'expired' | 'untrusted'
   provider: string
 }
 
