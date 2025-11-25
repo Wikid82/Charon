@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 interface HostPreview {
   domain_names: string
+  name?: string
   forward_scheme?: string
   forward_host?: string
   forward_port?: number
@@ -35,7 +36,7 @@ interface Props {
   conflictDetails?: Record<string, ConflictDetail>
   errors: string[]
   caddyfileContent?: string
-  onCommit: (resolutions: Record<string, string>) => Promise<void>
+  onCommit: (resolutions: Record<string, string>, names: Record<string, string>) => Promise<void>
   onCancel: () => void
 }
 
@@ -45,16 +46,31 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
     conflicts.forEach((d: string) => { init[d] = 'keep' })
     return init
   })
+  const [names, setNames] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    hosts.forEach((h) => {
+      // Default name to domain name (first domain if comma-separated)
+      init[h.domain_names] = h.name || h.domain_names.split(',')[0].trim()
+    })
+    return init
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSource, setShowSource] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const handleCommit = async () => {
+    // Validate all names are filled
+    const emptyNames = hosts.filter(h => !names[h.domain_names]?.trim())
+    if (emptyNames.length > 0) {
+      setError(`Please provide a name for all hosts. Missing: ${emptyNames.map(h => h.domain_names).join(', ')}`)
+      return
+    }
+
     setSubmitting(true)
     setError(null)
     try {
-      await onCommit(resolutions)
+      await onCommit(resolutions, names)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to commit import')
     } finally {
@@ -120,6 +136,9 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
           <thead className="bg-gray-900 border-b border-gray-800">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                 Domain Names
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -140,6 +159,17 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
               return (
                 <>
                   <tr key={`${domain}-${idx}`} className="hover:bg-gray-900/50">
+                    <td className="px-6 py-4">
+                      <input
+                        type="text"
+                        value={names[domain] || ''}
+                        onChange={e => setNames({ ...names, [domain]: e.target.value })}
+                        placeholder="Enter name"
+                        className={`w-full bg-gray-900 border rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          !names[domain]?.trim() ? 'border-red-500' : 'border-gray-700'
+                        }`}
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         {hasConflict && (
@@ -189,7 +219,7 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
 
                   {hasConflict && isExpanded && details && (
                     <tr key={`${domain}-details`} className="bg-gray-900/30">
-                      <td colSpan={3} className="px-6 py-4">
+                      <td colSpan={4} className="px-6 py-4">
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 gap-6">
                             {/* Existing Configuration */}

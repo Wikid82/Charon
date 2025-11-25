@@ -63,7 +63,7 @@ describe('ImportReviewTable', () => {
     expect(screen.getByText('Missing required field')).toBeInTheDocument()
   })
 
-  it('calls onCommit with resolutions', async () => {
+  it('calls onCommit with resolutions and names', async () => {
     const conflicts = ['test.example.com']
     render(
       <ImportReviewTable
@@ -83,9 +83,10 @@ describe('ImportReviewTable', () => {
     fireEvent.click(commitButton)
 
     await waitFor(() => {
-      expect(mockOnCommit).toHaveBeenCalledWith({
-        'test.example.com': 'overwrite',
-      })
+      expect(mockOnCommit).toHaveBeenCalledWith(
+        { 'test.example.com': 'overwrite' },
+        { 'test.example.com': 'test.example.com' }
+      )
     })
   })
 

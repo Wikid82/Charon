@@ -4,6 +4,7 @@ import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
 import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
+import UptimeWidget from '../components/UptimeWidget'
 
 export default function Dashboard() {
   const { hosts } = useProxyHosts()
@@ -55,6 +56,11 @@ export default function Dashboard() {
             {health?.status === 'ok' ? 'Healthy' : health ? 'Error' : 'Checking...'}
           </div>
         </div>
+      </div>
+
+      {/* Uptime Widget */}
+      <div className="mb-8">
+        <UptimeWidget />
       </div>
 
       {/* Quick Actions */}

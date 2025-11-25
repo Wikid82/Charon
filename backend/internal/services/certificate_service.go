@@ -223,6 +223,24 @@ func (s *CertificateService) refreshCacheFromDB() error {
 		return fmt.Errorf("failed to fetch certs from DB: %w", err)
 	}
 
+	// Build a map of domain -> proxy host name for quick lookup
+	var proxyHosts []models.ProxyHost
+	s.db.Find(&proxyHosts)
+	domainToName := make(map[string]string)
+	for _, ph := range proxyHosts {
+		if ph.Name == "" {
+			continue
+		}
+		// Handle comma-separated domains
+		domains := strings.Split(ph.DomainNames, ",")
+		for _, d := range domains {
+			d = strings.TrimSpace(strings.ToLower(d))
+			if d != "" {
+				domainToName[d] = ph.Name
+			}
+		}
+	}
+
 	certs := make([]CertificateInfo, 0, len(dbCerts))
 	for _, c := range dbCerts {
 		status := "valid"
@@ -243,10 +261,22 @@ func (s *CertificateService) refreshCacheFromDB() error {
 			expires = *c.ExpiresAt
 		}
 
+		// Try to get name from proxy host, fall back to cert name or domain
+		name := c.Name
+		// Check all domains in the cert against proxy hosts
+		certDomains := strings.Split(c.Domains, ",")
+		for _, d := range certDomains {
+			d = strings.TrimSpace(strings.ToLower(d))
+			if phName, ok := domainToName[d]; ok {
+				name = phName
+				break
+			}
+		}
+
 		certs = append(certs, CertificateInfo{
 			ID:        c.ID,
 			UUID:      c.UUID,
-			Name:      c.Name,
+			Name:      name,
 			Domain:    c.Domains,
 			Issuer:    c.Provider,
 			ExpiresAt: expires,

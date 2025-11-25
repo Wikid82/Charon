@@ -30,9 +30,9 @@ export default function ImportCaddy() {
     setContent(text)
   }
 
-  const handleCommit = async (resolutions: Record<string, string>) => {
+  const handleCommit = async (resolutions: Record<string, string>, names: Record<string, string>) => {
     try {
-      await commit(resolutions)
+      await commit(resolutions, names)
       setContent('')
       setShowReview(false)
       alert('Import completed successfully!')

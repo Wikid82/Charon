@@ -140,10 +140,10 @@ describe('useImport', () => {
     })
 
     await act(async () => {
-      await result.current.commit({ 'test.com': 'skip' })
+      await result.current.commit({ 'test.com': 'skip' }, { 'test.com': 'Test' })
     })
 
-    expect(api.commitImport).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' })
+    expect(api.commitImport).toHaveBeenCalledWith('session-2', { 'test.com': 'skip' }, { 'test.com': 'Test' })
 
     await waitFor(() => {
       expect(result.current.session).toBeNull()
@@ -227,7 +227,7 @@ describe('useImport', () => {
     let threw = false
     await act(async () => {
       try {
-        await result.current.commit({})
+        await result.current.commit({}, {})
       } catch {
         threw = true
       }
