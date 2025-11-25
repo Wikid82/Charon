@@ -166,6 +166,35 @@ func TestImporter_ExtractHosts(t *testing.T) {
 	assert.Len(t, result.Hosts[0].Warnings, 2)
 	assert.Contains(t, result.Hosts[0].Warnings, "File server directives not supported")
 	assert.Contains(t, result.Hosts[0].Warnings, "Rewrite rules not supported - manual configuration required")
+
+	// Test Case 6: SSL Detection via Listen Address (:443)
+	sslViaListenJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"listen": [":443"],
+						"routes": [
+							{
+								"match": [{"host": ["secure.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "127.0.0.1:9000"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+	result, err = importer.ExtractHosts(sslViaListenJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "secure.example.com", result.Hosts[0].DomainNames)
+	assert.True(t, result.Hosts[0].SSLForced, "SSLForced should be true when server listens on :443")
 }
 
 func TestImporter_ImportFile(t *testing.T) {
