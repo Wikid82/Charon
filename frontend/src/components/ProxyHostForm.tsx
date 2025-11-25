@@ -16,6 +16,7 @@ interface ProxyHostFormProps {
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const [formData, setFormData] = useState({
+    name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
     forward_host: host?.forward_host || '',
@@ -211,7 +212,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
@@ -225,6 +226,24 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               {error}
             </div>
           )}
+
+          {/* Name Field */}
+          <div>
+            <label htmlFor="proxy-name" className="block text-sm font-medium text-gray-300 mb-2">
+              Name
+            </label>
+            <input
+              id="proxy-name"
+              type="text"
+              value={formData.name}
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              placeholder="My Service"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              A friendly name to identify this proxy host (optional)
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
@@ -528,7 +547,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       {/* New Domain Prompt Modal */}
       {showDomainPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
           <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
             <div className="flex items-center gap-3 mb-4 text-blue-400">
               <AlertCircle size={24} />

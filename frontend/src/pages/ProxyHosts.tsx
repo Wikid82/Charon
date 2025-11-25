@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Loader2, ExternalLink, AlertTriangle } from 'lucide-react'
+import { Loader2, ExternalLink, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useCertificates } from '../hooks/useCertificates'
@@ -8,11 +8,16 @@ import type { ProxyHost } from '../api/proxyHosts'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
 
+type SortColumn = 'name' | 'domain' | 'forward'
+type SortDirection = 'asc' | 'desc'
+
 export default function ProxyHosts() {
   const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost } = useProxyHosts()
   const { certificates } = useCertificates()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -37,6 +42,49 @@ export default function ProxyHosts() {
     })
     return map
   }, [certificates])
+
+  // Sort hosts based on current sort column and direction
+  const sortedHosts = useMemo(() => {
+    return [...hosts].sort((a, b) => {
+      let aVal: string
+      let bVal: string
+
+      switch (sortColumn) {
+        case 'name':
+          aVal = (a.name || a.domain_names.split(',')[0] || '').toLowerCase()
+          bVal = (b.name || b.domain_names.split(',')[0] || '').toLowerCase()
+          break
+        case 'domain':
+          aVal = (a.domain_names.split(',')[0] || '').toLowerCase()
+          bVal = (b.domain_names.split(',')[0] || '').toLowerCase()
+          break
+        case 'forward':
+          aVal = `${a.forward_host}:${a.forward_port}`.toLowerCase()
+          bVal = `${b.forward_host}:${b.forward_port}`.toLowerCase()
+          break
+        default:
+          return 0
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [hosts, sortColumn, sortDirection])
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return null
+    return sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+  }
 
   const handleDomainClick = (e: React.MouseEvent, url: string) => {
     if (linkBehavior === 'new_window') {
@@ -108,11 +156,32 @@ export default function ProxyHosts() {
             <table className="w-full">
               <thead className="bg-gray-900 border-b border-gray-800">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Domain
+                  <th
+                    onClick={() => handleSort('name')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      Name
+                      <SortIcon column="name" />
+                    </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Forward To
+                  <th
+                    onClick={() => handleSort('domain')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      Domain
+                      <SortIcon column="domain" />
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('forward')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      Forward To
+                      <SortIcon column="forward" />
+                    </div>
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     SSL
@@ -126,8 +195,13 @@ export default function ProxyHosts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {hosts.map((host) => (
+                {sortedHosts.map((host) => (
                   <tr key={host.uuid} className="hover:bg-gray-900/50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-white">
+                        {host.name || <span className="text-gray-500 italic">Unnamed</span>}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-white">
                         {host.domain_names.split(',').map((domain, i) => {

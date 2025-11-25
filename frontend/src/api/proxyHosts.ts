@@ -19,6 +19,7 @@ export interface Certificate {
 
 export interface ProxyHost {
   uuid: string;
+  name: string;
   domain_names: string;
   forward_scheme: string;
   forward_host: string;

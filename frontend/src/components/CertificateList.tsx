@@ -1,13 +1,19 @@
+import { useState, useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { useCertificates } from '../hooks/useCertificates'
 import { deleteCertificate } from '../api/certificates'
 import { LoadingSpinner } from './LoadingStates'
 import { toast } from '../utils/toast'
 
+type SortColumn = 'name' | 'expires'
+type SortDirection = 'asc' | 'desc'
+
 export default function CertificateList() {
   const { certificates, isLoading, error } = useCertificates()
   const queryClient = useQueryClient()
+  const [sortColumn, setSortColumn] = useState<SortColumn>('name')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
   const deleteMutation = useMutation({
     mutationFn: deleteCertificate,
@@ -20,6 +26,41 @@ export default function CertificateList() {
     },
   })
 
+  const sortedCertificates = useMemo(() => {
+    return [...certificates].sort((a, b) => {
+      let comparison = 0
+
+      switch (sortColumn) {
+        case 'name':
+          const aName = (a.name || a.domain || '').toLowerCase()
+          const bName = (b.name || b.domain || '').toLowerCase()
+          comparison = aName.localeCompare(bName)
+          break
+        case 'expires':
+          const aDate = new Date(a.expires_at).getTime()
+          const bDate = new Date(b.expires_at).getTime()
+          comparison = aDate - bDate
+          break
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [certificates, sortColumn, sortDirection])
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return null
+    return sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+  }
+
   if (isLoading) return <LoadingSpinner />
   if (error) return <div className="text-red-500">Failed to load certificates</div>
 
@@ -29,10 +70,26 @@ export default function CertificateList() {
         <table className="w-full text-left text-sm text-gray-400">
           <thead className="bg-gray-900 text-gray-200 uppercase font-medium">
             <tr>
-              <th className="px-6 py-3">Name</th>
+              <th
+                onClick={() => handleSort('name')}
+                className="px-6 py-3 cursor-pointer hover:text-white transition-colors"
+              >
+                <div className="flex items-center gap-1">
+                  Name
+                  <SortIcon column="name" />
+                </div>
+              </th>
               <th className="px-6 py-3">Domain</th>
               <th className="px-6 py-3">Issuer</th>
-              <th className="px-6 py-3">Expires</th>
+              <th
+                onClick={() => handleSort('expires')}
+                className="px-6 py-3 cursor-pointer hover:text-white transition-colors"
+              >
+                <div className="flex items-center gap-1">
+                  Expires
+                  <SortIcon column="expires" />
+                </div>
+              </th>
               <th className="px-6 py-3">Status</th>
               <th className="px-6 py-3">Actions</th>
             </tr>
@@ -45,7 +102,7 @@ export default function CertificateList() {
                 </td>
               </tr>
             ) : (
-              certificates.map((cert) => (
+              sortedCertificates.map((cert) => (
                 <tr key={cert.id || cert.domain} className="hover:bg-gray-800/50 transition-colors">
                   <td className="px-6 py-4 font-medium text-white">{cert.name || '-'}</td>
                   <td className="px-6 py-4 font-medium text-white">{cert.domain}</td>
