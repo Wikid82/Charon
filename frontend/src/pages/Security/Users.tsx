@@ -16,6 +16,7 @@ export default function Users() {
     password: '',
     roles: '',
     mfa_enabled: false,
+    additional_emails: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,6 +28,7 @@ export default function Users() {
           name: formData.name,
           roles: formData.roles,
           mfa_enabled: formData.mfa_enabled,
+          additional_emails: formData.additional_emails,
         };
         if (formData.password) {
           updateData.password = formData.password;
@@ -63,6 +65,7 @@ export default function Users() {
       password: '',
       roles: '',
       mfa_enabled: false,
+      additional_emails: '',
     });
     setEditingUser(null);
   };
@@ -76,6 +79,7 @@ export default function Users() {
       password: '', // Don't populate password
       roles: user.roles,
       mfa_enabled: user.mfa_enabled,
+      additional_emails: user.additional_emails || '',
     });
     setIsModalOpen(true);
   };
@@ -221,6 +225,17 @@ export default function Users() {
                   placeholder="admin, editor"
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Additional Emails (comma separated)</label>
+                <input
+                  type="text"
+                  value={formData.additional_emails || ''}
+                  onChange={e => setFormData({ ...formData, additional_emails: e.target.value })}
+                  placeholder="email2@example.com, email3@example.com"
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Used for linking multiple OAuth identities to this user.</p>
               </div>
               <div className="flex items-center gap-2">
                 <input

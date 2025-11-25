@@ -226,24 +226,58 @@ export default function Providers() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Client ID</label>
+                  <div className="flex items-center gap-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-400">Client ID</label>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        className="w-4 h-4 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 flex items-center justify-center text-xs"
+                        title="OAuth Client ID help"
+                      >
+                        ?
+                      </button>
+                      <div className="invisible group-hover:visible absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap z-10 shadow-lg">
+                        The public identifier for your OAuth application.<br/>
+                        Found in your provider's developer console (e.g., Google Cloud Console, GitHub Developer Settings).
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                      </div>
+                    </div>
+                  </div>
                   <input
                     type="text"
                     required
                     value={formData.client_id}
                     onChange={e => setFormData({ ...formData, client_id: e.target.value })}
+                    placeholder="e.g., 123456789.apps.googleusercontent.com"
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">
-                    {editingProvider ? 'Client Secret (leave blank to keep)' : 'Client Secret'}
-                  </label>
+                  <div className="flex items-center gap-2 mb-1">
+                    <label className="block text-sm font-medium text-gray-400">
+                      {editingProvider ? 'Client Secret (leave blank to keep)' : 'Client Secret'}
+                    </label>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        className="w-4 h-4 rounded-full bg-gray-700 text-gray-400 hover:bg-gray-600 flex items-center justify-center text-xs"
+                        title="OAuth Client Secret help"
+                      >
+                        ?
+                      </button>
+                      <div className="invisible group-hover:visible absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap z-10 shadow-lg">
+                        The private key for your OAuth application.<br/>
+                        Keep this secret and secure! Generate/regenerate in your provider's developer console.
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                      </div>
+                    </div>
+                  </div>
                   <input
                     type="password"
                     required={!editingProvider}
                     value={formData.client_secret}
                     onChange={e => setFormData({ ...formData, client_secret: e.target.value })}
+                    placeholder="Enter your client secret"
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>

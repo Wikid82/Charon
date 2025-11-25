@@ -48,6 +48,7 @@ export interface AuthUser {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  additional_emails?: string;
 }
 
 export interface AuthUserStats {
@@ -62,6 +63,7 @@ export interface CreateAuthUserRequest {
   password?: string;
   roles: string;
   mfa_enabled: boolean;
+  additional_emails?: string;
 }
 
 export interface UpdateAuthUserRequest {
@@ -71,6 +73,7 @@ export interface UpdateAuthUserRequest {
   roles?: string;
   mfa_enabled?: boolean;
   enabled?: boolean;
+  additional_emails?: string;
 }
 
 export const getAuthUsers = async (): Promise<AuthUser[]> => {

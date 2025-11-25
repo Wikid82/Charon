@@ -147,6 +147,28 @@ func TestAuthUserHandler_Create(t *testing.T) {
 		assert.True(t, result.Enabled)
 	})
 
+	t.Run("with additional emails", func(t *testing.T) {
+		body := map[string]interface{}{
+			"username":          "multiemail",
+			"email":             "primary@example.com",
+			"password":          "password123",
+			"additional_emails": "alt1@example.com,alt2@example.com",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/api/v1/security/users", bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		var result models.AuthUser
+		json.Unmarshal(w.Body.Bytes(), &result)
+		assert.Equal(t, "multiemail", result.Username)
+		assert.Equal(t, "alt1@example.com,alt2@example.com", result.AdditionalEmails)
+	})
+
 	t.Run("invalid email", func(t *testing.T) {
 		body := map[string]interface{}{
 			"username": "baduser",
@@ -190,6 +212,24 @@ func TestAuthUserHandler_Update(t *testing.T) {
 		json.Unmarshal(w.Body.Bytes(), &result)
 		assert.Equal(t, "Updated Name", result.Name)
 		assert.False(t, result.Enabled)
+	})
+
+	t.Run("update additional emails", func(t *testing.T) {
+		body := map[string]interface{}{
+			"additional_emails": "newalt@example.com",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("PUT", "/api/v1/security/users/"+user.UUID, bytes.NewBuffer(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var result models.AuthUser
+		json.Unmarshal(w.Body.Bytes(), &result)
+		assert.Equal(t, "newalt@example.com", result.AdditionalEmails)
 	})
 
 	t.Run("not found", func(t *testing.T) {
