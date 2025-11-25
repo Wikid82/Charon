@@ -57,8 +57,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		sslProvider = sslProviderSetting.Value
 	}
 
+	// Fetch Forward Auth configuration
+	var forwardAuthConfig models.ForwardAuthConfig
+	var forwardAuthPtr *models.ForwardAuthConfig
+	if err := m.db.First(&forwardAuthConfig).Error; err == nil {
+		forwardAuthPtr = &forwardAuthConfig
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, forwardAuthPtr)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

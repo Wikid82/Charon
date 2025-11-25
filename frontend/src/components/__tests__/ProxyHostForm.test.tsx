@@ -224,4 +224,23 @@ describe('ProxyHostForm', () => {
 
     expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
   })
+
+  it('toggles forward auth fields', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    const toggle = screen.getByLabelText('Enable Forward Auth (SSO)')
+    expect(toggle).not.toBeChecked()
+
+    // Bypass field should not be visible initially
+    expect(screen.queryByLabelText('Bypass Paths (Optional)')).not.toBeInTheDocument()
+
+    // Enable it
+    fireEvent.click(toggle)
+    expect(toggle).toBeChecked()
+
+    // Bypass field should now be visible
+    expect(screen.getByLabelText('Bypass Paths (Optional)')).toBeInTheDocument()
+  })
 })

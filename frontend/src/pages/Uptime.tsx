@@ -90,7 +90,7 @@ const Uptime: React.FC = () => {
   // Sort monitors alphabetically by name
   const sortedMonitors = useMemo(() => {
     if (!monitors) return [];
-    return [...monitors].sort((a, b) => 
+    return [...monitors].sort((a, b) =>
       (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase())
     );
   }, [monitors]);

@@ -157,6 +157,54 @@ func FileServerHandler(root string) Handler {
 	}
 }
 
+// ForwardAuthHandler creates a forward authentication handler using reverse_proxy.
+// This sends the request to an auth provider and uses handle_response to process the result.
+func ForwardAuthHandler(authAddress string, trustForwardHeader bool) Handler {
+	h := Handler{
+		"handler": "reverse_proxy",
+		"upstreams": []map[string]interface{}{
+			{"dial": authAddress},
+		},
+		"handle_response": []map[string]interface{}{
+			{
+				"match": map[string]interface{}{
+					"status_code": []int{200},
+				},
+				"routes": []map[string]interface{}{
+					{
+						"handle": []map[string]interface{}{
+							{
+								"handler": "headers",
+								"request": map[string]interface{}{
+									"set": map[string][]string{
+										"Remote-User":   {"{http.reverse_proxy.header.Remote-User}"},
+										"Remote-Email":  {"{http.reverse_proxy.header.Remote-Email}"},
+										"Remote-Name":   {"{http.reverse_proxy.header.Remote-Name}"},
+										"Remote-Groups": {"{http.reverse_proxy.header.Remote-Groups}"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if trustForwardHeader {
+		h["headers"] = map[string]interface{}{
+			"request": map[string]interface{}{
+				"set": map[string][]string{
+					"X-Forwarded-Method": {"{http.request.method}"},
+					"X-Forwarded-Uri":    {"{http.request.uri}"},
+				},
+			},
+		}
+	}
+
+	return h
+}
+
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
 	Automation   *AutomationConfig   `json:"automation,omitempty"`

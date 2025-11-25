@@ -34,6 +34,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
 		&models.Domain{},
+		&models.ForwardAuthConfig{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -99,6 +100,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		settingsHandler := handlers.NewSettingsHandler(db)
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
+
+		// Forward Auth
+		forwardAuthHandler := handlers.NewForwardAuthHandler(db)
+		protected.GET("/security/forward-auth", forwardAuthHandler.GetConfig)
+		protected.PUT("/security/forward-auth", forwardAuthHandler.UpdateConfig)
+		protected.GET("/security/forward-auth/templates", forwardAuthHandler.GetTemplates)
 
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
