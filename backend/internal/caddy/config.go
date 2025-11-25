@@ -93,17 +93,26 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 	}
 
-	// Collect custom certificates
+	// Collect CUSTOM certificates only (not Let's Encrypt - those are managed by ACME)
+	// Only custom/uploaded certificates should be loaded via LoadPEM
 	customCerts := make(map[uint]models.SSLCertificate)
 	for _, host := range hosts {
 		if host.CertificateID != nil && host.Certificate != nil {
-			customCerts[*host.CertificateID] = *host.Certificate
+			// Only include custom certificates, not ACME-managed ones
+			if host.Certificate.Provider == "custom" {
+				customCerts[*host.CertificateID] = *host.Certificate
+			}
 		}
 	}
 
 	if len(customCerts) > 0 {
 		var loadPEM []LoadPEMConfig
 		for _, cert := range customCerts {
+			// Validate that custom cert has both certificate and key
+			if cert.Certificate == "" || cert.PrivateKey == "" {
+				fmt.Printf("Warning: Custom certificate %s missing certificate or key, skipping\n", cert.Name)
+				continue
+			}
 			loadPEM = append(loadPEM, LoadPEMConfig{
 				Certificate: cert.Certificate,
 				Key:         cert.PrivateKey,
@@ -111,11 +120,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 			})
 		}
 
-		if config.Apps.TLS == nil {
-			config.Apps.TLS = &TLSApp{}
-		}
-		config.Apps.TLS.Certificates = &CertificatesConfig{
-			LoadPEM: loadPEM,
+		if len(loadPEM) > 0 {
+			if config.Apps.TLS == nil {
+				config.Apps.TLS = &TLSApp{}
+			}
+			config.Apps.TLS.Certificates = &CertificatesConfig{
+				LoadPEM: loadPEM,
+			}
 		}
 	}
 

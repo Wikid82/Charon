@@ -38,6 +38,21 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
+	// Clean up invalid Let's Encrypt certificate associations
+	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
+	fmt.Println("Cleaning up invalid Let's Encrypt certificate associations...")
+	var hostsWithInvalidCerts []models.ProxyHost
+	if err := db.Joins("LEFT JOIN ssl_certificates ON proxy_hosts.certificate_id = ssl_certificates.id").
+		Where("ssl_certificates.provider = ?", "letsencrypt").
+		Find(&hostsWithInvalidCerts).Error; err == nil {
+		if len(hostsWithInvalidCerts) > 0 {
+			for _, host := range hostsWithInvalidCerts {
+				fmt.Printf("Removing invalid Let's Encrypt cert assignment from %s\n", host.DomainNames)
+				db.Model(&host).Update("certificate_id", nil)
+			}
+		}
+	}
+
 	router.GET("/api/v1/health", handlers.HealthHandler)
 
 	api := router.Group("/api/v1")

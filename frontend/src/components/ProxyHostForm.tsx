@@ -364,20 +364,23 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* SSL Certificate Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              SSL Certificate
+              SSL Certificate (Custom Only)
             </label>
             <select
               value={formData.certificate_id || 0}
               onChange={e => setFormData({ ...formData, certificate_id: parseInt(e.target.value) || null })}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value={0}>Request a new SSL Certificate</option>
-              {certificates.map(cert => (
+              <option value={0}>Request a new SSL Certificate (Let's Encrypt)</option>
+              {certificates.filter(c => c.provider === 'custom').map(cert => (
                 <option key={cert.id} value={cert.id}>
-                  {cert.name} ({cert.provider})
+                  {cert.name} (Custom)
                 </option>
               ))}
             </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Let's Encrypt certificates are managed automatically. Use custom certificates for self-signed or other providers.
+            </p>
           </div>
 
           {/* SSL & Security Options */}
