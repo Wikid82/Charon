@@ -141,10 +141,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
     try {
       await onSubmit(formData)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Submit error:", err)
       // Extract error message from axios response if available
-      const message = err.response?.data?.error || err.message || 'Failed to save proxy host'
+      const errorObj = err as { response?: { data?: { error?: string } }; message?: string }
+      const message = errorObj.response?.data?.error || errorObj.message || 'Failed to save proxy host'
       setError(message)
     } finally {
       setLoading(false)
