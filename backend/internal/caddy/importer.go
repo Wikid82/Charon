@@ -42,6 +42,7 @@ type CaddyHTTP struct {
 
 // CaddyServer represents a single server configuration.
 type CaddyServer struct {
+	Listen                []string      `json:"listen,omitempty"`
 	Routes                []*CaddyRoute `json:"routes,omitempty"`
 	TLSConnectionPolicies interface{}   `json:"tls_connection_policies,omitempty"`
 }
@@ -173,6 +174,16 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 	seenDomains := make(map[string]bool)
 
 	for serverName, server := range config.Apps.HTTP.Servers {
+		// Detect if this server uses SSL based on listen address or TLS policies
+		serverUsesSSL := server.TLSConnectionPolicies != nil
+		for _, listenAddr := range server.Listen {
+			// Check if listening on :443 or any HTTPS port indicator
+			if strings.Contains(listenAddr, ":443") || strings.HasSuffix(listenAddr, "443") {
+				serverUsesSSL = true
+				break
+			}
+		}
+
 		for routeIdx, route := range server.Routes {
 			for _, match := range route.Match {
 				for _, hostMatcher := range match.Host {
@@ -188,7 +199,7 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 					// Extract reverse proxy handler
 					host := ParsedHost{
 						DomainNames: domain,
-						SSLForced:   strings.HasPrefix(domain, "https") || server.TLSConnectionPolicies != nil,
+						SSLForced:   strings.HasPrefix(domain, "https") || serverUsesSSL,
 					}
 
 					// Find reverse_proxy handler (may be nested in subroute)

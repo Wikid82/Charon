@@ -22,10 +22,18 @@ export default function ProxyHosts() {
   const linkBehavior = settings?.['ui.domain_link_behavior'] || 'new_tab'
 
   // Create a map of domain -> certificate status for quick lookup
+  // Handles both single domains and comma-separated multi-domain certs
   const certStatusByDomain = useMemo(() => {
     const map: Record<string, { status: string; provider: string }> = {}
     certificates.forEach(cert => {
-      map[cert.domain] = { status: cert.status, provider: cert.provider }
+      // Handle comma-separated domains (SANs)
+      const domains = cert.domain.split(',').map(d => d.trim().toLowerCase())
+      domains.forEach(domain => {
+        // Only set if not already set (first cert wins)
+        if (!map[domain]) {
+          map[domain] = { status: cert.status, provider: cert.provider }
+        }
+      })
     })
     return map
   }, [certificates])
@@ -148,11 +156,12 @@ export default function ProxyHosts() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {(() => {
-                        // Get the primary domain to look up cert status
-                        const primaryDomain = host.domain_names.split(',')[0]?.trim()
+                        // Get the primary domain to look up cert status (case-insensitive)
+                        const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
                         const certInfo = certStatusByDomain[primaryDomain]
                         const isUntrusted = certInfo?.status === 'untrusted'
                         const isStaging = certInfo?.provider?.includes('staging')
+                        const hasCertInfo = !!certInfo
 
                         return (
                           <div className="flex flex-col gap-2">
@@ -184,6 +193,10 @@ export default function ProxyHosts() {
                               isUntrusted || isStaging ? (
                                 <div className="text-xs text-orange-400">
                                   ⚠️ Staging cert - browsers won't trust
+                                </div>
+                              ) : hasCertInfo ? (
+                                <div className="text-xs text-green-400">
+                                  Let's Encrypt ✓
                                 </div>
                               ) : (
                                 <div className="text-xs text-blue-400">
