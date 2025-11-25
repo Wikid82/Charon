@@ -53,7 +53,7 @@ export default function Certificates() {
       </div>
 
       <div className="mb-4 bg-blue-900/20 border border-blue-500/30 text-blue-300 px-4 py-3 rounded-lg text-sm">
-        <strong>Note:</strong> You can delete custom certificates and staging certificates. 
+        <strong>Note:</strong> You can delete custom certificates and staging certificates.
         Production Let's Encrypt certificates are automatically renewed and should not be deleted unless switching environments.
       </div>
 

@@ -491,8 +491,16 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 	log.Printf("Import Commit: Parsed %d hosts, converted to %d proxy hosts", len(result.Hosts), len(proxyHosts))
 
 	created := 0
+	updated := 0
 	skipped := 0
 	errors := []string{}
+
+	// Get existing hosts to check for overwrites
+	existingHosts, _ := h.proxyHostSvc.List()
+	existingMap := make(map[string]*models.ProxyHost)
+	for i := range existingHosts {
+		existingMap[existingHosts[i].DomainNames] = &existingHosts[i]
+	}
 
 	for _, host := range proxyHosts {
 		action := req.Resolutions[host.DomainNames]
@@ -507,8 +515,29 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 			host.DomainNames = host.DomainNames + "-imported"
 		}
 
-		host.UUID = uuid.NewString()
+		// Handle overwrite: preserve existing ID, UUID, and certificate
+		if action == "overwrite" {
+			if existing, found := existingMap[host.DomainNames]; found {
+				host.ID = existing.ID
+				host.UUID = existing.UUID
+				host.CertificateID = existing.CertificateID // Preserve certificate association
+				host.CreatedAt = existing.CreatedAt
 
+				if err := h.proxyHostSvc.Update(&host); err != nil {
+					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+					errors = append(errors, errMsg)
+					log.Printf("Import Commit Error (update): %s", errMsg)
+				} else {
+					updated++
+					log.Printf("Import Commit Success: Updated host %s", host.DomainNames)
+				}
+				continue
+			}
+			// If "overwrite" but doesn't exist, fall through to create
+		}
+
+		// Create new host
+		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.Create(&host); err != nil {
 			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 			errors = append(errors, errMsg)
@@ -537,6 +566,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
+		"updated": updated,
 		"skipped": skipped,
 		"errors":  errors,
 	})

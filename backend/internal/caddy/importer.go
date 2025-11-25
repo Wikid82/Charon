@@ -62,6 +62,7 @@ type CaddyHandler struct {
 	Handler   string      `json:"handler"`
 	Upstreams interface{} `json:"upstreams,omitempty"`
 	Headers   interface{} `json:"headers,omitempty"`
+	Routes    interface{} `json:"routes,omitempty"` // For subroute handlers
 }
 
 // ParsedHost represents a single host detected during Caddyfile import.
@@ -114,6 +115,44 @@ func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
 	return output, nil
 }
 
+// extractHandlers recursively extracts handlers from a list, flattening subroutes.
+func (i *Importer) extractHandlers(handles []*CaddyHandler) []*CaddyHandler {
+	var result []*CaddyHandler
+
+	for _, handler := range handles {
+		// If this is a subroute, extract handlers from its first route
+		if handler.Handler == "subroute" {
+			if routes, ok := handler.Routes.([]interface{}); ok && len(routes) > 0 {
+				if subroute, ok := routes[0].(map[string]interface{}); ok {
+					if subhandles, ok := subroute["handle"].([]interface{}); ok {
+						// Convert the subhandles to CaddyHandler objects
+						for _, sh := range subhandles {
+							if shMap, ok := sh.(map[string]interface{}); ok {
+								subHandler := &CaddyHandler{}
+								if handlerType, ok := shMap["handler"].(string); ok {
+									subHandler.Handler = handlerType
+								}
+								if upstreams, ok := shMap["upstreams"]; ok {
+									subHandler.Upstreams = upstreams
+								}
+								if headers, ok := shMap["headers"]; ok {
+									subHandler.Headers = headers
+								}
+								result = append(result, subHandler)
+							}
+						}
+					}
+				}
+			}
+		} else {
+			// Regular handler, add it directly
+			result = append(result, handler)
+		}
+	}
+
+	return result
+}
+
 // ExtractHosts parses Caddy JSON and extracts proxy host information.
 func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 	var config CaddyConfig
@@ -152,8 +191,10 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 						SSLForced:   strings.HasPrefix(domain, "https") || server.TLSConnectionPolicies != nil,
 					}
 
-					// Find reverse_proxy handler
-					for _, handler := range route.Handle {
+					// Find reverse_proxy handler (may be nested in subroute)
+					handlers := i.extractHandlers(route.Handle)
+
+					for _, handler := range handlers {
 						if handler.Handler == "reverse_proxy" {
 							upstreams, _ := handler.Upstreams.([]interface{})
 							if len(upstreams) > 0 {
