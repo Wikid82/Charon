@@ -50,6 +50,7 @@ repos:
         language: system
         files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false
+
       - id: frontend-test-coverage
         name: Frontend Test Coverage
         entry: scripts/frontend-test-coverage.sh
