@@ -51,9 +51,8 @@ type Storage struct {
 
 // Apps contains all Caddy app modules.
 type Apps struct {
-	HTTP     *HTTPApp     `json:"http,omitempty"`
-	TLS      *TLSApp      `json:"tls,omitempty"`
-	Security *SecurityApp `json:"security,omitempty"`
+	HTTP *HTTPApp `json:"http,omitempty"`
+	TLS  *TLSApp  `json:"tls,omitempty"`
 }
 
 // HTTPApp configures the HTTP app.
@@ -159,54 +158,6 @@ func FileServerHandler(root string) Handler {
 	}
 }
 
-// ForwardAuthHandler creates a forward authentication handler using reverse_proxy.
-// This sends the request to an auth provider and uses handle_response to process the result.
-func ForwardAuthHandler(authAddress string, trustForwardHeader bool) Handler {
-	h := Handler{
-		"handler": "reverse_proxy",
-		"upstreams": []map[string]interface{}{
-			{"dial": authAddress},
-		},
-		"handle_response": []map[string]interface{}{
-			{
-				"match": map[string]interface{}{
-					"status_code": []int{200},
-				},
-				"routes": []map[string]interface{}{
-					{
-						"handle": []map[string]interface{}{
-							{
-								"handler": "headers",
-								"request": map[string]interface{}{
-									"set": map[string][]string{
-										"Remote-User":   {"{http.reverse_proxy.header.Remote-User}"},
-										"Remote-Email":  {"{http.reverse_proxy.header.Remote-Email}"},
-										"Remote-Name":   {"{http.reverse_proxy.header.Remote-Name}"},
-										"Remote-Groups": {"{http.reverse_proxy.header.Remote-Groups}"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	if trustForwardHeader {
-		h["headers"] = map[string]interface{}{
-			"request": map[string]interface{}{
-				"set": map[string][]string{
-					"X-Forwarded-Method": {"{http.request.method}"},
-					"X-Forwarded-Uri":    {"{http.request.uri}"},
-				},
-			},
-		}
-	}
-
-	return h
-}
-
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
 	Automation   *AutomationConfig   `json:"automation,omitempty"`
@@ -234,79 +185,4 @@ type AutomationConfig struct {
 type AutomationPolicy struct {
 	Subjects   []string      `json:"subjects,omitempty"`
 	IssuersRaw []interface{} `json:"issuers,omitempty"`
-}
-
-// SecurityApp configures the caddy-security plugin for SSO/authentication.
-type SecurityApp struct {
-	Config *SecurityConfig `json:"config,omitempty"`
-}
-
-// SecurityConfig holds the configuration for caddy-security.
-type SecurityConfig struct {
-	AuthenticationPortals []*AuthPortal       `json:"authentication_portals,omitempty"`
-	AuthorizationPolicies []*AuthzPolicy      `json:"authorization_policies,omitempty"`
-	IdentityProviders     []*IdentityProvider `json:"identity_providers,omitempty"`
-	IdentityStores        []*IdentityStore    `json:"identity_stores,omitempty"`
-}
-
-// AuthPortal represents an authentication portal configuration.
-type AuthPortal struct {
-	Name                  string                 `json:"name,omitempty"`
-	UISettings            map[string]interface{} `json:"ui,omitempty"`
-	CookieDomain          string                 `json:"cookie_domain,omitempty"`
-	CookieConfig          map[string]interface{} `json:"cookie_config,omitempty"`
-	IdentityProviders     []string               `json:"identity_providers,omitempty"`
-	IdentityStores        []string               `json:"identity_stores,omitempty"`
-	TokenValidatorOptions map[string]interface{} `json:"token_validator_options,omitempty"`
-	CryptoKeyStoreConfig  map[string]interface{} `json:"crypto_key_store_config,omitempty"`
-	TokenGrantorOptions   map[string]interface{} `json:"token_grantor_options,omitempty"`
-	PortalAdminRoles      map[string]bool        `json:"portal_admin_roles,omitempty"`
-	PortalUserRoles       map[string]bool        `json:"portal_user_roles,omitempty"`
-	PortalGuestRoles      map[string]bool        `json:"portal_guest_roles,omitempty"`
-	API                   map[string]interface{} `json:"api,omitempty"`
-}
-
-// IdentityProvider represents an identity provider configuration.
-type IdentityProvider struct {
-	Name   string                 `json:"name"`
-	Kind   string                 `json:"kind"` // "oauth", "saml"
-	Params map[string]interface{} `json:"params,omitempty"`
-}
-
-// IdentityStore represents an identity store configuration.
-type IdentityStore struct {
-	Name   string                 `json:"name"`
-	Kind   string                 `json:"kind"` // "local", "ldap"
-	Params map[string]interface{} `json:"params,omitempty"`
-}
-
-// AuthzPolicy represents an authorization policy.
-type AuthzPolicy struct {
-	Name                   string            `json:"name,omitempty"`
-	AuthURLPath            string            `json:"auth_url_path,omitempty"`
-	AuthRedirectQueryParam string            `json:"auth_redirect_query_param,omitempty"`
-	AuthRedirectStatusCode int               `json:"auth_redirect_status_code,omitempty"`
-	AccessListRules        []*AccessListRule `json:"access_list_rules,omitempty"`
-}
-
-// AccessListRule represents a rule in an authorization policy.
-type AccessListRule struct {
-	Conditions []string `json:"conditions,omitempty"`
-	Action     string   `json:"action,omitempty"`
-}
-
-// SecurityAuthHandler creates a caddy-security authentication handler.
-func SecurityAuthHandler(portalName string) Handler {
-	return Handler{
-		"handler": "authentication",
-		"portal":  portalName,
-	}
-}
-
-// SecurityAuthzHandler creates a caddy-security authorization handler.
-func SecurityAuthzHandler(policyName string) Handler {
-	return Handler{
-		"handler": "authorization",
-		"policy":  policyName,
-	}
 }

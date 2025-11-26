@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
-import { CircleHelp, AlertCircle, Check, X, Loader2, ShieldCheck } from 'lucide-react'
+import { CircleHelp, AlertCircle, Check, X, Loader2 } from 'lucide-react'
 import type { ProxyHost } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
-import { useAuthPolicies } from '../hooks/useSecurity'
 import { parse } from 'tldts'
 
 interface ProxyHostFormProps {
@@ -28,9 +27,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
-    forward_auth_enabled: host?.forward_auth_enabled ?? false,
-    forward_auth_bypass: host?.forward_auth_bypass || '',
-    auth_policy_id: host?.auth_policy_id || null,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
@@ -39,7 +35,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
   const { certificates } = useCertificates()
-  const { policies: authPolicies } = useAuthPolicies()
   const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
     formData.forward_host ? undefined : undefined // Simplified for now, logic below handles it
   )
@@ -487,82 +482,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <CircleHelp size={14} />
               </div>
             </label>
-          </div>
-
-          {/* Access Control (SSO & Forward Auth) */}
-          <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700 space-y-4">
-            <div className="flex items-center gap-3 mb-2">
-              <ShieldCheck className="text-blue-400" size={20} />
-              <h3 className="text-lg font-medium text-white">Access Control</h3>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Access Policy (Built-in SSO)
-              </label>
-              <select
-                value={formData.auth_policy_id || ''}
-                onChange={e => {
-                  const val = e.target.value ? parseInt(e.target.value) : null;
-                  setFormData({
-                    ...formData,
-                    auth_policy_id: val,
-                    // If a policy is selected, disable legacy forward auth to avoid conflicts
-                    forward_auth_enabled: val ? false : formData.forward_auth_enabled
-                  });
-                }}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Public (No Authentication)</option>
-                {authPolicies.map(policy => (
-                  <option key={policy.id} value={policy.id}>
-                    {policy.name} {policy.description ? `(${policy.description})` : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                Select a policy to protect this service with the built-in SSO.
-              </p>
-            </div>
-
-            {/* Legacy Forward Auth - Only show if no policy is selected */}
-            {!formData.auth_policy_id && (
-              <div className="pt-4 border-t border-gray-700">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={formData.forward_auth_enabled}
-                      onChange={e => setFormData({ ...formData, forward_auth_enabled: e.target.checked })}
-                      className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm font-medium text-gray-300">Enable External Forward Auth</span>
-                  </label>
-                  <div title="Protects this service using your configured global authentication provider (e.g. Authelia, Authentik)." className="text-gray-500 hover:text-gray-300 cursor-help">
-                    <CircleHelp size={14} />
-                  </div>
-                </div>
-
-                {formData.forward_auth_enabled && (
-                  <div className="mt-3">
-                    <label htmlFor="forward-auth-bypass" className="block text-sm font-medium text-gray-300 mb-2">
-                      Bypass Paths (Optional)
-                    </label>
-                    <textarea
-                      id="forward-auth-bypass"
-                      value={formData.forward_auth_bypass}
-                      onChange={e => setFormData({ ...formData, forward_auth_bypass: e.target.value })}
-                      placeholder="/api/webhook, /public/*"
-                      rows={2}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Comma-separated list of paths to exclude from authentication.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Advanced Config */}

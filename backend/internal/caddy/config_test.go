@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -31,7 +31,7 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -71,7 +71,7 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.Len(t, config.Apps.HTTP.Servers["cpm_server"].Routes, 2)
 }
@@ -88,7 +88,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 
 	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
@@ -109,7 +109,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
 	require.Empty(t, config.Apps.HTTP.Servers["cpm_server"].Routes)
@@ -117,7 +117,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 
 func TestGenerateConfig_Logging(t *testing.T) {
 	hosts := []models.ProxyHost{}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 
 	// Verify logging configuration
@@ -155,7 +155,7 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -202,7 +202,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	}
 
 	// Test with staging enabled
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true, nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)
@@ -217,7 +217,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	require.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", acmeIssuer["ca"])
 
 	// Test with staging disabled (production)
-	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false, nil, nil, nil, nil)
+	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)
@@ -232,233 +232,4 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	_, hasCA := acmeIssuer["ca"]
 	require.False(t, hasCA, "Production mode should not set ca field (uses default)")
 	// We can't easily check the map content without casting, but we know it's there.
-}
-
-func TestGenerateSecurityApp(t *testing.T) {
-	t.Run("empty inputs", func(t *testing.T) {
-		app := generateSecurityApp(nil, nil, nil)
-		require.NotNil(t, app)
-		require.NotNil(t, app.Config)
-		require.NotNil(t, app.Config.AuthenticationPortals)
-		require.NotNil(t, app.Config.AuthorizationPolicies)
-		require.NotNil(t, app.Config.IdentityProviders)
-	})
-
-	t.Run("with local users", func(t *testing.T) {
-		users := []models.AuthUser{
-			{Username: "admin", Email: "admin@example.com", PasswordHash: "hash123", Enabled: true},
-			{Username: "user", Email: "user@example.com", PasswordHash: "hash456", Enabled: true},
-		}
-		app := generateSecurityApp(users, nil, nil)
-		require.NotNil(t, app)
-		require.NotNil(t, app.Config)
-
-		// Check Identity Stores
-		require.Len(t, app.Config.IdentityStores, 1)
-		localStore := app.Config.IdentityStores[0]
-		require.Equal(t, "local", localStore.Name)
-		require.Equal(t, "local", localStore.Kind)
-
-		// Check Portal
-		require.Len(t, app.Config.AuthenticationPortals, 1)
-		portal := app.Config.AuthenticationPortals[0]
-		require.Equal(t, "cpmp_portal", portal.Name)
-		require.Contains(t, portal.IdentityStores, "local")
-	})
-
-	t.Run("with disabled users", func(t *testing.T) {
-		users := []models.AuthUser{
-			{Username: "active", Email: "active@example.com", PasswordHash: "hash", Enabled: true},
-			{Username: "inactive", Email: "inactive@example.com", PasswordHash: "hash", Enabled: false},
-		}
-		app := generateSecurityApp(users, nil, nil)
-
-		require.Len(t, app.Config.IdentityStores, 1)
-		localStore := app.Config.IdentityStores[0]
-
-		usersConfig := localStore.Params["users"].([]map[string]interface{})
-		require.Len(t, usersConfig, 1)
-		require.Equal(t, "active", usersConfig[0]["username"])
-	})
-
-	t.Run("with oauth providers", func(t *testing.T) {
-		providers := []models.AuthProvider{
-			{
-				Name:         "Google",
-				Type:         "google",
-				Enabled:      true,
-				ClientID:     "google-client-id",
-				ClientSecret: "google-secret",
-				Scopes:       "openid,profile,email",
-			},
-			{
-				Name:         "GitHub",
-				Type:         "github",
-				Enabled:      true,
-				ClientID:     "github-client-id",
-				ClientSecret: "github-secret",
-			},
-		}
-		app := generateSecurityApp(nil, providers, nil)
-
-		require.Len(t, app.Config.IdentityProviders, 2)
-
-		// Find Google provider
-		var googleProvider *IdentityProvider
-		for _, p := range app.Config.IdentityProviders {
-			if p.Name == "Google" {
-				googleProvider = p
-				break
-			}
-		}
-		require.NotNil(t, googleProvider)
-		require.Equal(t, "oauth", googleProvider.Kind)
-		require.Equal(t, "google", googleProvider.Params["realm"])
-		require.Equal(t, "google-client-id", googleProvider.Params["client_id"])
-
-		// Check Portal references
-		require.Len(t, app.Config.AuthenticationPortals, 1)
-		portal := app.Config.AuthenticationPortals[0]
-		require.Contains(t, portal.IdentityProviders, "Google")
-		require.Contains(t, portal.IdentityProviders, "GitHub")
-	})
-
-	t.Run("with disabled providers", func(t *testing.T) {
-		providers := []models.AuthProvider{
-			{Name: "Active", Type: "oidc", Enabled: true, ClientID: "id", ClientSecret: "secret"},
-			{Name: "Inactive", Type: "oidc", Enabled: false, ClientID: "id2", ClientSecret: "secret2"},
-		}
-		app := generateSecurityApp(nil, providers, nil)
-
-		require.Len(t, app.Config.IdentityProviders, 1)
-		require.Equal(t, "Active", app.Config.IdentityProviders[0].Name)
-	})
-
-	t.Run("with authorization policies", func(t *testing.T) {
-		policies := []models.AuthPolicy{
-			{
-				Name:         "admin_policy",
-				Enabled:      true,
-				AllowedRoles: "admin,super",
-				AllowedUsers: "user1,user2",
-				RequireMFA:   true,
-			},
-			{
-				Name:         "user_policy",
-				Enabled:      true,
-				AllowedRoles: "user",
-			},
-		}
-		app := generateSecurityApp(nil, nil, policies)
-
-		require.Len(t, app.Config.AuthorizationPolicies, 2)
-
-		// Find admin policy
-		var adminPolicy *AuthzPolicy
-		for _, p := range app.Config.AuthorizationPolicies {
-			if p.Name == "admin_policy" {
-				adminPolicy = p
-				break
-			}
-		}
-		require.NotNil(t, adminPolicy)
-
-		// Check rules
-		// Note: The implementation converts roles/users to conditions in AccessListRules
-		require.NotEmpty(t, adminPolicy.AccessListRules)
-		rule := adminPolicy.AccessListRules[0]
-		require.Contains(t, rule.Conditions, "match roles admin")
-		require.Contains(t, rule.Conditions, "match email user1")
-	})
-
-	t.Run("with disabled policies", func(t *testing.T) {
-		policies := []models.AuthPolicy{
-			{Name: "active", Enabled: true},
-			{Name: "inactive", Enabled: false},
-		}
-		app := generateSecurityApp(nil, nil, policies)
-
-		require.Len(t, app.Config.AuthorizationPolicies, 1)
-		require.Equal(t, "active", app.Config.AuthorizationPolicies[0].Name)
-	})
-
-	t.Run("provider with custom URLs", func(t *testing.T) {
-		providers := []models.AuthProvider{
-			{
-				Name:         "Custom OIDC",
-				Type:         "oidc",
-				Enabled:      true,
-				ClientID:     "client-id",
-				ClientSecret: "secret",
-				IssuerURL:    "https://issuer.example.com",
-				AuthURL:      "https://auth.example.com/authorize",
-				TokenURL:     "https://auth.example.com/token",
-			},
-		}
-		app := generateSecurityApp(nil, providers, nil)
-
-		require.Len(t, app.Config.IdentityProviders, 1)
-		provider := app.Config.IdentityProviders[0]
-
-		require.Equal(t, "https://issuer.example.com", provider.Params["base_auth_url"])
-		require.Equal(t, "https://auth.example.com/authorize", provider.Params["authorization_url"])
-		require.Equal(t, "https://auth.example.com/token", provider.Params["token_url"])
-	})
-}
-
-func TestConvertAuthUsersToConfig(t *testing.T) {
-	t.Run("empty users", func(t *testing.T) {
-		result := convertAuthUsersToConfig(nil)
-		require.Empty(t, result)
-	})
-
-	t.Run("filters disabled users", func(t *testing.T) {
-		users := []models.AuthUser{
-			{Username: "active", Email: "active@example.com", PasswordHash: "hash1", Enabled: true},
-			{Username: "disabled", Email: "disabled@example.com", PasswordHash: "hash2", Enabled: false},
-		}
-		result := convertAuthUsersToConfig(users)
-		require.Len(t, result, 1)
-		require.Equal(t, "active", result[0]["username"])
-	})
-
-	t.Run("includes user details", func(t *testing.T) {
-		users := []models.AuthUser{
-			{
-				Username:     "testuser",
-				Email:        "test@example.com",
-				PasswordHash: "bcrypt-hash",
-				Name:         "Test User",
-				Roles:        "admin,editor",
-				Enabled:      true,
-			},
-		}
-		result := convertAuthUsersToConfig(users)
-		require.Len(t, result, 1)
-
-		userConfig := result[0]
-		require.Equal(t, "testuser", userConfig["username"])
-		require.Equal(t, "test@example.com", userConfig["email"])
-		require.Equal(t, "bcrypt-hash", userConfig["password"])
-		require.Equal(t, "Test User", userConfig["name"])
-		require.Equal(t, []string{"admin", "editor"}, userConfig["roles"])
-	})
-
-	t.Run("omits empty name", func(t *testing.T) {
-		users := []models.AuthUser{
-			{Username: "noname", Email: "noname@example.com", PasswordHash: "hash", Enabled: true},
-		}
-		result := convertAuthUsersToConfig(users)
-		_, hasName := result[0]["name"]
-		require.False(t, hasName)
-	})
-
-	t.Run("omits empty roles", func(t *testing.T) {
-		users := []models.AuthUser{
-			{Username: "noroles", Email: "noroles@example.com", PasswordHash: "hash", Enabled: true},
-		}
-		result := convertAuthUsersToConfig(users)
-		_, hasRoles := result[0]["roles"]
-		require.False(t, hasRoles)
-	})
 }
