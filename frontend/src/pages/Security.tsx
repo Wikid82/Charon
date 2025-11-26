@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 
 export default function Security() {
+  const navigate = useNavigate()
   const { data: status, isLoading } = useQuery({
     queryKey: ['security-status'],
     queryFn: getSecurityStatus,
@@ -84,9 +86,9 @@ export default function Security() {
                   variant="secondary"
                   size="sm"
                   className="w-full"
-                  onClick={() => window.open(status.crowdsec.mode === 'external' ? status.crowdsec.api_url : 'http://localhost:8080', '_blank')}
+                  onClick={() => navigate('/tasks/logs?search=crowdsec')}
                 >
-                  Open Console
+                  View Logs
                 </Button>
               </div>
             )}
