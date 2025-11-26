@@ -74,7 +74,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
-        <img src="/banner.png" alt="CPM+" className="h-8 w-auto" />
+        <img src="/banner.png" alt="CPM+" height={1280} width={640} />
         <div className="flex items-center gap-2">
           <NotificationCenter />
           <ThemeToggle />
@@ -253,7 +253,7 @@ export default function Layout({ children }: LayoutProps) {
               </button>
            </div>
            <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-             <img src="/banner.png" alt="CPM+" className="h-8 w-auto" />
+             <img src="/banner.png" alt="CPM+" className="h-14 w-auto" />
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
              {user && (
