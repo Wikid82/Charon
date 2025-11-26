@@ -44,14 +44,16 @@ const renderWithProviders = (children: ReactNode) => {
 }
 
 describe('Layout', () => {
-  it('renders the application title', () => {
+  it('renders the application logo', () => {
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
       </Layout>
     )
 
-    expect(screen.getAllByText('CPM+')[0]).toBeInTheDocument()
+    const logos = screen.getAllByAltText('CPM+')
+    expect(logos.length).toBeGreaterThan(0)
+    expect(logos[0]).toBeInTheDocument()
   })
 
   it('renders all navigation items', () => {
