@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -42,6 +43,7 @@ func (h *LogsHandler) Read(c *gin.Context) {
 		Level:  c.Query("level"),
 		Limit:  limit,
 		Offset: offset,
+		Sort:   c.DefaultQuery("sort", "desc"),
 	}
 
 	logs, total, err := h.service.QueryLogs(filename, filter)
@@ -75,6 +77,30 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		return
 	}
 
+	// Create a temporary file to serve a consistent snapshot
+	// This prevents Content-Length mismatches if the live log file grows during download
+	tmpFile, err := os.CreateTemp("", "cpmp-log-*.log")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file"})
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+
+	srcFile, err := os.Open(path)
+	if err != nil {
+		tmpFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open log file"})
+		return
+	}
+	defer srcFile.Close()
+
+	if _, err := io.Copy(tmpFile, srcFile); err != nil {
+		tmpFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy log file"})
+		return
+	}
+	tmpFile.Close()
+
 	c.Header("Content-Disposition", "attachment; filename="+filename)
-	c.File(path)
+	c.File(tmpFile.Name())
 }

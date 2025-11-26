@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 )
 
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -27,7 +28,8 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 
-	h := NewProxyHostHandler(db, nil)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, nil, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -111,10 +113,11 @@ func TestProxyHostErrors(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir)
+	manager := caddy.NewManager(client, db, tmpDir, "", false)
 
 	// Setup Handler
-	h := NewProxyHostHandler(db, manager)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, manager, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -264,6 +267,19 @@ func TestProxyHostConnection(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 }
 
+func TestProxyHostHandler_List_Error(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+}
+
 func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Mock Caddy Admin API
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -284,10 +300,11 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir)
+	manager := caddy.NewManager(client, db, tmpDir, "", false)
 
 	// Setup Handler
-	h := NewProxyHostHandler(db, manager)
+	ns := services.NewNotificationService(db)
+	h := NewProxyHostHandler(db, manager, ns)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)

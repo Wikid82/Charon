@@ -100,7 +100,8 @@ type Handler map[string]interface{}
 // ReverseProxyHandler creates a reverse_proxy handler.
 func ReverseProxyHandler(dial string, enableWS bool) Handler {
 	h := Handler{
-		"handler": "reverse_proxy",
+		"handler":        "reverse_proxy",
+		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
 		"upstreams": []map[string]interface{}{
 			{"dial": dial},
 		},
@@ -141,9 +142,38 @@ func BlockExploitsHandler() Handler {
 	}
 }
 
+// RewriteHandler creates a rewrite handler.
+func RewriteHandler(uri string) Handler {
+	return Handler{
+		"handler": "rewrite",
+		"uri":     uri,
+	}
+}
+
+// FileServerHandler creates a file_server handler.
+func FileServerHandler(root string) Handler {
+	return Handler{
+		"handler": "file_server",
+		"root":    root,
+	}
+}
+
 // TLSApp configures the TLS app for certificate management.
 type TLSApp struct {
-	Automation *AutomationConfig `json:"automation,omitempty"`
+	Automation   *AutomationConfig   `json:"automation,omitempty"`
+	Certificates *CertificatesConfig `json:"certificates,omitempty"`
+}
+
+// CertificatesConfig configures manual certificate loading.
+type CertificatesConfig struct {
+	LoadPEM []LoadPEMConfig `json:"load_pem,omitempty"`
+}
+
+// LoadPEMConfig defines a PEM-loaded certificate.
+type LoadPEMConfig struct {
+	Certificate string   `json:"certificate"`
+	Key         string   `json:"key"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 // AutomationConfig controls certificate automation.

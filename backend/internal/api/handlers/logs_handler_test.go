@@ -134,3 +134,24 @@ func TestLogsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, emptyLogs)
 }
+
+func TestLogsHandler_PathTraversal(t *testing.T) {
+	_, _, tmpDir := setupLogsTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Manually invoke handler to bypass Gin router cleaning
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "../access.log"}}
+
+	cfg := &config.Config{
+		DatabasePath: filepath.Join(tmpDir, "data", "cpm.db"),
+	}
+	svc := services.NewLogService(cfg)
+	h := NewLogsHandler(svc)
+
+	h.Download(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "invalid filename")
+}

@@ -4,6 +4,7 @@ import type { ProxyHost } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
+import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
 import { parse } from 'tldts'
 
@@ -15,6 +16,7 @@ interface ProxyHostFormProps {
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const [formData, setFormData] = useState({
+    name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
     forward_host: host?.forward_host || '',
@@ -27,11 +29,20 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     websocket_support: host?.websocket_support ?? true,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
+    certificate_id: host?.certificate_id,
   })
 
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
+  const { certificates } = useCertificates()
+
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
+
+  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
+    connectionSource === 'local' ? 'local' : undefined,
+    connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
+  )
+
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
 
@@ -40,15 +51,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [pendingDomain, setPendingDomain] = useState('')
   const [dontAskAgain, setDontAskAgain] = useState(false)
 
-  // Test Connection State
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-
   useEffect(() => {
     const stored = localStorage.getItem('cpmp_dont_ask_domain')
     if (stored === 'true') {
       setDontAskAgain(true)
     }
   }, [])
+
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
   const checkNewDomains = (input: string) => {
     if (dontAskAgain) return
@@ -76,6 +86,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       }
     }
   }
+
 
   const handleSaveDomain = async () => {
     try {
@@ -109,36 +120,31 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
-  // Fetch containers based on selected source
-  // If 'local', host is undefined (which defaults to local socket in backend)
-  // If remote UUID, we need to find the server and get its host address?
-  // Actually, the backend ListContainers takes a 'host' query param.
-  // If it's a remote server, we should probably pass the UUID or the host address.
-  // Looking at backend/internal/services/docker_service.go, it takes a 'host' string.
-  // If it's a remote server, we need to pass the TCP address (e.g. tcp://1.2.3.4:2375).
-
-  const getDockerHostString = () => {
-    if (connectionSource === 'local') return undefined;
-    if (connectionSource === 'custom') return null;
-    const server = remoteServers.find(s => s.uuid === connectionSource);
-    if (!server) return null;
-    // Construct the Docker host string
-    return `tcp://${server.host}:${server.port}`;
-  }
-
-  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(getDockerHostString())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setNameError(null)
+
+    // Validate name is required
+    if (!formData.name.trim()) {
+      setNameError('Name is required')
+      setLoading(false)
+      return
+    }
 
     try {
       await onSubmit(formData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save proxy host')
+    } catch (err: unknown) {
+      console.error("Submit error:", err)
+      // Extract error message from axios response if available
+      const errorObj = err as { response?: { data?: { error?: string } }; message?: string }
+      const message = errorObj.response?.data?.error || errorObj.message || 'Failed to save proxy host'
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -148,10 +154,29 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     setSelectedContainerId(containerId)
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
-      // Prefer internal IP if available, otherwise use container name
-      const host = container.ip || container.names[0]
-      // Use the first exposed port if available, otherwise default to 80
-      const port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+      // Default to internal IP and private port
+      let host = container.ip || container.names[0]
+      let port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+
+      // If using a Remote Server, try to use the Host IP and Mapped Public Port
+      if (connectionSource !== 'local' && connectionSource !== 'custom') {
+        const server = remoteServers.find(s => s.uuid === connectionSource)
+        if (server) {
+          // Use the Remote Server's Host IP (e.g. public/tailscale IP)
+          host = server.host
+
+          // Find a mapped public port
+          // We prefer the first mapped port we find
+          const mappedPort = container.ports?.find(p => p.public_port)
+          if (mappedPort) {
+            port = mappedPort.public_port
+          } else {
+            // If no public port is mapped, we can't reach it from outside
+            // But we'll leave the internal port as a fallback, though it likely won't work
+            console.warn('No public port mapped for container on remote server')
+          }
+        }
+      }
 
       let newDomainNames = formData.domain_names
       if (selectedDomain) {
@@ -184,7 +209,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
@@ -198,6 +223,36 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               {error}
             </div>
           )}
+
+          {/* Name Field */}
+          <div>
+            <label htmlFor="proxy-name" className="block text-sm font-medium text-gray-300 mb-2">
+              Name <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="proxy-name"
+              type="text"
+              required
+              value={formData.name}
+              onChange={e => {
+                setFormData({ ...formData, name: e.target.value })
+                if (nameError && e.target.value.trim()) {
+                  setNameError(null)
+                }
+              }}
+              placeholder="My Service"
+              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                nameError ? 'border-red-500' : 'border-gray-700'
+              }`}
+            />
+            {nameError ? (
+              <p className="text-xs text-red-400 mt-1">{nameError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                A friendly name to identify this proxy host
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
@@ -277,10 +332,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="domain-names" className="block text-sm font-medium text-gray-300 mb-2">
                 Domain Names (comma-separated)
               </label>
               <input
+                id="domain-names"
                 type="text"
                 required
                 value={formData.domain_names}
@@ -331,6 +387,28 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+
+          {/* SSL Certificate Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              SSL Certificate (Custom Only)
+            </label>
+            <select
+              value={formData.certificate_id || 0}
+              onChange={e => setFormData({ ...formData, certificate_id: parseInt(e.target.value) || null })}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>Request a new SSL Certificate (Let's Encrypt)</option>
+              {certificates.filter(c => c.provider === 'custom').map(cert => (
+                <option key={cert.id} value={cert.id}>
+                  {cert.name} (Custom)
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Let's Encrypt certificates are managed automatically. Use custom certificates for self-signed or other providers.
+            </p>
           </div>
 
           {/* SSL & Security Options */}
@@ -478,7 +556,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       {/* New Domain Prompt Modal */}
       {showDomainPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
           <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
             <div className="flex items-center gap-3 mb-4 text-blue-400">
               <AlertCircle size={24} />

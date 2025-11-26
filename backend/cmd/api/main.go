@@ -100,7 +100,7 @@ func main() {
 	}
 
 	// Register import handler with config dependencies
-	routes.RegisterImportHandler(router, db, cfg.CaddyBinary, cfg.ImportDir)
+	routes.RegisterImportHandler(router, db, cfg.CaddyBinary, cfg.ImportDir, cfg.ImportCaddyfile)
 
 	// Check for mounted Caddyfile on startup
 	if err := handlers.CheckMountedImport(db, cfg.ImportCaddyfile, cfg.CaddyBinary, cfg.ImportDir); err != nil {

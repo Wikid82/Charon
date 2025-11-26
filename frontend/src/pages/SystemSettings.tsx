@@ -26,6 +26,8 @@ interface UpdateInfo {
 export default function SystemSettings() {
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
+  const [sslProvider, setSslProvider] = useState('letsencrypt')
+  const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -37,6 +39,8 @@ export default function SystemSettings() {
   useEffect(() => {
     if (settings) {
       if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
+      if (settings['caddy.ssl_provider']) setSslProvider(settings['caddy.ssl_provider'])
+      if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
     }
   }, [settings])
 
@@ -66,6 +70,8 @@ export default function SystemSettings() {
   const saveSettingsMutation = useMutation({
     mutationFn: async () => {
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
+      await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
+      await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -97,6 +103,42 @@ export default function SystemSettings() {
           <p className="text-sm text-gray-500 dark:text-gray-400 -mt-2">
             URL to the Caddy admin API (usually on port 2019)
           </p>
+
+          <div className="w-full">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              SSL Provider
+            </label>
+            <select
+              value={sslProvider}
+              onChange={(e) => setSslProvider(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            >
+              <option value="letsencrypt">Let's Encrypt (Default)</option>
+              <option value="zerossl">ZeroSSL</option>
+            </select>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Choose the default Certificate Authority for SSL certificates.
+            </p>
+          </div>
+
+          <div className="w-full">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Domain Link Behavior
+            </label>
+            <select
+              value={domainLinkBehavior}
+              onChange={(e) => setDomainLinkBehavior(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            >
+              <option value="same_tab">Same Tab</option>
+              <option value="new_tab">New Tab (Default)</option>
+              <option value="new_window">New Window</option>
+            </select>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Control how domain links open in the Proxy Hosts list.
+            </p>
+          </div>
+
           <div className="flex justify-end">
             <Button
               onClick={() => saveSettingsMutation.mutate()}

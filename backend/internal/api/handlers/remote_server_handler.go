@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
@@ -16,13 +15,15 @@ import (
 
 // RemoteServerHandler handles HTTP requests for remote server management.
 type RemoteServerHandler struct {
-	service *services.RemoteServerService
+	service             *services.RemoteServerService
+	notificationService *services.NotificationService
 }
 
 // NewRemoteServerHandler creates a new remote server handler.
-func NewRemoteServerHandler(db *gorm.DB) *RemoteServerHandler {
+func NewRemoteServerHandler(service *services.RemoteServerService, ns *services.NotificationService) *RemoteServerHandler {
 	return &RemoteServerHandler{
-		service: services.NewRemoteServerService(db),
+		service:             service,
+		notificationService: ns,
 	}
 }
 
@@ -33,6 +34,7 @@ func (h *RemoteServerHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/remote-servers/:uuid", h.Get)
 	router.PUT("/remote-servers/:uuid", h.Update)
 	router.DELETE("/remote-servers/:uuid", h.Delete)
+	router.POST("/remote-servers/test", h.TestConnectionCustom)
 	router.POST("/remote-servers/:uuid/test", h.TestConnection)
 }
 
@@ -62,6 +64,21 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 	if err := h.service.Create(&server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"remote_server",
+			"Remote Server Added",
+			fmt.Sprintf("Remote Server %s (%s:%d) added", server.Name, server.Host, server.Port),
+			map[string]interface{}{
+				"Name":   server.Name,
+				"Host":   server.Host,
+				"Port":   server.Port,
+				"Action": "created",
+			},
+		)
 	}
 
 	c.JSON(http.StatusCreated, server)
@@ -118,6 +135,19 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// Send Notification
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(
+			"remote_server",
+			"Remote Server Deleted",
+			fmt.Sprintf("Remote Server %s deleted", server.Name),
+			map[string]interface{}{
+				"Name":   server.Name,
+				"Action": "deleted",
+			},
+		)
+	}
+
 	c.JSON(http.StatusNoContent, nil)
 }
 
@@ -165,6 +195,43 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 	now := time.Now().UTC()
 	server.LastChecked = &now
 	h.service.Update(server)
+
+	c.JSON(http.StatusOK, result)
+}
+
+// TestConnectionCustom tests connectivity to a host/port provided in the body
+func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
+	var req struct {
+		Host string `json:"host" binding:"required"`
+		Port int    `json:"port" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Test TCP connection with 5 second timeout
+	address := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+
+	result := gin.H{
+		"address":   address,
+		"timestamp": time.Now().UTC(),
+	}
+
+	if err != nil {
+		result["reachable"] = false
+		result["error"] = err.Error()
+		c.JSON(http.StatusOK, result)
+		return
+	}
+	defer conn.Close()
+
+	// Connection successful
+	result["reachable"] = true
+	result["latency_ms"] = time.Since(start).Milliseconds()
 
 	c.JSON(http.StatusOK, result)
 }

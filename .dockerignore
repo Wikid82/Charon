@@ -23,15 +23,19 @@ htmlcov/
 # Node/Frontend build artifacts
 frontend/node_modules/
 frontend/coverage/
+frontend/coverage.out
 frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
+frontend/frontend/
 
 # Go/Backend
-backend/api
+backend/coverage.txt
 backend/*.out
 backend/coverage/
 backend/coverage.*.out
+backend/package.json
+backend/package-lock.json
 
 # Databases (runtime)
 backend/data/*.db
@@ -47,11 +51,12 @@ backend/cmd/api/data/*.db
 *~
 
 # Logs
-/home/jeremy/Server/Projects/cpmp/.trivy_logs
+.trivy_logs
 *.log
 logs/
 
 # Environment
+.env
 .env.local
 .env.*.local
 

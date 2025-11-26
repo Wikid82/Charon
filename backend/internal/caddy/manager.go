@@ -17,17 +17,21 @@ import (
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client    *Client
-	db        *gorm.DB
-	configDir string
+	client      *Client
+	db          *gorm.DB
+	configDir   string
+	frontendDir string
+	acmeStaging bool
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool) *Manager {
 	return &Manager{
-		client:    client,
-		db:        db,
-		configDir: configDir,
+		client:      client,
+		db:          db,
+		configDir:   configDir,
+		frontendDir: frontendDir,
+		acmeStaging: acmeStaging,
 	}
 }
 
@@ -35,7 +39,7 @@ func NewManager(client *Client, db *gorm.DB, configDir string) *Manager {
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
-	if err := m.db.Find(&hosts).Error; err != nil {
+	if err := m.db.Preload("Locations").Preload("Certificate").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 
@@ -46,8 +50,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		acmeEmail = acmeEmailSetting.Value
 	}
 
+	// Fetch SSL Provider setting
+	var sslProviderSetting models.Setting
+	var sslProvider string
+	if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&sslProviderSetting).Error; err == nil {
+		sslProvider = sslProviderSetting.Value
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail)
+	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

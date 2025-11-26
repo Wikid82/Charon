@@ -4,7 +4,12 @@ if [ "$1" = "version" ]; then
   exit 0
 fi
 if [ "$1" = "adapt" ]; then
-  echo '{"apps":{"http":{"servers":{"srv0":{"routes":[{"match":[{"host":["example.com"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:8080"}]}]}]}}}}}'
+  # Read the domain from the input Caddyfile (stdin or --config file)
+  DOMAIN="example.com"
+  if [ "$2" = "--config" ]; then
+    DOMAIN=$(cat "$3" | head -1 | tr -d '\n')
+  fi
+  echo "{\"apps\":{\"http\":{\"servers\":{\"srv0\":{\"routes\":[{\"match\":[{\"host\":[\"$DOMAIN\"]}],\"handle\":[{\"handler\":\"reverse_proxy\",\"upstreams\":[{\"dial\":\"localhost:8080\"}]}]}]}}}}}"
   exit 0
 fi
 exit 1

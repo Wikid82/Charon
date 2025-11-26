@@ -42,6 +42,7 @@ export function useProxyHosts() {
   return {
     hosts: query.data || [],
     loading: query.isLoading,
+    isFetching: query.isFetching,
     error: query.error ? (query.error as Error).message : null,
     createHost: createMutation.mutateAsync,
     updateHost: (uuid: string, data: Partial<ProxyHost>) => updateMutation.mutateAsync({ uuid, data }),

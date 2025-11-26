@@ -17,6 +17,7 @@ repos:
         exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|.*\.tsbuildinfo$)'
       - id: check-yaml
       - id: check-added-large-files
+        args: ['--maxkb=2500']
   - repo: local
     hooks:
       - id: dockerfile-check
@@ -50,9 +51,11 @@ repos:
         language: system
         files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false
-      - id: frontend-test
-        name: Frontend Tests
-        entry: bash -c 'cd frontend && npm test -- --run'
-        language: system
+
+      - id: frontend-test-coverage
+        name: Frontend Test Coverage
+        entry: scripts/frontend-test-coverage.sh
+        language: script
         files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false
+        verbose: true
