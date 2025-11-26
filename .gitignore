@@ -59,6 +59,7 @@ yarn-error.log*
 
 # OS
 Thumbs.db
+*.xcf
 
 # Caddy
 backend/data/caddy/
