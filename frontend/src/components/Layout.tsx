@@ -91,8 +91,12 @@ export default function Layout({ children }: LayoutProps) {
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className={`p-4 hidden lg:flex items-center justify-center`}>
-           {/* Logo moved to header */}
+        <div className={`h-16 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
+           {isCollapsed ? (
+             <img src="/logo.png" alt="CPM+" className="h-10 w-10" />
+           ) : (
+             <img src="/banner.png" alt="CPM+" className="h-12 w-auto" />
+           )}
         </div>
 
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
@@ -253,7 +257,7 @@ export default function Layout({ children }: LayoutProps) {
               </button>
            </div>
            <div className="w-1/3 flex justify-center">
-             <img src="/banner.png" alt="CPM+" className="h-25 w-auto" />
+             {/* Banner moved to sidebar */}
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
              {user && (
