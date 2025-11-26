@@ -14,39 +14,35 @@ const MonitorCard: React.FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMo
   const isUp = monitor.status === 'up';
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 relative ${isUp ? 'border-l-green-500' : 'border-l-red-500'}`}>
-      {/* Status Badge - Top Center */}
-      <div className="flex justify-center mb-3">
-        <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-[90px] ${
-          isUp ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-        }`}>
-          {isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
-          {monitor.status.toUpperCase()}
+    <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 border-l-4 ${isUp ? 'border-l-green-500' : 'border-l-red-500'}`}>
+      {/* Top Row: Name (left), Badge (center-right), Settings (right) */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-lg text-gray-900 dark:text-white">{monitor.name}</h3>
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-[90px] ${
+            isUp ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+          }`}>
+            {isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
+            {monitor.status.toUpperCase()}
+          </div>
+          <button
+            onClick={() => onEdit(monitor)}
+            className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+            title="Configure Monitor"
+          >
+            <Settings size={16} />
+          </button>
         </div>
       </div>
 
-      {/* Settings Button - Top Right */}
-      <div className="absolute top-4 right-4">
-        <button
-          onClick={() => onEdit(monitor)}
-          className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
-          title="Configure Monitor"
-        >
-          <Settings size={16} />
-        </button>
-      </div>
-
-      {/* Name and URL */}
-      <div className="mb-4">
-        <h3 className="font-semibold text-lg text-gray-900 dark:text-white text-center">{monitor.name}</h3>
-        <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center justify-center gap-2 mt-1">
-          <a href={monitor.url} target="_blank" rel="noreferrer" className="hover:underline">
-            {monitor.url}
-          </a>
-          <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs">
-            {monitor.type.toUpperCase()}
-          </span>
-        </div>
+      {/* URL and Type */}
+      <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2 mb-4">
+        <a href={monitor.url} target="_blank" rel="noreferrer" className="hover:underline">
+          {monitor.url}
+        </a>
+        <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs">
+          {monitor.type.toUpperCase()}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
