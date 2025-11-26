@@ -35,7 +35,7 @@ const MonitorCard: React.FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMo
             >
                 <Settings size={16} />
             </button>
-            <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+            <div className={`flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium min-w-[90px] ${
             isUp ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
             }`}>
             {isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
