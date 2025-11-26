@@ -29,8 +29,8 @@ services:
       - CPM_SECURITY_CROWDSEC_API_URL=
       - CPM_SECURITY_CROWDSEC_API_KEY=
       - CPM_SECURITY_WAF_MODE=disabled
-      - CPM_SECURITY_RATELIMIT_ENABLED=false
-      - CPM_SECURITY_ACL_ENABLED=false
+      - CPM_SECURITY_RATELIMIT_MODE=disabled
+      - CPM_SECURITY_ACL_MODE=disabled
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:

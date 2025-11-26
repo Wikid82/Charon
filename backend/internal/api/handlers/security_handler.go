@@ -33,10 +33,12 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"enabled": h.cfg.WAFMode == "enabled",
 		},
 		"rate_limit": gin.H{
-			"enabled": h.cfg.RateLimitEnabled,
+			"mode":    h.cfg.RateLimitMode,
+			"enabled": h.cfg.RateLimitMode == "enabled",
 		},
 		"acl": gin.H{
-			"enabled": h.cfg.ACLEnabled,
+			"mode":    h.cfg.ACLMode,
+			"enabled": h.cfg.ACLMode == "enabled",
 		},
 	})
 }

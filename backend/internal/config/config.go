@@ -24,12 +24,12 @@ type Config struct {
 
 // SecurityConfig holds configuration for optional security services.
 type SecurityConfig struct {
-	CrowdSecMode     string
-	CrowdSecAPIURL   string
-	CrowdSecAPIKey   string
-	WAFMode          string
-	RateLimitEnabled bool
-	ACLEnabled       bool
+	CrowdSecMode   string
+	CrowdSecAPIURL string
+	CrowdSecAPIKey string
+	WAFMode        string
+	RateLimitMode  string
+	ACLMode        string
 }
 
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.
@@ -47,12 +47,12 @@ func Load() (Config, error) {
 		JWTSecret:       getEnv("CPM_JWT_SECRET", "change-me-in-production"),
 		ACMEStaging:     getEnv("CPM_ACME_STAGING", "") == "true",
 		Security: SecurityConfig{
-			CrowdSecMode:     getEnv("CPM_SECURITY_CROWDSEC_MODE", "disabled"),
-			CrowdSecAPIURL:   getEnv("CPM_SECURITY_CROWDSEC_API_URL", ""),
-			CrowdSecAPIKey:   getEnv("CPM_SECURITY_CROWDSEC_API_KEY", ""),
-			WAFMode:          getEnv("CPM_SECURITY_WAF_MODE", "disabled"),
-			RateLimitEnabled: getEnv("CPM_SECURITY_RATELIMIT_ENABLED", "false") == "true",
-			ACLEnabled:       getEnv("CPM_SECURITY_ACL_ENABLED", "false") == "true",
+			CrowdSecMode:   getEnv("CPM_SECURITY_CROWDSEC_MODE", "disabled"),
+			CrowdSecAPIURL: getEnv("CPM_SECURITY_CROWDSEC_API_URL", ""),
+			CrowdSecAPIKey: getEnv("CPM_SECURITY_CROWDSEC_API_KEY", ""),
+			WAFMode:        getEnv("CPM_SECURITY_WAF_MODE", "disabled"),
+			RateLimitMode:  getEnv("CPM_SECURITY_RATELIMIT_MODE", "disabled"),
+			ACLMode:        getEnv("CPM_SECURITY_ACL_MODE", "disabled"),
 		},
 	}
 
