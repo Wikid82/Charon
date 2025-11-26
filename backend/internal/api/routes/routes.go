@@ -34,10 +34,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
 		&models.Domain{},
-		&models.ForwardAuthConfig{},
-		&models.AuthUser{},
-		&models.AuthProvider{},
-		&models.AuthPolicy{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -103,12 +99,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		settingsHandler := handlers.NewSettingsHandler(db)
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
-
-		// Forward Auth
-		forwardAuthHandler := handlers.NewForwardAuthHandler(db)
-		protected.GET("/security/forward-auth", forwardAuthHandler.GetConfig)
-		protected.PUT("/security/forward-auth", forwardAuthHandler.UpdateConfig)
-		protected.GET("/security/forward-auth/templates", forwardAuthHandler.GetTemplates)
 
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
@@ -202,29 +192,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	api.GET("/certificates", certHandler.List)
 	api.POST("/certificates", certHandler.Upload)
 	api.DELETE("/certificates/:id", certHandler.Delete)
-
-	// Security endpoints (Built-in SSO)
-	authUserHandler := handlers.NewAuthUserHandler(db)
-	api.GET("/security/users", authUserHandler.List)
-	api.GET("/security/users/stats", authUserHandler.Stats)
-	api.GET("/security/users/:uuid", authUserHandler.Get)
-	api.POST("/security/users", authUserHandler.Create)
-	api.PUT("/security/users/:uuid", authUserHandler.Update)
-	api.DELETE("/security/users/:uuid", authUserHandler.Delete)
-
-	authProviderHandler := handlers.NewAuthProviderHandler(db)
-	api.GET("/security/providers", authProviderHandler.List)
-	api.GET("/security/providers/:uuid", authProviderHandler.Get)
-	api.POST("/security/providers", authProviderHandler.Create)
-	api.PUT("/security/providers/:uuid", authProviderHandler.Update)
-	api.DELETE("/security/providers/:uuid", authProviderHandler.Delete)
-
-	authPolicyHandler := handlers.NewAuthPolicyHandler(db)
-	api.GET("/security/policies", authPolicyHandler.List)
-	api.GET("/security/policies/:uuid", authPolicyHandler.Get)
-	api.POST("/security/policies", authPolicyHandler.Create)
-	api.PUT("/security/policies/:uuid", authPolicyHandler.Update)
-	api.DELETE("/security/policies/:uuid", authPolicyHandler.Delete)
 
 	// Initial Caddy Config Sync
 	go func() {

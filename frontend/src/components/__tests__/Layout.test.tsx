@@ -66,7 +66,6 @@ describe('Layout', () => {
     expect(screen.getByText('Remote Servers')).toBeInTheDocument()
     expect(screen.getByText('Certificates')).toBeInTheDocument()
     expect(screen.getByText('Import Caddyfile')).toBeInTheDocument()
-    expect(screen.getByText('Security')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 

@@ -30,9 +30,6 @@ export interface ProxyHost {
   hsts_subdomains: boolean;
   block_exploits: boolean;
   websocket_support: boolean;
-  forward_auth_enabled: boolean;
-  forward_auth_bypass: string;
-  auth_policy_id?: number | null;
   locations: Location[];
   advanced_config?: string;
   enabled: boolean;

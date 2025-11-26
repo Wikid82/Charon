@@ -10,7 +10,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, forwardAuthConfig *models.ForwardAuthConfig, authUsers []models.AuthUser, authProviders []models.AuthProvider, authPolicies []models.AuthPolicy) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -130,11 +130,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 	}
 
-	// Configure Security App (Built-in SSO) if we have users or providers
-	if len(authUsers) > 0 || len(authProviders) > 0 {
-		config.Apps.Security = generateSecurityApp(authUsers, authProviders, authPolicies)
-	}
-
 	if len(hosts) == 0 && frontendDir == "" {
 		return config, nil
 	}
@@ -201,38 +196,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
-		// Add Built-in SSO (caddy-security) if a policy is assigned
-		if host.AuthPolicyID != nil && host.AuthPolicy != nil && host.AuthPolicy.Enabled {
-			// Inject authentication portal check
-			handlers = append(handlers, SecurityAuthHandler("cpmp_portal"))
-			// Inject authorization policy check
-			handlers = append(handlers, SecurityAuthzHandler(host.AuthPolicy.Name))
-		}
-
-		// Add Forward Auth if enabled for this host (legacy forward auth, not SSO)
-		if host.ForwardAuthEnabled && forwardAuthConfig != nil && forwardAuthConfig.Address != "" {
-			// Parse bypass paths
-			var bypassPaths []string
-			if host.ForwardAuthBypass != "" {
-				rawPaths := strings.Split(host.ForwardAuthBypass, ",")
-				for _, p := range rawPaths {
-					p = strings.TrimSpace(p)
-					if p != "" {
-						bypassPaths = append(bypassPaths, p)
-					}
-				}
-			}
-
-			// If we have bypass paths, we need to conditionally apply auth
-			if len(bypassPaths) > 0 {
-				// Create a subroute that only applies auth to non-bypass paths
-				// This is complex - for now, add auth unconditionally and handle bypass in a separate route
-				// A better approach: create bypass routes BEFORE auth routes
-			}
-
-			handlers = append(handlers, ForwardAuthHandler(forwardAuthConfig.Address, forwardAuthConfig.TrustForwardHeader))
-		}
-
 		// Add HSTS header if enabled
 		if host.HSTSEnabled {
 			hstsValue := "max-age=31536000"
@@ -247,32 +210,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Add exploit blocking if enabled
 		if host.BlockExploits {
 			handlers = append(handlers, BlockExploitsHandler())
-		}
-
-		// Handle bypass routes FIRST if Forward Auth is enabled
-		if host.ForwardAuthEnabled && host.ForwardAuthBypass != "" {
-			rawPaths := strings.Split(host.ForwardAuthBypass, ",")
-			for _, p := range rawPaths {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				// Create bypass route without auth
-				dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
-				bypassRoute := &Route{
-					Match: []Match{
-						{
-							Host: uniqueDomains,
-							Path: []string{p, p + "/*"},
-						},
-					},
-					Handle: []Handler{
-						ReverseProxyHandler(dial, host.WebsocketSupport),
-					},
-					Terminal: true,
-				}
-				routes = append(routes, bypassRoute)
-			}
 		}
 
 		// Handle custom locations first (more specific routes)
@@ -334,190 +271,4 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 	}
 
 	return config, nil
-}
-
-// generateSecurityApp creates the caddy-security app configuration.
-func generateSecurityApp(authUsers []models.AuthUser, authProviders []models.AuthProvider, authPolicies []models.AuthPolicy) *SecurityApp {
-	securityConfig := &SecurityConfig{
-		AuthenticationPortals: make([]*AuthPortal, 0),
-		IdentityProviders:     make([]*IdentityProvider, 0),
-		IdentityStores:        make([]*IdentityStore, 0),
-		AuthorizationPolicies: make([]*AuthzPolicy, 0),
-	}
-
-	// Create the main authentication portal
-	portal := &AuthPortal{
-		Name:         "cpmp_portal",
-		CookieDomain: "", // Will use request host
-		UISettings: map[string]interface{}{
-			"theme": "basic",
-		},
-		CookieConfig: map[string]interface{}{
-			"lifetime": 86400, // 24 hours
-		},
-		CryptoKeyStoreConfig: map[string]interface{}{
-			"token_lifetime": 3600, // 1 hour
-		},
-		API: map[string]interface{}{
-			"profile_enabled": true,
-		},
-		IdentityProviders: make([]string, 0),
-		IdentityStores:    make([]string, 0),
-	}
-
-	// Add local backend if we have local users
-	if len(authUsers) > 0 {
-		localStore := &IdentityStore{
-			Name: "local",
-			Kind: "local",
-			Params: map[string]interface{}{
-				"realm": "local",
-				"users": convertAuthUsersToConfig(authUsers),
-			},
-		}
-		securityConfig.IdentityStores = append(securityConfig.IdentityStores, localStore)
-		portal.IdentityStores = append(portal.IdentityStores, "local")
-	}
-
-	// Add OAuth providers
-	for _, provider := range authProviders {
-		if !provider.Enabled {
-			continue
-		}
-
-		oauthProvider := &IdentityProvider{
-			Name: provider.Name,
-			Kind: "oauth",
-			Params: map[string]interface{}{
-				"client_id":     provider.ClientID,
-				"client_secret": provider.ClientSecret,
-				"driver":        provider.Type,
-				"realm":         provider.Type,
-			},
-		}
-
-		// Add provider-specific config
-		if provider.IssuerURL != "" {
-			oauthProvider.Params["base_auth_url"] = provider.IssuerURL
-		}
-		if provider.AuthURL != "" {
-			oauthProvider.Params["authorization_url"] = provider.AuthURL
-		}
-		if provider.TokenURL != "" {
-			oauthProvider.Params["token_url"] = provider.TokenURL
-		}
-		if provider.Scopes != "" {
-			oauthProvider.Params["scopes"] = strings.Split(provider.Scopes, ",")
-		}
-
-		securityConfig.IdentityProviders = append(securityConfig.IdentityProviders, oauthProvider)
-		portal.IdentityProviders = append(portal.IdentityProviders, provider.Name)
-	}
-
-	securityConfig.AuthenticationPortals = append(securityConfig.AuthenticationPortals, portal)
-
-	// Generate authorization policies
-	for _, policy := range authPolicies {
-		if !policy.Enabled {
-			continue
-		}
-
-		authzPolicy := &AuthzPolicy{
-			Name:            policy.Name,
-			AccessListRules: make([]*AccessListRule, 0),
-		}
-
-		// Build conditions
-		var conditions []string
-		if policy.AllowedRoles != "" {
-			roles := strings.Split(policy.AllowedRoles, ",")
-			for _, role := range roles {
-				conditions = append(conditions, fmt.Sprintf("match roles %s", strings.TrimSpace(role)))
-			}
-		}
-		if policy.AllowedUsers != "" {
-			users := strings.Split(policy.AllowedUsers, ",")
-			for _, user := range users {
-				conditions = append(conditions, fmt.Sprintf("match email %s", strings.TrimSpace(user)))
-			}
-		}
-
-		// If no conditions, allow all authenticated (default behavior if policy exists?)
-		// Or maybe we should require at least one condition?
-		// For now, if conditions exist, add a rule.
-		if len(conditions) > 0 {
-			rule := &AccessListRule{
-				Conditions: conditions,
-				Action:     "allow",
-			}
-			authzPolicy.AccessListRules = append(authzPolicy.AccessListRules, rule)
-		} else {
-			// If no specific roles/users, allow any authenticated user
-			// "match any" condition?
-			// caddy-security default is deny if no rule matches?
-			// Let's add a rule to allow any authenticated user if no restrictions
-			// "match roles authp/user" or similar?
-			// Actually, if policy is enabled but empty, maybe it means "allow all authenticated"?
-			// Let's assume "allow" action with no conditions matches everything?
-			// No, conditions are required.
-			// Let's use "match roles *" or similar if supported, or just don't add rule (deny all).
-			// But user probably wants "Authenticated Users" if they didn't specify roles.
-			// Let's add a rule that matches any role if no specific roles/users are set.
-			// But wait, we don't have a generic "authenticated" condition easily.
-			// Let's stick to what we have. If empty, it might deny all.
-		}
-
-		securityConfig.AuthorizationPolicies = append(securityConfig.AuthorizationPolicies, authzPolicy)
-	}
-
-	return &SecurityApp{
-		Config: securityConfig,
-	}
-}
-
-// convertAuthUsersToConfig converts AuthUser models to caddy-security user config format.
-func convertAuthUsersToConfig(users []models.AuthUser) []map[string]interface{} {
-	result := make([]map[string]interface{}, 0)
-	for _, user := range users {
-		if !user.Enabled {
-			continue
-		}
-
-		// Helper to create user config
-		createUserConfig := func(username, email string) map[string]interface{} {
-			cfg := map[string]interface{}{
-				"username": username,
-				"email":    email,
-				"password": user.PasswordHash, // Already bcrypt hashed
-			}
-
-			if user.Name != "" {
-				cfg["name"] = user.Name
-			}
-
-			if user.Roles != "" {
-				cfg["roles"] = strings.Split(user.Roles, ",")
-			}
-			return cfg
-		}
-
-		// Add primary user
-		result = append(result, createUserConfig(user.Username, user.Email))
-
-		// Add additional emails as alias users
-		if user.AdditionalEmails != "" {
-			emails := strings.Split(user.AdditionalEmails, ",")
-			for i, email := range emails {
-				email = strings.TrimSpace(email)
-				if email == "" {
-					continue
-				}
-				// Create a derived username for the alias
-				// We use a predictable suffix so it doesn't change
-				aliasUsername := fmt.Sprintf("%s_alt%d", user.Username, i+1)
-				result = append(result, createUserConfig(aliasUsername, email))
-			}
-		}
-	}
-	return result
 }
