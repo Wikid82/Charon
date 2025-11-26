@@ -170,6 +170,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			go uptimeService.CheckAll()
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
+
+		// Security Status
+		securityHandler := handlers.NewSecurityHandler(cfg.Security)
+		protected.GET("/security/status", securityHandler.GetStatus)
 	}
 
 	// Caddy Manager
