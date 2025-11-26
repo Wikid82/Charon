@@ -8,8 +8,18 @@ export interface Location {
   forward_port: number;
 }
 
+export interface Certificate {
+  id: number;
+  uuid: string;
+  name: string;
+  provider: string;
+  domains: string;
+  expires_at: string;
+}
+
 export interface ProxyHost {
   uuid: string;
+  name: string;
   domain_names: string;
   forward_scheme: string;
   forward_host: string;
@@ -23,6 +33,8 @@ export interface ProxyHost {
   locations: Location[];
   advanced_config?: string;
   enabled: boolean;
+  certificate_id?: number | null;
+  certificate?: Certificate | null;
   created_at: string;
   updated_at: string;
 }

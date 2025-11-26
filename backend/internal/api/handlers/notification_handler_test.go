@@ -109,6 +109,25 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 	assert.Equal(t, int64(0), count)
 }
 
+func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupNotificationTestDB()
+	service := services.NewNotificationService(db)
+	handler := handlers.NewNotificationHandler(service)
+
+	r := gin.New()
+	r.POST("/notifications/read-all", handler.MarkAllAsRead)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req, _ := http.NewRequest("POST", "/notifications/read-all", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestNotificationHandler_DBError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupNotificationTestDB()

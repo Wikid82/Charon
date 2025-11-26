@@ -138,7 +138,7 @@ func TestImporter_ExtractHosts(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, result.Hosts, 1)
 	assert.Len(t, result.Conflicts, 1)
-	assert.Contains(t, result.Conflicts[0], "Duplicate domain detected")
+	assert.Equal(t, "example.com", result.Conflicts[0])
 
 	// Test Case 5: Unsupported Features
 	unsupportedJSON := []byte(`{
@@ -166,6 +166,35 @@ func TestImporter_ExtractHosts(t *testing.T) {
 	assert.Len(t, result.Hosts[0].Warnings, 2)
 	assert.Contains(t, result.Hosts[0].Warnings, "File server directives not supported")
 	assert.Contains(t, result.Hosts[0].Warnings, "Rewrite rules not supported - manual configuration required")
+
+	// Test Case 6: SSL Detection via Listen Address (:443)
+	sslViaListenJSON := []byte(`{
+		"apps": {
+			"http": {
+				"servers": {
+					"srv0": {
+						"listen": [":443"],
+						"routes": [
+							{
+								"match": [{"host": ["secure.example.com"]}],
+								"handle": [
+									{
+										"handler": "reverse_proxy",
+										"upstreams": [{"dial": "127.0.0.1:9000"}]
+									}
+								]
+							}
+						]
+					}
+				}
+			}
+		}
+	}`)
+	result, err = importer.ExtractHosts(sslViaListenJSON)
+	assert.NoError(t, err)
+	assert.Len(t, result.Hosts, 1)
+	assert.Equal(t, "secure.example.com", result.Hosts[0].DomainNames)
+	assert.True(t, result.Hosts[0].SSLForced, "SSLForced should be true when server listens on :443")
 }
 
 func TestImporter_ImportFile(t *testing.T) {
@@ -267,4 +296,11 @@ func TestBackupCaddyfile(t *testing.T) {
 	// Failure - Source not found
 	_, err = BackupCaddyfile("non-existent", backupDir)
 	assert.Error(t, err)
+}
+
+func TestDefaultExecutor_Execute(t *testing.T) {
+	executor := &DefaultExecutor{}
+	output, err := executor.Execute("echo", "hello")
+	assert.NoError(t, err)
+	assert.Equal(t, "hello\n", string(output))
 }

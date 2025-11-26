@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { type RemoteServer, testRemoteServerConnection } from '../api/remoteServers'
+import { Loader2, Check, X, CircleHelp } from 'lucide-react'
+import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
 
 interface Props {
   server?: RemoteServer
@@ -19,6 +20,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
 
   useEffect(() => {
     setFormData({
@@ -45,21 +47,26 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   }
 
   const handleTestConnection = async () => {
-    if (!server?.uuid) return
-    setLoading(true)
+    if (!formData.host || !formData.port) return
+    setTestStatus('testing')
     setError(null)
     try {
-      const result = await testRemoteServerConnection(server.uuid)
-      alert(`Connection successful: ${result.address}`)
+      const result = await testCustomRemoteServerConnection(formData.host, formData.port)
+      if (result.reachable) {
+        setTestStatus('success')
+        setTimeout(() => setTestStatus('idle'), 3000)
+      } else {
+        setTestStatus('error')
+        setError(`Connection failed: ${result.error || 'Unknown error'}`)
+      }
     } catch {
+      setTestStatus('error')
       setError('Connection failed')
-    } finally {
-      setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-dark-card rounded-lg border border-gray-800 max-w-lg w-full">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
@@ -156,16 +163,22 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
           </label>
 
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
-            {server && (
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={loading}
-                className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 mr-auto"
-              >
-                Test Connection
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testStatus === 'testing' || !formData.host || !formData.port}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 mr-auto ${
+                testStatus === 'success' ? 'bg-green-600 text-white' :
+                testStatus === 'error' ? 'bg-red-600 text-white' :
+                'bg-gray-700 hover:bg-gray-600 text-white'
+              }`}
+            >
+              {testStatus === 'testing' ? <Loader2 className="w-4 h-4 animate-spin" /> :
+               testStatus === 'success' ? <Check className="w-4 h-4" /> :
+               testStatus === 'error' ? <X className="w-4 h-4" /> :
+               <CircleHelp className="w-4 h-4" />}
+              Test Connection
+            </button>
             <button
               type="button"
               onClick={onCancel}

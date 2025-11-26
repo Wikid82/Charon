@@ -18,8 +18,11 @@ export interface DockerContainer {
 }
 
 export const dockerApi = {
-  listContainers: async (host?: string): Promise<DockerContainer[]> => {
-    const params = host ? { host } : undefined
+  listContainers: async (host?: string, serverId?: string): Promise<DockerContainer[]> => {
+    const params: Record<string, string> = {}
+    if (host) params.host = host
+    if (serverId) params.server_id = serverId
+
     const response = await client.get<DockerContainer[]>('/docker/containers', { params })
     return response.data
   },

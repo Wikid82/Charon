@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
+import { useCertificates } from '../hooks/useCertificates'
 import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
+import UptimeWidget from '../components/UptimeWidget'
 
 export default function Dashboard() {
   const { hosts } = useProxyHosts()
   const { servers } = useRemoteServers()
+  const { certificates } = useCertificates()
   const [health, setHealth] = useState<{ status: string } | null>(null)
 
   useEffect(() => {
@@ -41,11 +44,11 @@ export default function Dashboard() {
           <div className="text-xs text-gray-500">{enabledServers} enabled</div>
         </Link>
 
-        <div className="bg-dark-card p-6 rounded-lg border border-gray-800">
+        <Link to="/certificates" className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors">
           <div className="text-sm text-gray-400 mb-2">SSL Certificates</div>
-          <div className="text-3xl font-bold text-white mb-1">0</div>
-          <div className="text-xs text-gray-500">Coming soon</div>
-        </div>
+          <div className="text-3xl font-bold text-white mb-1">{certificates.length}</div>
+          <div className="text-xs text-gray-500">{certificates.filter(c => c.status === 'valid').length} valid</div>
+        </Link>
 
         <div className="bg-dark-card p-6 rounded-lg border border-gray-800">
           <div className="text-sm text-gray-400 mb-2">System Status</div>
@@ -53,6 +56,11 @@ export default function Dashboard() {
             {health?.status === 'ok' ? 'Healthy' : health ? 'Error' : 'Checking...'}
           </div>
         </div>
+      </div>
+
+      {/* Uptime Widget */}
+      <div className="mb-8">
+        <UptimeWidget />
       </div>
 
       {/* Quick Actions */}

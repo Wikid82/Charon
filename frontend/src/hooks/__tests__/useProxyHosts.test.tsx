@@ -15,6 +15,7 @@ vi.mock('../../api/proxyHosts', () => ({
 
 const createMockHost = (overrides: Partial<api.ProxyHost> = {}): api.ProxyHost => ({
   uuid: '1',
+  name: 'Test Host',
   domain_names: 'test.com',
   forward_scheme: 'http',
   forward_host: 'localhost',

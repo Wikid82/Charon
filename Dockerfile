@@ -68,14 +68,11 @@ ARG VCS_REF=unknown
 ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
-# -gcflags "all=-N -l" disables optimizations and inlining for better debugging
 # xx-go handles CGO and cross-compilation flags automatically
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build \
-    -gcflags "all=-N -l" \
-    -a -installsuffix cgo \
-    -ldflags "-X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
+    -ldflags "-s -w -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
               -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
     -o cpmp ./cmd/api
@@ -91,10 +88,11 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Build Caddy for the target architecture
+# Build Caddy for the target architecture with caddy-security plugin
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
+    --with github.com/greenpau/caddy-security \
     --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
     --output /usr/bin/caddy
@@ -104,7 +102,7 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for CPM+ (no bash needed)
-RUN apk --no-cache add ca-certificates sqlite-libs \
+RUN apk --no-cache add ca-certificates sqlite-libs tzdata \
     && apk --no-cache upgrade
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)

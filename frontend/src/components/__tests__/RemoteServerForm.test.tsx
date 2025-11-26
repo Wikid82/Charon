@@ -6,6 +6,7 @@ import * as remoteServersApi from '../../api/remoteServers'
 // Mock the API
 vi.mock('../../api/remoteServers', () => ({
   testRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080' })),
+  testCustomRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080', reachable: true })),
 }))
 
 describe('RemoteServerForm', () => {
@@ -49,12 +50,12 @@ describe('RemoteServerForm', () => {
     expect(screen.getByDisplayValue('5000')).toBeInTheDocument()
   })
 
-  it('shows test connection button only in edit mode', () => {
+  it('shows test connection button in create and edit mode', () => {
     const { rerender } = render(
       <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    expect(screen.queryByText('Test Connection')).not.toBeInTheDocument()
+    expect(screen.getByText('Test Connection')).toBeInTheDocument()
 
     const mockServer = {
       uuid: '123',
@@ -139,7 +140,6 @@ describe('RemoteServerForm', () => {
   })
 
   it('handles test connection success', async () => {
-    const mockAlert = vi.spyOn(window, 'alert').mockImplementation(() => {})
     const mockServer = {
       uuid: '123',
       name: 'Test Server',
@@ -156,17 +156,18 @@ describe('RemoteServerForm', () => {
       <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    fireEvent.click(screen.getByText('Test Connection'))
+    const testButton = screen.getByText('Test Connection')
+    fireEvent.click(testButton)
 
     await waitFor(() => {
-      expect(mockAlert).toHaveBeenCalledWith('Connection successful: localhost:8080')
+      // Check for success state (green background)
+      expect(testButton).toHaveClass('bg-green-600')
     })
-    mockAlert.mockRestore()
   })
 
   it('handles test connection failure', async () => {
     // Override mock for this test
-    vi.mocked(remoteServersApi.testRemoteServerConnection).mockRejectedValueOnce(new Error('Connection failed'))
+    vi.mocked(remoteServersApi.testCustomRemoteServerConnection).mockRejectedValueOnce(new Error('Connection failed'))
 
     const mockServer = {
       uuid: '123',
