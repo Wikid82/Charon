@@ -252,8 +252,8 @@ export default function Layout({ children }: LayoutProps) {
                 <Menu className="w-5 h-5" />
               </button>
            </div>
-           <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
-             <img src="/banner.png" alt="CPM+" className="h-14 w-auto" />
+           <div className="w-1/3 flex justify-center">
+             <img src="/banner.png" alt="CPM+" className="h-25 w-auto" />
            </div>
            <div className="w-1/3 flex justify-end items-center gap-4">
              {user && (
