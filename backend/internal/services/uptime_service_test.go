@@ -47,6 +47,14 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	go server.Serve(listener)
 	defer server.Close()
 
+	// Create a listener and close it immediately to get a free port that is definitely closed (DOWN)
+	downListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to start down listener: %v", err)
+	}
+	downAddr := downListener.Addr().(*net.TCPAddr)
+	downListener.Close()
+
 	// Seed ProxyHosts
 	// We use the listener address as the "DomainName" so the monitor checks this HTTP server
 	upHost := models.ProxyHost{
@@ -60,7 +68,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	downHost := models.ProxyHost{
 		UUID:        "uuid-2",
-		DomainNames: "down.example.com", // This won't resolve or connect
+		DomainNames: fmt.Sprintf("127.0.0.1:%d", downAddr.Port), // Use local closed port
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 54321,
 		Enabled:     true,
@@ -80,9 +88,9 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	// We need to run it multiple times because default MaxRetries is 3
 	for i := 0; i < 3; i++ {
 		us.CheckAll()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Increased sleep slightly
 	}
-	time.Sleep(200 * time.Millisecond) // Increased wait time for HTTP check
+	time.Sleep(500 * time.Millisecond) // Increased wait time for checks to complete
 
 	// Verify Heartbeats
 	var heartbeats []models.UptimeHeartbeat
@@ -113,9 +121,9 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	// Run CheckAll multiple times to exceed MaxRetries
 	for i := 0; i < 3; i++ {
 		us.CheckAll()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
 	assert.Equal(t, "down", upMonitor.Status)
