@@ -21,6 +21,13 @@ services:
       - CPM_CADDY_BINARY=caddy
       - CPM_IMPORT_CADDYFILE=/import/Caddyfile
       - CPM_IMPORT_DIR=/app/data/imports
+      # Security Services (Optional)
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled # disabled, local, external
+      #- CPM_SECURITY_CROWDSEC_API_URL= # Required if mode is external
+      #- CPM_SECURITY_CROWDSEC_API_KEY= # Required if mode is external
+      #- CPM_SECURITY_WAF_MODE=disabled # disabled, enabled
+      #- CPM_SECURITY_RATELIMIT_ENABLED=false
+      #- CPM_SECURITY_ACL_ENABLED=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

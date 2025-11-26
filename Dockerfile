@@ -93,6 +93,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
     --with github.com/greenpau/caddy-security \
+    --with github.com/corazawaf/coraza-caddy/v2 \
+    --with github.com/hslatman/caddy-crowdsec-bouncer \
     --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
     --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
     --output /usr/bin/caddy

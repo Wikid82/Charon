@@ -6,6 +6,29 @@ set -e
 
 echo "Starting CaddyProxyManager+ with integrated Caddy..."
 
+# Optional: Install and start CrowdSec (Local Mode)
+CROWDSEC_PID=""
+if [ "$CPM_SECURITY_CROWDSEC_MODE" = "local" ]; then
+    echo "CrowdSec Local Mode enabled. Installing CrowdSec agent..."
+    # Install crowdsec from community repository if needed
+    apk add --no-cache crowdsec --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community || \
+    apk add --no-cache crowdsec || \
+    echo "Failed to install crowdsec. Check repositories."
+
+    if command -v crowdsec >/dev/null; then
+        echo "Starting CrowdSec agent..."
+        # Ensure configuration exists or is generated (basic check)
+        if [ ! -d "/etc/crowdsec" ]; then
+             echo "Warning: /etc/crowdsec not found. CrowdSec might fail to start."
+        fi
+        crowdsec &
+        CROWDSEC_PID=$!
+        echo "CrowdSec started (PID: $CROWDSEC_PID)"
+    else
+        echo "CrowdSec binary not found after installation attempt."
+    fi
+fi
+
 # Start Caddy in the background with initial empty config
 echo '{"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
@@ -40,6 +63,11 @@ shutdown() {
     echo "Shutting down..."
     kill -TERM "$APP_PID" 2>/dev/null || true
     kill -TERM "$CADDY_PID" 2>/dev/null || true
+    if [ -n "$CROWDSEC_PID" ]; then
+        echo "Stopping CrowdSec..."
+        kill -TERM "$CROWDSEC_PID" 2>/dev/null || true
+        wait "$CROWDSEC_PID" 2>/dev/null || true
+    fi
     wait "$APP_PID" 2>/dev/null || true
     wait "$CADDY_PID" 2>/dev/null || true
     exit 0

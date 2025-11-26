@@ -19,6 +19,17 @@ type Config struct {
 	ImportDir       string
 	JWTSecret       string
 	ACMEStaging     bool
+	Security        SecurityConfig
+}
+
+// SecurityConfig holds configuration for optional security services.
+type SecurityConfig struct {
+	CrowdSecMode     string
+	CrowdSecAPIURL   string
+	CrowdSecAPIKey   string
+	WAFMode          string
+	RateLimitEnabled bool
+	ACLEnabled       bool
 }
 
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.
@@ -35,6 +46,14 @@ func Load() (Config, error) {
 		ImportDir:       getEnv("CPM_IMPORT_DIR", filepath.Join("data", "imports")),
 		JWTSecret:       getEnv("CPM_JWT_SECRET", "change-me-in-production"),
 		ACMEStaging:     getEnv("CPM_ACME_STAGING", "") == "true",
+		Security: SecurityConfig{
+			CrowdSecMode:     getEnv("CPM_SECURITY_CROWDSEC_MODE", "disabled"),
+			CrowdSecAPIURL:   getEnv("CPM_SECURITY_CROWDSEC_API_URL", ""),
+			CrowdSecAPIKey:   getEnv("CPM_SECURITY_CROWDSEC_API_KEY", ""),
+			WAFMode:          getEnv("CPM_SECURITY_WAF_MODE", "disabled"),
+			RateLimitEnabled: getEnv("CPM_SECURITY_RATELIMIT_ENABLED", "false") == "true",
+			ACLEnabled:       getEnv("CPM_SECURITY_ACL_ENABLED", "false") == "true",
+		},
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {

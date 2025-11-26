@@ -47,6 +47,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
+    { name: 'Security', path: '/security', icon: '🛡️' },
     { name: 'Uptime', path: '/uptime', icon: '📈' },
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
     { name: 'Import Caddyfile', path: '/import', icon: '📥' },
@@ -91,15 +92,15 @@ export default function Layout({ children }: LayoutProps) {
         ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
-        <div className={`h-16 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
+        <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
            {isCollapsed ? (
-             <img src="/logo.png" alt="CPM+" className="h-10 w-10" />
+             <img src="/logo.png" alt="CPM+" className="h-12 w-10" />
            ) : (
-             <img src="/banner.png" alt="CPM+" className="h-12 w-auto" />
+             <img src="/banner.png" alt="CPM+" className="h-16 w-auto" />
            )}
         </div>
 
-        <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-0">
+        <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-6">
           <nav className="flex-1 space-y-1">
             {navigation.map((item) => {
               if (item.children) {
@@ -246,7 +247,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className={`flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Desktop Header */}
-        <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 relative">
+        <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 relative">
            <div className="w-1/3 flex items-center gap-4">
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
