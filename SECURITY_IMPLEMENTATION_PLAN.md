@@ -22,8 +22,8 @@ We will introduce a new set of environment variables to control these services.
 | `CPM_SECURITY_CROWDSEC_API_URL` | URL (e.g., `http://crowdsec:8080`) | Required if mode is `external`. |
 | `CPM_SECURITY_CROWDSEC_API_KEY` | String | Required if mode is `external`. |
 | `CPM_SECURITY_WAF_MODE` | `disabled` (default), `enabled` | Enables Coraza WAF with OWASP Core Rule Set (CRS). |
-| `CPM_SECURITY_RATELIMIT_ENABLED` | `true`, `false` (default) | Enables global rate limiting controls. |
-| `CPM_SECURITY_ACL_ENABLED` | `true`, `false` (default) | Enables IP-based Access Control Lists. |
+| `CPM_SECURITY_RATELIMIT_MODE` | `disabled` (default), `enabled` | Enables global rate limiting controls. |
+| `CPM_SECURITY_ACL_MODE` | `disabled` (default), `enabled` | Enables IP-based Access Control Lists. |
 
 ---
 

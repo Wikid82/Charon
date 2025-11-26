@@ -24,10 +24,10 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 		{
 			name: "All Disabled",
 			cfg: config.SecurityConfig{
-				CrowdSecMode:     "disabled",
-				WAFMode:          "disabled",
-				RateLimitEnabled: false,
-				ACLEnabled:       false,
+				CrowdSecMode:  "disabled",
+				WAFMode:       "disabled",
+				RateLimitMode: "disabled",
+				ACLMode:       "disabled",
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody: map[string]interface{}{
@@ -41,9 +41,11 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 					"enabled": false,
 				},
 				"rate_limit": map[string]interface{}{
+					"mode":    "disabled",
 					"enabled": false,
 				},
 				"acl": map[string]interface{}{
+					"mode":    "disabled",
 					"enabled": false,
 				},
 			},
@@ -51,10 +53,10 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 		{
 			name: "All Enabled",
 			cfg: config.SecurityConfig{
-				CrowdSecMode:     "local",
-				WAFMode:          "enabled",
-				RateLimitEnabled: true,
-				ACLEnabled:       true,
+				CrowdSecMode:  "local",
+				WAFMode:       "enabled",
+				RateLimitMode: "enabled",
+				ACLMode:       "enabled",
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody: map[string]interface{}{
@@ -68,9 +70,11 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 					"enabled": true,
 				},
 				"rate_limit": map[string]interface{}{
+					"mode":    "enabled",
 					"enabled": true,
 				},
 				"acl": map[string]interface{}{
+					"mode":    "enabled",
 					"enabled": true,
 				},
 			},
