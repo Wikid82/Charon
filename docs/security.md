@@ -68,8 +68,8 @@ environment:
 
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `CPM_SECURITY_RATELIMIT_ENABLED` | `true` / `false` | Enable global rate limiting. |
-| `CPM_SECURITY_ACL_ENABLED` | `true` / `false` | Enable IP-based Access Control Lists. |
+| `CPM_SECURITY_RATELIMIT_MODE` | `enabled` / `disabled` | Enable global rate limiting. |
+| `CPM_SECURITY_ACL_MODE` | `enabled` / `disabled` | Enable IP-based Access Control Lists. |
 
 ---
 
