@@ -289,10 +289,10 @@ jobs:
           </head>
           <body>
             <nav>
-              <a href="/">🏠 Home</a>
-              <a href="/docs/index.html">📚 Docs</a>
-              <a href="/docs/getting-started.html">🚀 Get Started</a>
-              <a href="https://github.com/Wikid82/CaddyProxyManagerPlus">⭐ GitHub</a>
+              <a href="/cpmp/">🏠 Home</a>
+              <a href="/cpmp/docs/index.html">📚 Docs</a>
+              <a href="/cpmp/docs/getting-started.html">🚀 Get Started</a>
+              <a href="https://github.com/Wikid82/cpmp">⭐ GitHub</a>
             </nav>
             <main>
           HEADER
