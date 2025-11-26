@@ -35,7 +35,7 @@ export default function Security() {
         </div>
         <Button
           variant="primary"
-          onClick={() => window.open('https://wikid82.github.io/CaddyProxyManagerPlus/docs/security.html', '_blank')}
+          onClick={() => window.open('https://wikid82.github.io/cpmp/docs/security.html', '_blank')}
           className="flex items-center gap-2"
         >
           <ExternalLink className="w-4 h-4" />
@@ -54,7 +54,7 @@ export default function Security() {
         </h1>
         <Button
           variant="secondary"
-          onClick={() => window.open('https://wikid82.github.io/CaddyProxyManagerPlus/docs/security.html', '_blank')}
+          onClick={() => window.open('https://wikid82.github.io/cpmp/docs/security.html', '_blank')}
           className="flex items-center gap-2"
         >
           <ExternalLink className="w-4 h-4" />
