@@ -188,6 +188,10 @@ const Uptime: React.FC = () => {
     );
   }, [monitors]);
 
+  const proxyHostMonitors = useMemo(() => sortedMonitors.filter(m => m.proxy_host_id), [sortedMonitors]);
+  const remoteServerMonitors = useMemo(() => sortedMonitors.filter(m => m.remote_server_id), [sortedMonitors]);
+  const otherMonitors = useMemo(() => sortedMonitors.filter(m => !m.proxy_host_id && !m.remote_server_id), [sortedMonitors]);
+
   if (isLoading) {
     return <div className="p-8 text-center">Loading monitors...</div>;
   }
@@ -204,16 +208,46 @@ const Uptime: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {sortedMonitors.map((monitor) => (
-          <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
-        ))}
-        {sortedMonitors.length === 0 && (
-          <div className="col-span-full text-center py-12 text-gray-500">
-            No monitors found. Add a Proxy Host to start monitoring.
-          </div>
-        )}
-      </div>
+      {sortedMonitors.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          No monitors found. Add a Proxy Host or Remote Server to start monitoring.
+        </div>
+      ) : (
+        <>
+          {proxyHostMonitors.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Proxy Hosts</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {proxyHostMonitors.map((monitor) => (
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {remoteServerMonitors.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Remote Servers</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {remoteServerMonitors.map((monitor) => (
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {otherMonitors.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Other Monitors</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {otherMonitors.map((monitor) => (
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {editingMonitor && (
         <EditMonitorModal monitor={editingMonitor} onClose={() => setEditingMonitor(null)} />

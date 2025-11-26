@@ -8,15 +8,16 @@ import (
 )
 
 type UptimeMonitor struct {
-	ID          string    `gorm:"primaryKey" json:"id"`
-	ProxyHostID *uint     `json:"proxy_host_id"` // Optional link to proxy host
-	Name        string    `json:"name"`
-	Type        string    `json:"type"` // http, tcp, ping
-	URL         string    `json:"url"`
-	Interval    int       `json:"interval"` // seconds
-	Enabled     bool      `json:"enabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID             string    `gorm:"primaryKey" json:"id"`
+	ProxyHostID    *uint     `json:"proxy_host_id"`    // Optional link to proxy host
+	RemoteServerID *uint     `json:"remote_server_id"` // Optional link to remote server
+	Name           string    `json:"name"`
+	Type           string    `json:"type"` // http, tcp, ping
+	URL            string    `json:"url"`
+	Interval       int       `json:"interval"` // seconds
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 
 	// Current Status (Cached)
 	Status           string    `json:"status"` // up, down, maintenance, pending
