@@ -73,6 +73,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Notification Service (needed for multiple handlers)
 	notificationService := services.NewNotificationService(db)
 
+	// Remote Server Service (needed for Docker handler)
+	remoteServerService := services.NewRemoteServerService(db)
+
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 
@@ -126,7 +129,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// Docker
 		dockerService, err := services.NewDockerService()
 		if err == nil { // Only register if Docker is available
-			dockerHandler := handlers.NewDockerHandler(dockerService)
+			dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 			dockerHandler.RegisterRoutes(protected)
 		} else {
 			fmt.Printf("Warning: Docker service unavailable: %v\n", err)
@@ -176,7 +179,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
 	proxyHostHandler.RegisterRoutes(api)
 
-	remoteServerHandler := handlers.NewRemoteServerHandler(db, notificationService)
+	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
 
 	userHandler := handlers.NewUserHandler(db)

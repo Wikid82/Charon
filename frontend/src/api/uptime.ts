@@ -2,6 +2,8 @@ import client from './client';
 
 export interface UptimeMonitor {
   id: string;
+  proxy_host_id?: number;
+  remote_server_id?: number;
   name: string;
   type: string;
   url: string;

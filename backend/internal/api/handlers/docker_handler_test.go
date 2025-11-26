@@ -5,9 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestDockerHandler_ListContainers(t *testing.T) {
@@ -26,7 +30,15 @@ func TestDockerHandler_ListContainers(t *testing.T) {
 		t.Skip("Docker not available")
 	}
 
-	h := NewDockerHandler(svc)
+	// Setup DB for RemoteServerService
+	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.RemoteServer{}))
+
+	rsService := services.NewRemoteServerService(db)
+
+	h := NewDockerHandler(svc, rsService)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h.RegisterRoutes(r.Group("/"))

@@ -52,7 +52,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 	db.Create(server)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -75,7 +75,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 	db := setupTestDB()
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -119,7 +119,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	db.Create(server)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -153,7 +153,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 	db.Create(server)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -186,7 +186,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 	db.Create(server)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -231,7 +231,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 	db.Create(server)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -343,7 +343,7 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 	db := setupTestDB()
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 

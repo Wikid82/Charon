@@ -35,11 +35,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
   const { certificates } = useCertificates()
-  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
-    formData.forward_host ? undefined : undefined // Simplified for now, logic below handles it
-  )
 
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
+
+  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
+    connectionSource === 'local' ? 'local' : undefined,
+    connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
+  )
+
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
 

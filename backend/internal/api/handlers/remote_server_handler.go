@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
 	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
@@ -21,9 +20,9 @@ type RemoteServerHandler struct {
 }
 
 // NewRemoteServerHandler creates a new remote server handler.
-func NewRemoteServerHandler(db *gorm.DB, ns *services.NotificationService) *RemoteServerHandler {
+func NewRemoteServerHandler(service *services.RemoteServerService, ns *services.NotificationService) *RemoteServerHandler {
 	return &RemoteServerHandler{
-		service:             services.NewRemoteServerService(db),
+		service:             service,
 		notificationService: ns,
 	}
 }

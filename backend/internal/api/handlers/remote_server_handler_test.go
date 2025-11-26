@@ -23,7 +23,7 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	db.AutoMigrate(&models.RemoteServer{})
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewRemoteServerHandler(db, ns)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 
 	r := gin.Default()
 	api := r.Group("/api/v1")

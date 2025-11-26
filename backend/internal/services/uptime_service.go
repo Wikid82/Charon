@@ -98,6 +98,56 @@ func (s *UptimeService) SyncMonitors() error {
 			}
 		}
 	}
+
+	// Sync Remote Servers
+	var remoteServers []models.RemoteServer
+	if err := s.DB.Find(&remoteServers).Error; err != nil {
+		return err
+	}
+
+	for _, server := range remoteServers {
+		var monitor models.UptimeMonitor
+		err := s.DB.Where("remote_server_id = ?", server.ID).First(&monitor).Error
+
+		targetType := "tcp"
+		targetURL := fmt.Sprintf("%s:%d", server.Host, server.Port)
+
+		if server.Scheme == "http" || server.Scheme == "https" {
+			targetType = server.Scheme
+			targetURL = fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port)
+		}
+
+		switch err {
+		case gorm.ErrRecordNotFound:
+			monitor = models.UptimeMonitor{
+				RemoteServerID: &server.ID,
+				Name:           server.Name,
+				Type:           targetType,
+				URL:            targetURL,
+				Interval:       60,
+				Enabled:        server.Enabled,
+				Status:         "pending",
+			}
+			if err := s.DB.Create(&monitor).Error; err != nil {
+				log.Printf("Failed to create monitor for remote server %d: %v", server.ID, err)
+			}
+		case nil:
+			if monitor.Name != server.Name {
+				monitor.Name = server.Name
+				s.DB.Save(&monitor)
+			}
+			if monitor.URL != targetURL || monitor.Type != targetType {
+				monitor.URL = targetURL
+				monitor.Type = targetType
+				s.DB.Save(&monitor)
+			}
+			if monitor.Enabled != server.Enabled {
+				monitor.Enabled = server.Enabled
+				s.DB.Save(&monitor)
+			}
+		}
+	}
+
 	return nil
 }
 
