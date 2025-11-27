@@ -26,15 +26,19 @@ frontend/*.tsbuildinfo
 # Go/Backend
 backend/api
 backend/*.out
+backend/*.cover
 backend/coverage/
 backend/coverage.*.out
+backend/coverage_*.out
 
 # Databases
 *.db
 *.sqlite
 *.sqlite3
 backend/data/*.db
+backend/data/**/*.db
 backend/cmd/api/data/*.db
+cpm.db
 
 # IDE
 .idea/
@@ -69,7 +73,9 @@ docker-compose.override.yml
 
 # Testing
 coverage/
+coverage.out
 *.xml
+.trivy_logs/
 .trivy_logs/trivy-report.txt
 backend/coverage.txt
 
@@ -79,5 +85,23 @@ codeql-results.sarif
 **.sarif
 codeql-results-js.sarif
 codeql-results-go.sarif
-remote_logs/Unconfirmed 312410.crdownload
+*.crdownload
 .vscode/launch.json
+
+# Scripts (project-specific)
+create_issues.sh
+cookies.txt
+
+# Project Documentation (keep important docs, ignore implementation notes)
+ACME_STAGING_IMPLEMENTATION.md
+ARCHITECTURE_PLAN.md
+BULK_ACL_FEATURE.md
+DOCKER_TASKS.md
+DOCUMENTATION_POLISH_SUMMARY.md
+GHCR_MIGRATION_SUMMARY.md
+ISSUE_*_IMPLEMENTATION.md
+PHASE_*_SUMMARY.md
+PROJECT_BOARD_SETUP.md
+PROJECT_PLANNING.md
+SECURITY_IMPLEMENTATION_PLAN.md
+VERSIONING_IMPLEMENTATION.md

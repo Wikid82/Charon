@@ -32,16 +32,20 @@ frontend/frontend/
 # Go/Backend
 backend/coverage.txt
 backend/*.out
+backend/*.cover
 backend/coverage/
 backend/coverage.*.out
+backend/coverage_*.out
 backend/package.json
 backend/package-lock.json
 
 # Databases (runtime)
 backend/data/*.db
+backend/data/**/*.db
 backend/cmd/api/data/*.db
 *.sqlite
 *.sqlite3
+cpm.db
 
 # IDE
 .vscode/
@@ -51,7 +55,7 @@ backend/cmd/api/data/*.db
 *~
 
 # Logs
-.trivy_logs
+.trivy_logs/
 *.log
 logs/
 
@@ -76,7 +80,29 @@ docker-compose*.yml
 # CI/CD
 .github/
 .pre-commit-config.yaml
+.codecov.yml
 
 # Scripts
 scripts/
 tools/
+create_issues.sh
+cookies.txt
+
+# Testing artifacts
+coverage.out
+*.cover
+*.crdownload
+
+# Project Documentation
+ACME_STAGING_IMPLEMENTATION.md
+ARCHITECTURE_PLAN.md
+BULK_ACL_FEATURE.md
+DOCKER_TASKS.md
+DOCUMENTATION_POLISH_SUMMARY.md
+GHCR_MIGRATION_SUMMARY.md
+ISSUE_*_IMPLEMENTATION.md
+PHASE_*_SUMMARY.md
+PROJECT_BOARD_SETUP.md
+PROJECT_PLANNING.md
+SECURITY_IMPLEMENTATION_PLAN.md
+VERSIONING_IMPLEMENTATION.md
