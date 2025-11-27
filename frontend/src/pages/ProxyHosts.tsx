@@ -1,23 +1,29 @@
 import { useState, useMemo } from 'react'
-import { Loader2, ExternalLink, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react'
+import { Loader2, ExternalLink, AlertTriangle, ChevronUp, ChevronDown, CheckSquare, Square } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useCertificates } from '../hooks/useCertificates'
+import { useAccessLists } from '../hooks/useAccessLists'
 import { getSettings } from '../api/settings'
 import type { ProxyHost } from '../api/proxyHosts'
+import type { AccessList } from '../api/accessLists'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
+import { toast } from 'react-hot-toast'
 
 type SortColumn = 'name' | 'domain' | 'forward'
 type SortDirection = 'asc' | 'desc'
 
 export default function ProxyHosts() {
-  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, isBulkUpdating } = useProxyHosts()
   const { certificates } = useCertificates()
+  const { data: accessLists } = useAccessLists()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
   const [sortColumn, setSortColumn] = useState<SortColumn>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set())
+  const [showBulkACLModal, setShowBulkACLModal] = useState(false)
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -123,6 +129,45 @@ export default function ProxyHosts() {
     }
   }
 
+  const toggleHostSelection = (uuid: string) => {
+    setSelectedHosts(prev => {
+      const next = new Set(prev)
+      if (next.has(uuid)) {
+        next.delete(uuid)
+      } else {
+        next.add(uuid)
+      }
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedHosts.size === hosts.length) {
+      setSelectedHosts(new Set())
+    } else {
+      setSelectedHosts(new Set(hosts.map(h => h.uuid)))
+    }
+  }
+
+  const handleBulkApplyACL = async (accessListID: number | null) => {
+    const hostUUIDs = Array.from(selectedHosts)
+    try {
+      const result = await bulkUpdateACL(hostUUIDs, accessListID)
+
+      if (result.errors.length > 0) {
+        toast.error(`Updated ${result.updated} host(s), ${result.errors.length} failed`)
+      } else {
+        const action = accessListID ? 'applied to' : 'removed from'
+        toast.success(`Access list ${action} ${result.updated} host(s)`)
+      }
+
+      setSelectedHosts(new Set())
+      setShowBulkACLModal(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update hosts')
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -130,12 +175,26 @@ export default function ProxyHosts() {
           <h1 className="text-3xl font-bold text-white">Proxy Hosts</h1>
           {isFetching && !loading && <Loader2 className="animate-spin text-blue-400" size={24} />}
         </div>
-        <button
-          onClick={handleAdd}
-          className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"
-        >
-          Add Proxy Host
-        </button>
+        <div className="flex gap-3">
+          {selectedHosts.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 text-sm">{selectedHosts.size} selected</span>
+              <button
+                onClick={() => setShowBulkACLModal(true)}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+                disabled={isBulkUpdating}
+              >
+                {isBulkUpdating ? 'Updating...' : 'Bulk Actions'}
+              </button>
+            </div>
+          )}
+          <button
+            onClick={handleAdd}
+            className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"
+          >
+            Add Proxy Host
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -156,6 +215,19 @@ export default function ProxyHosts() {
             <table className="w-full">
               <thead className="bg-gray-900 border-b border-gray-800">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    <button
+                      onClick={toggleSelectAll}
+                      className="text-gray-400 hover:text-white transition-colors"
+                      title={selectedHosts.size === hosts.length ? 'Deselect all' : 'Select all'}
+                    >
+                      {selectedHosts.size === hosts.length ? (
+                        <CheckSquare size={18} />
+                      ) : (
+                        <Square size={18} />
+                      )}
+                    </button>
+                  </th>
                   <th
                     onClick={() => handleSort('name')}
                     className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
@@ -197,6 +269,18 @@ export default function ProxyHosts() {
               <tbody className="divide-y divide-gray-800">
                 {sortedHosts.map((host) => (
                   <tr key={host.uuid} className="hover:bg-gray-900/50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button
+                        onClick={() => toggleHostSelection(host.uuid)}
+                        className="text-gray-400 hover:text-white transition-colors"
+                      >
+                        {selectedHosts.has(host.uuid) ? (
+                          <CheckSquare size={18} className="text-blue-400" />
+                        ) : (
+                          <Square size={18} />
+                        )}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-white">
                         {host.name || <span className="text-gray-500 italic">Unnamed</span>}
@@ -324,6 +408,71 @@ export default function ProxyHosts() {
             setEditingHost(undefined)
           }}
         />
+      )}
+
+      {/* Bulk ACL Modal */}
+      {showBulkACLModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowBulkACLModal(false)}
+        >
+          <div
+            className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold text-white mb-4">Apply Access List</h2>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-400 mb-4">
+                  Applying to {selectedHosts.size} selected host(s)
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Access List
+                </label>
+                <select
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === 'remove') {
+                      if (confirm(`Remove access list from ${selectedHosts.size} host(s)?`)) {
+                        handleBulkApplyACL(null)
+                      }
+                    } else if (value !== '') {
+                      handleBulkApplyACL(parseInt(value, 10))
+                    }
+                  }}
+                  defaultValue=""
+                  disabled={isBulkUpdating}
+                >
+                  <option value="">Select an access list...</option>
+                  <option value="remove" className="text-red-400">
+                    🚫 Remove Access List
+                  </option>
+                  <optgroup label="Available Access Lists">
+                    {accessLists
+                      ?.filter((acl: AccessList) => acl.enabled)
+                      .map((acl: AccessList) => (
+                        <option key={acl.id} value={acl.id}>
+                          {acl.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowBulkACLModal(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+                  disabled={isBulkUpdating}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

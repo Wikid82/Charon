@@ -70,3 +70,24 @@ export const deleteProxyHost = async (uuid: string): Promise<void> => {
 export const testProxyHostConnection = async (host: string, port: number): Promise<void> => {
   await client.post('/proxy-hosts/test', { forward_host: host, forward_port: port });
 };
+
+export interface BulkUpdateACLRequest {
+  host_uuids: string[];
+  access_list_id: number | null;
+}
+
+export interface BulkUpdateACLResponse {
+  updated: number;
+  errors: { uuid: string; error: string }[];
+}
+
+export const bulkUpdateACL = async (
+  hostUUIDs: string[],
+  accessListID: number | null
+): Promise<BulkUpdateACLResponse> => {
+  const { data } = await client.put<BulkUpdateACLResponse>('/proxy-hosts/bulk-update-acl', {
+    host_uuids: hostUUIDs,
+    access_list_id: accessListID,
+  });
+  return data;
+};
