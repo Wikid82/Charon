@@ -16,6 +16,11 @@ help:
 	@echo "  docker-dev             - Run Docker in development mode"
 	@echo "  release                - Create a new semantic version release (interactive)"
 	@echo "  dev                    - Run both backend and frontend in dev mode (requires tmux)"
+	@echo ""
+	@echo "Security targets:"
+	@echo "  security-scan          - Quick security scan (govulncheck on Go deps)"
+	@echo "  security-scan-full     - Full container scan with Trivy"
+	@echo "  security-scan-deps     - Check for outdated Go dependencies"
 
 # Install all dependencies
 install:
@@ -96,3 +101,25 @@ dev:
 # Create a new release (interactive script)
 release:
 	@./scripts/release.sh
+
+# Security scanning targets
+security-scan:
+	@echo "Running security scan (govulncheck)..."
+	@./scripts/security-scan.sh
+
+security-scan-full:
+	@echo "Building local Docker image for security scan..."
+	docker build --build-arg VCS_REF=$(shell git rev-parse HEAD) -t cpmp:local .
+	@echo "Running Trivy container scan..."
+	docker run --rm \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-v $(HOME)/.cache/trivy:/root/.cache/trivy \
+		aquasec/trivy:latest image \
+		--severity CRITICAL,HIGH \
+		cpmp:local
+
+security-scan-deps:
+	@echo "Scanning Go dependencies..."
+	cd backend && go list -m -json all | docker run --rm -i aquasec/trivy:latest sbom --format json - 2>/dev/null || true
+	@echo "Checking for Go module updates..."
+	cd backend && go list -m -u all | grep -E '\[.*\]' || echo "All modules up to date"
