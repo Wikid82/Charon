@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/Button';
-import { Plus, Pencil, Trash2, TestTube2, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, TestTube2, ExternalLink, AlertTriangle } from 'lucide-react';
 import {
   useAccessLists,
   useCreateAccessList,
@@ -23,6 +23,7 @@ export default function AccessLists() {
   const [editingACL, setEditingACL] = useState<AccessList | null>(null);
   const [testingACL, setTestingACL] = useState<AccessList | null>(null);
   const [testIP, setTestIP] = useState('');
+  const [showCGNATWarning, setShowCGNATWarning] = useState(true);
 
   const handleCreate = (data: AccessListFormData) => {
     createMutation.mutate(data, {
@@ -123,6 +124,39 @@ export default function AccessLists() {
           </Button>
         </div>
       </div>
+
+      {/* CGNAT Warning */}
+      {showCGNATWarning && accessLists && accessLists.length > 0 && (
+        <div className="bg-orange-900/20 border border-orange-800/50 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-orange-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-orange-300 mb-1">CGNAT & Mobile Network Warning</h3>
+              <p className="text-sm text-orange-200/90 mb-2">
+                If you're using T-Mobile 5G Home Internet, Starlink, or other CGNAT connections, geo-blocking may not work as expected.
+                Your IP may appear to be from a data center location, not your physical location.
+              </p>
+              <details className="text-xs text-orange-200/80">
+                <summary className="cursor-pointer hover:text-orange-100 font-medium mb-1">Solutions if you're locked out:</summary>
+                <ul className="list-disc list-inside space-y-1 mt-2 ml-2">
+                  <li>Access via local network IP (192.168.x.x) - ACLs don't apply to local IPs</li>
+                  <li>Add your current IP to a whitelist ACL</li>
+                  <li>Use "Test IP" below to check what IP the server sees</li>
+                  <li>Disable the ACL temporarily to regain access</li>
+                  <li>Connect via VPN with a known good IP address</li>
+                </ul>
+              </details>
+            </div>
+            <button
+              onClick={() => setShowCGNATWarning(false)}
+              className="text-orange-400 hover:text-orange-300 text-xl leading-none"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Empty State */}
       {(!accessLists || accessLists.length === 0) && !showCreateForm && !editingACL && (
