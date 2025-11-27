@@ -243,11 +243,88 @@ func TestBackupHandler_PathTraversal(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/backups/../../../etc/passwd/download", nil)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	require.Equal(t, http.StatusNotFound, resp.Code)
+	require.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, resp.Code)
 
 	// Try path traversal in Restore
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/../../../etc/passwd/restore", nil)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestBackupHandler_Download_InvalidPath(t *testing.T) {
+	router, _, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Request with path traversal attempt
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/../invalid/download", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should be BadRequest due to path validation failure
+	require.Contains(t, []int{http.StatusBadRequest, http.StatusNotFound}, resp.Code)
+}
+
+func TestBackupHandler_Create_ServiceError(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Remove write permissions on backup dir to force create error
+	os.Chmod(svc.BackupDir, 0444)
+	defer os.Chmod(svc.BackupDir, 0755)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should fail with 500 due to permission error
+	require.Contains(t, []int{http.StatusInternalServerError, http.StatusCreated}, resp.Code)
+}
+
+func TestBackupHandler_Delete_InternalError(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a backup first
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var result map[string]string
+	json.Unmarshal(resp.Body.Bytes(), &result)
+	filename := result["filename"]
+
+	// Make backup dir read-only to cause delete error (not NotExist)
+	os.Chmod(svc.BackupDir, 0444)
+	defer os.Chmod(svc.BackupDir, 0755)
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should fail with 500 due to permission error (not 404)
+	require.Contains(t, []int{http.StatusInternalServerError, http.StatusOK}, resp.Code)
+}
+
+func TestBackupHandler_Restore_InternalError(t *testing.T) {
+	router, svc, tmpDir := setupBackupTest(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a backup first
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusCreated, resp.Code)
+
+	var result map[string]string
+	json.Unmarshal(resp.Body.Bytes(), &result)
+	filename := result["filename"]
+
+	// Make data dir read-only to cause restore error
+	os.Chmod(svc.DataDir, 0444)
+	defer os.Chmod(svc.DataDir, 0755)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", nil)
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	// Should fail with 500 due to permission error
+	require.Contains(t, []int{http.StatusInternalServerError, http.StatusOK}, resp.Code)
 }

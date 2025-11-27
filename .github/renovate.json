@@ -50,7 +50,9 @@
       "matchPackageNames": ["caddy"],
       "allowedVersions": "<3.0.0",
       "labels": ["dependencies", "docker"],
-      "automerge": true
+      "automerge": true,
+      "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)",
+      "versioning": "semver"
     },
     {
       "description": "Group non-breaking npm minor/patch",

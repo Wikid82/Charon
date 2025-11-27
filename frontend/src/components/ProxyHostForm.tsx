@@ -6,6 +6,7 @@ import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
+import AccessListSelector from './AccessListSelector'
 import { parse } from 'tldts'
 
 // Application preset configurations
@@ -57,6 +58,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
+    access_list_id: host?.access_list_id,
   })
 
   // CPMP internal IP for config helpers
@@ -489,6 +491,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               Let's Encrypt certificates are managed automatically. Use custom certificates for self-signed or other providers.
             </p>
           </div>
+
+          {/* Access Control List */}
+          <AccessListSelector
+            value={formData.access_list_id || null}
+            onChange={id => setFormData({ ...formData, access_list_id: id })}
+          />
 
           {/* Application Preset */}
           <div>

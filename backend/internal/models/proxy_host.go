@@ -23,6 +23,8 @@ type ProxyHost struct {
 	Enabled          bool            `json:"enabled" gorm:"default:true"`
 	CertificateID    *uint           `json:"certificate_id"`
 	Certificate      *SSLCertificate `json:"certificate" gorm:"foreignKey:CertificateID"`
+	AccessListID     *uint           `json:"access_list_id"`
+	AccessList       *AccessList     `json:"access_list" gorm:"foreignKey:AccessListID"`
 	Locations        []Location      `json:"locations" gorm:"foreignKey:ProxyHostID;constraint:OnDelete:CASCADE"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`

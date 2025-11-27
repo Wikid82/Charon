@@ -186,6 +186,16 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
 
+	// Access Lists
+	accessListHandler := handlers.NewAccessListHandler(db)
+	protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
+	protected.GET("/access-lists", accessListHandler.List)
+	protected.POST("/access-lists", accessListHandler.Create)
+	protected.GET("/access-lists/:id", accessListHandler.Get)
+	protected.PUT("/access-lists/:id", accessListHandler.Update)
+	protected.DELETE("/access-lists/:id", accessListHandler.Delete)
+	protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
+
 	userHandler := handlers.NewUserHandler(db)
 	userHandler.RegisterRoutes(api)
 

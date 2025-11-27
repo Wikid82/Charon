@@ -243,6 +243,414 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 	})
 }
 
+func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
+	t.Run("syncs name from proxy host when changed", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-1", Name: "Original Name", DomainNames: "test1.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Original Name", monitor.Name)
+
+		// Update host name
+		host.Name = "Updated Name"
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Updated Name", monitor.Name)
+	})
+
+	t.Run("uses domain name when proxy host name is empty", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-2", Name: "", DomainNames: "fallback.com, secondary.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "fallback.com", monitor.Name)
+	})
+
+	t.Run("updates monitor name when host name becomes empty", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-3", Name: "Named Host", DomainNames: "domain.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Named Host", monitor.Name)
+
+		// Clear host name
+		host.Name = ""
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "domain.com", monitor.Name)
+	})
+}
+
+func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
+	t.Run("migrates TCP monitor to HTTP for public URL", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "tcp-host",
+			Name:        "TCP Host",
+			DomainNames: "public.com",
+			ForwardHost: "backend.local",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Manually create old-style TCP monitor (simulating legacy data)
+		oldMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "TCP Host",
+			Type:        "tcp",
+			URL:         "backend.local:8080",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&oldMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "http", monitor.Type)
+		assert.Equal(t, "http://public.com", monitor.URL)
+	})
+
+	t.Run("does not migrate TCP monitor with custom URL", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "tcp-custom",
+			Name:        "Custom TCP",
+			DomainNames: "public.com",
+			ForwardHost: "backend.local",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create TCP monitor with custom URL (user-configured)
+		customMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "Custom TCP",
+			Type:        "tcp",
+			URL:         "custom.endpoint:9999",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&customMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		// Should NOT migrate - custom URL preserved
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "custom.endpoint:9999", monitor.URL)
+	})
+}
+
+func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
+	t.Run("upgrades HTTP to HTTPS when SSL forced", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "http-host",
+			Name:        "HTTP Host",
+			DomainNames: "secure.com",
+			SSLForced:   false,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create HTTP monitor
+		httpMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "HTTP Host",
+			Type:        "http",
+			URL:         "http://secure.com",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&httpMonitor)
+
+		// Sync first (no change expected)
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "http://secure.com", monitor.URL)
+
+		// Enable SSL forced
+		host.SSLForced = true
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "https://secure.com", monitor.URL)
+	})
+
+	t.Run("does not downgrade HTTPS when SSL not forced", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "https-host",
+			Name:        "HTTPS Host",
+			DomainNames: "secure.com",
+			SSLForced:   false,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create HTTPS monitor
+		httpsMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "HTTPS Host",
+			Type:        "http",
+			URL:         "https://secure.com",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&httpsMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		// Should remain HTTPS
+		assert.Equal(t, "https://secure.com", monitor.URL)
+	})
+}
+
+func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
+	t.Run("creates monitor for new remote server", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Remote Backend",
+			Host:    "backend.local",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Remote Backend", monitor.Name)
+		assert.Equal(t, "http", monitor.Type)
+		assert.Equal(t, "http://backend.local:8080", monitor.URL)
+		assert.True(t, monitor.Enabled)
+	})
+
+	t.Run("creates TCP monitor for remote server without scheme", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "TCP Backend",
+			Host:    "tcp.backend",
+			Port:    3306,
+			Scheme:  "",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "tcp.backend:3306", monitor.URL)
+	})
+
+	t.Run("syncs remote server name changes", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Original Server",
+			Host:    "server.local",
+			Port:    8080,
+			Scheme:  "https",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Original Server", monitor.Name)
+
+		// Update server name
+		server.Name = "Renamed Server"
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Renamed Server", monitor.Name)
+	})
+
+	t.Run("syncs remote server URL changes", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Server",
+			Host:    "old.host",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "http://old.host:8080", monitor.URL)
+
+		// Change host and port
+		server.Host = "new.host"
+		server.Port = 9090
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "http://new.host:9090", monitor.URL)
+	})
+
+	t.Run("syncs remote server enabled status", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Toggleable Server",
+			Host:    "server.local",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.True(t, monitor.Enabled)
+
+		// Disable server
+		server.Enabled = false
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.False(t, monitor.Enabled)
+	})
+
+	t.Run("syncs scheme change from TCP to HTTPS", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Scheme Changer",
+			Host:    "server.local",
+			Port:    443,
+			Scheme:  "",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "server.local:443", monitor.URL)
+
+		// Change to HTTPS
+		server.Scheme = "https"
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "https", monitor.Type)
+		assert.Equal(t, "https://server.local:443", monitor.URL)
+	})
+}
+
 func TestUptimeService_CheckAll_Errors(t *testing.T) {
 	t.Run("handles empty monitor list", func(t *testing.T) {
 		db := setupUptimeTestDB(t)

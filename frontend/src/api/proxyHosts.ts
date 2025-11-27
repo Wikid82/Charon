@@ -38,6 +38,7 @@ export interface ProxyHost {
   enabled: boolean;
   certificate_id?: number | null;
   certificate?: Certificate | null;
+  access_list_id?: number | null;
   created_at: string;
   updated_at: string;
 }
