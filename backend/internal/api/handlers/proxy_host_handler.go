@@ -37,6 +37,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.PUT("/proxy-hosts/:uuid", h.Update)
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 	router.POST("/proxy-hosts/test", h.TestConnection)
+	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
 }
 
 // List retrieves all proxy hosts.
@@ -198,4 +199,64 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
+}
+
+// BulkUpdateACL applies or removes an access list to multiple proxy hosts.
+func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
+	var req struct {
+		HostUUIDs    []string `json:"host_uuids" binding:"required"`
+		AccessListID *uint    `json:"access_list_id"` // nil means remove ACL
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.HostUUIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+		return
+	}
+
+	updated := 0
+	errors := []map[string]string{}
+
+	for _, uuid := range req.HostUUIDs {
+		host, err := h.service.GetByUUID(uuid)
+		if err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  uuid,
+				"error": "proxy host not found",
+			})
+			continue
+		}
+
+		host.AccessListID = req.AccessListID
+		if err := h.service.Update(host); err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  uuid,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		updated++
+	}
+
+	// Apply Caddy config once for all updates
+	if updated > 0 && h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to apply configuration: " + err.Error(),
+				"updated": updated,
+				"errors":  errors,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": updated,
+		"errors":  errors,
+	})
 }
