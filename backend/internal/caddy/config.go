@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -196,6 +197,16 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
+		// Add Access Control List (ACL) handler if configured
+		if host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
+			aclHandler, err := buildACLHandler(host.AccessList)
+			if err != nil {
+				fmt.Printf("Warning: Failed to build ACL handler for host %s: %v\n", host.UUID, err)
+			} else if aclHandler != nil {
+				handlers = append(handlers, aclHandler)
+			}
+		}
+
 		// Add HSTS header if enabled
 		if host.HSTSEnabled {
 			hstsValue := "max-age=31536000"
@@ -271,4 +282,171 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 	}
 
 	return config, nil
+}
+
+// buildACLHandler creates access control handlers based on the AccessList configuration
+func buildACLHandler(acl *models.AccessList) (Handler, error) {
+	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
+	// For IP-based ACLs, we use Caddy's native remote_ip matcher
+
+	if strings.HasPrefix(acl.Type, "geo_") {
+		// Geo-blocking using caddy-geoip2
+		countryCodes := strings.Split(acl.CountryCodes, ",")
+		var trimmedCodes []string
+		for _, code := range countryCodes {
+			trimmedCodes = append(trimmedCodes, `"`+strings.TrimSpace(code)+`"`)
+		}
+
+		var expression string
+		if acl.Type == "geo_whitelist" {
+			// Allow only these countries
+			expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
+		} else {
+			// geo_blacklist: Block these countries
+			expression = fmt.Sprintf("{geoip2.country_code} not_in [%s]", strings.Join(trimmedCodes, ", "))
+		}
+
+		return Handler{
+			"handler": "subroute",
+			"routes": []map[string]interface{}{
+				{
+					"match": []map[string]interface{}{
+						{
+							"not": []map[string]interface{}{
+								{
+									"expression": expression,
+								},
+							},
+						},
+					},
+					"handle": []map[string]interface{}{
+						{
+							"handler":     "static_response",
+							"status_code": 403,
+							"body":        "Access denied: Geographic restriction",
+						},
+					},
+					"terminal": true,
+				},
+			},
+		}, nil
+	}
+
+	// IP/CIDR-based ACLs using Caddy's native remote_ip matcher
+	if acl.LocalNetworkOnly {
+		// Allow only RFC1918 private networks
+		return Handler{
+			"handler": "subroute",
+			"routes": []map[string]interface{}{
+				{
+					"match": []map[string]interface{}{
+						{
+							"not": []map[string]interface{}{
+								{
+									"remote_ip": map[string]interface{}{
+										"ranges": []string{
+											"10.0.0.0/8",
+											"172.16.0.0/12",
+											"192.168.0.0/16",
+											"127.0.0.0/8",
+											"169.254.0.0/16",
+											"fc00::/7",
+											"fe80::/10",
+											"::1/128",
+										},
+									},
+								},
+							},
+						},
+					},
+					"handle": []map[string]interface{}{
+						{
+							"handler":     "static_response",
+							"status_code": 403,
+							"body":        "Access denied: Not a local network IP",
+						},
+					},
+					"terminal": true,
+				},
+			},
+		}, nil
+	}
+
+	// Parse IP rules
+	if acl.IPRules == "" {
+		return nil, nil
+	}
+
+	var rules []models.AccessListRule
+	if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
+		return nil, fmt.Errorf("invalid IP rules JSON: %w", err)
+	}
+
+	if len(rules) == 0 {
+		return nil, nil
+	}
+
+	// Extract CIDR ranges
+	var cidrs []string
+	for _, rule := range rules {
+		cidrs = append(cidrs, rule.CIDR)
+	}
+
+	if acl.Type == "whitelist" {
+		// Allow only these IPs (block everything else)
+		return Handler{
+			"handler": "subroute",
+			"routes": []map[string]interface{}{
+				{
+					"match": []map[string]interface{}{
+						{
+							"not": []map[string]interface{}{
+								{
+									"remote_ip": map[string]interface{}{
+										"ranges": cidrs,
+									},
+								},
+							},
+						},
+					},
+					"handle": []map[string]interface{}{
+						{
+							"handler":     "static_response",
+							"status_code": 403,
+							"body":        "Access denied: IP not in whitelist",
+						},
+					},
+					"terminal": true,
+				},
+			},
+		}, nil
+	}
+
+	if acl.Type == "blacklist" {
+		// Block these IPs (allow everything else)
+		return Handler{
+			"handler": "subroute",
+			"routes": []map[string]interface{}{
+				{
+					"match": []map[string]interface{}{
+						{
+							"remote_ip": map[string]interface{}{
+								"ranges": cidrs,
+							},
+						},
+					},
+					"handle": []map[string]interface{}{
+						{
+							"handler":     "static_response",
+							"status_code": 403,
+							"body":        "Access denied: IP blacklisted",
+						},
+					},
+					"terminal": true,
+				},
+			},
+		}, nil
+	}
+
+	return nil, nil
 }

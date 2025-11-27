@@ -6,9 +6,10 @@ ARG VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
 
-# Allow pinning Caddy base image by digest via build-arg
-# Using caddy:2.9.1-alpine to fix CVE-2025-59530 and stdlib vulnerabilities
-ARG CADDY_IMAGE=caddy:2.9.1-alpine
+# Allow pinning Caddy version - Renovate will update this
+# Using Caddy 2.10.2 (latest stable) to fix CVE-2025-59530 and stdlib vulnerabilities
+ARG CADDY_VERSION=2.10.2
+ARG CADDY_IMAGE=caddy:${CADDY_VERSION}-alpine
 
 # ---- Cross-Compilation Helpers ----
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
@@ -83,20 +84,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM --platform=$BUILDPLATFORM golang:alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG CADDY_VERSION
 
 RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Build Caddy for the target architecture with caddy-security plugin
+# Build Caddy for the target architecture with security plugins
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.9.1 \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
     --with github.com/greenpau/caddy-security \
     --with github.com/corazawaf/coraza-caddy/v2 \
     --with github.com/hslatman/caddy-crowdsec-bouncer \
-    --replace github.com/quic-go/quic-go=github.com/quic-go/quic-go@v0.49.1 \
-    --replace golang.org/x/crypto=golang.org/x/crypto@v0.35.0 \
+    --with github.com/zhangjiayin/caddy-geoip2 \
     --output /usr/bin/caddy
 
 # ---- Final Runtime with Caddy ----
@@ -104,8 +105,15 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for CPM+ (no bash needed)
-RUN apk --no-cache add ca-certificates sqlite-libs tzdata \
+RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl \
     && apk --no-cache upgrade
+
+# Download MaxMind GeoLite2 Country database
+# Note: In production, users should provide their own MaxMind license key
+# This uses the publicly available GeoLite2 database
+RUN mkdir -p /app/data/geoip && \
+    curl -L "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+    -o /app/data/geoip/GeoLite2-Country.mmdb
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -128,7 +136,8 @@ ENV CPM_ENV=production \
     CPM_DB_PATH=/app/data/cpm.db \
     CPM_FRONTEND_DIR=/app/frontend/dist \
     CPM_CADDY_ADMIN_API=http://localhost:2019 \
-    CPM_CADDY_CONFIG_DIR=/app/data/caddy
+    CPM_CADDY_CONFIG_DIR=/app/data/caddy \
+    CPM_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config

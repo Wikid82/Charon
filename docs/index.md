@@ -50,6 +50,32 @@ Curious about how the app stores your information? This guide explains the datab
 - How everything connects together
 - Tips for backing up your data
 
+#### [🔒 Security Features](security.md)
+Learn about the advanced security integrations available in CPM+.
+
+**What you'll learn:**
+- CrowdSec intrusion prevention setup
+- Web Application Firewall (WAF) with Coraza
+- **Access Control Lists (ACLs)** - IP and geo-blocking
+- Rate limiting configuration
+- Best practices by service type
+
+#### [🐛 Debugging Local Containers](debugging-local-container.md)
+Troubleshooting guide for development and testing.
+
+**What you'll learn:**
+- How to debug the Docker container
+- Inspecting logs and config
+- Testing Caddy configuration
+
+#### [🔐 ACME Staging Environment](acme-staging.md)
+Guide for testing SSL certificate provisioning without hitting rate limits.
+
+**What you'll learn:**
+- Using Let's Encrypt staging server
+- Testing certificate workflows
+- Switching between staging and production
+
 ---
 
 ## 🤝 Want to Help Make This Better?
@@ -88,12 +114,15 @@ We'd love your help! This guide shows you how to:
 
 ### User Documentation
 - [📖 README](../README.md) - Start here!
-- [📥 Import Guide](import-guide.md) - Bring in existing configs
 - [🏠 Getting Started](getting-started.md) - *Coming soon!*
+- [📥 Import Guide](import-guide.md) - Bring in existing configs
+- [🔒 Security Features](security.md) - CrowdSec, WAF, ACLs, Rate Limiting
 
 ### Developer Documentation
 - [🔌 API Reference](api.md) - REST API endpoints
 - [💾 Database Schema](database-schema.md) - How data is stored
+- [🐛 Debugging Guide](debugging-local-container.md) - Troubleshooting containers
+- [🔐 ACME Staging](acme-staging.md) - SSL certificate testing
 - [✨ Contributing](../CONTRIBUTING.md) - Help make this better
 - [🔧 GitHub Setup](github-setup.md) - Set up Docker builds & docs deployment
 

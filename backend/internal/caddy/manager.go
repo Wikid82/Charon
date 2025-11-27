@@ -39,7 +39,7 @@ func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir strin
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
-	if err := m.db.Preload("Locations").Preload("Certificate").Find(&hosts).Error; err != nil {
+	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 

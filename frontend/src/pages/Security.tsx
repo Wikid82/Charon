@@ -126,7 +126,12 @@ export default function Security() {
             </p>
             {status.acl.enabled && (
               <div className="mt-4">
-                <Button variant="secondary" size="sm" className="w-full">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => navigate('/access-lists')}
+                >
                   Manage Lists
                 </Button>
               </div>
