@@ -19,6 +19,7 @@ type ProxyHost struct {
 	HSTSSubdomains   bool            `json:"hsts_subdomains" gorm:"default:false"`
 	BlockExploits    bool            `json:"block_exploits" gorm:"default:true"`
 	WebsocketSupport bool            `json:"websocket_support" gorm:"default:false"`
+	Application      string          `json:"application" gorm:"default:none"` // none, plex, jellyfin, emby, homeassistant, nextcloud, vaultwarden
 	Enabled          bool            `json:"enabled" gorm:"default:true"`
 	CertificateID    *uint           `json:"certificate_id"`
 	Certificate      *SSLCertificate `json:"certificate" gorm:"foreignKey:CertificateID"`

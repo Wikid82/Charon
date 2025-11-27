@@ -26,6 +26,7 @@ const createMockHost = (overrides: Partial<api.ProxyHost> = {}): api.ProxyHost =
   hsts_subdomains: false,
   block_exploits: false,
   websocket_support: false,
+  application: 'none',
   locations: [],
   enabled: true,
   created_at: '2025-01-01T00:00:00Z',

@@ -41,13 +41,13 @@ func TestValidate_DuplicateHosts(t *testing.T) {
 							{
 								Match: []Match{{Host: []string{"test.com"}}},
 								Handle: []Handler{
-									ReverseProxyHandler("app:8080", false),
+									ReverseProxyHandler("app:8080", false, "none"),
 								},
 							},
 							{
 								Match: []Match{{Host: []string{"test.com"}}},
 								Handle: []Handler{
-									ReverseProxyHandler("app2:8080", false),
+									ReverseProxyHandler("app2:8080", false, "none"),
 								},
 							},
 						},
