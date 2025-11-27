@@ -56,6 +56,13 @@
 			"group": "test"
 		},
 		{
+			"label": "Run Security Scan (govulncheck)",
+			"type": "shell",
+			"command": "${workspaceFolder}/scripts/security-scan.sh",
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
 			"label": "Docker: Restart Local (No Rebuild)",
 			"type": "shell",
 			"command": "docker compose -f docker-compose.local.yml down && docker compose -f docker-compose.local.yml up -d",

@@ -59,3 +59,12 @@ repos:
         files: '^frontend/.*\.(ts|tsx|js|jsx)$'
         pass_filenames: false
         verbose: true
+
+      - id: security-scan
+        name: Security Vulnerability Scan
+        entry: scripts/security-scan.sh
+        language: script
+        files: '(\.go$|go\.mod$|go\.sum$)'
+        pass_filenames: false
+        verbose: true
+        stages: [pre-commit, manual]
