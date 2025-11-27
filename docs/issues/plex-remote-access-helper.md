@@ -66,7 +66,7 @@ plex.example.com {
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
         header_up X-Real-IP {remote_host}
-        
+
         # Preserve Plex-specific headers
         header_up X-Plex-Client-Identifier {header.X-Plex-Client-Identifier}
         header_up X-Plex-Device {header.X-Plex-Device}
@@ -76,7 +76,7 @@ plex.example.com {
         header_up X-Plex-Product {header.X-Plex-Product}
         header_up X-Plex-Token {header.X-Plex-Token}
         header_up X-Plex-Version {header.X-Plex-Version}
-        
+
         # WebSocket support for Plex Companion
         transport http {
             read_buffer 8192
@@ -106,14 +106,14 @@ Users must configure in Plex Settings → Network:
 Add a collapsible "Media Server Settings" section:
 ```
 ☑ Enable Plex Mode
-  
+
   External Domain for Plex: [ plex.example.com          ]
-  
+
   [📋 Copy Plex Custom URL]
   → https://plex.example.com:443
-  
+
   ℹ️ Add this URL to Plex Settings → Network → Custom server access URLs
-  
+
   ☑ Forward client IP headers (recommended)
   ☑ Enable WebSocket support
 ```

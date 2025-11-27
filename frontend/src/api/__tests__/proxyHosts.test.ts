@@ -37,6 +37,7 @@ describe('proxyHosts API', () => {
     hsts_subdomains: false,
     block_exploits: false,
     websocket_support: false,
+    application: 'none',
     locations: [],
     enabled: true,
     created_at: '2023-01-01',

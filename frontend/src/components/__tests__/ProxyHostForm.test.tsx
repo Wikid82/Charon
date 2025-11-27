@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
@@ -71,6 +71,10 @@ vi.mock('../../api/proxyHosts', () => ({
   testProxyHostConnection: vi.fn(),
 }))
 
+// Mock global fetch for health API
+const mockFetch = vi.fn()
+vi.stubGlobal('fetch', mockFetch)
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -92,6 +96,13 @@ import { testProxyHostConnection } from '../../api/proxyHosts'
 describe('ProxyHostForm', () => {
   const mockOnSubmit = vi.fn((_data: any) => Promise.resolve())
   const mockOnCancel = vi.fn()
+
+  beforeEach(() => {
+    // Default fetch mock for health endpoint
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ internal_ip: '192.168.1.50' }),
+    })
+  })
 
   afterEach(() => {
     vi.clearAllMocks()
@@ -233,5 +244,306 @@ describe('ProxyHostForm', () => {
     fireEvent.change(screen.getByLabelText('Base Domain (Auto-fill)'), { target: { value: 'existing.com' } })
 
     expect(screen.getByLabelText(/Domain Names/i)).toHaveValue('my-app.existing.com')
+  })
+
+  // Application Preset Tests
+  describe('Application Presets', () => {
+    it('renders application preset dropdown with all options', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const presetSelect = screen.getByLabelText(/Application Preset/i)
+      expect(presetSelect).toBeInTheDocument()
+
+      // Check that all presets are available
+      expect(screen.getByText('None - Standard reverse proxy')).toBeInTheDocument()
+      expect(screen.getByText('Plex - Media server with remote access')).toBeInTheDocument()
+      expect(screen.getByText('Jellyfin - Open source media server')).toBeInTheDocument()
+      expect(screen.getByText('Emby - Media server')).toBeInTheDocument()
+      expect(screen.getByText('Home Assistant - Home automation')).toBeInTheDocument()
+      expect(screen.getByText('Nextcloud - File sync and share')).toBeInTheDocument()
+      expect(screen.getByText('Vaultwarden - Password manager')).toBeInTheDocument()
+    })
+
+    it('defaults to none preset', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      const presetSelect = screen.getByLabelText(/Application Preset/i)
+      expect(presetSelect).toHaveValue('none')
+    })
+
+    it('enables websockets when selecting plex preset', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // First uncheck websockets
+      const websocketCheckbox = screen.getByLabelText(/Websockets Support/i)
+      if (websocketCheckbox.getAttribute('checked') !== null) {
+        fireEvent.click(websocketCheckbox)
+      }
+
+      // Select Plex preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'plex' } })
+
+      // Websockets should be enabled
+      expect(screen.getByLabelText(/Websockets Support/i)).toBeChecked()
+    })
+
+    it('shows plex config helper with external URL when preset is selected', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'plex.mydomain.com' }
+      })
+
+      // Select Plex preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'plex' } })
+
+      // Should show the helper with external URL
+      await waitFor(() => {
+        expect(screen.getByText('Plex Remote Access Setup')).toBeInTheDocument()
+        expect(screen.getByText('https://plex.mydomain.com:443')).toBeInTheDocument()
+      })
+    })
+
+    it('shows jellyfin config helper with internal IP', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'jellyfin.mydomain.com' }
+      })
+
+      // Select Jellyfin preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'jellyfin' } })
+
+      // Wait for health API fetch and show helper
+      await waitFor(() => {
+        expect(screen.getByText('Jellyfin Proxy Setup')).toBeInTheDocument()
+        expect(screen.getByText('192.168.1.50')).toBeInTheDocument()
+      })
+    })
+
+    it('shows home assistant config helper with yaml snippet', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'ha.mydomain.com' }
+      })
+
+      // Select Home Assistant preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'homeassistant' } })
+
+      // Wait for health API fetch and show helper
+      await waitFor(() => {
+        expect(screen.getByText('Home Assistant Proxy Setup')).toBeInTheDocument()
+        expect(screen.getByText(/use_x_forwarded_for/)).toBeInTheDocument()
+        expect(screen.getByText(/192\.168\.1\.50/)).toBeInTheDocument()
+      })
+    })
+
+    it('shows nextcloud config helper with php snippet', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'nextcloud.mydomain.com' }
+      })
+
+      // Select Nextcloud preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'nextcloud' } })
+
+      // Wait for health API fetch and show helper
+      await waitFor(() => {
+        expect(screen.getByText('Nextcloud Proxy Setup')).toBeInTheDocument()
+        expect(screen.getByText(/trusted_proxies/)).toBeInTheDocument()
+        expect(screen.getByText(/overwriteprotocol/)).toBeInTheDocument()
+      })
+    })
+
+    it('shows vaultwarden helper text', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'vault.mydomain.com' }
+      })
+
+      // Select Vaultwarden preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'vaultwarden' } })
+
+      // Wait for helper text
+      await waitFor(() => {
+        expect(screen.getByText('Vaultwarden Setup')).toBeInTheDocument()
+        expect(screen.getByText(/WebSocket support is enabled automatically/)).toBeInTheDocument()
+        expect(screen.getByText('vault.mydomain.com')).toBeInTheDocument()
+      })
+    })
+
+    it('auto-detects plex preset from container image', async () => {
+      // Mock useDocker to return a Plex container
+      const { useDocker } = await import('../../hooks/useDocker')
+      vi.mocked(useDocker).mockReturnValue({
+        containers: [
+          {
+            id: 'plex-container',
+            names: ['plex'],
+            image: 'linuxserver/plex:latest',
+            state: 'running',
+            status: 'Up 1 hour',
+            network: 'bridge',
+            ip: '172.17.0.3',
+            ports: [{ private_port: 32400, public_port: 32400, type: 'tcp' }]
+          }
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Select local source
+      fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'local' } })
+
+      // Select the plex container
+      await waitFor(() => {
+        expect(screen.getByText('plex (linuxserver/plex:latest)')).toBeInTheDocument()
+      })
+
+      fireEvent.change(screen.getByLabelText('Containers'), { target: { value: 'plex-container' } })
+
+      // The preset should be auto-detected as plex
+      expect(screen.getByLabelText(/Application Preset/i)).toHaveValue('plex')
+    })
+
+    it('includes application field in form submission', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill required fields
+      fireEvent.change(screen.getByPlaceholderText('My Service'), { target: { value: 'My Plex Server' } })
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), { target: { value: 'plex.test.com' } })
+      fireEvent.change(screen.getByLabelText(/^Host$/), { target: { value: '192.168.1.100' } })
+      fireEvent.change(screen.getByLabelText(/^Port$/), { target: { value: '32400' } })
+
+      // Select Plex preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'plex' } })
+
+      // Submit form
+      fireEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(mockOnSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            application: 'plex',
+            websocket_support: true,
+          })
+        )
+      })
+    })
+
+    it('loads existing host application preset', async () => {
+      const existingHost = {
+        uuid: 'test-uuid',
+        name: 'Existing Plex',
+        domain_names: 'plex.example.com',
+        forward_scheme: 'http',
+        forward_host: '192.168.1.100',
+        forward_port: 32400,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: false,
+        block_exploits: true,
+        websocket_support: true,
+        application: 'plex' as const,
+        locations: [],
+        enabled: true,
+        created_at: '2025-01-01',
+        updated_at: '2025-01-01',
+      }
+
+      renderWithClient(
+        <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // The preset should be pre-selected
+      expect(screen.getByLabelText(/Application Preset/i)).toHaveValue('plex')
+
+      // The config helper should be visible
+      await waitFor(() => {
+        expect(screen.getByText('Plex Remote Access Setup')).toBeInTheDocument()
+      })
+    })
+
+    it('does not show config helper when preset is none', async () => {
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'test.mydomain.com' }
+      })
+
+      // Preset defaults to none, so no helper should be shown
+      expect(screen.queryByText('Plex Remote Access Setup')).not.toBeInTheDocument()
+      expect(screen.queryByText('Jellyfin Proxy Setup')).not.toBeInTheDocument()
+      expect(screen.queryByText('Home Assistant Proxy Setup')).not.toBeInTheDocument()
+    })
+
+    it('copies external URL to clipboard for plex', async () => {
+      // Mock clipboard API
+      const mockWriteText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, {
+        clipboard: { writeText: mockWriteText },
+      })
+
+      renderWithClient(
+        <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+      )
+
+      // Fill in domain names
+      fireEvent.change(screen.getByPlaceholderText('example.com, www.example.com'), {
+        target: { value: 'plex.mydomain.com' }
+      })
+
+      // Select Plex preset
+      fireEvent.change(screen.getByLabelText(/Application Preset/i), { target: { value: 'plex' } })
+
+      // Wait for helper to appear
+      await waitFor(() => {
+        expect(screen.getByText('Plex Remote Access Setup')).toBeInTheDocument()
+      })
+
+      // Click the copy button
+      const copyButtons = screen.getAllByText('Copy')
+      fireEvent.click(copyButtons[0])
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith('https://plex.mydomain.com:443')
+        expect(screen.getByText('Copied!')).toBeInTheDocument()
+      })
+    })
   })
 })

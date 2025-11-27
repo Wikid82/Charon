@@ -17,6 +17,8 @@ export interface Certificate {
   expires_at: string;
 }
 
+export type ApplicationPreset = 'none' | 'plex' | 'jellyfin' | 'emby' | 'homeassistant' | 'nextcloud' | 'vaultwarden';
+
 export interface ProxyHost {
   uuid: string;
   name: string;
@@ -30,6 +32,7 @@ export interface ProxyHost {
   hsts_subdomains: boolean;
   block_exploits: boolean;
   websocket_support: boolean;
+  application: ApplicationPreset;
   locations: Location[];
   advanced_config?: string;
   enabled: boolean;

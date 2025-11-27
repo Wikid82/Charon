@@ -223,7 +223,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 					},
 				},
 				Handle: []Handler{
-					ReverseProxyHandler(dial, host.WebsocketSupport),
+					ReverseProxyHandler(dial, host.WebsocketSupport, host.Application),
 				},
 				Terminal: true,
 			}
@@ -232,7 +232,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 
 		// Main proxy handler
 		dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
-		mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport))
+		mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 
 		route := &Route{
 			Match: []Match{
