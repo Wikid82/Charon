@@ -180,6 +180,9 @@ jobs:
     if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
       - name: Normalize image name
         run: |
           raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
