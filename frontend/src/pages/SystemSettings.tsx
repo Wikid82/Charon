@@ -77,7 +77,7 @@ export default function SystemSettings() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('System settings saved')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to save settings: ${error.message}`)
     },
   })

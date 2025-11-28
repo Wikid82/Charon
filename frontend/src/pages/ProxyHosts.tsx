@@ -190,7 +190,7 @@ export default function ProxyHosts() {
         try {
           await deleteHost(uuid)
           deleted++
-        } catch (err) {
+        } catch {
           failed++
         }
       }

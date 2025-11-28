@@ -65,8 +65,8 @@ const Setup: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['setupStatus'] });
       navigate('/');
     },
-    onError: (err: any) => {
-      setError(err.response?.data?.error || 'Setup failed');
+    onError: (err: Error) => {
+      setError(err.message || 'Setup failed');
     },
   });
 
