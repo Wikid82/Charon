@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -498,12 +499,13 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		db := setupNotificationTestDB(t)
 		svc := NewNotificationService(db)
 
-		receivedCustom := ""
+		var receivedCustom atomic.Value
+		receivedCustom.Store("")
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]interface{}
 			json.NewDecoder(r.Body).Decode(&body)
 			if custom, ok := body["custom"]; ok {
-				receivedCustom = custom.(string)
+				receivedCustom.Store(custom.(string))
 			}
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -525,7 +527,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		svc.SendExternal("proxy_host", "Title", "Message", customData)
 		time.Sleep(100 * time.Millisecond)
 
-		assert.Equal(t, "test-value", receivedCustom)
+		assert.Equal(t, "test-value", receivedCustom.Load().(string))
 	})
 }
 
