@@ -133,7 +133,8 @@ func TestCertificateHandler_Upload(t *testing.T) {
 func TestCertificateHandler_Delete(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	// Use WAL mode and busy timeout for better concurrency with race detector
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
@@ -147,6 +148,8 @@ func TestCertificateHandler_Delete(t *testing.T) {
 	require.NotZero(t, cert.ID)
 
 	service := services.NewCertificateService(tmpDir, db)
+	// Allow background sync goroutine to complete before testing
+	time.Sleep(50 * time.Millisecond)
 	ns := services.NewNotificationService(db)
 	handler := NewCertificateHandler(service, ns)
 
