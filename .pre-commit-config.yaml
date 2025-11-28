@@ -39,24 +39,33 @@ repos:
         language: system
         files: '\.go$'
         pass_filenames: false
+
+      # === MANUAL/CI-ONLY HOOKS ===
+      # These are slow and should only run on-demand or in CI
+      # Run manually with: pre-commit run golangci-lint --all-files
       - id: go-test-race
-        name: Go Test Race
+        name: Go Test Race (Manual)
         entry: bash -c 'cd backend && go test -race ./...'
         language: system
         files: '\.go$'
         pass_filenames: false
+        stages: [manual]  # Only runs when explicitly called
+
       - id: golangci-lint
-        name: GolangCI-Lint
-        entry: bash -c 'cd backend && docker run --rm -v $(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint run -v'
+        name: GolangCI-Lint (Manual)
+        entry: bash -c 'cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v'
         language: system
         files: '\.go$'
         pass_filenames: false
+        stages: [manual]  # Only runs when explicitly called
+
       - id: hadolint
-        name: Hadolint Dockerfile Check
+        name: Hadolint Dockerfile Check (Manual)
         entry: bash -c 'docker run --rm -i hadolint/hadolint < Dockerfile'
         language: system
         files: 'Dockerfile'
         pass_filenames: false
+        stages: [manual]  # Only runs when explicitly called
       - id: frontend-type-check
         name: Frontend TypeScript Check
         entry: bash -c 'cd frontend && npm run type-check'
@@ -79,10 +88,10 @@ repos:
         verbose: true
 
       - id: security-scan
-        name: Security Vulnerability Scan
+        name: Security Vulnerability Scan (Manual)
         entry: scripts/security-scan.sh
         language: script
         files: '(\.go$|go\.mod$|go\.sum$)'
         pass_filenames: false
         verbose: true
-        stages: [pre-commit, manual]
+        stages: [manual]  # Only runs when explicitly called

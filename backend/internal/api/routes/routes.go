@@ -33,6 +33,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.NotificationProvider{},
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.UptimeNotificationEvent{},
 		&models.Domain{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
