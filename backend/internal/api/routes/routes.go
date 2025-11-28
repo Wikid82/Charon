@@ -114,6 +114,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		updateHandler := handlers.NewUpdateHandler(updateService)
 		protected.GET("/system/updates", updateHandler.Check)
 
+		// System info
+		systemHandler := handlers.NewSystemHandler()
+		protected.GET("/system/my-ip", systemHandler.GetMyIP)
+
 		// Notifications
 		notificationHandler := handlers.NewNotificationHandler(notificationService)
 		protected.GET("/notifications", notificationHandler.List)

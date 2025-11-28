@@ -306,6 +306,8 @@ export default function ProxyHosts() {
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     <button
                       onClick={toggleSelectAll}
+                      role="checkbox"
+                      aria-checked={selectedHosts.size === hosts.length}
                       className="text-gray-400 hover:text-white transition-colors"
                       title={selectedHosts.size === hosts.length ? 'Deselect all' : 'Select all'}
                     >
@@ -434,6 +436,9 @@ export default function ProxyHosts() {
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <button
                         onClick={() => toggleHostSelection(host.uuid)}
+                        role="checkbox"
+                        aria-checked={selectedHosts.has(host.uuid)}
+                        aria-label={`Select ${host.name}`}
                         className="text-gray-400 hover:text-white transition-colors"
                       >
                         {selectedHosts.has(host.uuid) ? (
