@@ -1,117 +1,55 @@
-# 📚 Caddy Proxy Manager Plus - Documentation
+# 📚 Documentation
 
-Welcome! 👋 This page will help you find exactly what you need to use Caddy Proxy Manager Plus.
-
----
-
-## 🚀 I'm New Here - Where Do I Start?
-
-Start with the [**README**](../README.md) - it's like the front door of our project! It will show you:
-- What this app does (in simple terms!)
-- How to install it on your computer
-- How to get it running in 5 minutes
-
-**Next Step:** Once you have it running, check out the guides below!
+Welcome to the Caddy Proxy Manager Plus documentation!
 
 ---
 
-## 📖 How-To Guides
+## 📖 Start Here
 
-### For Everyone
-
-#### [🏠 Getting Started Guide](getting-started.md)
-*Coming soon!* - A step-by-step walkthrough of your first proxy setup. We'll hold your hand through the whole process!
-
-#### [📥 Import Your Caddy Files](import-guide.md)
-Already have Caddy configuration files? This guide shows you how to bring them into the app so you don't have to start from scratch.
-
-**What you'll learn:**
-- How to upload your existing files (it's just drag-and-drop!)
-- What to do if the app finds conflicts
-- Tips to make importing super smooth
+| Guide | Description |
+|-------|-------------|
+| [✨ Features](features.html) | See everything CPMP can do |
+| [🚀 Getting Started](getting-started.html) | Your first proxy in 5 minutes |
+| [📥 Import Guide](import-guide.html) | Migrate from Caddy or NPM |
 
 ---
 
-### For Developers & Advanced Users
+## 🔒 Security
 
-#### [🔌 API Documentation](api.md)
-Want to talk to the app using code? This guide shows all the ways you can send and receive information from the app.
-
-**What you'll learn:**
-- All the different commands you can send
-- Examples in JavaScript and Python
-- What responses to expect
-
-#### [💾 Database Guide](database-schema.md)
-Curious about how the app stores your information? This guide explains the database structure.
-
-**What you'll learn:**
-- What information we save
-- How everything connects together
-- Tips for backing up your data
+| Guide | Description |
+|-------|-------------|
+| [Security Features](security.html) | CrowdSec, WAF, ACLs, and rate limiting |
+| [ACME Staging](acme-staging.html) | Test SSL certificates without rate limits |
 
 ---
 
-## 🤝 Want to Help Make This Better?
+## 🔧 Reference
 
-#### [✨ Contributing Guide](../CONTRIBUTING.md)
-We'd love your help! This guide shows you how to:
-- Report bugs (things that don't work right)
-- Suggest new features
-- Submit code improvements
-- Follow our project rules
+| Guide | Description |
+|-------|-------------|
+| [API Documentation](api.html) | REST API endpoints and examples |
+| [Database Schema](database-schema.html) | How data is stored |
 
 ---
 
-## 🆘 Need Help?
+## 🛠️ Development
 
-### Quick Troubleshooting
-
-**Can't get it to run?**
-- Check the [Installation section in README](../README.md#-installation)
-- Make sure Docker is installed and running
-- Try the quick start commands exactly as written
-
-**Having import problems?**
-- See the [Import Guide troubleshooting section](import-guide.md#troubleshooting)
-- Check your Caddy file is valid
-- Look at the example files in the guide
-
-**Found a bug?**
-- [Open an issue on GitHub](https://github.com/Wikid82/CaddyProxyManagerPlus/issues)
-- Tell us what you were trying to do
-- Share any error messages you see
+| Guide | Description |
+|-------|-------------|
+| [Contributing](https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md) | How to help improve CPMP |
+| [Debugging Guide](debugging-local-container.html) | Troubleshooting containers |
+| [GitHub Setup](github-setup.html) | CI/CD and deployment |
 
 ---
 
-## 📚 All Documentation Files
+## 🆘 Getting Help
 
-### User Documentation
-- [📖 README](../README.md) - Start here!
-- [📥 Import Guide](import-guide.md) - Bring in existing configs
-- [🏠 Getting Started](getting-started.md) - *Coming soon!*
-
-### Developer Documentation
-- [🔌 API Reference](api.md) - REST API endpoints
-- [💾 Database Schema](database-schema.md) - How data is stored
-- [✨ Contributing](../CONTRIBUTING.md) - Help make this better
-- [🔧 GitHub Setup](github-setup.md) - Set up Docker builds & docs deployment
-
-### Project Information
-- [📄 LICENSE](../LICENSE) - Legal stuff (MIT License)
-- [🔖 Changelog](../CHANGELOG.md) - *Coming soon!* - What's new in each version
-
----
-
-## 💡 Quick Links
-
-- [🏠 Project Home](https://github.com/Wikid82/CaddyProxyManagerPlus)
-- [🐛 Report a Bug](https://github.com/Wikid82/CaddyProxyManagerPlus/issues/new)
-- [💬 Ask a Question](https://github.com/Wikid82/CaddyProxyManagerPlus/discussions)
+- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/cpmp/discussions)
+- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/cpmp/issues)
+- **📋 Roadmap** [Project Board](https://github.com/users/Wikid82/projects/7)
 
 ---
 
 <p align="center">
-  <strong>Made with ❤️ for the community</strong><br>
-  <em>Questions? Open an issue - we're here to help!</em>
+  <strong>Made with ❤️ for the community</strong>
 </p>
