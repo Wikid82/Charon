@@ -8,9 +8,9 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [✨ Features](features.md) | See everything CPMP can do |
-| [🚀 Getting Started](getting-started.md) | Your first proxy in 5 minutes |
-| [📥 Import Guide](import-guide.md) | Migrate from Caddy or NPM |
+| [✨ Features](features.html) | See everything CPMP can do |
+| [🚀 Getting Started](getting-started.html) | Your first proxy in 5 minutes |
+| [📥 Import Guide](import-guide.html) | Migrate from Caddy or NPM |
 
 ---
 
@@ -18,8 +18,8 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [Security Features](security.md) | CrowdSec, WAF, ACLs, and rate limiting |
-| [ACME Staging](acme-staging.md) | Test SSL certificates without rate limits |
+| [Security Features](security.html) | CrowdSec, WAF, ACLs, and rate limiting |
+| [ACME Staging](acme-staging.html) | Test SSL certificates without rate limits |
 
 ---
 
@@ -27,8 +27,8 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [API Documentation](api.md) | REST API endpoints and examples |
-| [Database Schema](database-schema.md) | How data is stored |
+| [API Documentation](api.html) | REST API endpoints and examples |
+| [Database Schema](database-schema.html) | How data is stored |
 
 ---
 
@@ -37,8 +37,8 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 | Guide | Description |
 |-------|-------------|
 | [Contributing](https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md) | How to help improve CPMP |
-| [Debugging Guide](debugging-local-container.md) | Troubleshooting containers |
-| [GitHub Setup](github-setup.md) | CI/CD and deployment |
+| [Debugging Guide](debugging-local-container.html) | Troubleshooting containers |
+| [GitHub Setup](github-setup.html) | CI/CD and deployment |
 
 ---
 
