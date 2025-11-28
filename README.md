@@ -39,10 +39,50 @@
 ## 🚀 Quick Start
 
 ```bash
-# Clone and start
-git clone https://github.com/Wikid82/cpmp.git
-cd cpmp
-docker compose up -d
+services:
+  cpmp:
+    image: ghcr.io/wikid82/cpmp:latest
+    container_name: cpmp
+    restart: unless-stopped
+    ports:
+      - "80:80"        # HTTP (Caddy proxy)
+      - "443:443"      # HTTPS (Caddy proxy)
+      - "443:443/udp"  # HTTP/3 (Caddy proxy)
+      - "8080:8080"    # Management UI (CPM+)
+    environment:
+      - CPM_ENV=production
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      - CPM_HTTP_PORT=8080
+      - CPM_DB_PATH=/app/data/cpm.db
+      - CPM_FRONTEND_DIR=/app/frontend/dist
+      - CPM_CADDY_ADMIN_API=http://localhost:2019
+      - CPM_CADDY_CONFIG_DIR=/app/data/caddy
+      - CPM_CADDY_BINARY=caddy
+      - CPM_IMPORT_CADDYFILE=/import/Caddyfile
+      - CPM_IMPORT_DIR=/app/data/imports
+      # Security Services (Optional)
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled # disabled, local, external
+      #- CPM_SECURITY_CROWDSEC_API_URL= # Required if mode is external
+      #- CPM_SECURITY_CROWDSEC_API_KEY= # Required if mode is external
+      #- CPM_SECURITY_WAF_MODE=disabled # disabled, enabled
+      #- CPM_SECURITY_RATELIMIT_ENABLED=false
+      #- CPM_SECURITY_ACL_ENABLED=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - <path_to_cpm_data>:/app/data
+      - <path_to_caddy_data>:/data
+      - <path_to_caddy_config>:/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      # Mount your existing Caddyfile for automatic import (optional)
+      # - ./my-existing-Caddyfile:/import/Caddyfile:ro
+      # - ./sites:/import/sites:ro # If your Caddyfile imports other files
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 ```
 
 Open **http://localhost:8080** — that's it! 🎉

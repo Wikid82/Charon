@@ -36,16 +36,35 @@ var RFC1918PrivateNetworks = []string{
 	"::1/128",        // IPv6 localhost
 }
 
-// ISO 3166-1 alpha-2 country codes (subset for validation)
+// ISO 3166-1 alpha-2 country codes (comprehensive list for validation)
 var validCountryCodes = map[string]bool{
-	"US": true, "CA": true, "GB": true, "DE": true, "FR": true, "IT": true, "ES": true,
-	"NL": true, "BE": true, "SE": true, "NO": true, "DK": true, "FI": true, "PL": true,
-	"CZ": true, "AT": true, "CH": true, "AU": true, "NZ": true, "JP": true, "CN": true,
-	"IN": true, "BR": true, "MX": true, "AR": true, "RU": true, "UA": true, "TR": true,
-	"IL": true, "SA": true, "AE": true, "EG": true, "ZA": true, "KR": true, "SG": true,
-	"MY": true, "TH": true, "ID": true, "PH": true, "VN": true, "IE": true, "PT": true,
-	"GR": true, "HU": true, "RO": true, "BG": true, "HR": true, "SI": true, "SK": true,
-	"LT": true, "LV": true, "EE": true, "IS": true, "LU": true, "MT": true, "CY": true,
+	// North America
+	"US": true, "CA": true, "MX": true,
+	// Europe
+	"GB": true, "DE": true, "FR": true, "IT": true, "ES": true, "NL": true, "BE": true,
+	"SE": true, "NO": true, "DK": true, "FI": true, "PL": true, "CZ": true, "AT": true,
+	"CH": true, "IE": true, "PT": true, "GR": true, "HU": true, "RO": true, "BG": true,
+	"HR": true, "SI": true, "SK": true, "LT": true, "LV": true, "EE": true, "IS": true,
+	"LU": true, "MT": true, "CY": true, "UA": true, "BY": true,
+	// Asia
+	"JP": true, "CN": true, "IN": true, "KR": true, "SG": true, "MY": true, "TH": true,
+	"ID": true, "PH": true, "VN": true, "TW": true, "HK": true, "PK": true, "BD": true,
+	"KP": true, "IR": true, "IQ": true, "SY": true, "AF": true, "LK": true, "MM": true,
+	// Middle East
+	"TR": true, "IL": true, "SA": true, "AE": true, "QA": true, "KW": true, "OM": true,
+	"BH": true, "JO": true, "LB": true, "YE": true,
+	// Africa
+	"EG": true, "ZA": true, "NG": true, "KE": true, "ET": true, "TZ": true, "MA": true,
+	"DZ": true, "SD": true, "UG": true, "GH": true,
+	// South America
+	"BR": true, "AR": true, "CL": true, "CO": true, "PE": true, "VE": true, "EC": true,
+	"BO": true, "PY": true, "UY": true,
+	// Caribbean / Central America
+	"CU": true, "DO": true, "PR": true, "JM": true, "HT": true, "PA": true, "CR": true,
+	// Oceania
+	"AU": true, "NZ": true,
+	// Russia & CIS
+	"RU": true, "KZ": true, "UZ": true, "AZ": true, "GE": true, "AM": true,
 }
 
 type AccessListService struct {

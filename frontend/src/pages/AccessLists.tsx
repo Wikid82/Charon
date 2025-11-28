@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/Button';
-import { Plus, Pencil, Trash2, TestTube2, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, TestTube2, ExternalLink, AlertTriangle, CheckSquare, Square } from 'lucide-react';
 import {
   useAccessLists,
   useCreateAccessList,
@@ -10,7 +10,46 @@ import {
 } from '../hooks/useAccessLists';
 import { AccessListForm, type AccessListFormData } from '../components/AccessListForm';
 import type { AccessList } from '../api/accessLists';
+import { createBackup } from '../api/backups';
 import toast from 'react-hot-toast';
+
+// Confirmation Dialog Component
+function ConfirmDialog({
+  isOpen,
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+  isLoading,
+}: {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
+      <div className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold text-white mb-2">{title}</h2>
+        <p className="text-gray-400 mb-6">{message}</p>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onCancel} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm} disabled={isLoading}>
+            {isLoading ? 'Processing...' : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AccessLists() {
   const { data: accessLists, isLoading } = useAccessLists();
@@ -24,6 +63,12 @@ export default function AccessLists() {
   const [testingACL, setTestingACL] = useState<AccessList | null>(null);
   const [testIP, setTestIP] = useState('');
   const [showCGNATWarning, setShowCGNATWarning] = useState(true);
+
+  // Selection state for bulk operations
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<AccessList | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleCreate = (data: AccessListFormData) => {
     createMutation.mutate(data, {
@@ -41,9 +86,64 @@ export default function AccessLists() {
     );
   };
 
-  const handleDelete = (acl: AccessList) => {
-    if (!confirm(`Delete "${acl.name}"? This cannot be undone.`)) return;
-    deleteMutation.mutate(acl.id);
+  const handleDeleteWithBackup = async (acl: AccessList) => {
+    setIsDeleting(true);
+    try {
+      // Create backup before deletion
+      toast.loading('Creating backup before deletion...', { id: 'backup-toast' });
+      await createBackup();
+      toast.success('Backup created', { id: 'backup-toast' });
+
+      // Now delete
+      deleteMutation.mutate(acl.id, {
+        onSuccess: () => {
+          setShowDeleteConfirm(null);
+          setEditingACL(null);
+          toast.success(`"${acl.name}" deleted. A backup was created before deletion.`);
+        },
+        onError: (error) => {
+          toast.error(`Failed to delete: ${error.message}`);
+        },
+        onSettled: () => {
+          setIsDeleting(false);
+        },
+      });
+    } catch {
+      toast.error('Failed to create backup', { id: 'backup-toast' });
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBulkDeleteWithBackup = async () => {
+    if (selectedIds.size === 0) return;
+
+    setIsDeleting(true);
+    try {
+      // Create backup before deletion
+      toast.loading('Creating backup before bulk deletion...', { id: 'backup-toast' });
+      await createBackup();
+      toast.success('Backup created', { id: 'backup-toast' });
+
+      // Delete each selected ACL
+      const deletePromises = Array.from(selectedIds).map(
+        (id) =>
+          new Promise<void>((resolve, reject) => {
+            deleteMutation.mutate(id, {
+              onSuccess: () => resolve(),
+              onError: (error) => reject(error),
+            });
+          })
+      );
+
+      await Promise.all(deletePromises);
+      setSelectedIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      toast.success(`${selectedIds.size} access list(s) deleted. A backup was created before deletion.`);
+    } catch {
+      toast.error('Failed to delete some items');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleTestIP = () => {
@@ -61,6 +161,25 @@ export default function AccessLists() {
         },
       }
     );
+  };
+
+  const toggleSelectAll = () => {
+    if (!accessLists) return;
+    if (selectedIds.size === accessLists.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(accessLists.map((acl) => acl.id)));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
   };
 
   const getRulesDisplay = (acl: AccessList) => {
@@ -193,10 +312,34 @@ export default function AccessLists() {
             initialData={editingACL}
             onSubmit={handleUpdate}
             onCancel={() => setEditingACL(null)}
+            onDelete={() => setShowDeleteConfirm(editingACL)}
             isLoading={updateMutation.isPending}
+            isDeleting={isDeleting}
           />
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm !== null}
+        title="Delete Access List"
+        message={`Are you sure you want to delete "${showDeleteConfirm?.name}"? A backup will be created before deletion.`}
+        confirmLabel="Delete"
+        onConfirm={() => showDeleteConfirm && handleDeleteWithBackup(showDeleteConfirm)}
+        onCancel={() => setShowDeleteConfirm(null)}
+        isLoading={isDeleting}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showBulkDeleteConfirm}
+        title="Delete Selected Access Lists"
+        message={`Are you sure you want to delete ${selectedIds.size} access list(s)? A backup will be created before deletion.`}
+        confirmLabel={`Delete ${selectedIds.size} Items`}
+        onConfirm={handleBulkDeleteWithBackup}
+        onCancel={() => setShowBulkDeleteConfirm(false)}
+        isLoading={isDeleting}
+      />
 
       {/* Test IP Modal */}
       {testingACL && (
@@ -238,9 +381,39 @@ export default function AccessLists() {
       {/* Table */}
       {accessLists && accessLists.length > 0 && !showCreateForm && !editingACL && (
         <div className="bg-dark-card border border-gray-800 rounded-lg overflow-hidden">
+          {/* Bulk Actions Bar */}
+          {selectedIds.size > 0 && (
+            <div className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+              <span className="text-sm text-gray-300">
+                {selectedIds.size} item(s) selected
+              </span>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Selected
+              </Button>
+            </div>
+          )}
           <table className="w-full">
             <thead className="bg-gray-900/50 border-b border-gray-800">
               <tr>
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-gray-400 hover:text-white"
+                    title={selectedIds.size === accessLists.length ? 'Deselect all' : 'Select all'}
+                  >
+                    {selectedIds.size === accessLists.length ? (
+                      <CheckSquare className="h-5 w-5" />
+                    ) : (
+                      <Square className="h-5 w-5" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Type</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Rules</th>
@@ -250,7 +423,19 @@ export default function AccessLists() {
             </thead>
             <tbody className="divide-y divide-gray-800">
               {accessLists.map((acl) => (
-                <tr key={acl.id} className="hover:bg-gray-900/30">
+                <tr key={acl.id} className={`hover:bg-gray-900/30 ${selectedIds.has(acl.id) ? 'bg-blue-900/20' : ''}`}>
+                  <td className="px-4 py-4">
+                    <button
+                      onClick={() => toggleSelect(acl.id)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      {selectedIds.has(acl.id) ? (
+                        <CheckSquare className="h-5 w-5 text-blue-400" />
+                      ) : (
+                        <Square className="h-5 w-5" />
+                      )}
+                    </button>
+                  </td>
                   <td className="px-6 py-4">
                     <div>
                       <p className="font-medium text-white">{acl.name}</p>
@@ -290,10 +475,10 @@ export default function AccessLists() {
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(acl)}
+                        onClick={() => setShowDeleteConfirm(acl)}
                         className="text-gray-400 hover:text-red-400"
                         title="Delete"
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || isDeleting}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
