@@ -3,12 +3,14 @@ version: 2
 project_name: cpmp
 
 builds:
-  - id: cpmp
+  - id: linux
     dir: backend
     main: ./cmd/api
     binary: cpmp
     env:
       - CGO_ENABLED=1
+      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
+      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
     goos:
       - linux
     goarch:
@@ -20,8 +22,62 @@ builds:
       - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
       - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
 
+  - id: windows
+    dir: backend
+    main: ./cmd/api
+    binary: cpmp
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-windows-gnu
+      - CXX=zig c++ -target x86_64-windows-gnu
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+
+  - id: darwin
+    dir: backend
+    main: ./cmd/api
+    binary: cpmp
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+
 archives:
   - format: tar.gz
+    id: nix
+    builds:
+      - linux
+      - darwin
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+  - format: zip
+    id: windows
+    builds:
+      - windows
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -33,6 +89,8 @@ archives:
 
 nfpms:
   - id: packages
+    builds:
+      - linux
     package_name: cpmp
     vendor: CaddyProxyManagerPlus
     homepage: https://github.com/Wikid82/CaddyProxyManagerPlus
