@@ -36,7 +36,7 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [Contributing](../CONTRIBUTING.md) | How to help improve CPMP |
+| [Contributing](https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md) | How to help improve CPMP |
 | [Debugging Guide](debugging-local-container.md) | Troubleshooting containers |
 | [GitHub Setup](github-setup.md) | CI/CD and deployment |
 
@@ -44,8 +44,8 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 ## 🆘 Getting Help
 
-- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/CaddyProxyManagerPlus/discussions)
-- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/CaddyProxyManagerPlus/issues)
+- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/cpmp/discussions)
+- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/cpmp/issues)
 - **📋 Roadmap** [Project Board](https://github.com/users/Wikid82/projects/7)
 
 ---
