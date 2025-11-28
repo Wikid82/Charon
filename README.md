@@ -32,7 +32,7 @@
 | 🌐 **WebSocket Support** | Perfect for real-time apps and chat services |
 | ⚡ **Zero Downtime** | Hot-reload configuration without restarts |
 
-**[See all features →](https://wikid82.github.io/cpmp/features)**
+**[See all features →](https://wikid82.github.io/cpmp/docs/features.html)**
 
 ---
 
@@ -47,7 +47,7 @@ docker compose up -d
 
 Open **http://localhost:8080** — that's it! 🎉
 
-**[Full documentation →](https://wikid82.github.io/cpmp/)**
+**[Full documentation →](https://wikid82.github.io/cpmp/docs/index.html)**
 
 ---
 
@@ -65,7 +65,7 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) to get s
 
 <p align="center">
   <a href="LICENSE"><strong>MIT License</strong></a> ·
-  <a href="https://wikid82.github.io/cpmp/"><strong>Documentation</strong></a> ·
+  <a href="https://wikid82.github.io/cpmp/docs/index.html"><strong>Documentation</strong></a> ·
   <a href="https://github.com/Wikid82/cpmp/releases"><strong>Releases</strong></a>
 </p>
 
