@@ -161,7 +161,7 @@ It's a **text file that tells Caddy how to route traffic**. If you're not sure i
 
 Done! Your existing setup is now in the app.
 
-> **Need more help?** Check the detailed [Import Guide](import-guide.md)
+> **Need more help?** Check the detailed [Import Guide](import-guide.html)
 
 ---
 
@@ -222,9 +222,9 @@ You now know the basics! Here's what to explore:
 
 We're here for you!
 
-- 💬 [Ask on GitHub Discussions](https://github.com/Wikid82/CaddyProxyManagerPlus/discussions)
-- 🐛 [Report a Bug](https://github.com/Wikid82/CaddyProxyManagerPlus/issues)
-- 📖 [Read the Full Documentation](index.md)
+- 💬 [Ask on GitHub Discussions](https://github.com/Wikid82/cpmp/discussions)
+- 🐛 [Report a Bug](https://github.com/Wikid82/cpmp/issues)
+- 📖 [Read the Full Documentation](index.html)
 
 ---
 
