@@ -22,8 +22,10 @@ jobs:
       - name: Run Go tests
         id: go-tests
         working-directory: backend
+        env:
+          CGO_ENABLED: 1
         run: |
-          go test -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
+          go test -race -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Go Test Summary

@@ -88,18 +88,18 @@ func (h *LogsHandler) Download(c *gin.Context) {
 
 	srcFile, err := os.Open(path)
 	if err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open log file"})
 		return
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	if _, err := io.Copy(tmpFile, srcFile); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy log file"})
 		return
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(tmpFile.Name())

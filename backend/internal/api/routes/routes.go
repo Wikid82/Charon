@@ -165,7 +165,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
-				uptimeService.SyncMonitors()
+				_ = uptimeService.SyncMonitors()
 				uptimeService.CheckAll()
 			}
 		}()

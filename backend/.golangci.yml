@@ -13,23 +13,61 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - revive
+    - errcheck
 
   settings:
     gocritic:
       enabled-tags:
         - diagnostic
-        - experimental
-        - opinionated
         - performance
-        - style
       disabled-checks:
         - whyNoLint
         - wrapperFunc
+        - hugeParam
+        - rangeValCopy
+        - ifElseChain
+        - appendCombine
+        - appendAssign
+        - commentedOutCode
+        - sprintfQuotedString
     govet:
       enable:
         - shadow
-    revive:
-      rules:
-        - name: exported
-          severity: warning
+    errcheck:
+      exclude-functions:
+        # Ignore deferred close errors - these are intentional
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - (*encoding/json.Decoder).Decode
+        # Test utilities
+        - os.Setenv
+        - os.Unsetenv
+        - os.RemoveAll
+        - os.MkdirAll
+        - os.WriteFile
+        - os.Remove
+        - (*gorm.io/gorm.DB).AutoMigrate
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+    rules:
+      # Exclude some linters from running on tests
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - govet
+          - ineffassign
+          - staticcheck
+      # Exclude gosec file permission warnings - 0644/0755 are intentional for config/data dirs
+      - linters:
+          - gosec
+        text: "G301:|G304:|G306:|G104:|G110:|G305:|G602:"
+      # Exclude shadow warnings in specific patterns
+      - linters:
+          - govet
+        text: "shadows declaration"

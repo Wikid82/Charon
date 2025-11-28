@@ -101,10 +101,9 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer outFile.Close()
+	defer func() { _ = outFile.Close() }()
 
 	w := zip.NewWriter(outFile)
-	defer w.Close()
 
 	// Files/Dirs to backup
 	// 1. Database
@@ -123,6 +122,11 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
 		// It's possible caddy dir doesn't exist yet, which is fine
 		fmt.Printf("Warning: could not backup caddy dir: %v\n", err)
+	}
+
+	// Close zip writer and check for errors (important for zip integrity)
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize backup: %w", err)
 	}
 
 	return filename, nil
@@ -216,7 +220,7 @@ func (s *BackupService) unzip(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
@@ -227,11 +231,11 @@ func (s *BackupService) unzip(src, dest string) error {
 		}
 
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+			_ = os.MkdirAll(fpath, os.ModePerm)
 			continue
 		}
 
-		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
 			return err
 		}
 

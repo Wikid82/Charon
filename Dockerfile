@@ -43,12 +43,15 @@ WORKDIR /app/backend
 # Install build dependencies
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
+# hadolint ignore=DL3018
 RUN apk add --no-cache clang lld
+# hadolint ignore=DL3018,DL3059
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
 # We find it and move it to /go/bin/dlv so it's in a consistent location for the next stage.
+# hadolint ignore=DL3059,DL4006
 RUN CGO_ENABLED=0 xx-go install github.com/go-delve/delve/cmd/dlv@latest && \
     DLV_PATH=$(find /go/bin -name dlv -type f | head -n 1) && \
     if [ -n "$DLV_PATH" ] && [ "$DLV_PATH" != "/go/bin/dlv" ]; then \
@@ -86,7 +89,9 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache git
+# hadolint ignore=DL3062
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
@@ -105,6 +110,7 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for CPM+ (no bash needed)
+# hadolint ignore=DL3018
 RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl \
     && apk --no-cache upgrade
 

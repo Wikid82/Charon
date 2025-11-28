@@ -81,7 +81,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Apply to Caddy
 	if err := m.client.Load(ctx, config); err != nil {
 		// Remove the failed snapshot so rollback uses the previous one
-		os.Remove(snapshotPath)
+		_ = os.Remove(snapshotPath)
 
 		// Rollback on failure
 		if rollbackErr := m.rollback(ctx); rollbackErr != nil {

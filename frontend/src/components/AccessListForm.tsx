@@ -268,7 +268,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
                 <p className="text-xs text-gray-400 mb-3">
                   Quick-start templates based on threat intelligence feeds and best practices. Hover over (i) for data sources.
                 </p>
-                
+
                 {/* Security Category */}
                 <div>
                   <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Recommended Security Presets</h4>
