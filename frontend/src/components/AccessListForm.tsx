@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Switch } from './ui/Switch';
-import { X, Plus, ExternalLink, Shield, AlertTriangle, Info, Download } from 'lucide-react';
+import { X, Plus, ExternalLink, Shield, AlertTriangle, Info, Download, Trash2 } from 'lucide-react';
 import type { AccessList, AccessListRule } from '../api/accessLists';
 import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
 import { getMyIP } from '../api/system';
@@ -12,7 +12,9 @@ interface AccessListFormProps {
   initialData?: AccessList;
   onSubmit: (data: AccessListFormData) => void;
   onCancel: () => void;
+  onDelete?: () => void;
   isLoading?: boolean;
+  isDeleting?: boolean;
 }
 
 export interface AccessListFormData {
@@ -68,7 +70,7 @@ const COUNTRIES = [
   { code: 'VN', name: 'Vietnam' },
 ];
 
-export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: AccessListFormProps) {
+export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLoading, isDeleting }: AccessListFormProps) {
   const [formData, setFormData] = useState<AccessListFormData>({
     name: initialData?.name || '',
     description: initialData?.description || '',
@@ -269,11 +271,11 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
                   Quick-start templates based on threat intelligence feeds and best practices. Hover over (i) for data sources.
                 </p>
 
-                {/* Security Category */}
+                {/* Security Category - filter by current type */}
                 <div>
                   <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Recommended Security Presets</h4>
                   <div className="space-y-2">
-                    {SECURITY_PRESETS.filter(p => p.category === 'security').map((preset) => (
+                    {SECURITY_PRESETS.filter(p => p.category === 'security' && p.type === formData.type).map((preset) => (
                       <div
                         key={preset.id}
                         className="bg-gray-900 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors"
@@ -319,11 +321,11 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
                   </div>
                 </div>
 
-                {/* Advanced Category */}
+                {/* Advanced Category - filter by current type */}
                 <div>
                   <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Advanced Presets</h4>
                   <div className="space-y-2">
-                    {SECURITY_PRESETS.filter(p => p.category === 'advanced').map((preset) => (
+                    {SECURITY_PRESETS.filter(p => p.category === 'advanced' && p.type === formData.type).map((preset) => (
                       <div
                         key={preset.id}
                         className="bg-gray-900 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors"
@@ -522,13 +524,28 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={onCancel} disabled={isLoading}>
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" disabled={isLoading}>
-          {isLoading ? 'Saving...' : initialData ? 'Update' : 'Create'}
-        </Button>
+      <div className="flex justify-between gap-2">
+        <div>
+          {initialData && onDelete && (
+            <Button
+              type="button"
+              variant="danger"
+              onClick={onDelete}
+              disabled={isLoading || isDeleting}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={isLoading || isDeleting}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={isLoading || isDeleting}>
+            {isLoading ? 'Saving...' : initialData ? 'Update' : 'Create'}
+          </Button>
+        </div>
       </div>
     </form>
   );
