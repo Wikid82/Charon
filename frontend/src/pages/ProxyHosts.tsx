@@ -27,6 +27,9 @@ export default function ProxyHosts() {
   const [showBulkACLModal, setShowBulkACLModal] = useState(false)
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
   const [isCreatingBackup, setIsCreatingBackup] = useState(false)
+  const [selectedACLs, setSelectedACLs] = useState<Set<number>>(new Set())
+  const [bulkACLAction, setBulkACLAction] = useState<'apply' | 'remove'>('apply')
+  const [applyProgress, setApplyProgress] = useState<{ current: number; total: number } | null>(null)
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -474,57 +477,212 @@ export default function ProxyHosts() {
           onClick={() => setShowBulkACLModal(false)}
         >
           <div
-            className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
+            className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-bold text-white mb-4">Apply Access List</h2>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-gray-400 mb-4">
-                  Applying to {selectedHosts.size} selected host(s)
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Access List
-                </label>
-                <select
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  onChange={(e) => {
-                    const value = e.target.value
-                    if (value === 'remove') {
-                      if (confirm(`Remove access list from ${selectedHosts.size} host(s)?`)) {
-                        handleBulkApplyACL(null)
-                      }
-                    } else if (value !== '') {
-                      handleBulkApplyACL(parseInt(value, 10))
-                    }
-                  }}
-                  defaultValue=""
-                  disabled={isBulkUpdating}
-                >
-                  <option value="">Select an access list...</option>
-                  <option value="remove" className="text-red-400">
-                    🚫 Remove Access List
-                  </option>
-                  <optgroup label="Available Access Lists">
-                    {accessLists
-                      ?.filter((acl: AccessList) => acl.enabled)
-                      .map((acl: AccessList) => (
-                        <option key={acl.id} value={acl.id}>
-                          {acl.name}
-                        </option>
-                      ))}
-                  </optgroup>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2">
+            <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+              <p className="text-sm text-gray-400">
+                Applying to <span className="text-blue-400 font-medium">{selectedHosts.size}</span> selected host(s)
+              </p>
+
+              {/* Action Toggle */}
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setShowBulkACLModal(false)}
+                  onClick={() => {
+                    setBulkACLAction('apply')
+                    setSelectedACLs(new Set())
+                  }}
+                  className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors ${
+                    bulkACLAction === 'apply'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  Apply ACL
+                </button>
+                <button
+                  onClick={() => {
+                    setBulkACLAction('remove')
+                    setSelectedACLs(new Set())
+                  }}
+                  className={`flex-1 px-3 py-2 rounded-lg font-medium transition-colors ${
+                    bulkACLAction === 'remove'
+                      ? 'bg-red-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  Remove ACL
+                </button>
+              </div>
+
+              {/* ACL Selection List */}
+              {bulkACLAction === 'apply' && (
+                <div className="flex-1 overflow-y-auto border border-gray-700 rounded-lg">
+                  {/* Select All / Clear header */}
+                  {(accessLists?.filter((acl: AccessList) => acl.enabled).length ?? 0) > 0 && (
+                    <div className="flex items-center justify-between p-2 border-b border-gray-700 bg-gray-800/50">
+                      <span className="text-sm text-gray-400">
+                        {selectedACLs.size} of {accessLists?.filter((acl: AccessList) => acl.enabled).length ?? 0} selected
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const enabledACLs = accessLists?.filter((acl: AccessList) => acl.enabled) || []
+                            setSelectedACLs(new Set(enabledACLs.map((acl: AccessList) => acl.id!)))
+                          }}
+                          className="text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-gray-600">|</span>
+                        <button
+                          onClick={() => setSelectedACLs(new Set())}
+                          className="text-xs text-gray-400 hover:text-gray-300"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="p-2 space-y-1">
+                    {accessLists?.filter((acl: AccessList) => acl.enabled).length === 0 ? (
+                      <p className="text-gray-500 text-sm p-2">No enabled access lists available</p>
+                    ) : (
+                      accessLists
+                        ?.filter((acl: AccessList) => acl.enabled)
+                        .map((acl: AccessList) => (
+                          <label
+                            key={acl.id}
+                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                              selectedACLs.has(acl.id!)
+                                ? 'bg-blue-600/20 border border-blue-500'
+                                : 'bg-gray-800/50 border border-transparent hover:bg-gray-800'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedACLs.has(acl.id!)}
+                              onChange={(e) => {
+                                const newSelected = new Set(selectedACLs)
+                                if (e.target.checked) {
+                                  newSelected.add(acl.id!)
+                                } else {
+                                  newSelected.delete(acl.id!)
+                                }
+                                setSelectedACLs(newSelected)
+                              }}
+                              className="w-4 h-4 rounded border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 bg-gray-700"
+                            />
+                            <div className="flex-1">
+                              <span className="text-white font-medium">{acl.name}</span>
+                              {acl.type && (
+                                <span className="ml-2 text-xs text-gray-500">
+                                  ({acl.type.replace('_', ' ')})
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Remove ACL Confirmation */}
+              {bulkACLAction === 'remove' && (
+                <div className="flex-1 flex items-center justify-center border border-red-900/50 rounded-lg bg-red-900/10 p-6">
+                  <div className="text-center">
+                    <div className="text-4xl mb-3">🚫</div>
+                    <p className="text-gray-300">
+                      This will remove the access list from all {selectedHosts.size} selected host(s).
+                    </p>
+                    <p className="text-gray-500 text-sm mt-2">
+                      The hosts will become publicly accessible.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Progress indicator */}
+              {applyProgress && (
+                <div className="border border-blue-800/50 rounded-lg bg-blue-900/20 p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                    <span className="text-blue-300 font-medium">
+                      Applying ACLs... ({applyProgress.current}/{applyProgress.total})
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(applyProgress.current / applyProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setShowBulkACLModal(false)
+                    setSelectedACLs(new Set())
+                    setBulkACLAction('apply')
+                    setApplyProgress(null)
+                  }}
                   className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
-                  disabled={isBulkUpdating}
+                  disabled={isBulkUpdating || applyProgress !== null}
                 >
                   Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (bulkACLAction === 'remove') {
+                      await handleBulkApplyACL(null)
+                    } else if (selectedACLs.size > 0) {
+                      // Apply each selected ACL sequentially with progress
+                      const hostUUIDs = Array.from(selectedHosts)
+                      const aclIds = Array.from(selectedACLs)
+                      const totalOperations = aclIds.length
+                      let completedOperations = 0
+                      let totalErrors = 0
+
+                      setApplyProgress({ current: 0, total: totalOperations })
+
+                      for (const aclId of aclIds) {
+                        try {
+                          const result = await bulkUpdateACL(hostUUIDs, aclId)
+                          totalErrors += result.errors.length
+                        } catch {
+                          totalErrors += hostUUIDs.length
+                        }
+                        completedOperations++
+                        setApplyProgress({ current: completedOperations, total: totalOperations })
+                      }
+
+                      setApplyProgress(null)
+
+                      if (totalErrors > 0) {
+                        toast.error(`Applied ${selectedACLs.size} ACL(s) with some errors`)
+                      } else {
+                        toast.success(`Applied ${selectedACLs.size} ACL(s) to ${selectedHosts.size} host(s)`)
+                      }
+
+                      setSelectedHosts(new Set())
+                      setSelectedACLs(new Set())
+                      setShowBulkACLModal(false)
+                    }
+                  }}
+                  disabled={isBulkUpdating || applyProgress !== null || (bulkACLAction === 'apply' && selectedACLs.size === 0)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                    bulkACLAction === 'remove'
+                      ? 'bg-red-600 hover:bg-red-500 text-white'
+                      : 'bg-blue-600 hover:bg-blue-500 text-white'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {(isBulkUpdating || applyProgress !== null) && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {bulkACLAction === 'remove' ? 'Remove ACL' : `Apply ${selectedACLs.size > 0 ? `(${selectedACLs.size})` : ''}`}
                 </button>
               </div>
             </div>
