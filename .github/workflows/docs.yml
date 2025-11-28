@@ -167,21 +167,36 @@ jobs:
               <h2 style="margin-top: 3rem;">📚 Getting Started</h2>
               <div class="grid">
                 <div class="card">
+                  <h3>✨ Features <span class="badge badge-beginner">Overview</span></h3>
+                  <p>See everything CPMP can do - security, monitoring, automation, and more!</p>
+                  <a href="docs/features.html">View All Features →</a>
+                </div>
+
+                <div class="card">
                   <h3>🏠 Getting Started Guide <span class="badge badge-beginner">Start Here</span></h3>
                   <p>Your first setup in just 5 minutes! We'll walk you through everything step by step.</p>
                   <a href="docs/getting-started.html">Read the Guide →</a>
                 </div>
 
                 <div class="card">
-                  <h3>📖 README <span class="badge badge-beginner">Essential</span></h3>
-                  <p>Learn what the app does, how to install it, and see examples of what you can build.</p>
-                  <a href="README.html">Read More →</a>
-                </div>
-
-                <div class="card">
                   <h3>📥 Import Guide</h3>
                   <p>Already using Caddy? Learn how to bring your existing configuration into the app.</p>
                   <a href="docs/import-guide.html">Import Your Configs →</a>
+                </div>
+              </div>
+
+              <h2 style="margin-top: 3rem;">🔒 Security</h2>
+              <div class="grid">
+                <div class="card">
+                  <h3>🛡️ Security Features</h3>
+                  <p>CrowdSec integration, WAF, geo-blocking, rate limiting, and access control lists.</p>
+                  <a href="docs/security.html">Learn More →</a>
+                </div>
+
+                <div class="card">
+                  <h3>🔐 ACME Staging</h3>
+                  <p>Test SSL certificates without hitting rate limits using Let's Encrypt staging.</p>
+                  <a href="docs/acme-staging.html">View Guide →</a>
                 </div>
               </div>
 
@@ -197,6 +212,18 @@ jobs:
                   <h3>💾 Database Schema <span class="badge badge-advanced">Advanced</span></h3>
                   <p>Understand how data is stored, relationships, and backup strategies.</p>
                   <a href="docs/database-schema.html">View Schema →</a>
+                </div>
+
+                <div class="card">
+                  <h3>🐛 Debugging Guide <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Troubleshoot Docker containers, inspect logs, and test Caddy configuration.</p>
+                  <a href="docs/debugging-local-container.html">Debug Issues →</a>
+                </div>
+
+                <div class="card">
+                  <h3>⚙️ GitHub Setup <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Set up CI/CD workflows, Docker builds, and documentation deployment.</p>
+                  <a href="docs/github-setup.html">View Setup →</a>
                 </div>
 
                 <div class="card">
@@ -220,15 +247,15 @@ jobs:
                   Stuck? Have questions? We're here to help!
                 </p>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/discussions"
+                  <a href="https://github.com/Wikid82/cpmp/discussions"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     💬 Ask a Question
                   </a>
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/issues"
+                  <a href="https://github.com/Wikid82/cpmp/issues"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     🐛 Report a Bug
                   </a>
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus"
+                  <a href="https://github.com/Wikid82/cpmp"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     ⭐ View on GitHub
                   </a>

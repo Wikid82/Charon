@@ -37,6 +37,15 @@
 - The root `Dockerfile` builds the Go binary and the React static assets (multi-stage build).
 - Branch from `feature/**` and target `development`.
 
+## Documentation
+- **Feature Documentation**: When adding new features, update `docs/features.md` to include the new capability. This is the canonical list of all features shown to users.
+- **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start, and links to docs. All detailed documentation belongs in `docs/`.
+- **New Docs**: When adding new documentation files to `docs/`, also add a card for it in `.github/workflows/docs.yml` in the index.html section. The markdown-to-HTML conversion is automatic, but the landing page cards are manually curated.
+- **Link Format**: Use GitHub Pages URLs for documentation links, not relative paths:
+  - Docs: `https://wikid82.github.io/cpmp/docs/index.html` (index) or `https://wikid82.github.io/cpmp/docs/features.html` (specific page)
+  - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md`
+  - Issues/Discussions: `https://github.com/Wikid82/cpmp/issues` or `https://github.com/Wikid82/cpmp/discussions`
+
 ## CI/CD & Commit Conventions
 - **Docker Builds**: The `docker-publish` workflow skips builds for commits starting with `chore:`.
 - **Triggering Builds**: To ensure a new Docker image is built (e.g., for testing on VPS), use `feat:`, `fix:`, or `perf:` prefixes.
