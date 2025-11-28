@@ -9,7 +9,7 @@
 
 Charon bridges the gap between the complex internet and your private services. Enjoy a simplified, visual management experience built specifically for the home server enthusiast. No code required—just safe passage. </p>
 
-<h1 align="center">Cerberus</h1>
+<h2 align="center">Cerberus</h2>
 
 <p align="center"> <strong>The Guardian at the Gate.</strong>
 
