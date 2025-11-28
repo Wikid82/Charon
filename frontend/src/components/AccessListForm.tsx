@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Switch } from './ui/Switch';
-import { X, Plus, ExternalLink } from 'lucide-react';
+import { X, Plus, ExternalLink, Shield, AlertTriangle, Info, Download } from 'lucide-react';
 import type { AccessList, AccessListRule } from '../api/accessLists';
+import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
+import { getMyIP } from '../api/system';
+import toast from 'react-hot-toast';
 
 interface AccessListFormProps {
   initialData?: AccessList;
@@ -96,9 +99,16 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
 
   const [newIP, setNewIP] = useState('');
   const [newIPDescription, setNewIPDescription] = useState('');
+  const [showPresets, setShowPresets] = useState(false);
+  const [loadingMyIP, setLoadingMyIP] = useState(false);
 
   const isGeoType = formData.type.startsWith('geo_');
   const isIPType = !isGeoType;
+
+  // Calculate total IPs in current rules
+  const totalIPs = isIPType && !formData.local_network_only
+    ? calculateTotalIPs(ipRules.map(r => r.cidr))
+    : 0;
 
   const handleAddIP = () => {
     if (!newIP.trim()) return;
@@ -126,6 +136,35 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
 
   const handleRemoveCountry = (countryCode: string) => {
     setSelectedCountries(selectedCountries.filter((c) => c !== countryCode));
+  };
+
+  const handleApplyPreset = (preset: SecurityPreset) => {
+    if (preset.type === 'geo_blacklist' && preset.countryCodes) {
+      setFormData({ ...formData, type: 'geo_blacklist' });
+      setSelectedCountries([...new Set([...selectedCountries, ...preset.countryCodes])]);
+      toast.success(`Applied preset: ${preset.name}`);
+    } else if (preset.type === 'blacklist' && preset.ipRanges) {
+      setFormData({ ...formData, type: 'blacklist' });
+      const newRules = preset.ipRanges.filter(
+        (newRule) => !ipRules.some((existing) => existing.cidr === newRule.cidr)
+      );
+      setIPRules([...ipRules, ...newRules]);
+      toast.success(`Applied preset: ${preset.name} (${newRules.length} rules added)`);
+    }
+    setShowPresets(false);
+  };
+
+  const handleGetMyIP = async () => {
+    setLoadingMyIP(true);
+    try {
+      const result = await getMyIP();
+      setNewIP(result.ip);
+      toast.success(`Your IP: ${result.ip} (from ${result.source})`);
+    } catch (error) {
+      toast.error('Failed to fetch your IP address');
+    } finally {
+      setLoadingMyIP(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -192,11 +231,148 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="whitelist">🛡️ IP Whitelist (Allow Only)</option>
-            <option value="blacklist">🛡️ IP Blacklist (Block Only)</option>
+            <option value="blacklist">� IP Blacklist (Block Only) - Recommended</option>
             <option value="geo_whitelist">🌍 Geo Whitelist (Allow Countries)</option>
-            <option value="geo_blacklist">🌍 Geo Blacklist (Block Countries)</option>
+            <option value="geo_blacklist">🌍 Geo Blacklist (Block Countries) - Recommended</option>
           </select>
+          {(formData.type === 'blacklist' || formData.type === 'geo_blacklist') && (
+            <div className="mt-2 flex items-start gap-2 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+              <Info className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-blue-300">
+                <strong>Recommended:</strong> Block lists are safer than allow lists. They block known bad actors while allowing everyone else access, preventing lockouts.
+              </p>
+            </div>
+          )}
         </div>
+
+        {/* Security Presets */}
+        {(formData.type === 'blacklist' || formData.type === 'geo_blacklist') && (
+          <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-green-400" />
+                <h3 className="text-sm font-medium text-gray-300">Security Presets</h3>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowPresets(!showPresets)}
+              >
+                {showPresets ? 'Hide' : 'Show'} Presets
+              </Button>
+            </div>
+
+            {showPresets && (
+              <div className="space-y-3 mt-4">
+                <p className="text-xs text-gray-400 mb-3">
+                  Quick-start templates based on threat intelligence feeds and best practices. Hover over (i) for data sources.
+                </p>
+                
+                {/* Security Category */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Recommended Security Presets</h4>
+                  <div className="space-y-2">
+                    {SECURITY_PRESETS.filter(p => p.category === 'security').map((preset) => (
+                      <div
+                        key={preset.id}
+                        className="bg-gray-900 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h5 className="text-sm font-medium text-white">{preset.name}</h5>
+                              <a
+                                href={preset.dataSourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-gray-400 hover:text-blue-400"
+                                title={`Data from: ${preset.dataSource}`}
+                              >
+                                <Info className="h-3 w-3" />
+                              </a>
+                            </div>
+                            <p className="text-xs text-gray-400 mb-2">{preset.description}</p>
+                            <div className="flex items-center gap-3 text-xs">
+                              <span className="text-gray-500">~{preset.estimatedIPs} IPs</span>
+                              <span className="text-gray-600">|</span>
+                              <span className="text-gray-500">{preset.dataSource}</span>
+                            </div>
+                            {preset.warning && (
+                              <div className="flex items-start gap-1 mt-2 text-xs text-orange-400">
+                                <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <span>{preset.warning}</span>
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleApplyPreset(preset)}
+                            className="ml-3"
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Advanced Category */}
+                <div>
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Advanced Presets</h4>
+                  <div className="space-y-2">
+                    {SECURITY_PRESETS.filter(p => p.category === 'advanced').map((preset) => (
+                      <div
+                        key={preset.id}
+                        className="bg-gray-900 border border-gray-700 rounded-lg p-3 hover:border-gray-600 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h5 className="text-sm font-medium text-white">{preset.name}</h5>
+                              <a
+                                href={preset.dataSourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-gray-400 hover:text-blue-400"
+                                title={`Data from: ${preset.dataSource}`}
+                              >
+                                <Info className="h-3 w-3" />
+                              </a>
+                            </div>
+                            <p className="text-xs text-gray-400 mb-2">{preset.description}</p>
+                            <div className="flex items-center gap-3 text-xs">
+                              <span className="text-gray-500">~{preset.estimatedIPs} IPs</span>
+                              <span className="text-gray-600">|</span>
+                              <span className="text-gray-500">{preset.dataSource}</span>
+                            </div>
+                            {preset.warning && (
+                              <div className="flex items-start gap-1 mt-2 text-xs text-orange-400">
+                                <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <span>{preset.warning}</span>
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleApplyPreset(preset)}
+                            className="ml-3"
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <div>
@@ -231,7 +407,20 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
             {!formData.local_network_only && (
               <>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</label>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleGetMyIP}
+                      disabled={loadingMyIP}
+                      className="flex items-center gap-1"
+                    >
+                      <Download className="h-3 w-3" />
+                      {loadingMyIP ? 'Loading...' : 'Get My IP'}
+                    </Button>
+                  </div>
                   <div className="flex gap-2">
                     <Input
                       value={newIP}
@@ -250,6 +439,12 @@ export function AccessListForm({ initialData, onSubmit, onCancel, isLoading }: A
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
+                  {totalIPs > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-gray-400">
+                      <Info className="h-3 w-3" />
+                      <span>Current rules cover approximately <strong className="text-white">{formatIPCount(totalIPs)}</strong> IP addresses</span>
+                    </div>
+                  )}
                 </div>
 
                 {ipRules.length > 0 && (
