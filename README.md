@@ -28,16 +28,16 @@ Ensure nothing passes without permission. Cerberus is a robust security suite fe
 
 | Feature | Description |
 |---------|-------------|
-| 🎨 **Beautiful Dark UI** | Modern interface that's easy on the eyes, works on any device |
 | 🔐 **Automatic HTTPS** | Free SSL certificates from Let's Encrypt, auto-renewed |
 | 🛡️ **Built-in Security** | CrowdSec integration, geo-blocking, IP access lists (optional, powered by Cerberus) |
-| 📊 **Uptime Monitoring** | Know when your services go down with smart notifications |
-| 🐳 **Docker Discovery** | Auto-detect containers on local and remote Docker hosts |
-| 📥 **Easy Import** | Bring your existing Caddy or NPM configs with one click |
-| 💾 **Backup & Restore** | Never lose your settings, export anytime |
-| 🔍 **Health Checks** | Test connections before saving |
-| 🌐 **WebSocket Support** | Perfect for real-time apps and chat services |
 | ⚡ **Zero Downtime** | Hot-reload configuration without restarts |
+| 🐳 **Docker Discovery** | Auto-detect containers on local and remote Docker hosts |
+| 📊 **Uptime Monitoring** | Know when your services go down with smart notifications |
+| 🔍 **Health Checks** | Test connections before saving |
+| 📥 **Easy Import** | Bring your existing Caddy configs with one click |
+| 💾 **Backup & Restore** | Never lose your settings, export anytime |
+| 🌐 **WebSocket Support** | Perfect for real-time apps and chat services |
+| 🎨 **Beautiful Dark UI** | Modern interface that's easy on the eyes, works on any device |
 
 **[See all features →](https://wikid82.github.io/charon/features)**
 
