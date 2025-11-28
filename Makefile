@@ -123,3 +123,24 @@ security-scan-deps:
 	cd backend && go list -m -json all | docker run --rm -i aquasec/trivy:latest sbom --format json - 2>/dev/null || true
 	@echo "Checking for Go module updates..."
 	cd backend && go list -m -u all | grep -E '\[.*\]' || echo "All modules up to date"
+
+# Quality Assurance targets
+lint-backend:
+	@echo "Running golangci-lint..."
+	cd backend && docker run --rm -v $(PWD)/backend:/app -w /app golangci/golangci-lint:latest golangci-lint run -v
+
+lint-docker:
+	@echo "Running Hadolint..."
+	docker run --rm -i hadolint/hadolint < Dockerfile
+
+test-race:
+	@echo "Running Go tests with race detection..."
+	cd backend && go test -race -v ./...
+
+benchmark:
+	@echo "Running Go benchmarks..."
+	cd backend && go test -bench=. -benchmem ./...
+
+integration-test:
+	@echo "Running integration tests..."
+	@./scripts/integration-test.sh

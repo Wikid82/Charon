@@ -39,6 +39,24 @@ repos:
         language: system
         files: '\.go$'
         pass_filenames: false
+      - id: go-test-race
+        name: Go Test Race
+        entry: bash -c 'cd backend && go test -race ./...'
+        language: system
+        files: '\.go$'
+        pass_filenames: false
+      - id: golangci-lint
+        name: GolangCI-Lint
+        entry: bash -c 'cd backend && docker run --rm -v $(pwd):/app -w /app golangci/golangci-lint:latest golangci-lint run -v'
+        language: system
+        files: '\.go$'
+        pass_filenames: false
+      - id: hadolint
+        name: Hadolint Dockerfile Check
+        entry: bash -c 'docker run --rm -i hadolint/hadolint < Dockerfile'
+        language: system
+        files: 'Dockerfile'
+        pass_filenames: false
       - id: frontend-type-check
         name: Frontend TypeScript Check
         entry: bash -c 'cd frontend && npm run type-check'
