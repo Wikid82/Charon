@@ -215,6 +215,18 @@ jobs:
                 </div>
 
                 <div class="card">
+                  <h3>🐛 Debugging Guide <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Troubleshoot Docker containers, inspect logs, and test Caddy configuration.</p>
+                  <a href="docs/debugging-local-container.html">Debug Issues →</a>
+                </div>
+
+                <div class="card">
+                  <h3>⚙️ GitHub Setup <span class="badge badge-advanced">Advanced</span></h3>
+                  <p>Set up CI/CD workflows, Docker builds, and documentation deployment.</p>
+                  <a href="docs/github-setup.html">View Setup →</a>
+                </div>
+
+                <div class="card">
                   <h3>✨ Contributing Guide</h3>
                   <p>Want to help make this better? Learn how to contribute code, docs, or ideas.</p>
                   <a href="CONTRIBUTING.html">Start Contributing →</a>
