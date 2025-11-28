@@ -40,6 +40,10 @@
 ## Documentation
 - **Feature Documentation**: When adding new features, update `docs/features.md` to include the new capability. This is the canonical list of all features shown to users.
 - **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start, and links to docs. All detailed documentation belongs in `docs/`.
+- **Link Format**: Use GitHub Pages URLs for documentation links, not relative paths:
+  - Docs: `https://wikid82.github.io/cpmp/` (index) or `https://wikid82.github.io/cpmp/features` (specific page, no `.md`)
+  - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md`
+  - Issues/Discussions: `https://github.com/Wikid82/cpmp/issues` or `https://github.com/Wikid82/cpmp/discussions`
 
 ## CI/CD & Commit Conventions
 - **Docker Builds**: The `docker-publish` workflow skips builds for commits starting with `chore:`.
