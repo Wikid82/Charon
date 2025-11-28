@@ -71,6 +71,9 @@ backend/data/caddy/
 # Docker
 docker-compose.override.yml
 
+# GoReleaser
+dist/
+
 # Testing
 coverage/
 coverage.out

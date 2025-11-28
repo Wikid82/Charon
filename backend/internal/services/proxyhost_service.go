@@ -103,7 +103,7 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	return nil
 }

@@ -188,7 +188,7 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	case "tcp":
 		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			success = true
 			msg = "Connection successful"
 		} else {
@@ -238,7 +238,7 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		Latency:   latency,
 		Message:   msg,
 	}
-	s.DB.Create(&heartbeat)
+	_ = s.DB.Create(&heartbeat).Error
 
 	// Update Monitor Status
 	oldStatus := monitor.Status
@@ -285,7 +285,7 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 
 		sb.WriteString(fmt.Sprintf("Reason: %s\n", msg))
 
-		s.NotificationService.Create(
+		_, _ = s.NotificationService.Create(
 			nType,
 			title,
 			sb.String(),

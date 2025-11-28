@@ -518,7 +518,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		}
 
 		if action == "rename" {
-			host.DomainNames = host.DomainNames + "-imported"
+			host.DomainNames += "-imported"
 		}
 
 		// Handle overwrite: preserve existing ID, UUID, and certificate

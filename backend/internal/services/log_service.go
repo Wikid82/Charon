@@ -88,10 +88,10 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 	if err != nil {
 		return nil, 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var logs []models.CaddyAccessLog
-	var totalMatches int64 = 0
+	var totalMatches int64
 
 	// Read file line by line
 	// TODO: For large files, reading from end or indexing would be better

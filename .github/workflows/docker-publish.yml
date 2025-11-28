@@ -6,8 +6,7 @@ on:
       - main
       - development
       - feature/beta-release
-    tags:
-      - 'v*.*.*'
+    # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
   pull_request:
     branches:
       - main
@@ -102,9 +101,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
             type=raw,value=beta,enable=${{ github.ref == 'refs/heads/feature/beta-release' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
             type=raw,value=pr-${{ github.ref_name }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
 
@@ -212,28 +208,27 @@ jobs:
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-      - name: Run container
+      - name: Create Docker Network
+        run: docker network create cpmp-test-net
+
+      - name: Run Upstream Service (whoami)
+        run: |
+          docker run -d \
+            --name whoami \
+            --network cpmp-test-net \
+            traefik/whoami
+
+      - name: Run CPMP Container
         run: |
           docker run -d \
             --name test-container \
+            --network cpmp-test-net \
             -p 8080:8080 \
+            -p 80:80 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-      - name: Test health endpoint (retries)
-        run: |
-          set +e
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v1/health || echo "000")
-            if [ "$code" = "200" ]; then
-              echo "✅ Health check passed on attempt $i"
-              exit 0
-            fi
-            echo "Attempt $i/30: health not ready (code=$code); waiting..."
-            sleep 2
-          done
-          echo "❌ Health check failed after retries"
-          docker logs test-container || true
-          exit 1
+      - name: Run Integration Test
+        run: ./scripts/integration-test.sh
 
       - name: Check container logs
         if: always()
@@ -241,7 +236,10 @@ jobs:
 
       - name: Stop container
         if: always()
-        run: docker stop test-container && docker rm test-container
+        run: |
+          docker stop test-container whoami || true
+          docker rm test-container whoami || true
+          docker network rm cpmp-test-net || true
 
       - name: Create test summary
         if: always()
@@ -249,4 +247,4 @@ jobs:
           echo "## 🧪 Docker Image Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Health Check**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Test**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
