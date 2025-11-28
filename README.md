@@ -9,13 +9,13 @@
 
 Charon bridges the gap between the complex internet and your private services. Enjoy a simplified, visual management experience built specifically for the home server enthusiast. No code required—just safe passage. </p>
 
-<h1 align="center">Cerberus</h1>
+<h2 align="center">Cerberus</h2>
 
 <p align="center"> <strong>The Guardian at the Gate.</strong>
 
 
 Ensure nothing passes without permission. Cerberus is a robust security suite featuring the Coraza WAF, deep CrowdSec integration, and granular rate-limiting. Always watching, always protecting. </p>
-
+<br><br>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
