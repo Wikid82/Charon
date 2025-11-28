@@ -167,5 +167,5 @@ Each feature has detailed documentation:
 ---
 
 <p align="center">
-  <em>Missing a feature? <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/discussions">Let us know!</a></em>
+  <em>Missing a feature? <a href="https://github.com/Wikid82/cpmp/discussions">Let us know!</a></em>
 </p>
