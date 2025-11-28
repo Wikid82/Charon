@@ -1,7 +1,7 @@
 {
 	"version": "2.0.0",
 	"tasks": [
-				{
+		{
 			"label": "Git Remove Cached",
 			"type": "shell",
 			"command": "git rm -r --cached .",
@@ -13,6 +13,53 @@
 			"command": "${workspaceFolder}/.venv/bin/pre-commit run --all-files",
 			"group": "test"
 		},
+		// === MANUAL LINT/SCAN TASKS ===
+		// These are the slow hooks removed from automatic pre-commit
+		{
+			"label": "Lint: GolangCI-Lint",
+			"type": "shell",
+			"command": "cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v",
+			"group": "test",
+			"problemMatcher": ["$go"],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Lint: Go Race Detector",
+			"type": "shell",
+			"command": "cd backend && go test -race ./...",
+			"group": "test",
+			"problemMatcher": ["$go"],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Lint: Hadolint (Dockerfile)",
+			"type": "shell",
+			"command": "docker run --rm -i hadolint/hadolint < Dockerfile",
+			"group": "test",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Lint: Run All Manual Checks",
+			"type": "shell",
+			"command": "${workspaceFolder}/.venv/bin/pre-commit run --all-files --hook-stage manual",
+			"group": "test",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		// === BUILD & RUN TASKS ===
 		{
 			"label": "Build & Run Local Docker",
 			"type": "shell",

@@ -20,7 +20,17 @@ func setupUptimeTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
-	err = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}, &models.Setting{}, &models.ProxyHost{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}, &models.RemoteServer{})
+	err = db.AutoMigrate(
+		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.Setting{},
+		&models.ProxyHost{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.UptimeNotificationEvent{},
+		&models.RemoteServer{},
+	)
 	if err != nil {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -127,6 +137,12 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
 	assert.Equal(t, "down", upMonitor.Status)
+
+	// Flush any pending batched notifications
+	// The new batching system delays notifications by 30 seconds
+	// For testing, we manually trigger the flush
+	us.FlushPendingNotifications()
+	time.Sleep(100 * time.Millisecond)
 
 	db.Find(&notifications)
 	assert.Equal(t, 1, len(notifications), "Should have 1 notification now")
@@ -969,4 +985,186 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		assert.Equal(t, 10, result.MaxRetries)
 		assert.Equal(t, 300, result.Interval)
 	})
+}
+
+func TestUptimeService_NotificationBatching(t *testing.T) {
+	t.Run("batches multiple service failures on same host", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create an UptimeHost
+		host := models.UptimeHost{
+			ID:     "test-host-1",
+			Host:   "192.168.1.100",
+			Name:   "Test Server",
+			Status: "up",
+		}
+		db.Create(&host)
+
+		// Create multiple monitors pointing to the same host
+		monitors := []models.UptimeMonitor{
+			{ID: "mon-1", Name: "Service A", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+			{ID: "mon-2", Name: "Service B", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+			{ID: "mon-3", Name: "Service C", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+		}
+		for _, m := range monitors {
+			db.Create(&m)
+		}
+
+		// Queue down notifications for all three
+		us.queueDownNotification(monitors[0], "Connection refused", "1h 30m")
+		us.queueDownNotification(monitors[1], "Connection refused", "2h 15m")
+		us.queueDownNotification(monitors[2], "Connection refused", "45m")
+
+		// Verify all are batched together
+		us.notificationMutex.Lock()
+		pending, exists := us.pendingNotifications[host.ID]
+		us.notificationMutex.Unlock()
+
+		assert.True(t, exists, "Should have pending notification for host")
+		assert.Equal(t, 3, len(pending.downMonitors), "Should have 3 monitors in batch")
+
+		// Flush and verify single notification is sent
+		us.FlushPendingNotifications()
+
+		var notifications []models.Notification
+		db.Find(&notifications)
+		assert.Equal(t, 1, len(notifications), "Should have exactly 1 batched notification")
+
+		if len(notifications) > 0 {
+			// Should mention all three services
+			assert.Contains(t, notifications[0].Message, "Service A")
+			assert.Contains(t, notifications[0].Message, "Service B")
+			assert.Contains(t, notifications[0].Message, "Service C")
+			assert.Contains(t, notifications[0].Title, "3 Services DOWN")
+		}
+	})
+
+	t.Run("single service down gets individual notification", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create an UptimeHost
+		host := models.UptimeHost{
+			ID:     "test-host-2",
+			Host:   "192.168.1.101",
+			Name:   "Single Service Host",
+			Status: "up",
+		}
+		db.Create(&host)
+
+		monitor := models.UptimeMonitor{
+			ID:           "single-mon",
+			Name:         "Lonely Service",
+			UpstreamHost: "192.168.1.101",
+			UptimeHostID: &host.ID,
+			Status:       "up",
+			MaxRetries:   3,
+		}
+		db.Create(&monitor)
+
+		// Queue single down notification
+		us.queueDownNotification(monitor, "HTTP 502", "5h 30m")
+
+		// Flush
+		us.FlushPendingNotifications()
+
+		var notifications []models.Notification
+		db.Find(&notifications)
+		assert.Equal(t, 1, len(notifications), "Should have exactly 1 notification")
+
+		if len(notifications) > 0 {
+			assert.Contains(t, notifications[0].Title, "Lonely Service is DOWN")
+			assert.Contains(t, notifications[0].Message, "Previous Uptime: 5h 30m")
+		}
+	})
+}
+
+func TestUptimeService_HostLevelCheck(t *testing.T) {
+	t.Run("creates uptime host during sync", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host
+		proxyHost := models.ProxyHost{
+			UUID:        "ph-1",
+			DomainNames: "app.example.com",
+			ForwardHost: "10.0.0.50",
+			ForwardPort: 8080,
+		}
+		db.Create(&proxyHost)
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Verify UptimeHost was created
+		var uptimeHost models.UptimeHost
+		err = db.Where("host = ?", "10.0.0.50").First(&uptimeHost).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "10.0.0.50", uptimeHost.Host)
+		assert.Equal(t, "app.example.com", uptimeHost.Name)
+
+		// Verify monitor has uptime host ID
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", proxyHost.ID).First(&monitor)
+		assert.NotNil(t, monitor.UptimeHostID)
+		assert.Equal(t, uptimeHost.ID, *monitor.UptimeHostID)
+	})
+
+	t.Run("groups multiple services on same host", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create multiple proxy hosts pointing to the same forward host
+		hosts := []models.ProxyHost{
+			{UUID: "ph-1", DomainNames: "app1.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8080, Name: "App 1"},
+			{UUID: "ph-2", DomainNames: "app2.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8081, Name: "App 2"},
+			{UUID: "ph-3", DomainNames: "app3.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8082, Name: "App 3"},
+		}
+		for _, h := range hosts {
+			db.Create(&h)
+		}
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Should have only 1 UptimeHost for 10.0.0.100
+		var uptimeHosts []models.UptimeHost
+		db.Where("host = ?", "10.0.0.100").Find(&uptimeHosts)
+		assert.Equal(t, 1, len(uptimeHosts), "Should have exactly 1 UptimeHost for the shared IP")
+
+		// All 3 monitors should point to the same UptimeHost
+		var monitors []models.UptimeMonitor
+		db.Where("upstream_host = ?", "10.0.0.100").Find(&monitors)
+		assert.Equal(t, 3, len(monitors))
+
+		for _, m := range monitors {
+			assert.NotNil(t, m.UptimeHostID)
+			assert.Equal(t, uptimeHosts[0].ID, *m.UptimeHostID)
+		}
+	})
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		input    time.Duration
+		expected string
+	}{
+		{5 * time.Second, "5s"},
+		{65 * time.Second, "1m 5s"},
+		{3665 * time.Second, "1h 1m 5s"},
+		{90065 * time.Second, "1d 1h 1m"},
+		{0, "0s"},
+	}
+
+	for _, tc := range tests {
+		result := formatDuration(tc.input)
+		assert.Equal(t, tc.expected, result, "formatDuration(%v)", tc.input)
+	}
 }
