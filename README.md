@@ -4,10 +4,17 @@
 
 <h1 align="center">Charon</h1>
 
-<p align="center">
-  <strong>The friendly way to manage your reverse proxy</strong><br>
-  Point, click, done. No config files needed.
-</p>
+<p align="center"> <strong>The Gateway to Effortless Connectivity.</strong>
+
+
+Charon bridges the gap between the complex internet and your private services. Enjoy a simplified, visual management experience built specifically for the home server enthusiast. No code required—just safe passage. </p>
+
+<h1 align="center">Cerberus</h1>
+
+<p align="center"> <strong>The Guardian at the Gate.</strong>
+
+
+Ensure nothing passes without permission. Cerberus is a robust security suite featuring the Coraza WAF, deep CrowdSec integration, and granular rate-limiting. Always watching, always protecting. </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
@@ -111,6 +118,5 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) to get s
 
 <p align="center">
   <em>Built with ❤️ by <a href="https://github.com/Wikid82">@Wikid82</a></em><br>
-  <sub>Security Suite: Charon is powered by Cerberus — an optional security engine bundling WAF (Coraza), CrowdSec integrations, ACLs and rate-limiting.</sub>
   <sub>Powered by <a href="https://caddyserver.com/">Caddy Server</a> · Inspired by <a href="https://nginxproxymanager.com/">Nginx Proxy Manager</a> & <a href="https://pangolin.net/">Pangolin</a></sub>
 </p>
