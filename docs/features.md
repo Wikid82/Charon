@@ -32,7 +32,7 @@ Every site gets a free SSL certificate automatically. No configuration needed—
 
 ### Built-in Uptime Monitor
 Know instantly when your services go down. Get notifications via Discord, Slack, email, or webhooks when something isn't responding.
-→ [Uptime Monitoring Guide](uptime.md) *(coming soon)*
+→ [Uptime Monitoring Guide](uptime.html) *(coming soon)*
 
 ### Real-time Health Dashboard
 See the status of all your services at a glance. View response times, uptime history, and current availability from one dashboard.
@@ -79,7 +79,7 @@ CPMP reads container labels and exposed ports automatically. Less typing, fewer 
 
 ### Caddyfile Import
 Already using Caddy? Import your existing Caddyfile and CPMP will create proxies for each site automatically.
-→ [Import Guide](import-guide.md)
+→ [Import Guide](import-guide.html)
 
 ### NPM Migration *(coming soon)*
 Migrating from Nginx Proxy Manager? We'll import your configuration so you don't start from scratch.
@@ -122,7 +122,7 @@ Find what you're looking for quickly. Filter by status, search by name, or sort 
 
 ### RESTful API
 Automate everything through a complete REST API. Create proxies, manage certificates, and monitor uptime programmatically.
-→ [API Documentation](api.md)
+→ [API Documentation](api.html)
 
 ### Webhook Notifications
 Send events to any system that accepts webhooks. Integrate with your existing monitoring and automation tools.
@@ -159,10 +159,10 @@ Changes take effect immediately without downtime. Zero-downtime configuration up
 
 Each feature has detailed documentation:
 
-- [Getting Started](getting-started.md) - Your first proxy in 5 minutes
-- [Security Features](security.md) - Deep dive into security options
-- [API Reference](api.md) - Complete API documentation
-- [Import Guide](import-guide.md) - Migrating from other tools
+- [Getting Started](getting-started.html) - Your first proxy in 5 minutes
+- [Security Features](security.html) - Deep dive into security options
+- [API Reference](api.html) - Complete API documentation
+- [Import Guide](import-guide.html) - Migrating from other tools
 
 ---
 
