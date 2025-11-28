@@ -40,8 +40,9 @@ export default function Login() {
       await queryClient.invalidateQueries({ queryKey: ['setupStatus'] })
       toast.success('Logged in successfully')
       navigate('/')
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Login failed')
+    } catch (err) {
+      const error = err as { response?: { data?: { error?: string } } }
+      toast.error(error.response?.data?.error || 'Login failed')
     } finally {
       setLoading(false)
     }

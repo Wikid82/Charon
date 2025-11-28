@@ -21,7 +21,7 @@ export default function CertificateList() {
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
       toast.success('Certificate deleted')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to delete certificate: ${error.message}`)
     },
   })

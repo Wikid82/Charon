@@ -9,7 +9,7 @@ import { useForm } from 'react-hook-form';
 const ProviderForm: React.FC<{
   initialData?: Partial<NotificationProvider>;
   onClose: () => void;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: Partial<NotificationProvider>) => void;
 }> = ({ initialData, onClose, onSubmit }) => {
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: initialData || {
@@ -40,7 +40,7 @@ const ProviderForm: React.FC<{
 
   const handleTest = () => {
     const formData = watch();
-    testMutation.mutate(formData as any);
+    testMutation.mutate(formData as Partial<NotificationProvider>);
   };
 
   const type = watch('type');
@@ -197,7 +197,7 @@ const Notifications: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => updateProvider(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<NotificationProvider> }) => updateProvider(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notificationProviders'] });
       setEditingId(null);
@@ -214,7 +214,7 @@ const Notifications: React.FC = () => {
   const testMutation = useMutation({
     mutationFn: testProvider,
     onSuccess: () => alert('Test notification sent!'),
-    onError: (err: any) => alert(`Failed to send test: ${err.response?.data?.error || err.message}`),
+    onError: (err: Error) => alert(`Failed to send test: ${err.message}`),
   });
 
   if (isLoading) return <div>Loading...</div>;

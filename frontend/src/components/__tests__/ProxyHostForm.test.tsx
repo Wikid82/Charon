@@ -94,7 +94,7 @@ const renderWithClient = (ui: React.ReactElement) => {
 import { testProxyHostConnection } from '../../api/proxyHosts'
 
 describe('ProxyHostForm', () => {
-  const mockOnSubmit = vi.fn((_data: any) => Promise.resolve())
+  const mockOnSubmit = vi.fn(() => Promise.resolve())
   const mockOnCancel = vi.fn()
 
   beforeEach(() => {
@@ -183,7 +183,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('tests connection successfully', async () => {
-    (testProxyHostConnection as any).mockResolvedValue({})
+    vi.mocked(testProxyHostConnection).mockResolvedValue(undefined)
 
     renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
@@ -202,7 +202,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('handles connection test failure', async () => {
-    (testProxyHostConnection as any).mockRejectedValue(new Error('Connection failed'))
+    vi.mocked(testProxyHostConnection).mockRejectedValue(new Error('Connection failed'))
 
     renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />

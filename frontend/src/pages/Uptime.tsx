@@ -67,7 +67,7 @@ const MonitorCard: React.FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMo
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
         ))}
 
-        {history?.slice().reverse().map((beat: any, i: number) => (
+        {history?.slice().reverse().map((beat: { status: string; created_at: string; latency: number; message: string }, i: number) => (
           <div
             key={i}
             className={`flex-1 rounded-sm transition-all duration-200 hover:scale-110 ${

@@ -162,7 +162,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
       const result = await getMyIP();
       setNewIP(result.ip);
       toast.success(`Your IP: ${result.ip} (from ${result.source})`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch your IP address');
     } finally {
       setLoadingMyIP(false);
