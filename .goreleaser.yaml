@@ -1,0 +1,67 @@
+version: 2
+
+project_name: cpmp
+
+builds:
+  - id: cpmp
+    dir: backend
+    main: ./cmd/api
+    binary: cpmp
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  - id: packages
+    package_name: cpmp
+    vendor: CaddyProxyManagerPlus
+    homepage: https://github.com/Wikid82/CaddyProxyManagerPlus
+    maintainer: Wikid82
+    description: "Caddy Proxy Manager Plus - A powerful reverse proxy manager"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: ./backend/data/
+        dst: /var/lib/cpmp/data/
+        type: dir
+      - src: ./frontend/dist/
+        dst: /usr/share/cpmp/frontend/
+        type: dir
+    dependencies:
+      - libc6
+      - ca-certificates
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
