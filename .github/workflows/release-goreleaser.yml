@@ -34,10 +34,10 @@ jobs:
           npm ci
           npm run build
 
-      - name: Install Cross-Compilation Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install Cross-Compilation Tools (Zig)
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -47,9 +47,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.CPMP_TOKEN }}
-          # Cross-compile env vars
-          CC_linux_amd64: gcc
-          CXX_linux_amd64: g++
-          CC_linux_arm64: aarch64-linux-gnu-gcc
-          CXX_linux_arm64: aarch64-linux-gnu-g++
-          CGO_ENABLED: 1
+          # CGO settings are handled in .goreleaser.yaml via Zig
