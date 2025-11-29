@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to Backend (Docker)",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "substitutePath": [
+                {
+                    "from": "${workspaceFolder}",
+                    "to": "/app"
+                }
+            ],
+            "port": 2345,
+            "host": "127.0.0.1",
+            "showLog": true,
+            "trace": "log",
+            "logOutput": "rpc"
+        }
+    ]
+}
