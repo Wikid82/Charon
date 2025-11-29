@@ -98,7 +98,8 @@ type Match struct {
 type Handler map[string]interface{}
 
 // ReverseProxyHandler creates a reverse_proxy handler.
-func ReverseProxyHandler(dial string, enableWS bool) Handler {
+// application: "none", "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden"
+func ReverseProxyHandler(dial string, enableWS bool, application string) Handler {
 	h := Handler{
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
@@ -107,16 +108,46 @@ func ReverseProxyHandler(dial string, enableWS bool) Handler {
 		},
 	}
 
+	// Build headers configuration
+	headers := make(map[string]interface{})
+	requestHeaders := make(map[string]interface{})
+	setHeaders := make(map[string][]string)
+
+	// WebSocket support
 	if enableWS {
-		// Enable WebSocket support by preserving upgrade headers
-		h["headers"] = map[string]interface{}{
-			"request": map[string]interface{}{
-				"set": map[string][]string{
-					"Upgrade":    {"{http.request.header.Upgrade}"},
-					"Connection": {"{http.request.header.Connection}"},
-				},
-			},
-		}
+		setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
+		setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
+	}
+
+	// Application-specific headers for proper client IP forwarding
+	// These are critical for media servers behind tunnels/CGNAT
+	switch application {
+	case "plex":
+		// Pass-through common Plex headers for improved compatibility when proxying
+		setHeaders["X-Plex-Client-Identifier"] = []string{"{http.request.header.X-Plex-Client-Identifier}"}
+		setHeaders["X-Plex-Device"] = []string{"{http.request.header.X-Plex-Device}"}
+		setHeaders["X-Plex-Device-Name"] = []string{"{http.request.header.X-Plex-Device-Name}"}
+		setHeaders["X-Plex-Platform"] = []string{"{http.request.header.X-Plex-Platform}"}
+		setHeaders["X-Plex-Platform-Version"] = []string{"{http.request.header.X-Plex-Platform-Version}"}
+		setHeaders["X-Plex-Product"] = []string{"{http.request.header.X-Plex-Product}"}
+		setHeaders["X-Plex-Token"] = []string{"{http.request.header.X-Plex-Token}"}
+		setHeaders["X-Plex-Version"] = []string{"{http.request.header.X-Plex-Version}"}
+		// Also set X-Real-IP for accurate client IP reporting
+		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+	case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
+		// X-Real-IP is required by most apps to identify the real client
+		// Caddy already sets X-Forwarded-For and X-Forwarded-Proto by default
+		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		// Some apps also check these headers
+		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+	}
+
+	// Only add headers config if we have headers to set
+	if len(setHeaders) > 0 {
+		requestHeaders["set"] = setHeaders
+		headers["request"] = requestHeaders
+		h["headers"] = headers
 	}
 
 	return h

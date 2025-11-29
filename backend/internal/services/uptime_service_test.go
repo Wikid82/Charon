@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -20,7 +20,17 @@ func setupUptimeTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
-	err = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}, &models.Setting{}, &models.ProxyHost{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}, &models.RemoteServer{})
+	err = db.AutoMigrate(
+		&models.Notification{},
+		&models.NotificationProvider{},
+		&models.Setting{},
+		&models.ProxyHost{},
+		&models.UptimeMonitor{},
+		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.UptimeNotificationEvent{},
+		&models.RemoteServer{},
+	)
 	if err != nil {
 		t.Fatalf("Failed to migrate database: %v", err)
 	}
@@ -47,6 +57,14 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	go server.Serve(listener)
 	defer server.Close()
 
+	// Create a listener and close it immediately to get a free port that is definitely closed (DOWN)
+	downListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to start down listener: %v", err)
+	}
+	downAddr := downListener.Addr().(*net.TCPAddr)
+	downListener.Close()
+
 	// Seed ProxyHosts
 	// We use the listener address as the "DomainName" so the monitor checks this HTTP server
 	upHost := models.ProxyHost{
@@ -60,7 +78,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	downHost := models.ProxyHost{
 		UUID:        "uuid-2",
-		DomainNames: "down.example.com", // This won't resolve or connect
+		DomainNames: fmt.Sprintf("127.0.0.1:%d", downAddr.Port), // Use local closed port
 		ForwardHost: "127.0.0.1",
 		ForwardPort: 54321,
 		Enabled:     true,
@@ -80,9 +98,9 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	// We need to run it multiple times because default MaxRetries is 3
 	for i := 0; i < 3; i++ {
 		us.CheckAll()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Increased sleep slightly
 	}
-	time.Sleep(200 * time.Millisecond) // Increased wait time for HTTP check
+	time.Sleep(500 * time.Millisecond) // Increased wait time for checks to complete
 
 	// Verify Heartbeats
 	var heartbeats []models.UptimeHeartbeat
@@ -113,12 +131,18 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	// Run CheckAll multiple times to exceed MaxRetries
 	for i := 0; i < 3; i++ {
 		us.CheckAll()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	db.Where("proxy_host_id = ?", upHost.ID).First(&upMonitor)
 	assert.Equal(t, "down", upMonitor.Status)
+
+	// Flush any pending batched notifications
+	// The new batching system delays notifications by 30 seconds
+	// For testing, we manually trigger the flush
+	us.FlushPendingNotifications()
+	time.Sleep(100 * time.Millisecond)
 
 	db.Find(&notifications)
 	assert.Equal(t, 1, len(notifications), "Should have 1 notification now")
@@ -232,6 +256,414 @@ func TestUptimeService_SyncMonitors_Errors(t *testing.T) {
 		// Monitors remain (SyncMonitors doesn't clean orphans)
 		db.Find(&monitors)
 		assert.Equal(t, 1, len(monitors))
+	})
+}
+
+func TestUptimeService_SyncMonitors_NameSync(t *testing.T) {
+	t.Run("syncs name from proxy host when changed", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-1", Name: "Original Name", DomainNames: "test1.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Original Name", monitor.Name)
+
+		// Update host name
+		host.Name = "Updated Name"
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Updated Name", monitor.Name)
+	})
+
+	t.Run("uses domain name when proxy host name is empty", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-2", Name: "", DomainNames: "fallback.com, secondary.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "fallback.com", monitor.Name)
+	})
+
+	t.Run("updates monitor name when host name becomes empty", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{UUID: "test-3", Name: "Named Host", DomainNames: "domain.com", Enabled: true}
+		db.Create(&host)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "Named Host", monitor.Name)
+
+		// Clear host name
+		host.Name = ""
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "domain.com", monitor.Name)
+	})
+}
+
+func TestUptimeService_SyncMonitors_TCPMigration(t *testing.T) {
+	t.Run("migrates TCP monitor to HTTP for public URL", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "tcp-host",
+			Name:        "TCP Host",
+			DomainNames: "public.com",
+			ForwardHost: "backend.local",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Manually create old-style TCP monitor (simulating legacy data)
+		oldMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "TCP Host",
+			Type:        "tcp",
+			URL:         "backend.local:8080",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&oldMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "http", monitor.Type)
+		assert.Equal(t, "http://public.com", monitor.URL)
+	})
+
+	t.Run("does not migrate TCP monitor with custom URL", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "tcp-custom",
+			Name:        "Custom TCP",
+			DomainNames: "public.com",
+			ForwardHost: "backend.local",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create TCP monitor with custom URL (user-configured)
+		customMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "Custom TCP",
+			Type:        "tcp",
+			URL:         "custom.endpoint:9999",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&customMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		// Should NOT migrate - custom URL preserved
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "custom.endpoint:9999", monitor.URL)
+	})
+}
+
+func TestUptimeService_SyncMonitors_HTTPSUpgrade(t *testing.T) {
+	t.Run("upgrades HTTP to HTTPS when SSL forced", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "http-host",
+			Name:        "HTTP Host",
+			DomainNames: "secure.com",
+			SSLForced:   false,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create HTTP monitor
+		httpMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "HTTP Host",
+			Type:        "http",
+			URL:         "http://secure.com",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&httpMonitor)
+
+		// Sync first (no change expected)
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "http://secure.com", monitor.URL)
+
+		// Enable SSL forced
+		host.SSLForced = true
+		db.Save(&host)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		assert.Equal(t, "https://secure.com", monitor.URL)
+	})
+
+	t.Run("does not downgrade HTTPS when SSL not forced", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		host := models.ProxyHost{
+			UUID:        "https-host",
+			Name:        "HTTPS Host",
+			DomainNames: "secure.com",
+			SSLForced:   false,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Create HTTPS monitor
+		httpsMonitor := models.UptimeMonitor{
+			ProxyHostID: &host.ID,
+			Name:        "HTTPS Host",
+			Type:        "http",
+			URL:         "https://secure.com",
+			Interval:    60,
+			Enabled:     true,
+			Status:      "pending",
+		}
+		db.Create(&httpsMonitor)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", host.ID).First(&monitor)
+		// Should remain HTTPS
+		assert.Equal(t, "https://secure.com", monitor.URL)
+	})
+}
+
+func TestUptimeService_SyncMonitors_RemoteServers(t *testing.T) {
+	t.Run("creates monitor for new remote server", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Remote Backend",
+			Host:    "backend.local",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Remote Backend", monitor.Name)
+		assert.Equal(t, "http", monitor.Type)
+		assert.Equal(t, "http://backend.local:8080", monitor.URL)
+		assert.True(t, monitor.Enabled)
+	})
+
+	t.Run("creates TCP monitor for remote server without scheme", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "TCP Backend",
+			Host:    "tcp.backend",
+			Port:    3306,
+			Scheme:  "",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "tcp.backend:3306", monitor.URL)
+	})
+
+	t.Run("syncs remote server name changes", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Original Server",
+			Host:    "server.local",
+			Port:    8080,
+			Scheme:  "https",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Original Server", monitor.Name)
+
+		// Update server name
+		server.Name = "Renamed Server"
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "Renamed Server", monitor.Name)
+	})
+
+	t.Run("syncs remote server URL changes", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Server",
+			Host:    "old.host",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "http://old.host:8080", monitor.URL)
+
+		// Change host and port
+		server.Host = "new.host"
+		server.Port = 9090
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "http://new.host:9090", monitor.URL)
+	})
+
+	t.Run("syncs remote server enabled status", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Toggleable Server",
+			Host:    "server.local",
+			Port:    8080,
+			Scheme:  "http",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.True(t, monitor.Enabled)
+
+		// Disable server
+		server.Enabled = false
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.False(t, monitor.Enabled)
+	})
+
+	t.Run("syncs scheme change from TCP to HTTPS", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		server := models.RemoteServer{
+			Name:    "Scheme Changer",
+			Host:    "server.local",
+			Port:    443,
+			Scheme:  "",
+			Enabled: true,
+		}
+		db.Create(&server)
+
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		var monitor models.UptimeMonitor
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "tcp", monitor.Type)
+		assert.Equal(t, "server.local:443", monitor.URL)
+
+		// Change to HTTPS
+		server.Scheme = "https"
+		db.Save(&server)
+
+		err = us.SyncMonitors()
+		assert.NoError(t, err)
+
+		db.Where("remote_server_id = ?", server.ID).First(&monitor)
+		assert.Equal(t, "https", monitor.Type)
+		assert.Equal(t, "https://server.local:443", monitor.URL)
 	})
 }
 
@@ -553,4 +985,186 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		assert.Equal(t, 10, result.MaxRetries)
 		assert.Equal(t, 300, result.Interval)
 	})
+}
+
+func TestUptimeService_NotificationBatching(t *testing.T) {
+	t.Run("batches multiple service failures on same host", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create an UptimeHost
+		host := models.UptimeHost{
+			ID:     "test-host-1",
+			Host:   "192.168.1.100",
+			Name:   "Test Server",
+			Status: "up",
+		}
+		db.Create(&host)
+
+		// Create multiple monitors pointing to the same host
+		monitors := []models.UptimeMonitor{
+			{ID: "mon-1", Name: "Service A", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+			{ID: "mon-2", Name: "Service B", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+			{ID: "mon-3", Name: "Service C", UpstreamHost: "192.168.1.100", UptimeHostID: &host.ID, Status: "up", MaxRetries: 3},
+		}
+		for _, m := range monitors {
+			db.Create(&m)
+		}
+
+		// Queue down notifications for all three
+		us.queueDownNotification(monitors[0], "Connection refused", "1h 30m")
+		us.queueDownNotification(monitors[1], "Connection refused", "2h 15m")
+		us.queueDownNotification(monitors[2], "Connection refused", "45m")
+
+		// Verify all are batched together
+		us.notificationMutex.Lock()
+		pending, exists := us.pendingNotifications[host.ID]
+		us.notificationMutex.Unlock()
+
+		assert.True(t, exists, "Should have pending notification for host")
+		assert.Equal(t, 3, len(pending.downMonitors), "Should have 3 monitors in batch")
+
+		// Flush and verify single notification is sent
+		us.FlushPendingNotifications()
+
+		var notifications []models.Notification
+		db.Find(&notifications)
+		assert.Equal(t, 1, len(notifications), "Should have exactly 1 batched notification")
+
+		if len(notifications) > 0 {
+			// Should mention all three services
+			assert.Contains(t, notifications[0].Message, "Service A")
+			assert.Contains(t, notifications[0].Message, "Service B")
+			assert.Contains(t, notifications[0].Message, "Service C")
+			assert.Contains(t, notifications[0].Title, "3 Services DOWN")
+		}
+	})
+
+	t.Run("single service down gets individual notification", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create an UptimeHost
+		host := models.UptimeHost{
+			ID:     "test-host-2",
+			Host:   "192.168.1.101",
+			Name:   "Single Service Host",
+			Status: "up",
+		}
+		db.Create(&host)
+
+		monitor := models.UptimeMonitor{
+			ID:           "single-mon",
+			Name:         "Lonely Service",
+			UpstreamHost: "192.168.1.101",
+			UptimeHostID: &host.ID,
+			Status:       "up",
+			MaxRetries:   3,
+		}
+		db.Create(&monitor)
+
+		// Queue single down notification
+		us.queueDownNotification(monitor, "HTTP 502", "5h 30m")
+
+		// Flush
+		us.FlushPendingNotifications()
+
+		var notifications []models.Notification
+		db.Find(&notifications)
+		assert.Equal(t, 1, len(notifications), "Should have exactly 1 notification")
+
+		if len(notifications) > 0 {
+			assert.Contains(t, notifications[0].Title, "Lonely Service is DOWN")
+			assert.Contains(t, notifications[0].Message, "Previous Uptime: 5h 30m")
+		}
+	})
+}
+
+func TestUptimeService_HostLevelCheck(t *testing.T) {
+	t.Run("creates uptime host during sync", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host
+		proxyHost := models.ProxyHost{
+			UUID:        "ph-1",
+			DomainNames: "app.example.com",
+			ForwardHost: "10.0.0.50",
+			ForwardPort: 8080,
+		}
+		db.Create(&proxyHost)
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Verify UptimeHost was created
+		var uptimeHost models.UptimeHost
+		err = db.Where("host = ?", "10.0.0.50").First(&uptimeHost).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "10.0.0.50", uptimeHost.Host)
+		assert.Equal(t, "app.example.com", uptimeHost.Name)
+
+		// Verify monitor has uptime host ID
+		var monitor models.UptimeMonitor
+		db.Where("proxy_host_id = ?", proxyHost.ID).First(&monitor)
+		assert.NotNil(t, monitor.UptimeHostID)
+		assert.Equal(t, uptimeHost.ID, *monitor.UptimeHostID)
+	})
+
+	t.Run("groups multiple services on same host", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create multiple proxy hosts pointing to the same forward host
+		hosts := []models.ProxyHost{
+			{UUID: "ph-1", DomainNames: "app1.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8080, Name: "App 1"},
+			{UUID: "ph-2", DomainNames: "app2.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8081, Name: "App 2"},
+			{UUID: "ph-3", DomainNames: "app3.example.com", ForwardHost: "10.0.0.100", ForwardPort: 8082, Name: "App 3"},
+		}
+		for _, h := range hosts {
+			db.Create(&h)
+		}
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Should have only 1 UptimeHost for 10.0.0.100
+		var uptimeHosts []models.UptimeHost
+		db.Where("host = ?", "10.0.0.100").Find(&uptimeHosts)
+		assert.Equal(t, 1, len(uptimeHosts), "Should have exactly 1 UptimeHost for the shared IP")
+
+		// All 3 monitors should point to the same UptimeHost
+		var monitors []models.UptimeMonitor
+		db.Where("upstream_host = ?", "10.0.0.100").Find(&monitors)
+		assert.Equal(t, 3, len(monitors))
+
+		for _, m := range monitors {
+			assert.NotNil(t, m.UptimeHostID)
+			assert.Equal(t, uptimeHosts[0].ID, *m.UptimeHostID)
+		}
+	})
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		input    time.Duration
+		expected string
+	}{
+		{5 * time.Second, "5s"},
+		{65 * time.Second, "1m 5s"},
+		{3665 * time.Second, "1h 1m 5s"},
+		{90065 * time.Second, "1d 1h 1m"},
+		{0, "0s"},
+	}
+
+	for _, tc := range tests {
+		result := formatDuration(tc.input)
+		assert.Equal(t, tc.expected, result, "formatDuration(%v)", tc.input)
+	}
 }

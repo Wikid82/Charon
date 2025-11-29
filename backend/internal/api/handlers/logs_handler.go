@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 )
 
@@ -79,7 +79,7 @@ func (h *LogsHandler) Download(c *gin.Context) {
 
 	// Create a temporary file to serve a consistent snapshot
 	// This prevents Content-Length mismatches if the live log file grows during download
-	tmpFile, err := os.CreateTemp("", "cpmp-log-*.log")
+	tmpFile, err := os.CreateTemp("", "charon-log-*.log")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file"})
 		return
@@ -88,18 +88,18 @@ func (h *LogsHandler) Download(c *gin.Context) {
 
 	srcFile, err := os.Open(path)
 	if err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open log file"})
 		return
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }()
 
 	if _, err := io.Copy(tmpFile, srcFile); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy log file"})
 		return
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(tmpFile.Name())

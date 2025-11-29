@@ -1,0 +1,95 @@
+# ACME Staging Implementation Summary
+
+## What Was Added
+
+Added support for Let's Encrypt staging environment to prevent rate limiting during development and testing.
+
+## Changes Made
+
+### 1. Configuration (`backend/internal/config/config.go`)
+- Added `ACMEStaging bool` field to `Config` struct
+- Reads from `CHARON_ACME_STAGING` environment variable (legacy `CPM_ACME_STAGING` still supported)
+
+### 2. Caddy Manager (`backend/internal/caddy/manager.go`)
+- Added `acmeStaging bool` field to `Manager` struct
+- Updated `NewManager()` to accept `acmeStaging` parameter
+- Passes `acmeStaging` to `GenerateConfig()`
+
+### 3. Config Generation (`backend/internal/caddy/config.go`)
+- Updated `GenerateConfig()` signature to accept `acmeStaging bool`
+- When `acmeStaging=true`:
+  - Sets `ca` field to `https://acme-staging-v02.api.letsencrypt.org/directory`
+  - Applies to both "letsencrypt" and "both" SSL provider modes
+
+### 4. Route Registration (`backend/internal/api/routes/routes.go`)
+- Passes `cfg.ACMEStaging` to `caddy.NewManager()`
+
+### 5. Docker Compose (`docker-compose.local.yml`)
+- Added `CHARON_ACME_STAGING=true` environment variable for local development (legacy `CPM_ACME_STAGING` still supported)
+
+### 6. Tests
+- Updated all test files to pass new `acmeStaging` parameter
+- Added `TestGenerateConfig_ACMEStaging()` to verify behavior
+- All tests pass ✅
+
+### 7. Documentation
+- Created `/docs/acme-staging.md` - comprehensive guide
+- Updated `/docs/getting-started.md` - added environment variables section
+- Explained rate limits, staging vs production, and troubleshooting
+
+## Usage
+
+### Development (Avoid Rate Limits)
+```bash
+docker run -d \
+  -e CHARON_ACME_STAGING=true \
+  -p 8080:8080 \
+  ghcr.io/wikid82/charon:latest
+```
+
+### Production (Real Certificates)
+```bash
+docker run -d \
+  -p 8080:8080 \
+  ghcr.io/wikid82/charon:latest
+```
+
+## Verification
+
+Container logs confirm staging is active:
+```
+"ca":"https://acme-staging-v02.api.letsencrypt.org/directory"
+```
+
+## Benefits
+
+1. **No Rate Limits**: Test certificate issuance without hitting Let's Encrypt limits
+2. **Safe Testing**: Won't affect production certificate quotas
+3. **Easy Toggle**: Single environment variable to switch modes
+4. **Default Production**: Staging must be explicitly enabled
+5. **Well Documented**: Clear guides for users and developers
+
+## Test Results
+
+- ✅ All backend tests pass (`go test ./...`)
+- ✅ Config generation tests verify staging CA is set
+- ✅ Manager tests updated and passing
+- ✅ Handler tests updated and passing
+- ✅ Integration verified in running container
+
+## Files Modified
+
+- `backend/internal/config/config.go`
+- `backend/internal/caddy/config.go`
+- `backend/internal/caddy/manager.go`
+- `backend/internal/api/routes/routes.go`
+- `backend/internal/caddy/config_test.go`
+- `backend/internal/caddy/manager_test.go`
+- `backend/internal/caddy/client_test.go`
+- `backend/internal/api/handlers/proxy_host_handler_test.go`
+- `docker-compose.local.yml`
+
+## Files Created
+
+- `docs/acme-staging.md` - User guide
+- `ACME_STAGING_IMPLEMENTATION.md` - This summary

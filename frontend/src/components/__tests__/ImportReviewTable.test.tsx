@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import ImportReviewTable from '../ImportReviewTable'
 import { mockImportPreview } from '../../test/mockData'
 
@@ -76,11 +77,11 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    const dropdown = screen.getByRole('combobox')
-    fireEvent.change(dropdown, { target: { value: 'overwrite' } })
+    const dropdown = screen.getByRole('combobox') as HTMLSelectElement
+    await userEvent.selectOptions(dropdown, 'overwrite')
 
     const commitButton = screen.getByText('Commit Import')
-    fireEvent.click(commitButton)
+    await userEvent.click(commitButton)
 
     await waitFor(() => {
       expect(mockOnCommit).toHaveBeenCalledWith(
@@ -90,7 +91,7 @@ describe('ImportReviewTable', () => {
     })
   })
 
-  it('calls onCancel when cancel button is clicked', () => {
+  it('calls onCancel when cancel button is clicked', async () => {
     render(
       <ImportReviewTable
         hosts={mockImportPreview.hosts}
@@ -102,8 +103,8 @@ describe('ImportReviewTable', () => {
       />
     )
 
-    fireEvent.click(screen.getByText('Back'))
-    expect(mockOnCancel).toHaveBeenCalledOnce()
+    await userEvent.click(screen.getByText('Back'))
+    expect(mockOnCancel).toHaveBeenCalledTimes(1)
   })
 
   it('shows conflict indicator on conflicting hosts', () => {
@@ -123,7 +124,7 @@ describe('ImportReviewTable', () => {
     expect(screen.queryByText('No conflict')).not.toBeInTheDocument()
   })
 
-  it('expands and collapses conflict details', () => {
+  it('expands and collapses conflict details', async () => {
     const conflicts = ['test.example.com']
     const conflictDetails = {
       'test.example.com': {
@@ -161,7 +162,7 @@ describe('ImportReviewTable', () => {
 
     // Find and click expand button (it's the ▶ button)
     const expandButton = screen.getByText('▶')
-    fireEvent.click(expandButton)
+    await userEvent.click(expandButton)
 
     // Now should show details
     expect(screen.getByText('Current Configuration')).toBeInTheDocument()
@@ -171,13 +172,13 @@ describe('ImportReviewTable', () => {
 
     // Click collapse button
     const collapseButton = screen.getByText('▼')
-    fireEvent.click(collapseButton)
+    await userEvent.click(collapseButton)
 
     // Details should be hidden again
     expect(screen.queryByText('Current Configuration')).not.toBeInTheDocument()
   })
 
-  it('shows recommendation based on configuration differences', () => {
+  it('shows recommendation based on configuration differences', async () => {
     const conflicts = ['test.example.com']
     const conflictDetails = {
       'test.example.com': {
@@ -212,13 +213,13 @@ describe('ImportReviewTable', () => {
 
     // Expand to see recommendation
     const expandButton = screen.getByText('▶')
-    fireEvent.click(expandButton)
+    await userEvent.click(expandButton)
 
     // Should show recommendation about config changes (SSL differs)
     expect(screen.getByText(/different SSL or WebSocket settings/i)).toBeInTheDocument()
   })
 
-  it('highlights configuration differences', () => {
+  it('highlights configuration differences', async () => {
     const conflicts = ['test.example.com']
     const conflictDetails = {
       'test.example.com': {
@@ -252,7 +253,7 @@ describe('ImportReviewTable', () => {
     )
 
     const expandButton = screen.getByText('▶')
-    fireEvent.click(expandButton)
+    await userEvent.click(expandButton)
 
     // Check for differences being displayed
     expect(screen.getByText('https://192.168.1.2:9090')).toBeInTheDocument()

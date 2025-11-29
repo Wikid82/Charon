@@ -20,7 +20,7 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 
 		release := githubRelease{
 			TagName: "v1.0.0",
-			HTMLURL: "https://github.com/Wikid82/CaddyProxyManagerPlus/releases/tag/v1.0.0",
+			HTMLURL: "https://github.com/Wikid82/charon/releases/tag/v1.0.0",
 		}
 		json.NewEncoder(w).Encode(release)
 	}))
@@ -42,7 +42,7 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, info.Available)
 	assert.Equal(t, "v1.0.0", info.LatestVersion)
-	assert.Equal(t, "https://github.com/Wikid82/CaddyProxyManagerPlus/releases/tag/v1.0.0", info.ChangelogURL)
+	assert.Equal(t, "https://github.com/Wikid82/charon/releases/tag/v1.0.0", info.ChangelogURL)
 
 	// Test No Update Available
 	us.SetCurrentVersion("1.0.0")

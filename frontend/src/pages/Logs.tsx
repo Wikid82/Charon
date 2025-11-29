@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
 import { Card } from '../components/ui/Card';
 import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -8,10 +9,11 @@ import { LogFilters } from '../components/LogFilters';
 import { Button } from '../components/ui/Button';
 
 const Logs: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
 
   // Filter State
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [host, setHost] = useState('');
   const [status, setStatus] = useState('');
   const [level, setLevel] = useState('');

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
@@ -37,7 +37,7 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 	require.NotNil(t, config.Apps.HTTP)
 	require.Len(t, config.Apps.HTTP.Servers, 1)
 
-	server := config.Apps.HTTP.Servers["cpm_server"]
+	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
 	require.Contains(t, server.Listen, ":80")
 	require.Contains(t, server.Listen, ":443")
@@ -73,7 +73,7 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
-	require.Len(t, config.Apps.HTTP.Servers["cpm_server"].Routes, 2)
+	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
 }
 
 func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
@@ -91,7 +91,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 
-	route := config.Apps.HTTP.Servers["cpm_server"].Routes[0]
+	route := config.Apps.HTTP.Servers["charon_server"].Routes[0]
 	handler := route.Handle[0]
 
 	// Check WebSocket headers are present
@@ -112,7 +112,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false)
 	require.NoError(t, err)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
-	require.Empty(t, config.Apps.HTTP.Servers["cpm_server"].Routes)
+	require.Empty(t, config.Apps.HTTP.Servers["charon_server"].Routes)
 }
 
 func TestGenerateConfig_Logging(t *testing.T) {
@@ -159,7 +159,7 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
-	server := config.Apps.HTTP.Servers["cpm_server"]
+	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
 	// Should have 2 routes: 1 for location /api, 1 for main domain
 	require.Len(t, server.Routes, 2)

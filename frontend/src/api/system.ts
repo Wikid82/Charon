@@ -32,3 +32,13 @@ export const markNotificationRead = async (id: string): Promise<void> => {
 export const markAllNotificationsRead = async (): Promise<void> => {
   await client.post('/notifications/read-all');
 };
+
+export interface MyIPResponse {
+  ip: string;
+  source: string;
+}
+
+export const getMyIP = async (): Promise<MyIPResponse> => {
+  const response = await client.get<MyIPResponse>('/system/my-ip');
+  return response.data;
+};

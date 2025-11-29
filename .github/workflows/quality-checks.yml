@@ -22,8 +22,10 @@ jobs:
       - name: Run Go tests
         id: go-tests
         working-directory: backend
+        env:
+          CGO_ENABLED: 1
         run: |
-          go test -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
+          go test -race -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Go Test Summary
@@ -45,13 +47,12 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./backend/coverage.out
-          flags: backend
-          fail_ci_if_error: true
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+
+      - name: Enforce module-specific coverage (backend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --backend-only
+        continue-on-error: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
@@ -78,11 +79,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run frontend tests
+      - name: Run frontend tests and coverage
         id: frontend-tests
-        working-directory: frontend
+        working-directory: ${{ github.workspace }}
         run: |
-          npm run test:coverage 2>&1 | tee test-output.txt
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Frontend Test Summary
@@ -106,13 +107,12 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./frontend/coverage
-          flags: frontend
-          fail_ci_if_error: true
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+
+      - name: Enforce module-specific coverage (frontend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --frontend-only
+        continue-on-error: false
 
       - name: Run frontend lint
         working-directory: frontend

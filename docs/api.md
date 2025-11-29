@@ -1,6 +1,6 @@
 # API Documentation
 
-CaddyProxyManager+ REST API documentation. All endpoints return JSON and use standard HTTP status codes.
+Charon REST API documentation. All endpoints return JSON and use standard HTTP status codes.
 
 ## Base URL
 
@@ -665,5 +665,5 @@ test_result = requests.post(f'{API_BASE}/remote-servers/{uuid}/test').json()
 ## Support
 
 For API issues or questions:
-- GitHub Issues: https://github.com/Wikid82/CaddyProxyManagerPlus/issues
-- Discussions: https://github.com/Wikid82/CaddyProxyManagerPlus/discussions
+- GitHub Issues: https://github.com/Wikid82/charon/issues
+- Discussions: https://github.com/Wikid82/charon/discussions

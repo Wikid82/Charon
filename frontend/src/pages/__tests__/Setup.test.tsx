@@ -1,4 +1,5 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -70,8 +71,11 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
+
+    // Verify logo is present
+    expect(screen.getAllByAltText('Charon').length).toBeGreaterThan(0);
 
     expect(screen.getByLabelText('Name')).toBeTruthy();
     expect(screen.getByLabelText('Email Address')).toBeTruthy();
@@ -84,7 +88,7 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.queryByText('Welcome to CPM+')).toBeNull();
+      expect(screen.queryByText('Welcome to Charon')).toBeNull();
     });
 
     await waitFor(() => {
@@ -99,14 +103,14 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
 
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Admin' } });
-    fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'admin@example.com' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Name'), 'Admin')
+    await user.type(screen.getByLabelText('Email Address'), 'admin@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }))
 
     await waitFor(() => {
       expect(setupApi.performSetup).toHaveBeenCalledWith({
@@ -130,14 +134,14 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
 
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Admin' } });
-    fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'admin@example.com' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Name'), 'Admin')
+    await user.type(screen.getByLabelText('Email Address'), 'admin@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }))
 
     await waitFor(() => {
       expect(screen.getByText('Setup failed')).toBeTruthy();

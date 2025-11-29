@@ -1,0 +1,58 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "charon_server": {
+          "listen": [
+            ":80",
+            ":443"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "rewrite",
+                  "uri": "/unknown.html"
+                },
+                {
+                  "handler": "file_server",
+                  "root": "/app/frontend/dist"
+                }
+              ],
+              "terminal": true
+            }
+          ],
+          "automatic_https": {},
+          "logs": {
+            "default_logger_name": "access_log"
+          }
+        }
+      }
+    }
+  },
+  "logging": {
+    "logs": {
+      "access": {
+        "writer": {
+          "output": "file",
+          "filename": "/app/data/logs/access.log",
+          "roll": true,
+          "roll_size_mb": 10,
+          "roll_keep": 5,
+          "roll_keep_days": 7
+        },
+        "encoder": {
+          "format": "json"
+        },
+        "level": "INFO",
+        "include": [
+          "http.log.access.access_log"
+        ]
+      }
+    }
+  },
+  "storage": {
+    "module": "file_system",
+    "root": "/app/data/caddy/data"
+  }
+}

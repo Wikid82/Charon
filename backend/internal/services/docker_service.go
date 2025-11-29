@@ -49,7 +49,7 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote client: %w", err)
 		}
-		defer cli.Close()
+		defer func() { _ = cli.Close() }()
 	}
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: false})

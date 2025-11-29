@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // RemoteServerHandler handles HTTP requests for remote server management.
@@ -179,12 +179,12 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 		server.Reachable = false
 		now := time.Now().UTC()
 		server.LastChecked = &now
-		h.service.Update(server)
+		_ = h.service.Update(server)
 
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Connection successful
 	result["reachable"] = true
@@ -194,7 +194,7 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 	server.Reachable = true
 	now := time.Now().UTC()
 	server.LastChecked = &now
-	h.service.Update(server)
+	_ = h.service.Update(server)
 
 	c.JSON(http.StatusOK, result)
 }
@@ -227,7 +227,7 @@ func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Connection successful
 	result["reachable"] = true

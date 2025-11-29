@@ -15,7 +15,7 @@ export default function Domains() {
     try {
       await createDomain(newDomain)
       setNewDomain('')
-    } catch (err) {
+    } catch {
       alert('Failed to create domain')
     } finally {
       setIsSubmitting(false)
@@ -26,7 +26,7 @@ export default function Domains() {
     if (confirm('Are you sure you want to delete this domain?')) {
       try {
         await deleteDomain(uuid)
-      } catch (err) {
+      } catch {
         alert('Failed to delete domain')
       }
     }
