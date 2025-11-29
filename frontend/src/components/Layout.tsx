@@ -94,7 +94,9 @@ export default function Layout({ children }: LayoutProps) {
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
            {isCollapsed ? (
-             <img src="/logo.png" alt="Charon" className="h-12 w-10" />
+                                <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
+
+
            ) : (
              <img src="/banner.png" alt="Charon" className="h-16 w-auto" />
            )}

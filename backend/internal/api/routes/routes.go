@@ -32,6 +32,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.ImportSession{},
 		&models.Notification{},
 		&models.NotificationProvider{},
+		&models.NotificationTemplate{},
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
 		&models.UptimeHost{},
@@ -162,6 +163,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
 		protected.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
 		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
+
+		// External notification templates (saved templates for providers)
+		notificationTemplateHandler := handlers.NewNotificationTemplateHandler(notificationService)
+		protected.GET("/notifications/external-templates", notificationTemplateHandler.List)
+		protected.POST("/notifications/external-templates", notificationTemplateHandler.Create)
+		protected.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
+		protected.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
+		protected.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
 
 		// Start background checker (every 1 minute)
 		go func() {
