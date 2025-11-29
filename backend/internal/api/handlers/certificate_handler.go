@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 type CertificateHandler struct {
@@ -65,14 +65,14 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open cert file"})
 		return
 	}
-	defer certSrc.Close()
+	defer func() { _ = certSrc.Close() }()
 
 	keySrc, err := keyFile.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open key file"})
 		return
 	}
-	defer keySrc.Close()
+	defer func() { _ = keySrc.Close() }()
 
 	// Read to string
 	// Limit size to avoid DoS (e.g. 1MB)

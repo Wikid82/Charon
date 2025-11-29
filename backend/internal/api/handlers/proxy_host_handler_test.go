@@ -15,9 +15,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -335,4 +335,185 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+func TestProxyHostHandler_BulkUpdateACL_Success(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Create an access list
+	acl := &models.AccessList{
+		Name:    "Test ACL",
+		Type:    "ip",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(acl).Error)
+
+	// Create multiple proxy hosts
+	host1 := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Host 1",
+		DomainNames:   "host1.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8001,
+		Enabled:       true,
+	}
+	host2 := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Host 2",
+		DomainNames:   "host2.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8002,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host1).Error)
+	require.NoError(t, db.Create(host2).Error)
+
+	// Apply ACL to both hosts
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"access_list_id":%d}`, host1.UUID, host2.UUID, acl.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-acl", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(2), result["updated"])
+	require.Empty(t, result["errors"])
+
+	// Verify hosts have ACL assigned
+	var updatedHost1 models.ProxyHost
+	require.NoError(t, db.First(&updatedHost1, "uuid = ?", host1.UUID).Error)
+	require.NotNil(t, updatedHost1.AccessListID)
+	require.Equal(t, acl.ID, *updatedHost1.AccessListID)
+
+	var updatedHost2 models.ProxyHost
+	require.NoError(t, db.First(&updatedHost2, "uuid = ?", host2.UUID).Error)
+	require.NotNil(t, updatedHost2.AccessListID)
+	require.Equal(t, acl.ID, *updatedHost2.AccessListID)
+}
+
+func TestProxyHostHandler_BulkUpdateACL_RemoveACL(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Create an access list
+	acl := &models.AccessList{
+		Name:    "Test ACL",
+		Type:    "ip",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(acl).Error)
+
+	// Create proxy host with ACL
+	host := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Host with ACL",
+		DomainNames:   "acl-host.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8000,
+		AccessListID:  &acl.ID,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Remove ACL (access_list_id: null)
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"access_list_id":null}`, host.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-acl", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+	require.Empty(t, result["errors"])
+
+	// Verify ACL removed
+	var updatedHost models.ProxyHost
+	require.NoError(t, db.First(&updatedHost, "uuid = ?", host.UUID).Error)
+	require.Nil(t, updatedHost.AccessListID)
+}
+
+func TestProxyHostHandler_BulkUpdateACL_PartialFailure(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Create an access list
+	acl := &models.AccessList{
+		Name:    "Test ACL",
+		Type:    "ip",
+		Enabled: true,
+	}
+	require.NoError(t, db.Create(acl).Error)
+
+	// Create one valid host
+	host := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Valid Host",
+		DomainNames:   "valid.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8000,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to update valid host + non-existent host
+	nonExistentUUID := uuid.NewString()
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"access_list_id":%d}`, host.UUID, nonExistentUUID, acl.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-acl", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+
+	errors := result["errors"].([]interface{})
+	require.Len(t, errors, 1)
+	errorMap := errors[0].(map[string]interface{})
+	require.Equal(t, nonExistentUUID, errorMap["uuid"])
+	require.Equal(t, "proxy host not found", errorMap["error"])
+
+	// Verify valid host was updated
+	var updatedHost models.ProxyHost
+	require.NoError(t, db.First(&updatedHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updatedHost.AccessListID)
+	require.Equal(t, acl.ID, *updatedHost.AccessListID)
+}
+
+func TestProxyHostHandler_BulkUpdateACL_EmptyUUIDs(t *testing.T) {
+	router, _ := setupTestRouter(t)
+
+	body := `{"host_uuids":[],"access_list_id":1}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-acl", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "host_uuids cannot be empty")
+}
+
+func TestProxyHostHandler_BulkUpdateACL_InvalidJSON(t *testing.T) {
+	router, _ := setupTestRouter(t)
+
+	body := `{"host_uuids": invalid json}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-acl", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
 }

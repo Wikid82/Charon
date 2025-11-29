@@ -16,8 +16,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func setupImportTestDB(t *testing.T) *gorm.DB {
@@ -837,6 +837,23 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 		payload := map[string]interface{}{
 			"files": []map[string]string{
 				{"filename": "sites/site1", "content": "site1.com"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("path traversal in filename", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "Caddyfile", "content": "import sites/*\n"},
+				{"filename": "../etc/passwd", "content": "sensitive"},
 			},
 		}
 		body, _ := json.Marshal(payload)

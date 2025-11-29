@@ -2,10 +2,11 @@
 
 ## Overview
 
-CaddyProxyManager+ supports using Let's Encrypt's staging environment for development and testing. This prevents rate limiting issues when frequently rebuilding/testing SSL certificates.
+Charon supports using Let's Encrypt's staging environment for development and testing. This prevents rate limiting issues when frequently rebuilding/testing SSL certificates.
 
 ## Configuration
 
+Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode. `CPM_ACME_STAGING` is still supported as a legacy fallback:
 Set the `CPM_ACME_STAGING` environment variable to `true` to enable staging mode:
 
 ```bash
@@ -24,7 +25,7 @@ environment:
 When enabled:
 - Caddy will use `https://acme-staging-v02.api.letsencrypt.org/directory` instead of production
 - Certificates issued will be **fake/invalid** for browsers (untrusted)
-- **No rate limits** apply to staging certificates
+      - CHARON_ENV=development
 - Perfect for development, testing, and CI/CD
 
 ## Production Use
@@ -33,7 +34,7 @@ For production deployments:
 - **Remove** or set `CPM_ACME_STAGING=false`
 - Caddy will use the production Let's Encrypt server by default
 - Certificates will be valid and trusted by browsers
-- Subject to [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/)
+      - CHARON_ENV=production
 
 ## Docker Compose Examples
 
@@ -49,43 +50,41 @@ services:
 ### Production (docker-compose.yml)
 ```yaml
 services:
-  app:
-    environment:
-      - CPM_ENV=production
-      # CPM_ACME_STAGING not set (defaults to false)
-```
-
 ## Verifying Configuration
-
 Check container logs to confirm staging is active:
-
 ```bash
-docker logs cpmp 2>&1 | grep acme-staging
-```
-
+docker logs charon 2>&1 | grep acme-staging
+export CHARON_ACME_STAGING=true
+Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode. `CHARON_` is preferred; `CPM_` variables are still supported as a legacy fallback.
+Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode:
 You should see:
 ```
-"ca":"https://acme-staging-v02.api.letsencrypt.org/directory"
+export CHARON_ACME_STAGING=true
 ```
 
 ## Rate Limits Reference
 
-### Production (CPM_ACME_STAGING=false or unset)
+  - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
 - 50 certificates per registered domain per week
 - 5 duplicate certificates per week
 - 300 new orders per account per 3 hours
 - 10 accounts per IP address per 3 hours
-
-### Staging (CPM_ACME_STAGING=true)
+      - CHARON_ENV=development
+      - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
 - **No practical rate limits**
-- Certificates are not trusted by browsers
+ - **Remove** or set `CHARON_ACME_STAGING=false` (CPM_ still supported)
 - Perfect for development and testing
+  - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
+### Staging (CHARON_ACME_STAGING=true)
 
-## Troubleshooting
-
+1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
 ### "Certificate not trusted" in browser
+1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
+1. Set `CHARON_ACME_STAGING=true`
 This is **expected** when using staging. Staging certificates are signed by a fake CA that browsers don't recognize.
 
+1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
+1. Set `CHARON_ACME_STAGING=true`
 ### Switching from staging to production
 1. Set `CPM_ACME_STAGING=false` (or remove the variable)
 2. Restart the container
@@ -97,8 +96,8 @@ This is **expected** when using staging. Staging certificates are signed by a fa
 
    **Option B - Via Terminal:**
    ```bash
-   docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*
-   docker exec cpmp rm -rf /data/acme/acme-staging*
+  docker exec charon rm -rf /app/data/caddy/data/acme/acme-staging*
+  docker exec charon rm -rf /data/acme/acme-staging*
    ```
 
 4. Certificates will be automatically reissued from production on next request
@@ -108,8 +107,8 @@ This is **expected** when using staging. Staging certificates are signed by a fa
 2. Restart the container
 3. **Optional:** Delete production certificates to force immediate reissue
    ```bash
-   docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-v02.api.letsencrypt.org-directory
-   docker exec cpmp rm -rf /data/acme/acme-v02.api.letsencrypt.org-directory
+  docker exec charon rm -rf /app/data/caddy/data/acme/acme-v02.api.letsencrypt.org-directory
+  docker exec charon rm -rf /data/acme/acme-v02.api.letsencrypt.org-directory
    ```
 
 ### Cleaning up old certificates
@@ -117,14 +116,14 @@ Caddy automatically manages certificate renewal and cleanup. However, if you nee
 
 **Remove all ACME certificates (both staging and production):**
 ```bash
-docker exec cpmp rm -rf /app/data/caddy/data/acme/*
-docker exec cpmp rm -rf /data/acme/*
+docker exec charon rm -rf /app/data/caddy/data/acme/*
+docker exec charon rm -rf /data/acme/*
 ```
 
 **Remove only staging certificates:**
 ```bash
-docker exec cpmp rm -rf /app/data/caddy/data/acme/acme-staging*
-docker exec cpmp rm -rf /data/acme/acme-staging*
+docker exec charon rm -rf /app/data/caddy/data/acme/acme-staging*
+ docker exec charon rm -rf /data/acme/acme-staging*
 ```
 
 After deletion, restart your proxy hosts or container to trigger fresh certificate requests.

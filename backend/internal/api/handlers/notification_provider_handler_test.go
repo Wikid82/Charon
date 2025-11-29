@@ -13,9 +13,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
@@ -29,12 +29,14 @@ func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	r := gin.Default()
 	api := r.Group("/api/v1")
-	providers := api.Group("/notification-providers")
+	providers := api.Group("/notifications/providers")
 	providers.GET("", handler.List)
+	providers.POST("/preview", handler.Preview)
 	providers.POST("", handler.Create)
 	providers.PUT("/:id", handler.Update)
 	providers.DELETE("/:id", handler.Delete)
 	providers.POST("/test", handler.Test)
+	api.GET("/notifications/templates", handler.Templates)
 
 	return r, db
 }
@@ -49,7 +51,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 		URL:  "https://discord.com/api/webhooks/...",
 	}
 	body, _ := json.Marshal(provider)
-	req, _ := http.NewRequest("POST", "/api/v1/notification-providers", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -61,7 +63,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	assert.NotEmpty(t, created.ID)
 
 	// 2. List
-	req, _ = http.NewRequest("GET", "/api/v1/notification-providers", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/notifications/providers", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -73,7 +75,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	// 3. Update
 	created.Name = "Updated Discord"
 	body, _ = json.Marshal(created)
-	req, _ = http.NewRequest("PUT", "/api/v1/notification-providers/"+created.ID, bytes.NewBuffer(body))
+	req, _ = http.NewRequest("PUT", "/api/v1/notifications/providers/"+created.ID, bytes.NewBuffer(body))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -88,7 +90,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	assert.Equal(t, "Updated Discord", dbProvider.Name)
 
 	// 4. Delete
-	req, _ = http.NewRequest("DELETE", "/api/v1/notification-providers/"+created.ID, nil)
+	req, _ = http.NewRequest("DELETE", "/api/v1/notifications/providers/"+created.ID, nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -97,6 +99,20 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	var count int64
 	db.Model(&models.NotificationProvider{}).Count(&count)
 	assert.Equal(t, int64(0), count)
+}
+
+func TestNotificationProviderHandler_Templates(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/templates", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var templates []map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &templates)
+	require.NoError(t, err)
+	assert.Len(t, templates, 3)
 }
 
 func TestNotificationProviderHandler_Test(t *testing.T) {
@@ -113,7 +129,7 @@ func TestNotificationProviderHandler_Test(t *testing.T) {
 		URL:  "invalid-url",
 	}
 	body, _ := json.Marshal(provider)
-	req, _ := http.NewRequest("POST", "/api/v1/notification-providers/test", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -125,19 +141,90 @@ func TestNotificationProviderHandler_Errors(t *testing.T) {
 	r, _ := setupNotificationProviderTest(t)
 
 	// Create Invalid JSON
-	req, _ := http.NewRequest("POST", "/api/v1/notification-providers", bytes.NewBuffer([]byte("invalid")))
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer([]byte("invalid")))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// Update Invalid JSON
-	req, _ = http.NewRequest("PUT", "/api/v1/notification-providers/123", bytes.NewBuffer([]byte("invalid")))
+	req, _ = http.NewRequest("PUT", "/api/v1/notifications/providers/123", bytes.NewBuffer([]byte("invalid")))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// Test Invalid JSON
-	req, _ = http.NewRequest("POST", "/api/v1/notification-providers/test", bytes.NewBuffer([]byte("invalid")))
+	req, _ = http.NewRequest("POST", "/api/v1/notifications/providers/test", bytes.NewBuffer([]byte("invalid")))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_InvalidCustomTemplate_Rejects(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// Create with invalid custom template should return 400
+	provider := models.NotificationProvider{
+		Name:     "Bad",
+		Type:     "webhook",
+		URL:      "http://example.com",
+		Template: "custom",
+		Config:   `{"broken": "{{.Title"}`,
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// Create valid and then attempt update to invalid custom template
+	provider = models.NotificationProvider{
+		Name:     "Good",
+		Type:     "webhook",
+		URL:      "http://example.com",
+		Template: "minimal",
+	}
+	body, _ = json.Marshal(provider)
+	req, _ = http.NewRequest("POST", "/api/v1/notifications/providers", bytes.NewBuffer(body))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var created models.NotificationProvider
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+
+	created.Template = "custom"
+	created.Config = `{"broken": "{{.Title"}`
+	body, _ = json.Marshal(created)
+	req, _ = http.NewRequest("PUT", "/api/v1/notifications/providers/"+created.ID, bytes.NewBuffer(body))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationProviderHandler_Preview(t *testing.T) {
+	r, _ := setupNotificationProviderTest(t)
+
+	// Minimal template preview
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      "http://example.com",
+		Template: "minimal",
+	}
+	body, _ := json.Marshal(provider)
+	req, _ := http.NewRequest("POST", "/api/v1/notifications/providers/preview", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "rendered")
+	assert.Contains(t, resp, "parsed")
+
+	// Invalid template should not succeed
+	provider.Config = `{"broken": "{{.Title"}`
+	provider.Template = "custom"
+	body, _ = json.Marshal(provider)
+	req, _ = http.NewRequest("POST", "/api/v1/notifications/providers/preview", bytes.NewBuffer(body))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func TestValidate_EmptyConfig(t *testing.T) {
@@ -41,13 +41,13 @@ func TestValidate_DuplicateHosts(t *testing.T) {
 							{
 								Match: []Match{{Host: []string{"test.com"}}},
 								Handle: []Handler{
-									ReverseProxyHandler("app:8080", false),
+									ReverseProxyHandler("app:8080", false, "none"),
 								},
 							},
 							{
 								Match: []Match{{Host: []string{"test.com"}}},
 								Handle: []Handler{
-									ReverseProxyHandler("app2:8080", false),
+									ReverseProxyHandler("app2:8080", false, "none"),
 								},
 							},
 						},

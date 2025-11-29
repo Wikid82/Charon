@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// Test hook for json marshalling to allow simulating failures in tests
+var jsonMarshalClient = json.Marshal
+
 // Client wraps the Caddy admin API.
 type Client struct {
 	baseURL    string
@@ -29,7 +32,7 @@ func NewClient(adminAPIURL string) *Client {
 // Load atomically replaces Caddy's entire configuration.
 // This is the primary method for applying configuration changes.
 func (c *Client) Load(ctx context.Context, config *Config) error {
-	body, err := json.Marshal(config)
+	body, err := jsonMarshalClient(config)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

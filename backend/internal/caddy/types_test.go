@@ -18,7 +18,7 @@ func TestHandlers(t *testing.T) {
 	assert.Equal(t, "/var/www/html", h["root"])
 
 	// Test ReverseProxyHandler
-	h = ReverseProxyHandler("localhost:8080", true)
+	h = ReverseProxyHandler("localhost:8080", true, "plex")
 	assert.Equal(t, "reverse_proxy", h["handler"])
 
 	// Test HeaderHandler

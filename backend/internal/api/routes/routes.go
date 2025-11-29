@@ -8,12 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/middleware"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/cerberus"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // Register wires up API routes and performs automatic migrations.
@@ -31,8 +32,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.ImportSession{},
 		&models.Notification{},
 		&models.NotificationProvider{},
+		&models.NotificationTemplate{},
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
+		&models.UptimeHost{},
+		&models.UptimeNotificationEvent{},
 		&models.Domain{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
@@ -56,6 +60,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	router.GET("/api/v1/health", handlers.HealthHandler)
 
 	api := router.Group("/api/v1")
+
+	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
+	cerb := cerberus.New(cfg.Security, db)
+	api.Use(cerb.Middleware())
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
@@ -114,6 +122,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		updateHandler := handlers.NewUpdateHandler(updateService)
 		protected.GET("/system/updates", updateHandler.Check)
 
+		// System info
+		systemHandler := handlers.NewSystemHandler()
+		protected.GET("/system/my-ip", systemHandler.GetMyIP)
+
 		// Notifications
 		notificationHandler := handlers.NewNotificationHandler(notificationService)
 		protected.GET("/notifications", notificationHandler.List)
@@ -149,6 +161,16 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
 		protected.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
 		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
+		protected.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
+		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
+
+		// External notification templates (saved templates for providers)
+		notificationTemplateHandler := handlers.NewNotificationTemplateHandler(notificationService)
+		protected.GET("/notifications/external-templates", notificationTemplateHandler.List)
+		protected.POST("/notifications/external-templates", notificationTemplateHandler.Create)
+		protected.PUT("/notifications/external-templates/:id", notificationTemplateHandler.Update)
+		protected.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
+		protected.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
 
 		// Start background checker (every 1 minute)
 		go func() {
@@ -161,7 +183,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
-				uptimeService.SyncMonitors()
+				_ = uptimeService.SyncMonitors()
 				uptimeService.CheckAll()
 			}
 		}()
@@ -170,6 +192,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			go uptimeService.CheckAll()
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
+
+		// Security Status
+		securityHandler := handlers.NewSecurityHandler(cfg.Security, db)
+		protected.GET("/security/status", securityHandler.GetStatus)
 	}
 
 	// Caddy Manager
@@ -181,6 +207,16 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
+
+	// Access Lists
+	accessListHandler := handlers.NewAccessListHandler(db)
+	protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
+	protected.GET("/access-lists", accessListHandler.List)
+	protected.POST("/access-lists", accessListHandler.Create)
+	protected.GET("/access-lists/:id", accessListHandler.Get)
+	protected.PUT("/access-lists/:id", accessListHandler.Update)
+	protected.DELETE("/access-lists/:id", accessListHandler.Delete)
+	protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
 
 	userHandler := handlers.NewUserHandler(db)
 	userHandler.RegisterRoutes(api)

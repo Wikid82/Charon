@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
+import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
 import client from '../api/client'
@@ -28,6 +29,7 @@ export default function SystemSettings() {
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('letsencrypt')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
+  const [cerberusEnabled, setCerberusEnabled] = useState(false)
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -41,6 +43,7 @@ export default function SystemSettings() {
       if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
       if (settings['caddy.ssl_provider']) setSslProvider(settings['caddy.ssl_provider'])
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
+      if (settings['security.cerberus.enabled']) setCerberusEnabled(settings['security.cerberus.enabled'] === 'true')
     }
   }, [settings])
 
@@ -72,12 +75,13 @@ export default function SystemSettings() {
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
+      await updateSetting('security.cerberus.enabled', cerberusEnabled ? 'true' : 'false', 'security', 'bool')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('System settings saved')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to save settings: ${error.message}`)
     },
   })
@@ -137,6 +141,22 @@ export default function SystemSettings() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               Control how domain links open in the Proxy Hosts list.
             </p>
+          </div>
+
+          {/* Cerberus Security Toggle */}
+          <div className="w-full">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+              Enable Cerberus Security
+            </label>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={cerberusEnabled}
+                onChange={(e) => setCerberusEnabled(e.target.checked)}
+              />
+              <p className="text-sm text-gray-500 dark:text-gray-400 -mt-1">
+                Optional suite that includes WAF, ACLs, Rate Limiting, and CrowdSec integration.
+              </p>
+            </div>
           </div>
 
           <div className="flex justify-end">
