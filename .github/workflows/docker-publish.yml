@@ -6,8 +6,7 @@ on:
       - main
       - development
       - feature/beta-release
-    tags:
-      - 'v*.*.*'
+    # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
   pull_request:
     branches:
       - main
@@ -18,7 +17,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/cpmp
+  IMAGE_NAME: ${{ github.repository_owner }}/charon
 
 jobs:
   build-and-push:
@@ -35,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Normalize image name
         run: |
@@ -70,11 +69,11 @@ jobs:
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
         if: steps.skip.outputs.skip_build != 'true'
-        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Resolve Caddy base digest
         if: steps.skip.outputs.skip_build != 'true'
@@ -84,34 +83,42 @@ jobs:
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
+      - name: Choose Registry Token
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        run: |
+          if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
+            echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+          fi
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.CPMP_TOKEN }}
+          password: ${{ env.REGISTRY_PASSWORD }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
         id: meta
-        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5.5.1
+        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
             type=raw,value=beta,enable=${{ github.ref == 'refs/heads/feature/beta-release' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
             type=raw,value=pr-${{ github.ref_name }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
 
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
-        uses: docker/build-push-action@v6 # v6.9.0
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
@@ -128,7 +135,7 @@ jobs:
 
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
-        uses: aquasecurity/trivy-action@0.28.0 # 0.28.0
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'table'
@@ -139,7 +146,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (SARIF)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         id: trivy
-        uses: aquasecurity/trivy-action@0.28.0 # 0.28.0
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: 'sarif'
@@ -159,7 +166,7 @@ jobs:
 
       - name: Upload Trivy results
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@f079b8493333aace61c81488f8bd40919487bd9f # v3.26.13
+        uses: github/codeql-action/upload-sarif@fdbfb4d2750291e159f0156def62b853c2798ca2 # v4.31.5
         with:
           sarif_file: 'trivy-results.sarif'
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -184,6 +191,9 @@ jobs:
     if: needs.build-and-push.outputs.skip_build != 'true' && github.event_name != 'pull_request'
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
       - name: Normalize image name
         run: |
           raw="${{ github.repository_owner }}/${{ github.event.repository.name }}"
@@ -202,38 +212,47 @@ jobs:
             echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
+      - name: Choose Registry Token
+        run: |
+          if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
+            echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+          fi
+
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CPMP_TOKEN }}
+          password: ${{ env.REGISTRY_PASSWORD }}
 
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-      - name: Run container
+      - name: Create Docker Network
+        run: docker network create charon-test-net
+
+      - name: Run Upstream Service (whoami)
+        run: |
+          docker run -d \
+            --name whoami \
+            --network charon-test-net \
+            traefik/whoami
+
+      - name: Run Charon Container
         run: |
           docker run -d \
             --name test-container \
+            --network charon-test-net \
             -p 8080:8080 \
+            -p 80:80 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-      - name: Test health endpoint (retries)
-        run: |
-          set +e
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/v1/health || echo "000")
-            if [ "$code" = "200" ]; then
-              echo "✅ Health check passed on attempt $i"
-              exit 0
-            fi
-            echo "Attempt $i/30: health not ready (code=$code); waiting..."
-            sleep 2
-          done
-          echo "❌ Health check failed after retries"
-          docker logs test-container || true
-          exit 1
+      - name: Run Integration Test
+        run: ./scripts/integration-test.sh
 
       - name: Check container logs
         if: always()
@@ -241,7 +260,10 @@ jobs:
 
       - name: Stop container
         if: always()
-        run: docker stop test-container && docker rm test-container
+        run: |
+          docker stop test-container whoami || true
+          docker rm test-container whoami || true
+          docker network rm charon-test-net || true
 
       - name: Create test summary
         if: always()
@@ -249,4 +271,27 @@ jobs:
           echo "## 🧪 Docker Image Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Health Check**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Integration Test**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+
+  trivy-pr-app-only:
+    name: Trivy (PR) - App-only
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build image locally for PR
+        run: |
+          docker build -t charon:pr-${{ github.sha }} .
+
+      - name: Extract `charon` binary from image
+        run: |
+          CONTAINER=$(docker create charon:pr-${{ github.sha }})
+          docker cp ${CONTAINER}:/app/charon ./charon_binary || true
+          docker rm ${CONTAINER} || true
+
+      - name: Run Trivy filesystem scan on `charon` (fail PR on HIGH/CRITICAL)
+        run: |
+          docker run --rm -v $HOME/.cache/trivy:/root/.cache/trivy -v $PWD:/workdir aquasec/trivy:latest fs --exit-code 1 --severity CRITICAL,HIGH /workdir/charon_binary
+        shell: bash
