@@ -196,6 +196,19 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 	// resolved IP. This prevents direct user-controlled hostnames from being used
 	// as the request's destination (SSRF mitigation) and helps CodeQL validate the
 	// sanitisation performed by validateWebhookURL.
+	//
+	// NOTE (security): The following mitigations are intentionally applied to
+	// reduce SSRF/request-forgery risk:
+	//  - `validateWebhookURL` enforces http(s) schemes and rejects private IPs
+	//    (except explicit localhost for testing) after DNS resolution.
+	//  - We perform an additional DNS resolution here and choose a non-private
+	//    IP to use as the TCP destination to avoid direct hostname-based routing.
+	//  - We set the request's `Host` header to the original hostname so virtual
+	//    hosting works while the actual socket connects to a resolved IP.
+	//  - The HTTP client disables automatic redirects and has a short timeout.
+	// Together these steps make the request destination unambiguous and prevent
+	// accidental requests to internal networks. If your threat model requires
+	// stricter controls, consider an explicit allowlist of webhook hostnames.
 	ips, err := net.LookupIP(u.Hostname())
 	if err != nil || len(ips) == 0 {
 		return fmt.Errorf("failed to resolve webhook host: %w", err)

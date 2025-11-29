@@ -7,9 +7,16 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # Allow pinning Caddy version - Renovate will update this
-# Using Caddy 2.10.2 (latest stable) to fix CVE-2025-59530 and stdlib vulnerabilities
-ARG CADDY_VERSION=2.10.2
-ARG CADDY_IMAGE=caddy:${CADDY_VERSION}-alpine
+# Build the most recent Caddy 2.x release (keeps major pinned under v3).
+# Setting this to '2' tells xcaddy to resolve the latest v2.x tag so we
+# avoid accidentally pulling a v3 major release. Renovate can still update
+# this ARG to a specific v2.x tag when desired.
+ARG CADDY_VERSION=2
+## When an official caddy image tag isn't available on the host, use a
+## plain Alpine base image and overwrite its caddy binary with our
+## xcaddy-built binary in the later COPY step. This avoids relying on
+## upstream caddy image tags while still shipping a pinned caddy binary.
+ARG CADDY_IMAGE=alpine:3.18
 
 # ---- Cross-Compilation Helpers ----
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
