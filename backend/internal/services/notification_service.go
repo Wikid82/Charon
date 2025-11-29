@@ -226,8 +226,17 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 			port = "80"
 		}
 	}
-	targetURL := fmt.Sprintf("%s://%s%s", u.Scheme, net.JoinHostPort(selectedIP.String(), port), u.RequestURI())
-	req, err := http.NewRequest("POST", targetURL, &body)
+	// Construct a safe URL using the resolved IP:port for the Host component,
+	// while preserving the original path and query from the user-provided URL.
+	// This makes the destination hostname unambiguously an IP that we resolved
+	// and prevents accidental requests to private/internal addresses.
+	safeURL := &neturl.URL{
+		Scheme:   u.Scheme,
+		Host:     net.JoinHostPort(selectedIP.String(), port),
+		Path:     u.Path,
+		RawQuery: u.RawQuery,
+	}
+	req, err := http.NewRequest("POST", safeURL.String(), &body)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
@@ -326,6 +335,35 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
 	return shoutrrr.Send(url, "Test notification from Charon")
+}
+
+// Templates (external notification templates) management
+func (s *NotificationService) ListTemplates() ([]models.NotificationTemplate, error) {
+	var list []models.NotificationTemplate
+	if err := s.DB.Order("created_at desc").Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (s *NotificationService) GetTemplate(id string) (*models.NotificationTemplate, error) {
+	var t models.NotificationTemplate
+	if err := s.DB.First(&t, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *NotificationService) CreateTemplate(t *models.NotificationTemplate) error {
+	return s.DB.Create(t).Error
+}
+
+func (s *NotificationService) UpdateTemplate(t *models.NotificationTemplate) error {
+	return s.DB.Save(t).Error
+}
+
+func (s *NotificationService) DeleteTemplate(id string) error {
+	return s.DB.Delete(&models.NotificationTemplate{}, "id = ?", id).Error
 }
 
 // RenderTemplate renders a provider template with provided data and returns

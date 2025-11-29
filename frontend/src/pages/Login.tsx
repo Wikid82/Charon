@@ -60,7 +60,9 @@ export default function Login() {
     <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         <div className="flex items-center justify-center">
-          <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
+        <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
+
+
         </div>
         <Card className="w-full" title="Login">
         <form onSubmit={handleSubmit} className="space-y-6">

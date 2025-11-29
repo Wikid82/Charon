@@ -50,3 +50,41 @@ export const previewProvider = async (provider: Partial<NotificationProvider>, d
   const response = await client.post('/notifications/providers/preview', payload);
   return response.data;
 };
+
+// External (saved) templates API
+export interface ExternalTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  config?: string;
+  template?: string;
+  created_at?: string;
+}
+
+export const getExternalTemplates = async () => {
+  const response = await client.get<ExternalTemplate[]>('/notifications/external-templates');
+  return response.data;
+};
+
+export const createExternalTemplate = async (data: Partial<ExternalTemplate>) => {
+  const response = await client.post<ExternalTemplate>('/notifications/external-templates', data);
+  return response.data;
+};
+
+export const updateExternalTemplate = async (id: string, data: Partial<ExternalTemplate>) => {
+  const response = await client.put<ExternalTemplate>(`/notifications/external-templates/${id}`, data);
+  return response.data;
+};
+
+export const deleteExternalTemplate = async (id: string) => {
+  await client.delete(`/notifications/external-templates/${id}`);
+};
+
+export const previewExternalTemplate = async (templateId?: string, template?: string, data?: Record<string, any>) => {
+  const payload: any = {};
+  if (templateId) payload.template_id = templateId;
+  if (template) payload.template = template;
+  if (data) payload.data = data;
+  const response = await client.post('/notifications/external-templates/preview', payload);
+  return response.data;
+};

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider } from '../api/notifications';
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate } from '../api/notifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
@@ -51,15 +51,22 @@ const ProviderForm: React.FC<{
     setPreviewContent(null);
     setPreviewError(null);
     try {
-      const res = await previewProvider(formData as Partial<NotificationProvider>);
-      if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+      // If using an external saved template (id), call previewExternalTemplate with template_id
+      if (formData.template && typeof formData.template === 'string' && formData.template.length === 36) {
+        const res = await previewExternalTemplate(formData.template, undefined, undefined);
+        if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+      } else {
+        const res = await previewProvider(formData as Partial<NotificationProvider>);
+        if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+      }
     } catch (err: any) {
       setPreviewError(err?.response?.data?.error || err?.message || 'Failed to generate preview');
     }
   };
 
   const type = watch('type');
-  const { data: templatesList } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
+  const { data: builtins } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
+  const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
   const template = watch('template');
 
   const setTemplate = (templateStr: string, templateName?: string) => {
@@ -125,7 +132,12 @@ const ProviderForm: React.FC<{
           <div className="mt-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template</label>
             <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300">
-              {templatesList?.map((t: any) => (
+              {/* Built-in template options */}
+              {builtins?.map((t: any) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+              {/* External saved templates (id values are UUIDs) */}
+              {externalTemplates?.map((t: any) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
@@ -213,15 +225,81 @@ const ProviderForm: React.FC<{
   );
 };
 
+const TemplateForm: React.FC<{
+  initialData?: Partial<ExternalTemplate>;
+  onClose: () => void;
+  onSubmit: (data: Partial<ExternalTemplate>) => void;
+  }> = ({ initialData, onClose, onSubmit }) => {
+    const { register, handleSubmit, watch } = useForm({
+    defaultValues: initialData || { template: 'custom', config: '' }
+  });
+
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+
+  const handlePreview = async () => {
+    setPreview(null);
+    setPreviewErr(null);
+    const form = watch();
+    try {
+      const res = await previewExternalTemplate(undefined, form.config, { Title: 'Preview Title', Message: 'Preview Message', Time: new Date().toISOString(), EventType: 'preview' });
+      if (res.parsed) setPreview(JSON.stringify(res.parsed, null, 2)); else setPreview(res.rendered);
+    } catch (err: any) {
+      setPreviewErr(err?.response?.data?.error || err?.message || 'Preview failed');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+        <input {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+        <input {...register('description')} className="mt-1 block w-full rounded-md" />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template Type</label>
+        <select {...register('template')} className="mt-1 block w-full rounded-md">
+          <option value="minimal">Minimal</option>
+          <option value="detailed">Detailed</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Config (JSON/template)</label>
+        <textarea {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button type="button" variant="secondary" onClick={handlePreview}>Preview</Button>
+        <Button type="submit">Save</Button>
+      </div>
+      {previewErr && <div className="text-sm text-red-600">{previewErr}</div>}
+      {preview && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preview</label>
+          <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs overflow-auto whitespace-pre-wrap">{preview}</pre>
+        </div>
+      )}
+    </form>
+  );
+};
+
 const Notifications: React.FC = () => {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [managingTemplates, setManagingTemplates] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
   const { data: providers, isLoading } = useQuery({
     queryKey: ['notificationProviders'],
     queryFn: getProviders,
   });
+
+  const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
 
   const createMutation = useMutation({
     mutationFn: createProvider,
@@ -246,6 +324,21 @@ const Notifications: React.FC = () => {
     },
   });
 
+  const createTemplateMutation = useMutation({
+    mutationFn: (data: Partial<ExternalTemplate>) => createExternalTemplate(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['externalTemplates'] }),
+  });
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<ExternalTemplate> }) => updateExternalTemplate(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['externalTemplates'] }),
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (id: string) => deleteExternalTemplate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['externalTemplates'] }),
+  });
+
   const testMutation = useMutation({
     mutationFn: testProvider,
     onSuccess: () => alert('Test notification sent!'),
@@ -266,6 +359,72 @@ const Notifications: React.FC = () => {
           Add Provider
         </Button>
       </div>
+
+      {/* External Templates Management */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">External Templates</h2>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setManagingTemplates(!managingTemplates)} variant="secondary" size="sm">
+            {managingTemplates ? 'Hide' : 'Manage Templates'}
+          </Button>
+          <Button onClick={() => { setEditingTemplateId(null); setManagingTemplates(true); }}>
+            <Plus className="w-4 h-4 mr-2" />New Template
+          </Button>
+        </div>
+      </div>
+
+      {managingTemplates && (
+        <div className="space-y-4">
+          {/* Template Form area */}
+          {editingTemplateId !== null && (
+            <Card className="p-4">
+              <TemplateForm
+                initialData={externalTemplates?.find((t: any) => t.id === editingTemplateId) as Partial<ExternalTemplate>}
+                onClose={() => setEditingTemplateId(null)}
+                onSubmit={(data) => {
+                  if (editingTemplateId) updateTemplateMutation.mutate({ id: editingTemplateId, data });
+                  else createTemplateMutation.mutate(data as Partial<ExternalTemplate>);
+                }}
+              />
+            </Card>
+          )}
+
+          {/* Create new when editingTemplateId is null and Manage Templates open -> show form */}
+          {editingTemplateId === null && (
+            <Card className="p-4">
+              <h3 className="font-medium mb-2">Create Template</h3>
+              <TemplateForm
+                onClose={() => setManagingTemplates(false)}
+                onSubmit={(data) => createTemplateMutation.mutate(data as Partial<ExternalTemplate>)}
+              />
+            </Card>
+          )}
+
+          {/* List of templates */}
+          <div className="grid gap-3">
+            {externalTemplates?.map((t: ExternalTemplate) => (
+              <Card key={t.id} className="p-4 flex justify-between items-start">
+                <div>
+                  <h4 className="font-medium text-gray-900 dark:text-white">{t.name}</h4>
+                  <p className="text-sm text-gray-500 mt-1">{t.description}</p>
+                  <pre className="mt-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded max-h-44 overflow-auto">{t.config}</pre>
+                </div>
+                <div className="flex flex-col gap-2 ml-4">
+                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t.id)}>
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => { if (confirm('Delete template?')) deleteTemplateMutation.mutate(t.id); }}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+            {externalTemplates?.length === 0 && (
+              <div className="text-sm text-gray-500">No external templates. Use the form above to create one.</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {isAdding && (
         <Card className="p-6 mb-6 border-blue-500 border-2">
