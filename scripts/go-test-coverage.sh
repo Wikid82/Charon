@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
-MIN_COVERAGE="${CPM_MIN_COVERAGE:-80}"
+MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-80}}"
 
 # trap 'rm -f "$COVERAGE_FILE"' EXIT
 
@@ -28,8 +28,12 @@ from decimal import Decimal
 total = Decimal(os.environ['TOTAL_PERCENT'])
 minimum = Decimal(os.environ['MIN_COVERAGE'])
 if total < minimum:
-    print(f"Coverage {total}% is below required {minimum}% (set CPM_MIN_COVERAGE to override)", file=sys.stderr)
+    print(f"Coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
 PY
 
 echo "Coverage requirement met"
+
+# Also enforce 100% coverage for critical backend modules used by CI
+echo "Running module-specific coverage checks (backend only)"
+bash "$ROOT_DIR/scripts/check-module-coverage.sh" --backend-only

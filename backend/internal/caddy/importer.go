@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // Executor defines an interface for executing shell commands.
@@ -101,6 +101,9 @@ func NewImporter(binaryPath string) *Importer {
 		executor:        &DefaultExecutor{},
 	}
 }
+
+// forceSplitFallback used in tests to exercise the fallback branch
+var forceSplitFallback bool
 
 // ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
 func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
@@ -213,7 +216,7 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 									dial, _ := upstream["dial"].(string)
 									if dial != "" {
 										hostStr, portStr, err := net.SplitHostPort(dial)
-										if err == nil {
+										if err == nil && !forceSplitFallback {
 											host.ForwardHost = hostStr
 											if _, err := fmt.Sscanf(portStr, "%d", &host.ForwardPort); err != nil {
 												host.ForwardPort = 80

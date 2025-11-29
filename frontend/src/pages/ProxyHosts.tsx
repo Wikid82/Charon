@@ -7,6 +7,7 @@ import { useAccessLists } from '../hooks/useAccessLists'
 import { getSettings } from '../api/settings'
 import { createBackup } from '../api/backups'
 import type { ProxyHost } from '../api/proxyHosts'
+import compareHosts from '../utils/compareHosts'
 import type { AccessList } from '../api/accessLists'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
@@ -56,33 +57,7 @@ export default function ProxyHosts() {
   }, [certificates])
 
   // Sort hosts based on current sort column and direction
-  const sortedHosts = useMemo(() => {
-    return [...hosts].sort((a, b) => {
-      let aVal: string
-      let bVal: string
-
-      switch (sortColumn) {
-        case 'name':
-          aVal = (a.name || a.domain_names.split(',')[0] || '').toLowerCase()
-          bVal = (b.name || b.domain_names.split(',')[0] || '').toLowerCase()
-          break
-        case 'domain':
-          aVal = (a.domain_names.split(',')[0] || '').toLowerCase()
-          bVal = (b.domain_names.split(',')[0] || '').toLowerCase()
-          break
-        case 'forward':
-          aVal = `${a.forward_host}:${a.forward_port}`.toLowerCase()
-          bVal = `${b.forward_host}:${b.forward_port}`.toLowerCase()
-          break
-        default:
-          return 0
-      }
-
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
-      return 0
-    })
-  }, [hosts, sortColumn, sortDirection])
+  const sortedHosts = useMemo(() => [...hosts].sort((a, b) => compareHosts(a, b, sortColumn, sortDirection)), [hosts, sortColumn, sortDirection])
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {

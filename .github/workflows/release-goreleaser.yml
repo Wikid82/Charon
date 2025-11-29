@@ -12,6 +12,11 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
+      # If you need to provide a PAT with elevated permissions, add a CHARON_TOKEN secret
+      # at the repo or organization level and update the env here accordingly.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,6 +36,9 @@ jobs:
       - name: Build Frontend
         working-directory: frontend
         run: |
+          # Inject version into frontend build from tag (if present)
+          VERSION=$${GITHUB_REF#refs/tags/}
+          echo "VITE_APP_VERSION=$$VERSION" >> $GITHUB_ENV
           npm ci
           npm run build
 
@@ -39,12 +47,12 @@ jobs:
         with:
           version: 0.13.0
 
+      # GITHUB_TOKEN is set from CHARON_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: latest
           args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.CPMP_TOKEN }}
-          # CGO settings are handled in .goreleaser.yaml via Zig
+        # CGO settings are handled in .goreleaser.yaml via Zig

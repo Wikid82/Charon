@@ -1,7 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
+import { updateSetting } from '../api/settings'
+import { Switch } from '../components/ui/Switch'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 
@@ -10,6 +12,16 @@ export default function Security() {
   const { data: status, isLoading } = useQuery({
     queryKey: ['security-status'],
     queryFn: getSecurityStatus,
+  })
+  const queryClient = useQueryClient()
+  const toggleCerberusMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      await updateSetting('security.cerberus.enabled', enabled ? 'true' : 'false', 'security', 'bool')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['security-status'] })
+    },
   })
 
   if (isLoading) {
@@ -20,7 +32,8 @@ export default function Security() {
     return <div className="p-8 text-center text-red-500">Failed to load security status</div>
   }
 
-  const allDisabled = !status.crowdsec.enabled && !status.waf.enabled && !status.rate_limit.enabled && !status.acl.enabled
+  const allDisabled = !status?.crowdsec?.enabled && !status?.waf?.enabled && !status?.rate_limit?.enabled && !status?.acl?.enabled
+
 
   if (allDisabled) {
     return (
@@ -31,13 +44,13 @@ export default function Security() {
         <div className="max-w-md space-y-2">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Security Services Not Enabled</h2>
           <p className="text-gray-500 dark:text-gray-400">
-            CaddyProxyManager+ supports advanced security features like CrowdSec, WAF, ACLs, and Rate Limiting.
+            Charon supports advanced security features like CrowdSec, WAF, ACLs, and Rate Limiting.
             These are optional and can be enabled via environment variables.
           </p>
         </div>
         <Button
           variant="primary"
-          onClick={() => window.open('https://wikid82.github.io/cpmp/docs/security.html', '_blank')}
+          onClick={() => window.open('https://wikid82.github.io/charon/docs/security.html', '_blank')}
           className="flex items-center gap-2"
         >
           <ExternalLink className="w-4 h-4" />
@@ -47,6 +60,8 @@ export default function Security() {
     )
   }
 
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -54,9 +69,16 @@ export default function Security() {
           <ShieldCheck className="w-8 h-8 text-green-500" />
           Security Dashboard
         </h1>
+        <div className="flex items-center gap-3">
+          <label className="text-sm text-gray-500 dark:text-gray-400">Enable Cerberus</label>
+          <Switch
+            checked={status?.cerberus?.enabled ?? false}
+            onChange={(e) => toggleCerberusMutation.mutate(e.target.checked)}
+          />
+        </div>
         <Button
           variant="secondary"
-          onClick={() => window.open('https://wikid82.github.io/cpmp/docs/security.html', '_blank')}
+          onClick={() => window.open('https://wikid82.github.io/charon/docs/security.html', '_blank')}
           className="flex items-center gap-2"
         >
           <ExternalLink className="w-4 h-4" />

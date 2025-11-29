@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 type LogService struct {
@@ -42,11 +42,21 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 	}
 
 	var logs []LogFile
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")) {
 			info, err := entry.Info()
 			if err != nil {
 				continue
+			}
+			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log pointing to same file)
+			entryPath := filepath.Join(s.LogDir, entry.Name())
+			resolved, err := filepath.EvalSymlinks(entryPath)
+			if err == nil {
+				if seen[resolved] {
+					continue
+				}
+				seen[resolved] = true
 			}
 			logs = append(logs, LogFile{
 				Name:    entry.Name(),

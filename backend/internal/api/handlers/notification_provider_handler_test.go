@@ -13,9 +13,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {

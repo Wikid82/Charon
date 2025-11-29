@@ -1,4 +1,4 @@
-module github.com/Wikid82/CaddyProxyManagerPlus/backend
+module github.com/Wikid82/charon/backend
 
 go 1.25.4
 

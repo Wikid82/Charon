@@ -48,6 +48,19 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "8080", cfg.HTTPPort)
 }
 
+func TestLoad_CharonPrefersOverCPM(t *testing.T) {
+	// Ensure CHARON_ variables take precedence over CPM_ fallback
+	tempDir := t.TempDir()
+	charonDB := filepath.Join(tempDir, "charon.db")
+	cpmDB := filepath.Join(tempDir, "cpm.db")
+	os.Setenv("CHARON_DB_PATH", charonDB)
+	os.Setenv("CPM_DB_PATH", cpmDB)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, charonDB, cfg.DatabasePath)
+}
+
 func TestLoad_Error(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "file")

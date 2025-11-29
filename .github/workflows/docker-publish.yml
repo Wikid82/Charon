@@ -17,7 +17,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/cpmp
+  IMAGE_NAME: ${{ github.repository_owner }}/charon
 
 jobs:
   build-and-push:
@@ -83,13 +83,24 @@ jobs:
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
+      - name: Choose Registry Token
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        run: |
+          if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
+            echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+          fi
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.CPMP_TOKEN }}
+          password: ${{ env.REGISTRY_PASSWORD }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
@@ -201,31 +212,41 @@ jobs:
             echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           fi
 
+      - name: Choose Registry Token
+        run: |
+          if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
+            echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+          fi
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CPMP_TOKEN }}
+          password: ${{ env.REGISTRY_PASSWORD }}
 
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
       - name: Create Docker Network
-        run: docker network create cpmp-test-net
+        run: docker network create charon-test-net
 
       - name: Run Upstream Service (whoami)
         run: |
           docker run -d \
             --name whoami \
-            --network cpmp-test-net \
+            --network charon-test-net \
             traefik/whoami
 
-      - name: Run CPMP Container
+      - name: Run Charon Container
         run: |
           docker run -d \
             --name test-container \
-            --network cpmp-test-net \
+            --network charon-test-net \
             -p 8080:8080 \
             -p 80:80 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
@@ -242,7 +263,7 @@ jobs:
         run: |
           docker stop test-container whoami || true
           docker rm test-container whoami || true
-          docker network rm cpmp-test-net || true
+          docker network rm charon-test-net || true
 
       - name: Create test summary
         if: always()

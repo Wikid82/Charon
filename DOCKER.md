@@ -1,13 +1,13 @@
 # Docker Deployment Guide
 
-CaddyProxyManager+ is designed for Docker-first deployment, making it easy for home users to run Caddy without learning Caddyfile syntax.
+Charon is designed for Docker-first deployment, making it easy for home users to run Caddy without learning Caddyfile syntax.
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/Wikid82/CaddyProxyManagerPlus.git
-cd CaddyProxyManagerPlus
+git clone https://github.com/Wikid82/charon.git
+cd charon
 
 # Start the stack
 docker-compose up -d
@@ -18,16 +18,16 @@ open http://localhost:8080
 
 ## Architecture
 
-CaddyProxyManager+ runs as a **single container** that includes:
+Charon runs as a **single container** that includes:
 1.  **Caddy Server**: The reverse proxy engine (ports 80/443).
-2.  **CPM+ Backend**: The Go API that manages Caddy via its API.
-3.  **CPM+ Frontend**: The React web interface (port 8080).
+2.  **Charon Backend**: The Go API that manages Caddy via its API (binary: `charon`, `cpmp` symlink preserved).
+3.  **Charon Frontend**: The React web interface (port 8080).
 
 This unified architecture simplifies deployment, updates, and data management.
 
 ```
 ┌──────────────────────────────────────────┐
-│  Container (cpmp)                        │
+│  Container (charon / cpmp)               │
 │                                          │
 │  ┌──────────┐   API    ┌──────────────┐  │
 │  │  Caddy   │◄──:2019──┤  CPM+ App    │  │
@@ -48,7 +48,7 @@ Persist your data by mounting these volumes:
 
 | Host Path | Container Path | Description |
 |-----------|----------------|-------------|
-| `./data` | `/app/data` | **Critical**. Stores the SQLite database (`cpm.db`) and application logs. |
+| `./data` | `/app/data` | **Critical**. Stores the SQLite database (default `charon.db`, `cpm.db` fallback) and application logs. |
 | `./caddy_data` | `/data` | **Critical**. Stores Caddy's SSL certificates and keys. |
 | `./caddy_config` | `/config` | Stores Caddy's autosave configuration. |
 
@@ -58,33 +58,33 @@ Configure the application via `docker-compose.yml`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CPM_ENV` | `production` | Set to `development` for verbose logging. |
-| `CPM_HTTP_PORT` | `8080` | Port for the Web UI. |
-| `CPM_DB_PATH` | `/app/data/cpm.db` | Path to the SQLite database. |
-| `CPM_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API. |
+| `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
+| `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
+| `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |
+| `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API (`CPM_CADDY_ADMIN_API` supported for backward compatibility). |
 
 ## NAS Deployment Guides
 
 ### Synology (Container Manager / Docker)
 
-1.  **Prepare Folders**: Create a folder `docker/cpmp` and subfolders `data`, `caddy_data`, and `caddy_config`.
-2.  **Download Image**: Search for `ghcr.io/wikid82/cpmp` in the Registry and download the `latest` tag.
+1.  **Prepare Folders**: Create a folder `docker/charon` (or `docker/cpmp` for backward compatibility) and subfolders `data`, `caddy_data`, and `caddy_config`.
+2.  **Download Image**: Search for `ghcr.io/wikid82/charon` in the Registry and download the `latest` tag.
 3.  **Launch Container**:
     *   **Network**: Use `Host` mode (recommended for Caddy to see real client IPs) OR bridge mode mapping ports `80:80`, `443:443`, and `8080:8080`.
     *   **Volume Settings**:
-        *   `/docker/cpmp/data` -> `/app/data`
-        *   `/docker/cpmp/caddy_data` -> `/data`
-        *   `/docker/cpmp/caddy_config` -> `/config`
-    *   **Environment**: Add `CPM_ENV=production`.
+        *   `/docker/charon/data` -> `/app/data` (or `/docker/cpmp/data` -> `/app/data` for backward compatibility)
+        *   `/docker/charon/caddy_data` -> `/data` (or `/docker/cpmp/caddy_data` -> `/data` for backward compatibility)
+        *   `/docker/charon/caddy_config` -> `/config` (or `/docker/cpmp/caddy_config` -> `/config` for backward compatibility)
+    *   **Environment**: Add `CHARON_ENV=production` (or `CPM_ENV=production` for backward compatibility).
 4.  **Finish**: Start the container and access `http://YOUR_NAS_IP:8080`.
 
 ### Unraid
 
-1.  **Community Apps**: (Coming Soon) Search for "CaddyProxyManagerPlus".
+1.  **Community Apps**: (Coming Soon) Search for "charon".
 2.  **Manual Install**:
     *   Click **Add Container**.
-    *   **Name**: CaddyProxyManagerPlus
-    *   **Repository**: `ghcr.io/wikid82/cpmp:latest`
+    *   **Name**: Charon
+    *   **Repository**: `ghcr.io/wikid82/charon:latest`
     *   **Network Type**: Bridge
     *   **WebUI**: `http://[IP]:[PORT:8080]`
     *   **Port mappings**:
@@ -92,9 +92,9 @@ Configure the application via `docker-compose.yml`:
         *   Container Port: `443` -> Host Port: `443`
         *   Container Port: `8080` -> Host Port: `8080`
     *   **Paths**:
-        *   `/mnt/user/appdata/cpmp/data` -> `/app/data`
-        *   `/mnt/user/appdata/cpmp/caddy_data` -> `/data`
-        *   `/mnt/user/appdata/cpmp/caddy_config` -> `/config`
+        *   `/mnt/user/appdata/charon/data` -> `/app/data` (or `/mnt/user/appdata/cpmp/data` -> `/app/data` for backward compatibility)
+        *   `/mnt/user/appdata/charon/caddy_data` -> `/data` (or `/mnt/user/appdata/cpmp/caddy_data` -> `/data` for backward compatibility)
+        *   `/mnt/user/appdata/charon/caddy_config` -> `/config` (or `/mnt/user/appdata/cpmp/caddy_config` -> `/config` for backward compatibility)
 3.  **Apply**: Click Done to pull and start.
 
 ## Troubleshooting
@@ -146,7 +146,7 @@ For specific versions:
 
 ```bash
 # Edit docker-compose.yml to pin version
-image: ghcr.io/wikid82/caddyproxymanagerplus:v1.0.0
+image: ghcr.io/wikid82/charon:v1.0.0
 
 docker-compose up -d
 ```
@@ -155,7 +155,7 @@ docker-compose up -d
 
 ```bash
 # Build multi-arch images
-docker buildx build --platform linux/amd64,linux/arm64 -t caddyproxymanager-plus:local .
+docker buildx build --platform linux/amd64,linux/arm64 -t charon:local .
 
 # Or use Make
 make docker-build

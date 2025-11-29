@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Layout from '../Layout'
@@ -91,20 +92,19 @@ describe('Layout', () => {
     expect(await screen.findByText('Version 0.1.0')).toBeInTheDocument()
   })
 
-  it('calls logout when logout button is clicked', () => {
+  it('calls logout when logout button is clicked', async () => {
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
       </Layout>
     )
 
-    const logoutButton = screen.getByText('Logout')
-    fireEvent.click(logoutButton)
+    await userEvent.click(screen.getByText('Logout'))
 
     expect(mockLogout).toHaveBeenCalled()
   })
 
-  it('toggles sidebar on mobile', () => {
+  it('toggles sidebar on mobile', async () => {
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
@@ -113,8 +113,7 @@ describe('Layout', () => {
 
     // Initially sidebar is hidden on mobile (by CSS class, but we can check if the toggle button exists)
     // The toggle button has text '☰' when closed
-    const toggleButton = screen.getByText('☰')
-    fireEvent.click(toggleButton)
+    await userEvent.click(screen.getByText('☰'))
 
     // Now it should show '✕'
     expect(screen.getByText('✕')).toBeInTheDocument()
@@ -125,7 +124,7 @@ describe('Layout', () => {
     // Let's try to click the overlay. It doesn't have text.
     // We can query by selector if we add a test id or just rely on structure.
     // But let's just click the toggle button again to close.
-    fireEvent.click(screen.getByText('✕'))
+    await userEvent.click(screen.getByText('✕'))
     expect(screen.getByText('☰')).toBeInTheDocument()
   })
 })

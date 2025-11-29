@@ -35,6 +35,7 @@ export interface ProxyHost {
   application: ApplicationPreset;
   locations: Location[];
   advanced_config?: string;
+  advanced_config_backup?: string;
   enabled: boolean;
   certificate_id?: number | null;
   certificate?: Certificate | null;

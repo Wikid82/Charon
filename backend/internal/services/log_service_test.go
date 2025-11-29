@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +55,7 @@ func TestLogService(t *testing.T) {
 	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0644)
 	require.NoError(t, err)
 
-	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "cpm.db")}
+	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")}
 	service := NewLogService(cfg)
 
 	// Test List
@@ -113,7 +113,7 @@ func TestLogService(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid filename")
 
 	// Test ListLogs - Directory Not Exist
-	nonExistService := NewLogService(&config.Config{DatabasePath: filepath.Join(t.TempDir(), "missing", "cpm.db")})
+	nonExistService := NewLogService(&config.Config{DatabasePath: filepath.Join(t.TempDir(), "missing", "charon.db")})
 	logs, err = nonExistService.ListLogs()
 	require.NoError(t, err)
 	assert.Empty(t, logs)

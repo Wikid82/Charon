@@ -216,7 +216,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
           <label htmlFor="type" className="block text-sm font-medium text-gray-300 mb-2">
             Type *
             <a
-              href="https://wikid82.github.io/cpmp/docs/security.html#acl-best-practices-by-service-type"
+              href="https://wikid82.github.io/charon/docs/security.html#acl-best-practices-by-service-type"
               target="_blank"
               rel="noopener noreferrer"
               className="ml-2 text-blue-400 hover:text-blue-300 text-xs"

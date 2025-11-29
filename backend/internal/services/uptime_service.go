@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"gorm.io/gorm"
 )
 

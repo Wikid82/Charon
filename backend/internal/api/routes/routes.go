@@ -8,12 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/middleware"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/cerberus"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // Register wires up API routes and performs automatic migrations.
@@ -58,6 +59,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	router.GET("/api/v1/health", handlers.HealthHandler)
 
 	api := router.Group("/api/v1")
+
+	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
+	cerb := cerberus.New(cfg.Security, db)
+	api.Use(cerb.Middleware())
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
@@ -178,7 +183,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		})
 
 		// Security Status
-		securityHandler := handlers.NewSecurityHandler(cfg.Security)
+		securityHandler := handlers.NewSecurityHandler(cfg.Security, db)
 		protected.GET("/security/status", securityHandler.GetStatus)
 	}
 

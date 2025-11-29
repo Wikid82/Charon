@@ -1,0 +1,53 @@
+name: Auto Versioning and Release
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate semantic version (fallback script)
+        id: semver
+        run: |
+          # Ensure git tags are fetched
+          git fetch --tags --quiet || true
+          # Get latest tag or default to v0.0.0
+          TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "v0.0.0")
+          echo "Detected latest tag: $TAG"
+          # Set outputs for downstream steps
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+          echo "release_notes=Fallback: using latest tag only" >> $GITHUB_OUTPUT
+          echo "changed=false" >> $GITHUB_OUTPUT
+
+      - name: Show version
+        run: |
+          echo "Next version: ${{ steps.semver.outputs.version }}"
+
+      - name: Create annotated tag and push
+        if: ${{ steps.semver.outputs.changed }}
+        run: |
+          git tag -a v${{ steps.semver.outputs.version }} -m "Release v${{ steps.semver.outputs.version }}"
+          git push origin --tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (tag-only, no workspace changes)
+        if: ${{ steps.semver.outputs.changed }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.semver.outputs.version }}
+          name: Release ${{ steps.semver.outputs.version }}
+          body: ${{ steps.semver.outputs.release_notes }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

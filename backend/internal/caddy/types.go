@@ -122,7 +122,20 @@ func ReverseProxyHandler(dial string, enableWS bool, application string) Handler
 	// Application-specific headers for proper client IP forwarding
 	// These are critical for media servers behind tunnels/CGNAT
 	switch application {
-	case "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
+	case "plex":
+		// Pass-through common Plex headers for improved compatibility when proxying
+		setHeaders["X-Plex-Client-Identifier"] = []string{"{http.request.header.X-Plex-Client-Identifier}"}
+		setHeaders["X-Plex-Device"] = []string{"{http.request.header.X-Plex-Device}"}
+		setHeaders["X-Plex-Device-Name"] = []string{"{http.request.header.X-Plex-Device-Name}"}
+		setHeaders["X-Plex-Platform"] = []string{"{http.request.header.X-Plex-Platform}"}
+		setHeaders["X-Plex-Platform-Version"] = []string{"{http.request.header.X-Plex-Platform-Version}"}
+		setHeaders["X-Plex-Product"] = []string{"{http.request.header.X-Plex-Product}"}
+		setHeaders["X-Plex-Token"] = []string{"{http.request.header.X-Plex-Token}"}
+		setHeaders["X-Plex-Version"] = []string{"{http.request.header.X-Plex-Version}"}
+		// Also set X-Real-IP for accurate client IP reporting
+		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+	case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
 		// X-Real-IP is required by most apps to identify the real client
 		// Caddy already sets X-Forwarded-For and X-Forwarded-Proto by default
 		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}

@@ -2,7 +2,7 @@
 
 ## Semantic Versioning
 
-CaddyProxyManager+ follows [Semantic Versioning 2.0.0](https://semver.org/):
+Charon follows [Semantic Versioning 2.0.0](https://semver.org/):
 
 - **MAJOR.MINOR.PATCH** (e.g., `1.2.3`)
   - **MAJOR**: Incompatible API changes
@@ -62,16 +62,16 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 
 ```bash
 # Use latest stable release
-docker pull ghcr.io/wikid82/cpmp:latest
+docker pull ghcr.io/wikid82/charon:latest
 
 # Use specific version
-docker pull ghcr.io/wikid82/cpmp:v1.0.0
+docker pull ghcr.io/wikid82/charon:v1.0.0
 
 # Use development builds
-docker pull ghcr.io/wikid82/cpmp:development
+docker pull ghcr.io/wikid82/charon:development
 
 # Use specific commit
-docker pull ghcr.io/wikid82/cpmp:main-abc123
+docker pull ghcr.io/wikid82/charon:main-abc123
 ```
 
 ## Version Information
@@ -86,7 +86,7 @@ Response includes:
 ```json
 {
   "status": "ok",
-  "service": "caddy-proxy-manager-plus",
+  "service": "charon",
   "version": "1.0.0",
   "git_commit": "abc1234567890def",
   "build_date": "2025-11-17T12:34:56Z"
@@ -97,7 +97,7 @@ Response includes:
 
 View version metadata:
 ```bash
-docker inspect ghcr.io/wikid82/cpmp:latest \
+docker inspect ghcr.io/wikid82/charon:latest \
   --format='{{json .Config.Labels}}' | jq
 ```
 
@@ -111,7 +111,7 @@ Returns OCI-compliant labels:
 
 Local builds default to `version=dev`:
 ```bash
-docker build -t cpmp:dev .
+docker build -t charon:dev .
 ```
 
 Build with custom version:
@@ -120,7 +120,7 @@ docker build \
   --build-arg VERSION=1.2.3 \
   --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
   --build-arg VCS_REF=$(git rev-parse HEAD) \
-  -t caddyproxymanagerplus:1.2.3 .
+  -t charon:1.2.3 .
 ```
 
 ## Changelog Generation
@@ -140,3 +140,9 @@ Example:
 git commit -m "feat: add TLS certificate management"
 git commit -m "fix: correct proxy timeout handling"
 ```
+
+## CI Tag-based Releases (recommended)
+
+- CI derives the release `Version` from the Git tag (e.g., `v1.2.3`) and embeds this value into the backend binary via Go ldflags; frontend reads the version from the backend's API. This avoids automatic commits to `main`.
+- The `.version` file is optional. If present, use the `scripts/check-version-match-tag.sh` script or the included pre-commit hook to validate that `.version` matches the latest Git tag.
+- CI will still generate changelogs automatically using the release-drafter workflow and create GitHub Releases when tags are pushed.

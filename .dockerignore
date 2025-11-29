@@ -46,6 +46,7 @@ backend/cmd/api/data/*.db
 *.sqlite
 *.sqlite3
 cpm.db
+charon.db
 
 # IDE
 .vscode/

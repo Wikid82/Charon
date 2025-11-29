@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for CaddyProxyManager+ with integrated Caddy
+# Multi-stage Dockerfile for Charon with integrated Caddy
 # Single container deployment for simplified home user setup
 
 # Build arguments for versioning
@@ -76,10 +76,10 @@ ARG BUILD_DATE=unknown
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build \
-    -ldflags "-s -w -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version=${VERSION} \
-              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit=${VCS_REF} \
-              -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime=${BUILD_DATE}" \
-    -o cpmp ./cmd/api
+    -ldflags "-s -w -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
+              -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
+              -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
+    -o charon ./cmd/api
 
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
@@ -125,7 +125,8 @@ RUN mkdir -p /app/data/geoip && \
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Copy Go binary from backend builder
-COPY --from=backend-builder /app/backend/cpmp /app/cpmp
+COPY --from=backend-builder /app/backend/charon /app/charon
+RUN ln -s /app/charon /app/cpmp || true
 # Copy Delve debugger (xx-go install places it in /go/bin)
 COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 
@@ -137,7 +138,14 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Set default environment variables
-ENV CPM_ENV=production \
+ENV CHARON_ENV=production \
+    CHARON_HTTP_PORT=8080 \
+    CHARON_DB_PATH=/app/data/charon.db \
+    CHARON_FRONTEND_DIR=/app/frontend/dist \
+    CHARON_CADDY_ADMIN_API=http://localhost:2019 \
+    CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
+    CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
+    CPM_ENV=production \
     CPM_HTTP_PORT=8080 \
     CPM_DB_PATH=/app/data/cpm.db \
     CPM_FRONTEND_DIR=/app/frontend/dist \
@@ -154,14 +162,14 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # OCI image labels for version metadata
-LABEL org.opencontainers.image.title="CaddyProxyManager+ (CPMP)" \
+LABEL org.opencontainers.image.title="Charon (CPMP)" \
       org.opencontainers.image.description="Web UI for managing Caddy reverse proxy configurations" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/Wikid82/CaddyProxyManagerPlus" \
-      org.opencontainers.image.url="https://github.com/Wikid82/CaddyProxyManagerPlus" \
-      org.opencontainers.image.vendor="CaddyProxyManagerPlus" \
+    org.opencontainers.image.source="https://github.com/Wikid82/charon" \
+    org.opencontainers.image.url="https://github.com/Wikid82/charon" \
+    org.opencontainers.image.vendor="charon" \
       org.opencontainers.image.licenses="MIT"
 
 # Expose ports

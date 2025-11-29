@@ -1,7 +1,9 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
 import ProxyHosts from '../ProxyHosts';
 import * as proxyHostsApi from '../../api/proxyHosts';
 import * as backupsApi from '../../api/backups';
@@ -58,69 +60,9 @@ vi.mock('../../api/settings', () => ({
 }));
 
 const mockProxyHosts = [
-  {
-    uuid: 'host-1',
-    name: 'Test Host 1',
-    domain_names: 'test1.example.com',
-    forward_host: '192.168.1.10',
-    forward_port: 8080,
-    forward_scheme: 'http' as const,
-    enabled: true,
-    ssl_forced: false,
-    http2_support: true,
-    hsts_enabled: false,
-    hsts_subdomains: false,
-    block_exploits: true,
-    websocket_support: false,
-    application: 'none' as const,
-    locations: [],
-    access_list_id: null,
-    certificate_id: null,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    uuid: 'host-2',
-    name: 'Test Host 2',
-    domain_names: 'test2.example.com',
-    forward_host: '192.168.1.20',
-    forward_port: 8080,
-    forward_scheme: 'http' as const,
-    enabled: true,
-    ssl_forced: false,
-    http2_support: true,
-    hsts_enabled: false,
-    hsts_subdomains: false,
-    block_exploits: true,
-    websocket_support: false,
-    application: 'none' as const,
-    locations: [],
-    access_list_id: null,
-    certificate_id: null,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    uuid: 'host-3',
-    name: 'Test Host 3',
-    domain_names: 'test3.example.com',
-    forward_host: '192.168.1.30',
-    forward_port: 8080,
-    forward_scheme: 'http' as const,
-    enabled: true,
-    ssl_forced: false,
-    http2_support: true,
-    hsts_enabled: false,
-    hsts_subdomains: false,
-    block_exploits: true,
-    websocket_support: false,
-    application: 'none' as const,
-    locations: [],
-    access_list_id: null,
-    certificate_id: null,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
+  createMockProxyHost({ uuid: 'host-1', name: 'Test Host 1', domain_names: 'test1.example.com', forward_host: '192.168.1.10' }),
+  createMockProxyHost({ uuid: 'host-2', name: 'Test Host 2', domain_names: 'test2.example.com', forward_host: '192.168.1.20' }),
+  createMockProxyHost({ uuid: 'host-3', name: 'Test Host 3', domain_names: 'test3.example.com', forward_host: '192.168.1.30' }),
 ];
 
 const createQueryClient = () => new QueryClient({
@@ -169,7 +111,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using the select-all checkbox (checkboxes[0])
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Bulk delete button should appear in the selection bar
     await waitFor(() => {
@@ -186,7 +128,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -194,7 +136,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Modal should appear
     await waitFor(() => {
@@ -221,7 +163,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons and click delete
     await waitFor(() => {
@@ -229,7 +171,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal
     await waitFor(() => {
@@ -238,7 +180,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Click confirm delete
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Should create backup first
     await waitFor(() => {
@@ -270,7 +212,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -278,7 +220,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal
     await waitFor(() => {
@@ -287,7 +229,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Click confirm delete
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Should create backup first
     await waitFor(() => {
@@ -324,7 +266,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -332,7 +274,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal and confirm
     await waitFor(() => {
@@ -340,7 +282,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
 
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Wait for backup
     await waitFor(() => {
@@ -364,7 +306,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -372,7 +314,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal and confirm
     await waitFor(() => {
@@ -380,7 +322,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
 
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Should show error
     await waitFor(() => {
@@ -402,7 +344,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -410,7 +352,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal
     await waitFor(() => {
@@ -419,7 +361,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Click confirm delete
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Wait for completion
     await waitFor(() => {
@@ -443,7 +385,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Should show selection count
     await waitFor(() => {
@@ -453,14 +395,14 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     // Click bulk delete button and confirm (find it via Manage ACL sibling)
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     await waitFor(() => {
       expect(screen.getByText(/Delete 3 Proxy Hosts?/i)).toBeTruthy();
     });
 
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Wait for completion
     await waitFor(() => {
@@ -488,7 +430,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -496,7 +438,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal
     await waitFor(() => {
@@ -505,7 +447,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Click confirm delete
     const confirmButton = screen.getByText('Delete Permanently');
-    fireEvent.click(confirmButton);
+    await userEvent.click(confirmButton);
 
     // Backup should be called (confirms the button works and backup process starts)
     await waitFor(() => {
@@ -531,7 +473,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Wait for bulk action buttons to appear, then click bulk delete button
     await waitFor(() => {
@@ -539,7 +481,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
     const manageACLButton = screen.getByText('Manage ACL');
     const deleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement;
-    fireEvent.click(deleteButton);
+    await userEvent.click(deleteButton);
 
     // Wait for modal
     await waitFor(() => {
@@ -548,7 +490,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Click cancel
     const cancelButton = screen.getByText('Cancel');
-    fireEvent.click(cancelButton);
+    await userEvent.click(cancelButton);
 
     // Modal should close
     await waitFor(() => {
@@ -572,7 +514,7 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
 
     // Select all hosts using the select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]); // First checkbox is "select all"
+    await userEvent.click(checkboxes[0]); // First checkbox is "select all"
 
     // Should show "(all)" indicator (flexible matcher for spacing)
     await waitFor(() => {

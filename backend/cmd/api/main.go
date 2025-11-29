@@ -7,13 +7,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/routes"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/database"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/server"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/server"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -27,13 +27,19 @@ func main() {
 		_ = os.MkdirAll(logDir, 0755)
 	}
 
-	logFile := filepath.Join(logDir, "cpmp.log")
+	logFile := filepath.Join(logDir, "charon.log")
 	rotator := &lumberjack.Logger{
 		Filename:   logFile,
 		MaxSize:    10, // megabytes
 		MaxBackups: 3,
 		MaxAge:     28, // days
 		Compress:   true,
+	}
+
+	// Ensure legacy cpmp.log exists as symlink for compatibility
+	legacyLog := filepath.Join(logDir, "cpmp.log")
+	if _, err := os.Lstat(legacyLog); os.IsNotExist(err) {
+		_ = os.Symlink(logFile, legacyLog) // ignore errors
 	}
 
 	// Log to both stdout and file

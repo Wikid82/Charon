@@ -1,10 +1,13 @@
 # ✨ Features
 
-Caddy Proxy Manager+ (CPMP) is packed with features to make managing your web services simple and secure. Here's everything you can do:
+Charon is packed with features to make managing your web services simple and secure. Here's everything you can do:
 
 ---
 
 ## 🔒 Security
+
+### Cerberus Security Suite (Optional)
+Cerberus bundles CrowdSec, WAF (Coraza), ACLs, and Rate Limiting into an optional security suite that can be enabled at runtime.
 
 ### CrowdSec Integration
 Block malicious IPs automatically using community-driven threat intelligence. CrowdSec analyzes your logs and blocks attackers before they can cause harm.
@@ -71,14 +74,14 @@ Manage containers on other servers through secure connections. Perfect for multi
 → [Remote Docker Setup](getting-started.md#remote-docker)
 
 ### Automatic Port Detection
-CPMP reads container labels and exposed ports automatically. Less typing, fewer mistakes.
+Charon reads container labels and exposed ports automatically. Less typing, fewer mistakes.
 
 ---
 
 ## 📥 Import & Migration
 
 ### Caddyfile Import
-Already using Caddy? Import your existing Caddyfile and CPMP will create proxies for each site automatically.
+Already using Caddy? Import your existing Caddyfile and Charon will create proxies for each site automatically.
 → [Import Guide](import-guide.md)
 
 ### NPM Migration *(coming soon)*
@@ -167,5 +170,5 @@ Each feature has detailed documentation:
 ---
 
 <p align="center">
-  <em>Missing a feature? <a href="https://github.com/Wikid82/cpmp/discussions">Let us know!</a></em>
+  <em>Missing a feature? <a href="https://github.com/Wikid82/charon/discussions">Let us know!</a></em>
 </p>
