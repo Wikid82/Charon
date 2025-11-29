@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServerHandler) {
@@ -21,7 +22,8 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	// Ensure RemoteServer table exists
 	db.AutoMigrate(&models.RemoteServer{})
 
-	handler := handlers.NewRemoteServerHandler(db)
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
 
 	r := gin.Default()
 	api := r.Group("/api/v1")
@@ -31,9 +33,32 @@ func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServe
 	servers.GET("/:uuid", handler.Get)
 	servers.PUT("/:uuid", handler.Update)
 	servers.DELETE("/:uuid", handler.Delete)
-	servers.POST("/test-connection", handler.TestConnection)
+	servers.POST("/test", handler.TestConnectionCustom)
+	servers.POST("/:uuid/test", handler.TestConnection)
 
 	return r, handler
+}
+
+func TestRemoteServerHandler_TestConnectionCustom(t *testing.T) {
+	r, _ := setupRemoteServerTest_New(t)
+
+	// Test with a likely closed port
+	payload := map[string]interface{}{
+		"host": "127.0.0.1",
+		"port": 54321,
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/v1/remote-servers/test", bytes.NewBuffer(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, false, result["reachable"])
+	assert.NotEmpty(t, result["error"])
 }
 
 func TestRemoteServerHandler_FullCRUD(t *testing.T) {

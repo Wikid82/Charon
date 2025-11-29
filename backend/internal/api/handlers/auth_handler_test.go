@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -58,6 +58,32 @@ func TestAuthHandler_Login(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "token")
+}
+
+func TestAuthHandler_Login_Errors(t *testing.T) {
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/login", handler.Login)
+
+	// 1. Invalid JSON
+	req := httptest.NewRequest("POST", "/login", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 2. Invalid Credentials
+	body := map[string]string{
+		"email":    "nonexistent@example.com",
+		"password": "wrong",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req = httptest.NewRequest("POST", "/login", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestAuthHandler_Register(t *testing.T) {
@@ -156,6 +182,23 @@ func TestAuthHandler_Me(t *testing.T) {
 	assert.Equal(t, "admin", resp["role"])
 	assert.Equal(t, "Me User", resp["name"])
 	assert.Equal(t, "me@example.com", resp["email"])
+}
+
+func TestAuthHandler_Me_NotFound(t *testing.T) {
+	handler, _ := setupAuthHandler(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("userID", uint(999)) // Non-existent ID
+		c.Next()
+	})
+	r.GET("/me", handler.Me)
+
+	req := httptest.NewRequest("GET", "/me", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAuthHandler_ChangePassword(t *testing.T) {

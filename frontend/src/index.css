@@ -37,6 +37,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  zoom: 0.75;
 }
 
 #root {

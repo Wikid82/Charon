@@ -30,9 +30,9 @@ export default function ImportCaddy() {
     setContent(text)
   }
 
-  const handleCommit = async (resolutions: Record<string, string>) => {
+  const handleCommit = async (resolutions: Record<string, string>, names: Record<string, string>) => {
     try {
-      await commit(resolutions)
+      await commit(resolutions, names)
       setContent('')
       setShowReview(false)
       alert('Import completed successfully!')
@@ -146,6 +146,7 @@ api.example.com {
         <ImportReviewTable
           hosts={preview.preview.hosts}
           conflicts={preview.preview.conflicts}
+          conflictDetails={preview.conflict_details}
           errors={preview.preview.errors}
           caddyfileContent={preview.caddyfile_content}
           onCommit={handleCommit}

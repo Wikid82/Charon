@@ -20,16 +20,39 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Run Go tests
+        id: go-tests
         working-directory: backend
-        run: go test -v -coverprofile=coverage.out ./...
+        env:
+          CGO_ENABLED: 1
+        run: |
+          go test -race -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
+          exit ${PIPESTATUS[0]}
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./backend/coverage.out
-          flags: backend
-          fail_ci_if_error: true
+      - name: Go Test Summary
+        if: always()
+        working-directory: backend
+        run: |
+          echo "## 🔧 Backend Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.go-tests.outcome }}" == "success" ]; then
+            echo "✅ **All tests passed**" >> $GITHUB_STEP_SUMMARY
+            PASS_COUNT=$(grep -c "^--- PASS" test-output.txt || echo "0")
+            echo "- Tests passed: $PASS_COUNT" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Tests:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^--- FAIL|FAIL\s+github" test-output.txt || echo "See logs for details"
+            grep -E "^--- FAIL|FAIL\s+github" test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+
+      - name: Enforce module-specific coverage (backend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --backend-only
+        continue-on-error: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
@@ -56,17 +79,40 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run frontend tests
-        working-directory: frontend
-        run: npm run test:coverage
+      - name: Run frontend tests and coverage
+        id: frontend-tests
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
+          exit ${PIPESTATUS[0]}
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./frontend/coverage
-          flags: frontend
-          fail_ci_if_error: true
+      - name: Frontend Test Summary
+        if: always()
+        working-directory: frontend
+        run: |
+          echo "## ⚛️ Frontend Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.frontend-tests.outcome }}" == "success" ]; then
+            echo "✅ **All tests passed**" >> $GITHUB_STEP_SUMMARY
+            # Extract test counts from vitest output
+            if grep -q "Tests:" test-output.txt; then
+              grep "Tests:" test-output.txt | tail -1 >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **Tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failed Tests:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            # Extract failed test info from vitest output
+            grep -E "FAIL|✕|×|AssertionError|Error:" test-output.txt | head -30 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
+
+      - name: Enforce module-specific coverage (frontend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --frontend-only
+        continue-on-error: false
 
       - name: Run frontend lint
         working-directory: frontend

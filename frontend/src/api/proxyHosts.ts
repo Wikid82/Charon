@@ -8,8 +8,20 @@ export interface Location {
   forward_port: number;
 }
 
+export interface Certificate {
+  id: number;
+  uuid: string;
+  name: string;
+  provider: string;
+  domains: string;
+  expires_at: string;
+}
+
+export type ApplicationPreset = 'none' | 'plex' | 'jellyfin' | 'emby' | 'homeassistant' | 'nextcloud' | 'vaultwarden';
+
 export interface ProxyHost {
   uuid: string;
+  name: string;
   domain_names: string;
   forward_scheme: string;
   forward_host: string;
@@ -20,9 +32,14 @@ export interface ProxyHost {
   hsts_subdomains: boolean;
   block_exploits: boolean;
   websocket_support: boolean;
+  application: ApplicationPreset;
   locations: Location[];
   advanced_config?: string;
+  advanced_config_backup?: string;
   enabled: boolean;
+  certificate_id?: number | null;
+  certificate?: Certificate | null;
+  access_list_id?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,4 +70,25 @@ export const deleteProxyHost = async (uuid: string): Promise<void> => {
 
 export const testProxyHostConnection = async (host: string, port: number): Promise<void> => {
   await client.post('/proxy-hosts/test', { forward_host: host, forward_port: port });
+};
+
+export interface BulkUpdateACLRequest {
+  host_uuids: string[];
+  access_list_id: number | null;
+}
+
+export interface BulkUpdateACLResponse {
+  updated: number;
+  errors: { uuid: string; error: string }[];
+}
+
+export const bulkUpdateACL = async (
+  hostUUIDs: string[],
+  accessListID: number | null
+): Promise<BulkUpdateACLResponse> => {
+  const { data } = await client.put<BulkUpdateACLResponse>('/proxy-hosts/bulk-update-acl', {
+    host_uuids: hostUUIDs,
+    access_list_id: accessListID,
+  });
+  return data;
 };

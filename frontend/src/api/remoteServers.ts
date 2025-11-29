@@ -43,3 +43,8 @@ export const testRemoteServerConnection = async (uuid: string): Promise<{ addres
   const { data } = await client.post<{ address: string }>(`/remote-servers/${uuid}/test`);
   return data;
 };
+
+export const testCustomRemoteServerConnection = async (host: string, port: number): Promise<{ address: string; reachable: boolean; error?: string }> => {
+  const { data } = await client.post<{ address: string; reachable: boolean; error?: string }>('/remote-servers/test', { host, port });
+  return data;
+};

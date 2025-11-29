@@ -1,11 +1,82 @@
 import { useState, useEffect } from 'react'
-import { CircleHelp, AlertCircle, Check, X, Loader2 } from 'lucide-react'
-import type { ProxyHost } from '../api/proxyHosts'
+import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info } from 'lucide-react'
+import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
+import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
+import AccessListSelector from './AccessListSelector'
 import { parse } from 'tldts'
+
+// Application preset configurations
+const APPLICATION_PRESETS: { value: ApplicationPreset; label: string; description: string }[] = [
+  { value: 'none', label: 'None', description: 'Standard reverse proxy' },
+  { value: 'plex', label: 'Plex', description: 'Media server with remote access' },
+  { value: 'jellyfin', label: 'Jellyfin', description: 'Open source media server' },
+  { value: 'emby', label: 'Emby', description: 'Media server' },
+  { value: 'homeassistant', label: 'Home Assistant', description: 'Home automation' },
+  { value: 'nextcloud', label: 'Nextcloud', description: 'File sync and share' },
+  { value: 'vaultwarden', label: 'Vaultwarden', description: 'Password manager' },
+]
+
+// Docker image to preset mapping for auto-detection
+const IMAGE_TO_PRESET: Record<string, ApplicationPreset> = {
+  'plexinc/pms-docker': 'plex',
+  'linuxserver/plex': 'plex',
+  'jellyfin/jellyfin': 'jellyfin',
+  'linuxserver/jellyfin': 'jellyfin',
+  'emby/embyserver': 'emby',
+  'linuxserver/emby': 'emby',
+  'homeassistant/home-assistant': 'homeassistant',
+  'ghcr.io/home-assistant/home-assistant': 'homeassistant',
+  'nextcloud': 'nextcloud',
+  'linuxserver/nextcloud': 'nextcloud',
+  'vaultwarden/server': 'vaultwarden',
+}
+
+// Advanced Caddy config snippets for presets (auto-populate for review)
+const PRESET_ADVANCED_CONFIG: Record<ApplicationPreset, string> = {
+  none: '',
+  plex: JSON.stringify([
+    {
+      handler: 'headers',
+      request: {
+        set: {
+          'X-Plex-Client-Identifier': '{http.request.header.X-Plex-Client-Identifier}',
+          'X-Real-IP': '{http.request.remote.host}',
+          'X-Forwarded-Host': '{http.request.host}',
+        },
+      },
+    },
+  ], null, 2),
+  jellyfin: JSON.stringify([
+    {
+      handler: 'headers',
+      request: {
+        set: {
+          'X-Real-IP': '{http.request.remote.host}',
+          'X-Forwarded-Host': '{http.request.host}',
+        },
+      },
+    },
+  ], null, 2),
+  emby: JSON.stringify([
+    {
+      handler: 'headers',
+      request: { set: { 'X-Real-IP': '{http.request.remote.host}' } },
+    },
+  ], null, 2),
+  homeassistant: JSON.stringify([
+    { handler: 'headers', request: { set: { 'X-Real-IP': '{http.request.remote.host}' } } },
+  ], null, 2),
+  nextcloud: JSON.stringify([
+    { handler: 'headers', request: { set: { 'X-Real-IP': '{http.request.remote.host}', 'X-Forwarded-Host': '{http.request.host}' } } },
+  ], null, 2),
+  vaultwarden: JSON.stringify([
+    { handler: 'headers', request: { set: { 'X-Real-IP': '{http.request.remote.host}' } } },
+  ], null, 2),
+}
 
 interface ProxyHostFormProps {
   host?: ProxyHost
@@ -15,6 +86,7 @@ interface ProxyHostFormProps {
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const [formData, setFormData] = useState({
+    name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
     forward_host: host?.forward_host || '',
@@ -25,13 +97,69 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
+    application: (host?.application || 'none') as ApplicationPreset,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
+    certificate_id: host?.certificate_id,
+    access_list_id: host?.access_list_id,
   })
+
+  // Charon internal IP for config helpers (previously CPMP internal IP)
+  const [charonInternalIP, setCharonInternalIP] = useState<string>('')
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+
+  // Fetch Charon internal IP on mount (legacy: CPMP internal IP)
+  useEffect(() => {
+    fetch('/api/v1/health')
+      .then(res => res.json())
+      .then(data => {
+        if (data.internal_ip) {
+          setCharonInternalIP(data.internal_ip)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  // Auto-detect application preset from Docker image
+  const detectApplicationPreset = (imageName: string): ApplicationPreset => {
+    const lowerImage = imageName.toLowerCase()
+    for (const [pattern, preset] of Object.entries(IMAGE_TO_PRESET)) {
+      if (lowerImage.includes(pattern.toLowerCase())) {
+        return preset
+      }
+    }
+    return 'none'
+  }
+
+  // Copy to clipboard helper
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch {
+      console.error('Failed to copy to clipboard')
+    }
+  }
+
+  // Get the external URL for this proxy host
+  const getExternalUrl = () => {
+    const domain = formData.domain_names.split(',')[0]?.trim()
+    if (!domain) return ''
+    return `https://${domain}:443`
+  }
 
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
+  const { certificates } = useCertificates()
+
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
+
+  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(
+    connectionSource === 'local' ? 'local' : undefined,
+    connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined
+  )
+
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
 
@@ -40,15 +168,41 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [pendingDomain, setPendingDomain] = useState('')
   const [dontAskAgain, setDontAskAgain] = useState(false)
 
-  // Test Connection State
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-
   useEffect(() => {
-    const stored = localStorage.getItem('cpmp_dont_ask_domain')
+    const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
     if (stored === 'true') {
       setDontAskAgain(true)
     }
   }, [])
+
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [showPresetConfirmModal, setShowPresetConfirmModal] = useState(false)
+  const [pendingPreset, setPendingPreset] = useState<ApplicationPreset | null>(null)
+
+  const handleConfirmPresetOverwrite = () => {
+    if (!pendingPreset) return
+    const presetConfig = PRESET_ADVANCED_CONFIG[pendingPreset]
+    const needsWebsockets = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden'].includes(pendingPreset)
+    setFormData(prev => ({
+      ...prev,
+      application: pendingPreset,
+      websocket_support: needsWebsockets || prev.websocket_support,
+      advanced_config: presetConfig,
+    }))
+    setShowPresetConfirmModal(false)
+    setPendingPreset(null)
+  }
+
+  const handleCancelPresetOverwrite = () => {
+    setShowPresetConfirmModal(false)
+    setPendingPreset(null)
+  }
+
+  const handleRestoreBackup = () => {
+    if (host?.advanced_config_backup) {
+      setFormData(prev => ({ ...prev, advanced_config: host.advanced_config_backup || '' }))
+    }
+  }
 
   const checkNewDomains = (input: string) => {
     if (dontAskAgain) return
@@ -77,6 +231,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
+
   const handleSaveDomain = async () => {
     try {
       await createDomain(pendingDomain)
@@ -89,6 +244,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   const handleDontAskToggle = (checked: boolean) => {
     setDontAskAgain(checked)
+    localStorage.setItem('charon_dont_ask_domain', String(checked))
+    // Keep legacy value for stored user preference compatibility
     localStorage.setItem('cpmp_dont_ask_domain', String(checked))
   }
 
@@ -109,38 +266,49 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
-  // Fetch containers based on selected source
-  // If 'local', host is undefined (which defaults to local socket in backend)
-  // If remote UUID, we need to find the server and get its host address?
-  // Actually, the backend ListContainers takes a 'host' query param.
-  // If it's a remote server, we should probably pass the UUID or the host address.
-  // Looking at backend/internal/services/docker_service.go, it takes a 'host' string.
-  // If it's a remote server, we need to pass the TCP address (e.g. tcp://1.2.3.4:2375).
-
-  const getDockerHostString = () => {
-    if (connectionSource === 'local') return undefined;
-    if (connectionSource === 'custom') return null;
-    const server = remoteServers.find(s => s.uuid === connectionSource);
-    if (!server) return null;
-    // Construct the Docker host string
-    return `tcp://${server.host}:${server.port}`;
-  }
-
-  const { containers: dockerContainers, isLoading: dockerLoading, error: dockerError } = useDocker(getDockerHostString())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setNameError(null)
+
+    // Validate name is required
+    if (!formData.name.trim()) {
+      setNameError('Name is required')
+      setLoading(false)
+      return
+    }
 
     try {
       await onSubmit(formData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save proxy host')
+    } catch (err: unknown) {
+      console.error("Submit error:", err)
+      // Extract error message from axios response if available
+      const errorObj = err as { response?: { data?: { error?: string } }; message?: string }
+      const message = errorObj.response?.data?.error || errorObj.message || 'Failed to save proxy host'
+      setError(message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const tryApplyPreset = (preset: ApplicationPreset) => {
+    const presetConfig = PRESET_ADVANCED_CONFIG[preset] || ''
+    // Auto-apply if no advanced config is present
+    if (!formData.advanced_config || formData.advanced_config.trim() === '') {
+      const needsWebsockets = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden'].includes(preset)
+      setFormData(prev => ({ ...prev, application: preset, websocket_support: needsWebsockets || prev.websocket_support, advanced_config: presetConfig }))
+      return
+    }
+    // Otherwise, prompt if different
+    if (formData.advanced_config.trim() !== presetConfig.trim()) {
+      setPendingPreset(preset)
+      setShowPresetConfirmModal(true)
+      return
     }
   }
 
@@ -148,10 +316,29 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     setSelectedContainerId(containerId)
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
-      // Prefer internal IP if available, otherwise use container name
-      const host = container.ip || container.names[0]
-      // Use the first exposed port if available, otherwise default to 80
-      const port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+      // Default to internal IP and private port
+      let host = container.ip || container.names[0]
+      let port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+
+      // If using a Remote Server, try to use the Host IP and Mapped Public Port
+      if (connectionSource !== 'local' && connectionSource !== 'custom') {
+        const server = remoteServers.find(s => s.uuid === connectionSource)
+        if (server) {
+          // Use the Remote Server's Host IP (e.g. public/tailscale IP)
+          host = server.host
+
+          // Find a mapped public port
+          // We prefer the first mapped port we find
+          const mappedPort = container.ports?.find(p => p.public_port)
+          if (mappedPort) {
+            port = mappedPort.public_port
+          } else {
+            // If no public port is mapped, we can't reach it from outside
+            // But we'll leave the internal port as a fallback, though it likely won't work
+            console.warn('No public port mapped for container on remote server')
+          }
+        }
+      }
 
       let newDomainNames = formData.domain_names
       if (selectedDomain) {
@@ -159,12 +346,22 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         newDomainNames = `${subdomain}.${selectedDomain}`
       }
 
+      // Auto-detect application preset from image name
+      const detectedPreset = detectApplicationPreset(container.image)
+      // Auto-enable websockets for apps that need it
+      const needsWebsockets = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden'].includes(detectedPreset)
+
+      // Try to apply the preset logic (auto-populate or prompt)
+      tryApplyPreset(detectedPreset)
+
       setFormData({
         ...formData,
         forward_host: host,
         forward_port: port,
         forward_scheme: 'http',
         domain_names: newDomainNames,
+        application: detectedPreset,
+        websocket_support: needsWebsockets || formData.websocket_support,
       })
     }
   }
@@ -184,7 +381,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-dark-card rounded-lg border border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-800">
           <h2 className="text-2xl font-bold text-white">
@@ -198,6 +395,36 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               {error}
             </div>
           )}
+
+          {/* Name Field */}
+          <div>
+            <label htmlFor="proxy-name" className="block text-sm font-medium text-gray-300 mb-2">
+              Name <span className="text-red-400">*</span>
+            </label>
+            <input
+              id="proxy-name"
+              type="text"
+              required
+              value={formData.name}
+              onChange={e => {
+                setFormData({ ...formData, name: e.target.value })
+                if (nameError && e.target.value.trim()) {
+                  setNameError(null)
+                }
+              }}
+              placeholder="My Service"
+              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                nameError ? 'border-red-500' : 'border-gray-700'
+              }`}
+            />
+            {nameError ? (
+              <p className="text-xs text-red-400 mt-1">{nameError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                A friendly name to identify this proxy host
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
@@ -277,10 +504,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="domain-names" className="block text-sm font-medium text-gray-300 mb-2">
                 Domain Names (comma-separated)
               </label>
               <input
+                id="domain-names"
                 type="text"
                 required
                 value={formData.domain_names}
@@ -332,6 +560,203 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               />
             </div>
           </div>
+
+          {/* SSL Certificate Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              SSL Certificate (Custom Only)
+            </label>
+            <select
+              value={formData.certificate_id || 0}
+              onChange={e => setFormData({ ...formData, certificate_id: parseInt(e.target.value) || null })}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>Request a new SSL Certificate (Let's Encrypt)</option>
+              {certificates.filter(c => c.provider === 'custom').map(cert => (
+                <option key={cert.id} value={cert.id}>
+                  {cert.name} (Custom)
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Let's Encrypt certificates are managed automatically. Use custom certificates for self-signed or other providers.
+            </p>
+          </div>
+
+          {/* Access Control List */}
+          <AccessListSelector
+            value={formData.access_list_id || null}
+            onChange={id => setFormData({ ...formData, access_list_id: id })}
+          />
+
+          {/* Application Preset */}
+          <div>
+            <label htmlFor="application-preset" className="block text-sm font-medium text-gray-300 mb-2">
+              Application Preset
+              <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+            </label>
+              <select
+              id="application-preset"
+              value={formData.application}
+              onChange={e => {
+                const preset = e.target.value as ApplicationPreset
+                // Apply with advanced_config logic
+                const needsWebsockets = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden'].includes(preset)
+                // Delegate to shared logic which will auto-apply or prompt
+                tryApplyPreset(preset)
+                // Ensure we still enable websockets when preset implies it
+                setFormData(prev => ({ ...prev, websocket_support: needsWebsockets || prev.websocket_support }))
+              }}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {APPLICATION_PRESETS.map(preset => (
+                <option key={preset.value} value={preset.value}>
+                  {preset.label} - {preset.description}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Presets automatically configure headers for remote access behind tunnels/CGNAT.
+            </p>
+          </div>
+
+          {/* Application Config Helper */}
+          {formData.application !== 'none' && formData.domain_names && (
+            <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <h4 className="text-sm font-semibold text-blue-300">
+                    {formData.application === 'plex' && 'Plex Remote Access Setup'}
+                    {formData.application === 'jellyfin' && 'Jellyfin Proxy Setup'}
+                    {formData.application === 'emby' && 'Emby Proxy Setup'}
+                    {formData.application === 'homeassistant' && 'Home Assistant Proxy Setup'}
+                    {formData.application === 'nextcloud' && 'Nextcloud Proxy Setup'}
+                    {formData.application === 'vaultwarden' && 'Vaultwarden Setup'}
+                  </h4>
+
+                  {/* Plex Helper */}
+                  {formData.application === 'plex' && (
+                    <>
+                      <p className="text-xs text-gray-300">
+                        Copy this URL and paste it into <strong>Plex Settings → Network → Custom server access URLs</strong>
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono">
+                          {getExternalUrl()}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(getExternalUrl(), 'plex-url')}
+                          className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center gap-1"
+                        >
+                          {copiedField === 'plex-url' ? <Check size={14} /> : <Copy size={14} />}
+                          {copiedField === 'plex-url' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                      {charonInternalIP && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-300">
+                            Add this IP to <strong>Plex Settings → Network → List of IP addresses that are considered local</strong> or as a trusted proxy to ensure Plex displays remote clients correctly.
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <code className="flex-1 bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono">
+                              {charonInternalIP}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(charonInternalIP, 'plex-proxy-ip')}
+                              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center gap-1"
+                            >
+                              {copiedField === 'plex-proxy-ip' ? <Check size={14} /> : <Copy size={14} />}
+                              {copiedField === 'plex-proxy-ip' ? 'Copied!' : 'Copy'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Jellyfin/Emby Helper */}
+                  {(formData.application === 'jellyfin' || formData.application === 'emby') && charonInternalIP && (
+                    <>
+                      <p className="text-xs text-gray-300">
+                        Add this IP to <strong>{formData.application === 'jellyfin' ? 'Jellyfin' : 'Emby'} → Dashboard → Networking → Known Proxies</strong>
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono">
+                          {charonInternalIP}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(charonInternalIP, 'proxy-ip')}
+                          className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center gap-1"
+                        >
+                          {copiedField === 'proxy-ip' ? <Check size={14} /> : <Copy size={14} />}
+                          {copiedField === 'proxy-ip' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Home Assistant Helper */}
+                  {formData.application === 'homeassistant' && charonInternalIP && (
+                    <>
+                      <p className="text-xs text-gray-300">
+                        Add this to your <strong>configuration.yaml</strong> under <code>http:</code>
+                      </p>
+                      <div className="relative">
+                        <pre className="bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono overflow-x-auto">
+{`http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - ${charonInternalIP}`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`http:\n  use_x_forwarded_for: true\n  trusted_proxies:\n    - ${charonInternalIP}`, 'ha-yaml')}
+                          className="absolute top-2 right-2 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs flex items-center gap-1"
+                        >
+                          {copiedField === 'ha-yaml' ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedField === 'ha-yaml' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Nextcloud Helper */}
+                  {formData.application === 'nextcloud' && charonInternalIP && (
+                    <>
+                      <p className="text-xs text-gray-300">
+                        Add this to your <strong>config/config.php</strong>
+                      </p>
+                      <div className="relative">
+                        <pre className="bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono overflow-x-auto">
+{`'trusted_proxies' => ['${charonInternalIP}'],
+'overwriteprotocol' => 'https',`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(`'trusted_proxies' => ['${charonInternalIP}'],\n'overwriteprotocol' => 'https',`, 'nc-php')}
+                          className="absolute top-2 right-2 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs flex items-center gap-1"
+                        >
+                          {copiedField === 'nc-php' ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedField === 'nc-php' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Vaultwarden Helper */}
+                  {formData.application === 'vaultwarden' && (
+                    <p className="text-xs text-gray-300">
+                      WebSocket support is enabled automatically for live sync. Ensure your Bitwarden clients use this domain: <code className="text-green-400">{formData.domain_names.split(',')[0]?.trim()}</code>
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* SSL & Security Options */}
           <div className="space-y-3">
@@ -414,7 +839,19 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <label htmlFor="advanced-config" className="block text-sm font-medium text-gray-300 mb-2">
               Advanced Caddy Config (Optional)
             </label>
-            <textarea
+            <div className="relative">
+              {host?.advanced_config_backup && (
+                <div className="absolute right-0 top-0 -translate-y-8">
+                  <button
+                    type="button"
+                    onClick={handleRestoreBackup}
+                    className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs"
+                  >
+                    Restore previous config
+                  </button>
+                </div>
+              )}
+              <textarea
               id="advanced-config"
               value={formData.advanced_config}
               onChange={e => setFormData({ ...formData, advanced_config: e.target.value })}
@@ -422,6 +859,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               rows={4}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            </div>
           </div>
 
           {/* Enabled Toggle */}
@@ -478,7 +916,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       {/* New Domain Prompt Modal */}
       {showDomainPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-[60]">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
           <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
             <div className="flex items-center gap-3 mb-4 text-blue-400">
               <AlertCircle size={24} />
@@ -519,6 +957,48 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 Yes, save it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preset Overwrite Confirmation Modal */}
+      {showPresetConfirmModal && pendingPreset && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-lg w-full p-6 shadow-xl">
+            <div className="flex items-center gap-3 mb-4 text-blue-400">
+              <AlertCircle size={24} />
+              <h3 className="text-lg font-semibold text-white">Confirm Preset Overwrite</h3>
+            </div>
+
+            <p className="text-gray-300 mb-4">
+              You already have an Advanced Caddy Config for this host. Applying the <strong>{pendingPreset}</strong> preset will overwrite the existing configuration.
+            </p>
+
+            <p className="text-gray-400 text-sm mb-4">A backup of your existing configuration will be created when the host is saved.</p>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Preset Preview</label>
+              <pre className="bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
+                {PRESET_ADVANCED_CONFIG[pendingPreset]}
+              </pre>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCancelPresetOverwrite}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmPresetOverwrite}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Overwrite
               </button>
             </div>
           </div>

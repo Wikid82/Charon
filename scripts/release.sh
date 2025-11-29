@@ -1,5 +1,5 @@
 #!/bin/bash
-# Release script for CaddyProxyManager+
+# Release script for Charon
 # Creates a new semantic version release with tag and GitHub release
 
 set -e
@@ -96,7 +96,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     success "Release workflow triggered!"
     echo "  - GitHub will create a release with changelog"
     echo "  - Docker images will be built and published"
-    echo "  - View progress at: https://github.com/Wikid82/CaddyProxyManagerPlus/actions"
+    echo "  - View progress at: https://github.com/Wikid82/charon/actions"
 else
     warning "Not pushed. You can push later with:"
     echo "  git push origin $CURRENT_BRANCH"

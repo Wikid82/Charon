@@ -6,10 +6,13 @@ import (
 	"net"
 	"strconv"
 	"time"
+	"encoding/json"
+
+	"github.com/Wikid82/charon/backend/internal/caddy"
 
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // ProxyHostService encapsulates business logic for proxy host management.
@@ -48,6 +51,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 		return err
 	}
 
+	// Normalize and validate advanced config (if present)
+	if host.AdvancedConfig != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config JSON: %w", err)
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+		} else {
+			host.AdvancedConfig = string(norm)
+		}
+	}
+
 	return s.db.Create(host).Error
 }
 
@@ -55,6 +72,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
 		return err
+	}
+
+	// Normalize and validate advanced config (if present)
+	if host.AdvancedConfig != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config JSON: %w", err)
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+		} else {
+			host.AdvancedConfig = string(norm)
+		}
 	}
 
 	return s.db.Save(host).Error
@@ -77,7 +108,7 @@ func (s *ProxyHostService) GetByID(id uint) (*models.ProxyHost, error) {
 // GetByUUID finds a proxy host by UUID.
 func (s *ProxyHostService) GetByUUID(uuid string) (*models.ProxyHost, error) {
 	var host models.ProxyHost
-	if err := s.db.Preload("Locations").Where("uuid = ?", uuid).First(&host).Error; err != nil {
+	if err := s.db.Preload("Locations").Preload("Certificate").Where("uuid = ?", uuid).First(&host).Error; err != nil {
 		return nil, err
 	}
 	return &host, nil
@@ -86,7 +117,7 @@ func (s *ProxyHostService) GetByUUID(uuid string) (*models.ProxyHost, error) {
 // List returns all proxy hosts.
 func (s *ProxyHostService) List() ([]models.ProxyHost, error) {
 	var hosts []models.ProxyHost
-	if err := s.db.Preload("Locations").Order("updated_at desc").Find(&hosts).Error; err != nil {
+	if err := s.db.Preload("Locations").Preload("Certificate").Order("updated_at desc").Find(&hosts).Error; err != nil {
 		return nil, err
 	}
 	return hosts, nil
@@ -103,7 +134,7 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	return nil
 }

@@ -11,6 +11,8 @@ interface LogFiltersProps {
   onLevelChange: (value: string) => void;
   host: string;
   onHostChange: (value: string) => void;
+  sort: 'asc' | 'desc';
+  onSortChange: (value: 'asc' | 'desc') => void;
   onRefresh: () => void;
   onDownload: () => void;
   isLoading: boolean;
@@ -25,6 +27,8 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
   onLevelChange,
   host,
   onHostChange,
+  sort,
+  onSortChange,
   onRefresh,
   onDownload,
   isLoading
@@ -79,6 +83,17 @@ export const LogFilters: React.FC<LogFiltersProps> = ({
           <option value="3xx">3xx Redirect</option>
           <option value="4xx">4xx Client Error</option>
           <option value="5xx">5xx Server Error</option>
+        </select>
+      </div>
+
+      <div className="w-full md:w-32">
+        <select
+          value={sort}
+          onChange={(e) => onSortChange(e.target.value as 'asc' | 'desc')}
+          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white"
+        >
+          <option value="desc">Newest First</option>
+          <option value="asc">Oldest First</option>
         </select>
       </div>
 

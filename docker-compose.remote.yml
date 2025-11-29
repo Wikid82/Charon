@@ -1,8 +1,8 @@
 version: '3.9'
 
 services:
-  # Run this service on your REMOTE servers (not the one running CPMP)
-  # to allow CPMP to discover containers running there.
+  # Run this service on your REMOTE servers (not the one running Charon)
+  # to allow Charon to discover containers running there (legacy: CPMP).
   docker-socket-proxy:
     image: alpine/socat
     container_name: docker-socket-proxy

@@ -1,0 +1,125 @@
+version: 2
+
+project_name: charon
+
+builds:
+  - id: linux
+    dir: backend
+    main: ./cmd/api
+    binary: charon
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
+      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+
+  - id: windows
+    dir: backend
+    main: ./cmd/api
+    binary: charon
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-windows-gnu
+      - CXX=zig c++ -target x86_64-windows-gnu
+    goos:
+      - windows
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+
+  - id: darwin
+    dir: backend
+    main: ./cmd/api
+    binary: charon
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+      - CXX=zig c++ -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
+
+archives:
+  - format: tar.gz
+    id: nix
+    builds:
+      - linux
+      - darwin
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+  - format: zip
+    id: windows
+    builds:
+      - windows
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  - id: packages
+    builds:
+      - linux
+    package_name: charon
+    vendor: Charon
+    homepage: https://github.com/Wikid82/charon
+    maintainer: Wikid82
+    description: "Charon - A powerful reverse proxy manager"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: ./backend/data/
+        dst: /var/lib/charon/data/
+        type: dir
+      - src: ./frontend/dist/
+        dst: /usr/share/charon/frontend/
+        type: dir
+    dependencies:
+      - libc6
+      - ca-certificates
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

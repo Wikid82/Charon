@@ -4,7 +4,7 @@
 Draft PR to merge hardened CI/release workflow changes from `feature/beta-release` into `feature/alpha-completion`.
 
 ## Highlights
-- Secret token migration: all workflows now use `CPMP_TOKEN` (GitHub blocks new secrets containing `GITHUB`).
+- Secret token migration: prefer `CHARON_TOKEN` while maintaining support for `CPMP_TOKEN` (fallback) where needed.
 - Release workflow refinements: stable prerelease detection (alpha/beta/rc), artifact matrix intact.
 - Prior infra hardening (already partially merged earlier): pinned GitHub Action SHAs/tags, resilient Delve (`dlv`) multi-arch build handling.
 - Extensive incremental documentation trail in `docs/beta_release_draft_pr.md` plus concise snapshot in `docs/beta_release_draft_pr_body_snapshot.md` for reviewers.
@@ -13,8 +13,8 @@ Draft PR to merge hardened CI/release workflow changes from `feature/beta-releas
 Most recent snapshot commit: `308ae5dd` (final body content before PR). Full ordered list in `docs/beta_release_draft_pr.md`.
 
 ## Review Checklist
-- Secret `CPMP_TOKEN` exists and has required scopes.
-- No lingering `CPMP_TOKEN` references beyond allowed GitHub-provided contexts.
+- Secret `CHARON_TOKEN` (or `CPMP_TOKEN` fallback) exists and has required scopes.
+- No lingering `CHARON_TOKEN` or `CPMP_TOKEN` references beyond allowed GitHub-provided contexts.
 - Artifact list (frontend dist, backend binaries, caddy binaries) still correct for release.
 
 ## Risks & Mitigations

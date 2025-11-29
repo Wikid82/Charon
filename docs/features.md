@@ -1,10 +1,13 @@
 # ✨ Features
 
-Caddy Proxy Manager+ (CPMP) is packed with features to make managing your web services simple and secure. Here's everything you can do:
+Charon is packed with features to make managing your web services simple and secure. Here's everything you can do:
 
 ---
 
 ## 🔒 Security
+
+### Cerberus Security Suite (Optional)
+Cerberus bundles CrowdSec, WAF (Coraza), ACLs, and Rate Limiting into an optional security suite that can be enabled at runtime.
 
 ### CrowdSec Integration
 Block malicious IPs automatically using community-driven threat intelligence. CrowdSec analyzes your logs and blocks attackers before they can cause harm.
@@ -32,7 +35,7 @@ Every site gets a free SSL certificate automatically. No configuration needed—
 
 ### Built-in Uptime Monitor
 Know instantly when your services go down. Get notifications via Discord, Slack, email, or webhooks when something isn't responding.
-→ [Uptime Monitoring Guide](uptime.html) *(coming soon)*
+→ [Uptime Monitoring Guide](uptime.md) *(coming soon)*
 
 ### Real-time Health Dashboard
 See the status of all your services at a glance. View response times, uptime history, and current availability from one dashboard.
@@ -71,15 +74,15 @@ Manage containers on other servers through secure connections. Perfect for multi
 → [Remote Docker Setup](getting-started.md#remote-docker)
 
 ### Automatic Port Detection
-CPMP reads container labels and exposed ports automatically. Less typing, fewer mistakes.
+Charon reads container labels and exposed ports automatically. Less typing, fewer mistakes.
 
 ---
 
 ## 📥 Import & Migration
 
 ### Caddyfile Import
-Already using Caddy? Import your existing Caddyfile and CPMP will create proxies for each site automatically.
-→ [Import Guide](import-guide.html)
+Already using Caddy? Import your existing Caddyfile and Charon will create proxies for each site automatically.
+→ [Import Guide](import-guide.md)
 
 ### NPM Migration *(coming soon)*
 Migrating from Nginx Proxy Manager? We'll import your configuration so you don't start from scratch.
@@ -122,10 +125,13 @@ Find what you're looking for quickly. Filter by status, search by name, or sort 
 
 ### RESTful API
 Automate everything through a complete REST API. Create proxies, manage certificates, and monitor uptime programmatically.
-→ [API Documentation](api.html)
+→ [API Documentation](api.md)
 
 ### Webhook Notifications
 Send events to any system that accepts webhooks. Integrate with your existing monitoring and automation tools.
+
+### Webhook Payload Templates
+Customize JSON payloads for webhooks using built-in Minimal and Detailed templates, or upload a Custom JSON template. The server validates templates on save and provides a preview endpoint so you can test rendering before sending.
 
 ---
 
@@ -159,13 +165,13 @@ Changes take effect immediately without downtime. Zero-downtime configuration up
 
 Each feature has detailed documentation:
 
-- [Getting Started](getting-started.html) - Your first proxy in 5 minutes
-- [Security Features](security.html) - Deep dive into security options
-- [API Reference](api.html) - Complete API documentation
-- [Import Guide](import-guide.html) - Migrating from other tools
+- [Getting Started](getting-started.md) - Your first proxy in 5 minutes
+- [Security Features](security.md) - Deep dive into security options
+- [API Reference](api.md) - Complete API documentation
+- [Import Guide](import-guide.md) - Migrating from other tools
 
 ---
 
 <p align="center">
-  <em>Missing a feature? <a href="https://github.com/Wikid82/cpmp/discussions">Let us know!</a></em>
+  <em>Missing a feature? <a href="https://github.com/Wikid82/charon/discussions">Let us know!</a></em>
 </p>
