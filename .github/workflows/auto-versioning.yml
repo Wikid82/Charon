@@ -34,11 +34,31 @@ jobs:
         run: |
           echo "Next version: ${{ steps.semver.outputs.version }}"
 
-      - name: Create annotated tag and push
+      - id: create_tag
+        name: Create annotated tag and push
         if: ${{ steps.semver.outputs.changed }}
         run: |
-          git tag -a v${{ steps.semver.outputs.version }} -m "Release v${{ steps.semver.outputs.version }}"
-          git push origin --tags
+          # Ensure a committer identity is configured in the runner so git tag works
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+          # Normalize the version: remove any leading 'v' so we don't end up with 'vvX.Y.Z'
+          RAW="${{ steps.semver.outputs.version }}"
+          VERSION_NO_V="${RAW#v}"
+
+          TAG="v${VERSION_NO_V}"
+          echo "TAG=${TAG}"
+
+          # If tag already exists, skip creation to avoid failure
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists; skipping tag creation"
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+          fi
+
+          # Export the tag for downstream steps
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -46,8 +66,8 @@ jobs:
         if: ${{ steps.semver.outputs.changed }}
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.semver.outputs.version }}
-          name: Release ${{ steps.semver.outputs.version }}
+          tag_name: ${{ steps.create_tag.outputs.tag }}
+          name: Release ${{ steps.create_tag.outputs.tag }}
           body: ${{ steps.semver.outputs.release_notes }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
