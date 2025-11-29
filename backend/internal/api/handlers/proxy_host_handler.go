@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"encoding/json"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -60,6 +61,22 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Validate and normalize advanced config if present
+	if host.AdvancedConfig != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
+			return
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
+			return
+		} else {
+			host.AdvancedConfig = string(norm)
+		}
 	}
 
 	host.UUID = uuid.NewString()
@@ -132,6 +149,22 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Validate and normalize advanced config if present and changed
+	if incoming.AdvancedConfig != "" && incoming.AdvancedConfig != host.AdvancedConfig {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(incoming.AdvancedConfig), &parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
+			return
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
+			return
+		} else {
+			incoming.AdvancedConfig = string(norm)
+		}
+	}
+
 	// Backup advanced config if changed
 	if incoming.AdvancedConfig != host.AdvancedConfig {
 		incoming.AdvancedConfigBackup = host.AdvancedConfig

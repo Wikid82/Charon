@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -97,6 +98,65 @@ func TestGenerateConfig_AdvancedObjectHandler(t *testing.T) {
 	// First handler should be headers
 	first := route.Handle[0]
 	require.Equal(t, "headers", first["handler"])
+}
+
+func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
+	host := models.ProxyHost{
+		UUID:           "advheaders",
+		DomainNames:    "hdr.example.com",
+		ForwardHost:    "app",
+		ForwardPort:    8080,
+		Enabled:        true,
+		AdvancedConfig: `{"handler":"headers","request":{"set":{"Upgrade":"websocket"}},"response":{"set":{"X-Obj":"1"}}}`,
+	}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	require.NoError(t, err)
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	first := route.Handle[0]
+	require.Equal(t, "headers", first["handler"])
+
+	// request.set.Upgrade should be an array
+	if req, ok := first["request"].(map[string]interface{}); ok {
+		if set, ok := req["set"].(map[string]interface{}); ok {
+			if val, ok := set["Upgrade"].([]string); ok {
+				require.Equal(t, []string{"websocket"}, val)
+			} else if arr, ok := set["Upgrade"].([]interface{}); ok {
+				// Convert to string arr for assertion
+				var out []string
+				for _, v := range arr {
+					out = append(out, fmt.Sprintf("%v", v))
+				}
+				require.Equal(t, []string{"websocket"}, out)
+			} else {
+				t.Fatalf("Upgrade header not normalized to array: %#v", set["Upgrade"])
+			}
+		} else {
+			t.Fatalf("request.set not found in handler: %#v", first["request"])
+		}
+	} else {
+		t.Fatalf("request not found in handler: %#v", first)
+	}
+
+	// response.set.X-Obj should be an array
+	if resp, ok := first["response"].(map[string]interface{}); ok {
+		if set, ok := resp["set"].(map[string]interface{}); ok {
+			if val, ok := set["X-Obj"].([]string); ok {
+				require.Equal(t, []string{"1"}, val)
+			} else if arr, ok := set["X-Obj"].([]interface{}); ok {
+				var out []string
+				for _, v := range arr {
+					out = append(out, fmt.Sprintf("%v", v))
+				}
+				require.Equal(t, []string{"1"}, out)
+			} else {
+				t.Fatalf("X-Obj header not normalized to array: %#v", set["X-Obj"])
+			}
+		} else {
+			t.Fatalf("response.set not found in handler: %#v", first["response"])
+		}
+	} else {
+		t.Fatalf("response not found in handler: %#v", first)
+	}
 }
 
 func TestGenerateConfig_ACLWhitelistIncluded(t *testing.T) {
