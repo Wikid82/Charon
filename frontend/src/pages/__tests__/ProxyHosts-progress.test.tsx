@@ -122,7 +122,7 @@ describe('ProxyHosts progress apply', () => {
 
     renderWithProviders(<ProxyHosts />)
     await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
-    const anchor = screen.getByRole('link', { name: /example.com/i })
+    const anchor = screen.getByRole('link', { name: /example\.com/i })
     expect(anchor.getAttribute('target')).toBe('_self')
   })
 })
