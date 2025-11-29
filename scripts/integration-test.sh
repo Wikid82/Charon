@@ -22,6 +22,21 @@ if [ "$code" != "200" ]; then
   exit 1
 fi
 
+echo "Checking setup status..."
+SETUP_REQUIRED=$(curl -s $API_URL/setup | jq -r .setupRequired)
+if [ "$SETUP_REQUIRED" = "true" ]; then
+  echo "Setup is required; attempting to create initial admin..."
+  SETUP_RESPONSE=$(curl -s -X POST $API_URL/setup \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"Administrator\",\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}")
+  echo "Setup response: $SETUP_RESPONSE"
+  if echo "$SETUP_RESPONSE" | jq -e .user >/dev/null 2>&1; then
+    echo "✅ Setup completed"
+  else
+    echo "⚠️ Setup request returned unexpected response; continuing to login attempt"
+  fi
+fi
+
 echo "Logging in..."
 TOKEN=$(curl -s -X POST $API_URL/auth/login \
   -H "Content-Type: application/json" \
@@ -34,17 +49,37 @@ fi
 echo "✅ Login successful"
 
 echo "Creating Proxy Host..."
+# Remove existing proxy host for the domain to make the test idempotent
+EXISTING_ID=$(curl -s -H "Authorization: Bearer $TOKEN" $API_URL/proxy-hosts | jq -r --arg domain "test.localhost" '.[] | select(.domain_names == $domain) | .uuid' | head -n1)
+if [ -n "$EXISTING_ID" ]; then
+  echo "Found existing proxy host (ID: $EXISTING_ID), deleting..."
+  curl -s -X DELETE $API_URL/proxy-hosts/$EXISTING_ID -H "Authorization: Bearer $TOKEN"
+fi
+# Start a lightweight test upstream server to ensure proxy has a target (local-only)
+python3 -c "import http.server, socketserver
+class Handler(http.server.BaseHTTPRequestHandler):
+  def do_GET(self):
+    self.send_response(200)
+    self.end_headers()
+    self.wfile.write(b'Hostname: local-test')
+  def log_message(self, format, *args):
+    pass
+httpd=socketserver.TCPServer((\"0.0.0.0\", 8081), Handler)
+import threading
+threading.Thread(target=httpd.serve_forever, daemon=True).start()
+" &
+
 # We use 'whoami' as the forward host because they are on the same docker network
 RESPONSE=$(curl -s -X POST $API_URL/proxy-hosts \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "domain_names": ["test.localhost"],
+    "domain_names": "test.localhost",
     "forward_scheme": "http",
-    "forward_host": "whoami",
-    "forward_port": 80,
-    "access_list_id": "",
-    "certificate_id": "",
+    "forward_host": "127.0.0.1",
+    "forward_port": 8081,
+    "access_list_id": null,
+    "certificate_id": null,
     "ssl_forced": false,
     "caching_enabled": false,
     "block_exploits": false,
