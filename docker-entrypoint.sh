@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Entrypoint script to run both Caddy and CPM+ in a single container
+# Entrypoint script to run both Caddy and Charon in a single container
 # This simplifies deployment for home users
 
 echo "Starting Charon with integrated Caddy..."
@@ -49,7 +49,7 @@ while [ "$i" -le 30 ]; do
     sleep 1
 done
 
-# Start CPM+ management application
+# Start Charon management application
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
@@ -59,7 +59,7 @@ if [ "$DEBUG_FLAG" = "1" ]; then
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    /usr/local/bin/dlv exec "$bin_path" --headless --listen=":"$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+    /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     bin_path=/app/charon
     if [ ! -f "$bin_path" ]; then

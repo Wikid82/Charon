@@ -108,7 +108,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
   const [copiedField, setCopiedField] = useState<string | null>(null)
 
-  // Fetch CPMP internal IP on mount
+  // Fetch Charon internal IP on mount (legacy: CPMP internal IP)
   useEffect(() => {
     fetch('/api/v1/health')
       .then(res => res.json())

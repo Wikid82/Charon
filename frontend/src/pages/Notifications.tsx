@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, NotificationProvider } from '../api/notifications';
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider } from '../api/notifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
@@ -16,6 +16,7 @@ const ProviderForm: React.FC<{
       type: 'discord',
       enabled: true,
       config: '',
+      template: 'minimal',
       notify_proxy_hosts: true,
       notify_remote_servers: true,
       notify_domains: true,
@@ -25,6 +26,8 @@ const ProviderForm: React.FC<{
   });
 
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const testMutation = useMutation({
     mutationFn: testProvider,
@@ -43,10 +46,26 @@ const ProviderForm: React.FC<{
     testMutation.mutate(formData as Partial<NotificationProvider>);
   };
 
-  const type = watch('type');
+  const handlePreview = async () => {
+    const formData = watch();
+    setPreviewContent(null);
+    setPreviewError(null);
+    try {
+      const res = await previewProvider(formData as Partial<NotificationProvider>);
+      if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
+    } catch (err: any) {
+      setPreviewError(err?.response?.data?.error || err?.message || 'Failed to generate preview');
+    }
+  };
 
-  const setTemplate = (template: string) => {
-    setValue('config', template);
+  const type = watch('type');
+  const { data: templatesList } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
+  const template = watch('template');
+
+  const setTemplate = (templateStr: string, templateName?: string) => {
+    // If templateName is provided, set template selection as well
+    if (templateName) setValue('template', templateName);
+    setValue('config', templateStr);
   };
 
   return (
@@ -93,23 +112,23 @@ const ProviderForm: React.FC<{
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">JSON Payload Template</label>
           <div className="flex gap-2 mb-2 mt-1">
-            <Button type="button" size="sm" variant="secondary" onClick={() => setTemplate('{"content": "{{.Title}}: {{.Message}}"}')}>
-              Simple Template
+            <Button type="button" size="sm" variant={template === 'minimal' ? 'primary' : 'secondary'} onClick={() => setTemplate('{"message": "{{.Message}}", "title": "{{.Title}}", "time": "{{.Time}}", "event": "{{.EventType}}"}', 'minimal')}>
+              Minimal Template
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => setTemplate(`{
-  "embeds": [{
-    "title": "{{.Title}}",
-    "description": "{{.Message}}",
-    "color": 15158332,
-    "fields": [
-      { "name": "Monitor", "value": "{{.Name}}", "inline": true },
-      { "name": "Status", "value": "{{.Status}}", "inline": true },
-      { "name": "Latency", "value": "{{.Latency}}ms", "inline": true }
-    ]
-  }]
-}`)}>
-              Detailed Template (Discord)
+            <Button type="button" size="sm" variant={template === 'detailed' ? 'primary' : 'secondary'} onClick={() => setTemplate(`{"title": "{{.Title}}", "message": "{{.Message}}", "time": "{{.Time}}", "event": "{{.EventType}}", "host": "{{.HostName}}", "host_ip": "{{.HostIP}}", "service_count": {{.ServiceCount}}, "services": {{.Services}}}`, 'detailed')}>
+              Detailed Template
             </Button>
+            <Button type="button" size="sm" variant={template === 'custom' ? 'primary' : 'secondary'} onClick={() => setValue('template', 'custom')}>
+              Custom
+            </Button>
+          </div>
+          <div className="mt-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template</label>
+            <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300">
+              {templatesList?.map((t: any) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
           </div>
           <textarea
             {...register('config')}
@@ -163,6 +182,15 @@ const ProviderForm: React.FC<{
         <Button
           type="button"
           variant="secondary"
+          onClick={handlePreview}
+          disabled={testMutation.isPending}
+          className="min-w-[80px]"
+        >
+          Preview
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
           onClick={handleTest}
           disabled={testMutation.isPending}
           className="min-w-[80px]"
@@ -174,6 +202,13 @@ const ProviderForm: React.FC<{
         </Button>
         <Button type="submit">Save</Button>
       </div>
+      {previewError && <div className="mt-2 text-sm text-red-600">Preview Error: {previewError}</div>}
+      {previewContent && (
+        <div className="mt-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preview Result</label>
+          <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs overflow-auto whitespace-pre-wrap">{previewContent}</pre>
+        </div>
+      )}
     </form>
   );
 };

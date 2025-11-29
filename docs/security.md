@@ -8,7 +8,7 @@ Charon includes the optional Cerberus security suite — a collection of high-va
 [CrowdSec](https://www.crowdsec.net/) is a collaborative security automation tool that analyzes logs to detect and block malicious behavior.
 
 **Modes:**
-*   **Local**: Installs the CrowdSec agent *inside* the CPM+ container. Useful for single-container setups.
+*   **Local**: Installs the CrowdSec agent *inside* the Charon container. Useful for single-container setups.
     *   *Note*: Increases container startup time and resource usage.
 *   **External**: Connects to an existing CrowdSec agent running elsewhere (e.g., on the host or another container).
     *   *Recommended* for production or multi-server setups.

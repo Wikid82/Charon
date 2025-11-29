@@ -42,10 +42,10 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 
 	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0644)
 	require.NoError(t, err)
-	// Write a charon.log and create a cpmp.log symlink to it for compatibility
+	// Write a charon.log and create a cpmp.log symlink to it for backward compatibility (cpmp is legacy)
 	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0644)
 	require.NoError(t, err)
-	// Create legacy cpmp log symlink
+	// Create legacy cpmp log symlink (cpmp is a legacy name for Charon)
 	_ = os.Symlink(filepath.Join(logsDir, "charon.log"), filepath.Join(logsDir, "cpmp.log"))
 	require.NoError(t, err)
 

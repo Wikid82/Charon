@@ -127,7 +127,8 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		json.NewDecoder(r.Body).Decode(&body)
-		assert.Equal(t, "Test Notification", body["Title"])
+		// Minimal template uses lowercase keys: title, message
+		assert.Equal(t, "Test Notification", body["title"])
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -136,7 +137,8 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 		Name:   "Test Webhook",
 		Type:   "webhook",
 		URL:    ts.URL,
-		Config: `{"Title": "{{.Title}}"}`,
+		Template: "minimal",
+		Config: `{"Header": "{{.Title}}"}`,
 	}
 
 	err := svc.TestProvider(provider)
@@ -170,6 +172,84 @@ func TestNotificationService_SendExternal(t *testing.T) {
 		// Success
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timed out waiting for webhook")
+	}
+}
+
+func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Minimal template
+	rcvMinimal := make(chan map[string]interface{}, 1)
+	tsMin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		rcvMinimal <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer tsMin.Close()
+
+	providerMin := models.NotificationProvider{
+		Name:    "Minimal",
+		Type:    "webhook",
+		URL:     tsMin.URL,
+		Enabled: true,
+		NotifyUptime: true,
+		Template: "minimal",
+	}
+	svc.CreateProvider(&providerMin)
+
+	data := map[string]interface{}{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
+	svc.SendExternal("uptime", "Min Title", "Min Message", data)
+
+	select {
+	case body := <-rcvMinimal:
+		// minimal template should contain 'title' and 'message' keys
+		if title, ok := body["title"].(string); ok {
+			assert.Equal(t, "Min Title", title)
+		} else {
+			t.Fatalf("expected title in minimal body")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Timeout waiting for minimal webhook")
+	}
+
+	// Detailed template
+	rcvDetailed := make(chan map[string]interface{}, 1)
+	tsDet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		rcvDetailed <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer tsDet.Close()
+
+	providerDet := models.NotificationProvider{
+		Name:    "Detailed",
+		Type:    "webhook",
+		URL:     tsDet.URL,
+		Enabled: true,
+		NotifyUptime: true,
+		Template: "detailed",
+	}
+	svc.CreateProvider(&providerDet)
+
+	dataDet := map[string]interface{}{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]interface{}{{"Name": "svc1"}}}
+	svc.SendExternal("uptime", "Det Title", "Det Message", dataDet)
+
+	select {
+	case body := <-rcvDetailed:
+		// detailed template should contain 'host' and 'services'
+		if host, ok := body["host"].(string); ok {
+			assert.Equal(t, "example-host", host)
+		} else {
+			t.Fatalf("expected host in detailed body")
+		}
+		if _, ok := body["services"]; !ok {
+			t.Fatalf("expected services in detailed body")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Timeout waiting for detailed webhook")
 	}
 }
 
@@ -349,9 +429,9 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]interface{}
 			json.NewDecoder(r.Body).Decode(&body)
-			if content, ok := body["content"]; ok {
-				receivedContent = content.(string)
-			}
+			if title, ok := body["title"]; ok {
+					receivedContent = title.(string)
+				}
 			w.WriteHeader(http.StatusOK)
 			close(received)
 		}))
@@ -360,14 +440,14 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		provider := models.NotificationProvider{
 			Type: "webhook",
 			URL:  ts.URL,
-			// Config is empty, so default template is used: {"content": "{{.Title}}: {{.Message}}"}
+			// Config is empty, so default template is used: minimal
 		}
 		data := map[string]interface{}{"Title": "Default Title", "Message": "Test Message"}
 		svc.sendCustomWebhook(provider, data)
 
 		select {
 		case <-received:
-			assert.Equal(t, "Default Title: Test Message", receivedContent)
+			assert.Equal(t, "Default Title", receivedContent)
 		case <-time.After(500 * time.Millisecond):
 			t.Fatal("Timeout waiting for webhook")
 		}
@@ -430,6 +510,17 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		err := svc.TestProvider(provider)
 		assert.NoError(t, err)
 	})
+}
+
+func TestValidateWebhookURL_PrivateIP(t *testing.T) {
+	// Direct IP literal within RFC1918 block should be rejected
+	_, err := validateWebhookURL("http://10.0.0.1")
+	assert.Error(t, err)
+
+	// Loopback allowed
+	u, err := validateWebhookURL("http://127.0.0.1:8080")
+	assert.NoError(t, err)
+	assert.Equal(t, "127.0.0.1", u.Hostname())
 }
 
 func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
@@ -531,6 +622,26 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 	})
 }
 
+func TestNotificationService_RenderTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Minimal template
+	provider := models.NotificationProvider{Type: "webhook", Template: "minimal"}
+	data := map[string]interface{}{"Title": "T1", "Message": "M1", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+	rendered, parsed, err := svc.RenderTemplate(provider, data)
+	require.NoError(t, err)
+	assert.Contains(t, rendered, "T1")
+	if parsedMap, ok := parsed.(map[string]interface{}); ok {
+		assert.Equal(t, "T1", parsedMap["title"])
+	}
+
+	// Invalid custom template returns error
+	provider = models.NotificationProvider{Type: "webhook", Template: "custom", Config: `{"bad": "{{.Title"}`}
+	_, _, err = svc.RenderTemplate(provider, data)
+	assert.Error(t, err)
+}
+
 func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
@@ -570,5 +681,38 @@ func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 		err := svc.DeleteProvider("non-existent-id")
 		// Should not error on missing provider
 		assert.NoError(t, err)
+	})
+}
+
+func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("invalid custom template on create", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Name:   "Bad Custom",
+			Type:   "webhook",
+			URL:    "http://example.com",
+			Template: "custom",
+			Config: `{"bad": "{{.Title"}`,
+		}
+		err := svc.CreateProvider(&provider)
+		assert.Error(t, err)
+	})
+
+	t.Run("invalid custom template on update", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Name:   "Valid",
+			Type:   "webhook",
+			URL:    "http://example.com",
+			Template: "minimal",
+		}
+		err := svc.CreateProvider(&provider)
+		require.NoError(t, err)
+
+		provider.Template = "custom"
+		provider.Config = `{"bad": "{{.Title"}`
+		err = svc.UpdateProvider(&provider)
+		assert.Error(t, err)
 	})
 }

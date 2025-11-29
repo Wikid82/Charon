@@ -130,6 +130,9 @@ Automate everything through a complete REST API. Create proxies, manage certific
 ### Webhook Notifications
 Send events to any system that accepts webhooks. Integrate with your existing monitoring and automation tools.
 
+### Webhook Payload Templates
+Customize JSON payloads for webhooks using built-in Minimal and Detailed templates, or upload a Custom JSON template. The server validates templates on save and provides a preview endpoint so you can test rendering before sending.
+
 ---
 
 ## 🛡️ Enterprise Features

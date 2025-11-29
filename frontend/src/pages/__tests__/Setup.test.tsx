@@ -71,8 +71,11 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
+
+    // Verify logo is present
+    expect(screen.getAllByAltText('Charon').length).toBeGreaterThan(0);
 
     expect(screen.getByLabelText('Name')).toBeTruthy();
     expect(screen.getByLabelText('Email Address')).toBeTruthy();
@@ -85,7 +88,7 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.queryByText('Welcome to CPM+')).toBeNull();
+      expect(screen.queryByText('Welcome to Charon')).toBeNull();
     });
 
     await waitFor(() => {
@@ -100,7 +103,7 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
 
     const user = userEvent.setup()
@@ -131,7 +134,7 @@ describe('Setup Page', () => {
     renderWithProviders(<Setup />);
 
     await waitFor(() => {
-      expect(screen.getByText('Welcome to CPM+')).toBeTruthy();
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
     });
 
     const user = userEvent.setup()

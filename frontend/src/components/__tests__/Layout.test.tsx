@@ -52,7 +52,7 @@ describe('Layout', () => {
       </Layout>
     )
 
-    const logos = screen.getAllByAltText('CPM+')
+    const logos = screen.getAllByAltText('Charon')
     expect(logos.length).toBeGreaterThan(0)
     expect(logos[0]).toBeInTheDocument()
   })

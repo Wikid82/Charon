@@ -85,7 +85,7 @@ type ImportResult struct {
 	Errors    []string     `json:"errors"`
 }
 
-// Importer handles Caddyfile parsing and conversion to CPM+ models.
+// Importer handles Caddyfile parsing and conversion to Charon models.
 type Importer struct {
 	caddyBinaryPath string
 	executor        Executor
@@ -107,11 +107,19 @@ var forceSplitFallback bool
 
 // ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
 func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) {
-	if _, err := os.Stat(caddyfilePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("caddyfile not found: %s", caddyfilePath)
+	// Sanitize the incoming path to detect forbidden traversal sequences.
+	clean := filepath.Clean(caddyfilePath)
+	if clean == "" || clean == "." {
+		return nil, fmt.Errorf("invalid caddyfile path")
+	}
+	if strings.Contains(clean, ".."+string(os.PathSeparator)) || strings.HasPrefix(clean, "..") {
+		return nil, fmt.Errorf("invalid caddyfile path")
+	}
+	if _, err := os.Stat(clean); os.IsNotExist(err) {
+		return nil, fmt.Errorf("caddyfile not found: %s", clean)
 	}
 
-	output, err := i.executor.Execute(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
+	output, err := i.executor.Execute(i.caddyBinaryPath, "adapt", "--config", clean, "--adapter", "caddyfile")
 	if err != nil {
 		return nil, fmt.Errorf("caddy adapt failed: %w (output: %s)", err, string(output))
 	}
@@ -334,9 +342,20 @@ func BackupCaddyfile(originalPath, backupDir string) (string, error) {
 	}
 
 	timestamp := fmt.Sprintf("%d", os.Getpid()) // Simple timestamp placeholder
-	backupPath := filepath.Join(backupDir, fmt.Sprintf("Caddyfile.%s.backup", timestamp))
+	// Ensure the backup path is contained within backupDir to prevent path traversal
+	backupFile := fmt.Sprintf("Caddyfile.%s.backup", timestamp)
+	// Create a safe join with backupDir
+	backupPath := filepath.Join(backupDir, backupFile)
 
-	input, err := os.ReadFile(originalPath)
+	// Validate the original path: avoid traversal elements pointing outside backupDir
+	clean := filepath.Clean(originalPath)
+	if clean == "" || clean == "." {
+		return "", fmt.Errorf("invalid original path")
+	}
+	if strings.Contains(clean, ".."+string(os.PathSeparator)) || strings.HasPrefix(clean, "..") {
+		return "", fmt.Errorf("invalid original path")
+	}
+	input, err := os.ReadFile(clean)
 	if err != nil {
 		return "", fmt.Errorf("reading original file: %w", err)
 	}

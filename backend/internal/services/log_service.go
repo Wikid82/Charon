@@ -49,7 +49,7 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 			if err != nil {
 				continue
 			}
-			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log pointing to same file)
+			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
 			entryPath := filepath.Join(s.LogDir, entry.Name())
 			resolved, err := filepath.EvalSymlinks(entryPath)
 			if err == nil {
@@ -122,7 +122,7 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 
 		var entry models.CaddyAccessLog
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			// Handle non-JSON logs (like cpmp.log)
+			// Handle non-JSON logs (like cpmp.log, legacy name for Charon)
 			// Try to parse standard Go log format: "2006/01/02 15:04:05 msg"
 			parts := strings.SplitN(line, " ", 3)
 			if len(parts) >= 3 {

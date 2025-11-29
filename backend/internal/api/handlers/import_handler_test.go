@@ -849,6 +849,23 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("path traversal in filename", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"files": []map[string]string{
+				{"filename": "Caddyfile", "content": "import sites/*\n"},
+				{"filename": "../etc/passwd", "content": "sensitive"},
+			},
+		}
+		body, _ := json.Marshal(payload)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/import/upload-multi", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
 	t.Run("empty file content", func(t *testing.T) {
 		payload := map[string]interface{}{
 			"files": []map[string]string{

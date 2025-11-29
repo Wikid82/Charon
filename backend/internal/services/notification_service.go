@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"net"
+	neturl "net/url"
+	"strings"
 	"net/http"
 	"regexp"
 	"text/template"
+	"encoding/json"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -119,6 +123,13 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
+				// Validate HTTP/HTTPS destinations used by shoutrrr to reduce SSRF risk
+				if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+					if _, err := validateWebhookURL(url); err != nil {
+						log.Printf("Skipping notification for provider %s due to invalid destination", p.Name)
+						return
+					}
+				}
 				// Use newline for better formatting in chat apps
 				msg := fmt.Sprintf("%s\n\n%s", title, message)
 				if err := shoutrrr.Send(url, msg); err != nil {
@@ -130,25 +141,38 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 }
 
 func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, data map[string]interface{}) error {
-	// Default template if empty
-	tmplStr := p.Config
-	if tmplStr == "" {
-		tmplStr = `{"content": "{{.Title}}: {{.Message}}"}`
+	// Built-in templates (used by RenderTemplate)
+
+	// Validate webhook URL to reduce SSRF risk (returns parsed URL)
+	u, err := validateWebhookURL(p.URL)
+	if err != nil {
+		return fmt.Errorf("invalid webhook url: %w", err)
 	}
 
-	// Parse template
-	tmpl, err := template.New("webhook").Parse(tmplStr)
+	rendered, _, err := s.RenderTemplate(p, data)
 	if err != nil {
-		return fmt.Errorf("failed to parse webhook template: %w", err)
+		return fmt.Errorf("failed to render webhook template: %w", err)
 	}
 
 	var body bytes.Buffer
-	if err := tmpl.Execute(&body, data); err != nil {
-		return fmt.Errorf("failed to execute webhook template: %w", err)
+	body.WriteString(rendered)
+
+	// Send Request with a safe client (timeout, no auto-redirect)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
-	// Send Request
-	resp, err := http.Post(p.URL, "application/json", &body)
+	// Use the parsed URL returned by validateWebhookURL and create the request from the parsed URL
+	req, err := http.NewRequest("POST", u.String(), &body)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
@@ -158,6 +182,114 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 		return fmt.Errorf("webhook returned status: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// RenderTemplate renders a provider template with given data and validates it as JSON when applicable.
+// It returns the rendered string, the parsed JSON object (or nil), or an error while rendering/parsing.
+func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (string, interface{}, error) {
+	// Same built-in templates as sendCustomWebhook
+	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
+	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
+
+	tmplStr := p.Config
+	switch strings.ToLower(strings.TrimSpace(p.Template)) {
+	case "detailed":
+		tmplStr = detailedTemplate
+	case "minimal":
+		tmplStr = minimalTemplate
+	case "custom":
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	default:
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	}
+
+	// Parse template and add helper funcs
+	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
+		"toJSON": func(v interface{}) string {
+			b, _ := json.Marshal(v)
+			return string(b)
+		},
+	}).Parse(tmplStr)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", nil, fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	// Validate that result is valid JSON
+	var parsed interface{}
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		// Not valid JSON
+		return buf.String(), nil, fmt.Errorf("rendered template is not valid JSON: %w", err)
+	}
+	return buf.String(), parsed, nil
+}
+
+// isPrivateIP returns true for RFC1918, loopback and link-local addresses.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// IPv4 RFC1918
+	if ip4 := ip.To4(); ip4 != nil {
+		switch {
+		case ip4[0] == 10:
+			return true
+		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
+			return true
+		case ip4[0] == 192 && ip4[1] == 168:
+			return true
+		}
+	}
+
+	// IPv6 unique local addresses fc00::/7
+	if ip.To16() != nil && strings.HasPrefix(ip.String(), "fc") {
+		return true
+	}
+
+	return false
+}
+
+// validateWebhookURL parses and validates webhook URLs and ensures
+// the resolved addresses are not private/local.
+func validateWebhookURL(raw string) (*neturl.URL, error) {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return nil, fmt.Errorf("missing host")
+	}
+
+	// Allow explicit loopback/localhost addresses for local tests.
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return u, nil
+	}
+
+	// Resolve and check IPs
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return nil, fmt.Errorf("dns lookup failed: %w", err)
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return nil, fmt.Errorf("disallowed host IP: %s", ip.String())
+		}
+	}
+	return u, nil
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
@@ -185,10 +317,24 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
+	// Validate custom template if provided
+	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
+		sample := map[string]interface{}{"Title": "Preview", "Message": "Test", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		if _, _, err := s.RenderTemplate(*provider, sample); err != nil {
+			return fmt.Errorf("invalid custom template: %w", err)
+		}
+	}
 	return s.DB.Create(provider).Error
 }
 
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
+	// Validate custom template if provided
+	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
+		sample := map[string]interface{}{"Title": "Preview", "Message": "Test", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		if _, _, err := s.RenderTemplate(*provider, sample); err != nil {
+			return fmt.Errorf("invalid custom template: %w", err)
+		}
+	}
 	return s.DB.Save(provider).Error
 }
 
