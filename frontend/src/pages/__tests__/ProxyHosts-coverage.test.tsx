@@ -438,7 +438,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
-    const anchor = screen.getByRole('link', { name: /test1.example.com|example.com|One/i })
+    const anchor = screen.getByRole('link', { name: /(test1\.example\.com|example\.com|One)/i })
     await userEvent.click(anchor)
     expect(openSpy).toHaveBeenCalled()
     openSpy.mockRestore()
@@ -453,7 +453,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('One')).toBeTruthy())
-    const anchor = screen.getByRole('link', { name: /example.com|One/i })
+    const anchor = screen.getByRole('link', { name: /(example\.com|One)/i })
     // Anchor should render with target _self when same_tab
     expect(anchor.getAttribute('target')).toBe('_self')
   })
@@ -502,11 +502,22 @@ describe('ProxyHosts - Coverage enhancements', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('Multi')).toBeTruthy())
-    // Check multiple domain anchors
+    // Check multiple domain anchors; parse anchor hrefs instead of substring checks
     const anchors = screen.getAllByRole('link')
-    expect(anchors.some(a => a.textContent?.includes('one.com'))).toBeTruthy()
-    expect(anchors.some(a => a.textContent?.includes('two.com'))).toBeTruthy()
-    expect(anchors.some(a => a.textContent?.includes('three.com'))).toBeTruthy()
+    const anchorHasHost = (el: Element | null, host: string) => {
+      if (!el) return false
+      const href = el.getAttribute('href') || ''
+      try {
+        // Use base to resolve relative URLs
+        const parsed = new URL(href, 'http://localhost')
+        return parsed.host === host
+      } catch {
+        return el.textContent?.includes(host) ?? false
+      }
+    }
+    expect(anchors.some(a => anchorHasHost(a, 'one.com'))).toBeTruthy()
+    expect(anchors.some(a => anchorHasHost(a, 'two.com'))).toBeTruthy()
+    expect(anchors.some(a => anchorHasHost(a, 'three.com'))).toBeTruthy()
     // Check websocket label exists since websocket_support true
     expect(screen.getByText('WS')).toBeTruthy()
   })
