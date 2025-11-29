@@ -8,6 +8,10 @@
     ]
     ,
     "gopls": {
-        "buildFlags": ["-tags=ignore"]
+        "buildFlags": ["-tags=ignore", "-mod=mod"],
+        "env": {
+            "GOWORK": "off",
+            "GOFLAGS": "-mod=mod"
+        }
     }
 }
