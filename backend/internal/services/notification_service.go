@@ -235,6 +235,11 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 	// Preserve original hostname for virtual host (Host header)
 	req.Host = u.Host
 
+	// We validated the URL and resolved the hostname to an explicit IP above.
+	// The request uses the resolved IP (selectedIP) and we also set the
+	// Host header to the original hostname, so virtual-hosting works while
+	// preventing requests to private or otherwise disallowed addresses.
+	// This mitigates SSRF and addresses the CodeQL request-forgery rule.
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
