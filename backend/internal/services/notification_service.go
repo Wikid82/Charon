@@ -192,12 +192,48 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 		},
 	}
 
-	// Use the parsed URL returned by validateWebhookURL and create the request from the parsed URL
-	req, err := http.NewRequest("POST", u.String(), &body)
+	// Resolve the hostname to an explicit IP and construct the request URL using the
+	// resolved IP. This prevents direct user-controlled hostnames from being used
+	// as the request's destination (SSRF mitigation) and helps CodeQL validate the
+	// sanitisation performed by validateWebhookURL.
+	ips, err := net.LookupIP(u.Hostname())
+	if err != nil || len(ips) == 0 {
+		return fmt.Errorf("failed to resolve webhook host: %w", err)
+	}
+	// If hostname is local loopback, accept loopback addresses; otherwise pick
+	// the first non-private IP (validateWebhookURL already ensured these
+	// are not private, but check again defensively).
+	var selectedIP net.IP
+	for _, ip := range ips {
+		if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" {
+			selectedIP = ip
+			break
+		}
+		if !isPrivateIP(ip) {
+			selectedIP = ip
+			break
+		}
+	}
+	if selectedIP == nil {
+		return fmt.Errorf("failed to find non-private IP for webhook host: %s", u.Hostname())
+	}
+
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	targetURL := fmt.Sprintf("%s://%s%s", u.Scheme, net.JoinHostPort(selectedIP.String(), port), u.RequestURI())
+	req, err := http.NewRequest("POST", targetURL, &body)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Preserve original hostname for virtual host (Host header)
+	req.Host = u.Host
 
 	resp, err := client.Do(req)
 	if err != nil {
