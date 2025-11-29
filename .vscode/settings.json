@@ -6,4 +6,8 @@
             "packageManager": "ms-python.python:pip"
         }
     ]
+    ,
+    "gopls": {
+        "buildFlags": ["-tags=ignore"]
+    }
 }
