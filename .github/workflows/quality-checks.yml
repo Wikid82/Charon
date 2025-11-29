@@ -47,13 +47,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./backend/coverage.out
-          flags: backend
-          fail_ci_if_error: true
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
       - name: Enforce module-specific coverage (backend)
         working-directory: ${{ github.workspace }}
@@ -113,13 +107,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./frontend/coverage
-          flags: frontend
-          fail_ci_if_error: true
+      # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
       - name: Enforce module-specific coverage (frontend)
         working-directory: ${{ github.workspace }}

@@ -54,24 +54,24 @@
 		<div id="topbar">
 			<div id="nav">
 				<select id="files">
-				
+
 				<option value="file0">github.com/Wikid82/charon/backend/internal/caddy/client.go (0.0%)</option>
-				
+
 				<option value="file1">github.com/Wikid82/charon/backend/internal/caddy/config.go (0.0%)</option>
-				
+
 				<option value="file2">github.com/Wikid82/charon/backend/internal/caddy/importer.go (56.8%)</option>
-				
+
 				<option value="file3">github.com/Wikid82/charon/backend/internal/caddy/manager.go (0.0%)</option>
-				
+
 				<option value="file4">github.com/Wikid82/charon/backend/internal/caddy/types.go (0.0%)</option>
-				
+
 				<option value="file5">github.com/Wikid82/charon/backend/internal/caddy/validator.go (0.0%)</option>
-				
+
 				</select>
 			</div>
 			<div id="legend">
 				<span>not tracked</span>
-			
+
 				<span class="cov0">no coverage</span>
 				<span class="cov1">low coverage</span>
 				<span class="cov2">*</span>
@@ -83,11 +83,11 @@
 				<span class="cov8">*</span>
 				<span class="cov9">*</span>
 				<span class="cov10">high coverage</span>
-			
+
 			</div>
 		</div>
 		<div id="content">
-		
+
 		<pre class="file" id="file0" style="display: none">package caddy
 
 import (
@@ -190,7 +190,7 @@ func (c *Client) Ping(ctx context.Context) error <span class="cov0" title="0">{
         <span class="cov0" title="0">return nil</span>
 }
 </pre>
-		
+
 		<pre class="file" id="file1" style="display: none">package caddy
 
 import (
@@ -673,7 +673,7 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) <span class="cov0"
         <span class="cov0" title="0">return nil, nil</span>
 }
 </pre>
-		
+
 		<pre class="file" id="file2" style="display: none">package caddy
 
 import (
@@ -1021,7 +1021,7 @@ func BackupCaddyfile(originalPath, backupDir string) (string, error) <span class
         <span class="cov0" title="0">return backupPath, nil</span>
 }
 </pre>
-		
+
 		<pre class="file" id="file3" style="display: none">package caddy
 
 import (
@@ -1246,7 +1246,7 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) <span c
         return m.client.GetConfig(ctx)
 }</span>
 </pre>
-		
+
 		<pre class="file" id="file4" style="display: none">package caddy
 
 // Config represents Caddy's top-level JSON configuration structure.
@@ -1467,7 +1467,7 @@ type AutomationPolicy struct {
         IssuersRaw []interface{} `json:"issuers,omitempty"`
 }
 </pre>
-		
+
 		<pre class="file" id="file5" style="display: none">package caddy
 
 import (
@@ -1615,7 +1615,7 @@ func validateReverseProxy(handler Handler) error <span class="cov0" title="0">{
         <span class="cov0" title="0">return nil</span>
 }
 </pre>
-		
+
 		</div>
 	</body>
 	<script>

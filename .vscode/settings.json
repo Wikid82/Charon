@@ -11,7 +11,30 @@
         "buildFlags": ["-tags=ignore", "-mod=mod"],
         "env": {
             "GOWORK": "off",
-            "GOFLAGS": "-mod=mod"
-        }
+            "GOFLAGS": "-mod=mod",
+            "GOTOOLCHAIN": "none"
+        },
+        "directoryFilters": [
+            "-**/pkg/mod/**",
+            "-**/go/pkg/mod/**",
+            "-**/root/go/pkg/mod/**",
+            "-**/golang.org/toolchain@**"
+        ]
+    },
+    "go.buildFlags": ["-tags=ignore", "-mod=mod"],
+    "go.toolsEnvVars": {
+        "GOWORK": "off",
+        "GOFLAGS": "-mod=mod",
+        "GOTOOLCHAIN": "none"
+    },
+    "files.watcherExclude": {
+        "**/pkg/mod/**": true,
+        "**/go/pkg/mod/**": true,
+        "**/root/go/pkg/mod/**": true
+    },
+    "search.exclude": {
+        "**/pkg/mod/**": true,
+        "**/go/pkg/mod/**": true,
+        "**/root/go/pkg/mod/**": true
     }
 }
