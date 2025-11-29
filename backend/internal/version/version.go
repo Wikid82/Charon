@@ -2,12 +2,12 @@ package version
 
 const (
 	// Name of the application
-	Name = "CPMP"
+	Name = "Charon"
 )
 
 var (
 	// Version is the semantic version
-	Version = "0.2.0-beta.1"
+	Version = "0.3.0"
 	// BuildTime is set during build via ldflags
 	BuildTime = "unknown"
 	// GitCommit is set during build via ldflags

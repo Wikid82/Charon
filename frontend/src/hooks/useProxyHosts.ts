@@ -4,6 +4,7 @@ import {
   createProxyHost,
   updateProxyHost,
   deleteProxyHost,
+  bulkUpdateACL,
   ProxyHost
 } from '../api/proxyHosts';
 
@@ -39,6 +40,14 @@ export function useProxyHosts() {
     },
   });
 
+  const bulkUpdateACLMutation = useMutation({
+    mutationFn: ({ hostUUIDs, accessListID }: { hostUUIDs: string[]; accessListID: number | null }) =>
+      bulkUpdateACL(hostUUIDs, accessListID),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+
   return {
     hosts: query.data || [],
     loading: query.isLoading,
@@ -47,9 +56,12 @@ export function useProxyHosts() {
     createHost: createMutation.mutateAsync,
     updateHost: (uuid: string, data: Partial<ProxyHost>) => updateMutation.mutateAsync({ uuid, data }),
     deleteHost: deleteMutation.mutateAsync,
+    bulkUpdateACL: (hostUUIDs: string[], accessListID: number | null) =>
+      bulkUpdateACLMutation.mutateAsync({ hostUUIDs, accessListID }),
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isBulkUpdating: bulkUpdateACLMutation.isPending,
   };
 }
 

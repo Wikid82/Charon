@@ -10,14 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/robfig/cron/v3"
 )
 
 type BackupService struct {
-	DataDir   string
-	BackupDir string
-	Cron      *cron.Cron
+	DataDir      string
+	BackupDir    string
+	DatabaseName string
+	Cron         *cron.Cron
 }
 
 type BackupFile struct {
@@ -34,9 +35,10 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	}
 
 	s := &BackupService{
-		DataDir:   filepath.Dir(cfg.DatabasePath), // e.g. /app/data
-		BackupDir: backupDir,
-		Cron:      cron.New(),
+		DataDir:      filepath.Dir(cfg.DatabasePath), // e.g. /app/data
+		BackupDir:    backupDir,
+		DatabaseName: filepath.Base(cfg.DatabasePath),
+		Cron:         cron.New(),
 	}
 
 	// Schedule daily backup at 3 AM
@@ -101,19 +103,18 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer outFile.Close()
+	defer func() { _ = outFile.Close() }()
 
 	w := zip.NewWriter(outFile)
-	defer w.Close()
 
 	// Files/Dirs to backup
 	// 1. Database
-	dbPath := filepath.Join(s.DataDir, "cpm.db")
+	dbPath := filepath.Join(s.DataDir, s.DatabaseName)
 	// Ensure DB exists before backing up
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("database file not found: %s", dbPath)
 	}
-	if err := s.addToZip(w, dbPath, "cpm.db"); err != nil {
+	if err := s.addToZip(w, dbPath, s.DatabaseName); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
 	}
 
@@ -123,6 +124,11 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
 		// It's possible caddy dir doesn't exist yet, which is fine
 		fmt.Printf("Warning: could not backup caddy dir: %v\n", err)
+	}
+
+	// Close zip writer and check for errors (important for zip integrity)
+	if err := w.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize backup: %w", err)
 	}
 
 	return filename, nil
@@ -216,7 +222,7 @@ func (s *BackupService) unzip(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
@@ -227,11 +233,11 @@ func (s *BackupService) unzip(src, dest string) error {
 		}
 
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, os.ModePerm)
+			_ = os.MkdirAll(fpath, os.ModePerm)
 			continue
 		}
 
-		if err = os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
 			return err
 		}
 

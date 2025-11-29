@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/api/handlers"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupRemoteServerTest_New(t *testing.T) (*gin.Engine, *handlers.RemoteServerHandler) {

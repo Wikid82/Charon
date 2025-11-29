@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 type LogService struct {
@@ -42,11 +42,21 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 	}
 
 	var logs []LogFile
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")) {
 			info, err := entry.Info()
 			if err != nil {
 				continue
+			}
+			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
+			entryPath := filepath.Join(s.LogDir, entry.Name())
+			resolved, err := filepath.EvalSymlinks(entryPath)
+			if err == nil {
+				if seen[resolved] {
+					continue
+				}
+				seen[resolved] = true
 			}
 			logs = append(logs, LogFile{
 				Name:    entry.Name(),
@@ -88,10 +98,10 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 	if err != nil {
 		return nil, 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var logs []models.CaddyAccessLog
-	var totalMatches int64 = 0
+	var totalMatches int64
 
 	// Read file line by line
 	// TODO: For large files, reading from end or indexing would be better
@@ -112,7 +122,7 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 
 		var entry models.CaddyAccessLog
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			// Handle non-JSON logs (like cpmp.log)
+			// Handle non-JSON logs (like cpmp.log, legacy name for Charon)
 			// Try to parse standard Go log format: "2006/01/02 15:04:05 msg"
 			parts := strings.SplitN(line, " ", 3)
 			if len(parts) >= 3 {

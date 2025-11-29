@@ -27,7 +27,7 @@ export default function Certificates() {
       setKeyFile(null)
       toast.success('Certificate uploaded successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to upload certificate: ${error.message}`)
     },
   })

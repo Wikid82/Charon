@@ -3,13 +3,20 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-MIN_COVERAGE="${CPM_MIN_COVERAGE:-80}"
+MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-80}}"
 
 cd "$FRONTEND_DIR"
 
-# Run tests with coverage and json-summary reporter
-# We use --passWithNoTests just in case, though we have tests.
-npm run test:coverage -- --run --coverage.reporter=text --coverage.reporter=json-summary
+# Ensure dependencies are installed for CI runs
+npm ci --silent
+
+# Ensure coverage output directories exist to avoid intermittent ENOENT errors
+mkdir -p coverage/.tmp
+
+# Run tests with coverage and json-summary reporter (force istanbul provider)
+# Using istanbul ensures json-summary and coverage-summary artifacts are produced
+# so that downstream checks can parse them reliably.
+npm run test:coverage -- --run
 
 SUMMARY_FILE="coverage/coverage-summary.json"
 
@@ -30,8 +37,12 @@ from decimal import Decimal
 total = Decimal('$TOTAL_PERCENT')
 minimum = Decimal('$MIN_COVERAGE')
 if total < minimum:
-    print(f"Frontend coverage {total}% is below required {minimum}% (set CPM_MIN_COVERAGE to override)", file=sys.stderr)
+    print(f"Frontend coverage {total}% is below required {minimum}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)", file=sys.stderr)
     sys.exit(1)
 PY
 
 echo "Frontend coverage requirement met"
+
+# Also enforce module-specific frontend coverage (e.g., ProxyHosts)
+echo "Running module-specific frontend coverage checks (frontend only)"
+bash "$ROOT_DIR/scripts/check-module-coverage.sh" --frontend-only

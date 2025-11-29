@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ func TestBackupService_CreateAndList(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create dummy DB
-	dbPath := filepath.Join(dataDir, "cpm.db")
+	dbPath := filepath.Join(dataDir, "charon.db")
 	err = os.WriteFile(dbPath, []byte("dummy db"), 0644)
 	require.NoError(t, err)
 
@@ -133,7 +133,7 @@ func TestBackupService_RunScheduledBackup(t *testing.T) {
 	os.MkdirAll(dataDir, 0755)
 
 	// Create dummy DB
-	dbPath := filepath.Join(dataDir, "cpm.db")
+	dbPath := filepath.Join(dataDir, "charon.db")
 	os.WriteFile(dbPath, []byte("dummy db"), 0644)
 
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -160,7 +160,7 @@ func TestBackupService_CreateBackup_Errors(t *testing.T) {
 
 	t.Run("cannot create backup directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "cpm.db")
+		dbPath := filepath.Join(tmpDir, "charon.db")
 		os.WriteFile(dbPath, []byte("test"), 0644)
 
 		// Create backup dir as a file to cause mkdir error
