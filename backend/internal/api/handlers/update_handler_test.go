@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func TestUpdateHandler_Check(t *testing.T) {

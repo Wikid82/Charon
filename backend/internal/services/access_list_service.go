@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

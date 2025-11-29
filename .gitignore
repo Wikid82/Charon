@@ -39,6 +39,7 @@ backend/data/*.db
 backend/data/**/*.db
 backend/cmd/api/data/*.db
 cpm.db
+charon.db
 
 # IDE
 .idea/

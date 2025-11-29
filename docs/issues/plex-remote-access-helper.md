@@ -20,7 +20,7 @@ Extends #44 (Tailscale Network Integration) and #43 (Remote Servers Management)
 
 ## Why This Feature?
 - **CGNAT is increasingly common** - Many ISPs (especially mobile carriers like T-Mobile) use Carrier-Grade NAT, preventing users from forwarding ports
-- **Plex is one of the most popular homelab applications** - A significant portion of CPMP users will have Plex
+- **Plex is one of the most popular homelab applications** - A significant portion of Charon users will have Plex
 - **Manual configuration is error-prone** - Users often struggle with the correct Caddy configuration and Plex settings
 - **Tailscale/VPN integration makes this possible** - With #44, users can access their home network, but Plex requires specific proxy headers for proper remote client handling
 - **User story origin** - This feature was conceived from a real user experience solving CGNAT issues with Plex + Tailscale
@@ -153,7 +153,7 @@ Beta
 
 ## How to Create This Issue
 
-1. Go to https://github.com/Wikid82/cpmp/issues/new
+1. Go to https://github.com/Wikid82/charon/issues/new
 2. Use title: `Plex Remote Access Helper & CGNAT Solver`
 3. Add labels: `beta`, `feature`, `plus`, `ui`, `caddy`
 4. Copy the content from "## Description" through "## Future Extensions"

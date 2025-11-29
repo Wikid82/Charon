@@ -2,7 +2,7 @@
 
 # Default target
 help:
-	@echo "CaddyProxyManager+ Build System"
+	@echo "Charon Build System"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  install                - Install all dependencies (backend + frontend)"
@@ -43,6 +43,16 @@ build:
 	@echo "Building backend..."
 	cd backend && go build -o bin/api ./cmd/api
 
+build-versioned:
+	@echo "Building frontend (versioned)..."
+	cd frontend && VITE_APP_VERSION=$$(git describe --tags --always --dirty) npm run build
+	@echo "Building backend (versioned)..."
+	cd backend && \
+	VERSION=$$(git describe --tags --always --dirty); \
+	GIT_COMMIT=$$(git rev-parse --short HEAD); \
+	BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ'); \
+	go build -ldflags "-X github.com/Wikid82/charon/backend/internal/version.Version=$$VERSION -X github.com/Wikid82/charon/backend/internal/version.GitCommit=$$GIT_COMMIT -X github.com/Wikid82/charon/backend/internal/version.BuildTime=$$BUILD_DATE" -o bin/api ./cmd/api
+
 # Run backend in development mode
 run:
 	cd backend && go run ./cmd/api
@@ -64,15 +74,15 @@ docker-build:
 
 # Build Docker image with version
 docker-build-versioned:
-	@VERSION=$$(cat .version 2>/dev/null || echo "dev"); \
+ 	@VERSION=$$(cat .version 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
 	BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ'); \
 	VCS_REF=$$(git rev-parse HEAD 2>/dev/null || echo "unknown"); \
 	docker build \
 		--build-arg VERSION=$$VERSION \
 		--build-arg BUILD_DATE=$$BUILD_DATE \
 		--build-arg VCS_REF=$$VCS_REF \
-		-t cpmp:$$VERSION \
-		-t cpmp:latest \
+		-t charon:$$VERSION \
+		-t charon:latest \
 		.
 
 # Run Docker containers (production)
@@ -94,9 +104,9 @@ docker-logs:
 # Development mode (requires tmux)
 dev:
 	@command -v tmux >/dev/null 2>&1 || { echo "tmux is required for dev mode"; exit 1; }
-	tmux new-session -d -s cpm 'cd backend && go run ./cmd/api'
-	tmux split-window -h -t cpm 'cd frontend && npm run dev'
-	tmux attach -t cpm
+	tmux new-session -d -s charon 'cd backend && go run ./cmd/api'
+	tmux split-window -h -t charon 'cd frontend && npm run dev'
+	tmux attach -t charon
 
 # Create a new release (interactive script)
 release:
@@ -109,14 +119,14 @@ security-scan:
 
 security-scan-full:
 	@echo "Building local Docker image for security scan..."
-	docker build --build-arg VCS_REF=$(shell git rev-parse HEAD) -t cpmp:local .
+	docker build --build-arg VCS_REF=$(shell git rev-parse HEAD) -t charon:local .
 	@echo "Running Trivy container scan..."
 	docker run --rm \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v $(HOME)/.cache/trivy:/root/.cache/trivy \
 		aquasec/trivy:latest image \
 		--severity CRITICAL,HIGH \
-		cpmp:local
+		charon:local
 
 security-scan-deps:
 	@echo "Scanning Go dependencies..."
@@ -136,6 +146,10 @@ lint-docker:
 test-race:
 	@echo "Running Go tests with race detection..."
 	cd backend && go test -race -v ./...
+
+check-module-coverage:
+	@echo "Running module-specific coverage checks (backend + frontend)"
+	@bash scripts/check-module-coverage.sh
 
 benchmark:
 	@echo "Running Go benchmarks..."

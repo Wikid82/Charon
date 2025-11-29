@@ -1,7 +1,9 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost';
 import ProxyHosts from '../ProxyHosts';
 import * as proxyHostsApi from '../../api/proxyHosts';
 import * as certificatesApi from '../../api/certificates';
@@ -57,48 +59,8 @@ vi.mock('../../api/settings', () => ({
 }));
 
 const mockProxyHosts = [
-  {
-    uuid: 'host-1',
-    name: 'Test Host 1',
-    domain_names: 'test1.example.com',
-    forward_host: '192.168.1.10',
-    forward_port: 8080,
-    forward_scheme: 'http' as const,
-    enabled: true,
-    ssl_forced: false,
-    http2_support: true,
-    hsts_enabled: false,
-    hsts_subdomains: false,
-    block_exploits: true,
-    websocket_support: false,
-    application: 'none' as const,
-    locations: [],
-    access_list_id: null,
-    certificate_id: null,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    uuid: 'host-2',
-    name: 'Test Host 2',
-    domain_names: 'test2.example.com',
-    forward_host: '192.168.1.20',
-    forward_port: 8080,
-    forward_scheme: 'http' as const,
-    enabled: true,
-    ssl_forced: false,
-    http2_support: true,
-    hsts_enabled: false,
-    hsts_subdomains: false,
-    block_exploits: true,
-    websocket_support: false,
-    application: 'none' as const,
-    locations: [],
-    access_list_id: null,
-    certificate_id: null,
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
+  createMockProxyHost({ uuid: 'host-1', name: 'Test Host 1', domain_names: 'test1.example.com', forward_host: '192.168.1.10' }),
+  createMockProxyHost({ uuid: 'host-2', name: 'Test Host 2', domain_names: 'test2.example.com', forward_host: '192.168.1.20' }),
 ];
 
 const mockAccessLists = [
@@ -186,7 +148,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select all hosts using the select-all checkbox
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     // Manage ACL button should appear
     await waitFor(() => {
@@ -203,14 +165,14 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
 
     // Click Manage ACL
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Modal should open
     await waitFor(() => {
@@ -227,12 +189,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Should show toggle buttons
     await waitFor(() => {
@@ -250,12 +212,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Should show enabled ACLs
     await waitFor(() => {
@@ -276,12 +238,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Should show type - the modal should display ACL types
     await waitFor(() => {
@@ -300,12 +262,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Wait for modal to open
     await waitFor(() => {
@@ -334,12 +296,13 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    const user = userEvent.setup()
+    await user.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await user.click(screen.getByText('Manage ACL'));
 
     // Wait for ACL list
     await waitFor(() => {
@@ -353,7 +316,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
       cb.closest('label')?.textContent?.includes('Admin Only')
     );
     if (aclCheckbox) {
-      fireEvent.click(aclCheckbox);
+      await userEvent.click(aclCheckbox);
     }
 
     // Apply button should be enabled and show count
@@ -373,12 +336,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Wait for ACL list
     await waitFor(() => {
@@ -394,8 +357,8 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
       cb.closest('label')?.textContent?.includes('Local Network')
     );
 
-    if (adminCheckbox) fireEvent.click(adminCheckbox);
-    if (localCheckbox) fireEvent.click(localCheckbox);
+    if (adminCheckbox) await userEvent.click(adminCheckbox);
+    if (localCheckbox) await userEvent.click(localCheckbox);
 
     // Apply button should show count of 2
     await waitFor(() => {
@@ -417,12 +380,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Wait for ACL list and select one
     await waitFor(() => {
@@ -433,13 +396,13 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     const adminCheckbox = aclCheckboxes.find(cb =>
       cb.closest('label')?.textContent?.includes('Admin Only')
     );
-    if (adminCheckbox) fireEvent.click(adminCheckbox);
+    if (adminCheckbox) await userEvent.click(adminCheckbox);
 
     // Click Apply
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Apply \(1\)/ })).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
 
     // Should call API
     await waitFor(() => {
@@ -464,12 +427,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Wait for modal and find Remove ACL toggle (it's a button with flex-1 class)
     await waitFor(() => {
@@ -482,7 +445,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
       btn.textContent === 'Remove ACL' && btn.className.includes('flex-1')
     );
     expect(removeToggle).toBeTruthy();
-    if (removeToggle) fireEvent.click(removeToggle);
+    if (removeToggle) await userEvent.click(removeToggle);
 
     // Should show warning message
     await waitFor(() => {
@@ -499,12 +462,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Modal should open
     await waitFor(() => {
@@ -512,7 +475,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     });
 
     // Click Cancel
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     // Modal should close
     await waitFor(() => {
@@ -534,12 +497,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Select ACL and apply
     await waitFor(() => {
@@ -550,12 +513,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     const adminCheckbox = aclCheckboxes.find(cb =>
       cb.closest('label')?.textContent?.includes('Admin Only')
     );
-    if (adminCheckbox) fireEvent.click(adminCheckbox);
+    if (adminCheckbox) await userEvent.click(adminCheckbox);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Apply \(1\)/ })).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
 
     // Wait for completion
     await waitFor(() => {
@@ -587,12 +550,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Select hosts and open modal
     const checkboxes = screen.getAllByRole('checkbox');
-    fireEvent.click(checkboxes[0]);
+    await userEvent.click(checkboxes[0]);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
     });
-    fireEvent.click(screen.getByText('Manage ACL'));
+    await userEvent.click(screen.getByText('Manage ACL'));
 
     // Select ACL and apply
     await waitFor(() => {
@@ -603,12 +566,12 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     const adminCheckbox = aclCheckboxes.find(cb =>
       cb.closest('label')?.textContent?.includes('Admin Only')
     );
-    if (adminCheckbox) fireEvent.click(adminCheckbox);
+    if (adminCheckbox) await userEvent.click(adminCheckbox);
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Apply \(1\)/ })).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Apply \(1\)/ }));
 
     // Should show error toast
     await waitFor(() => {

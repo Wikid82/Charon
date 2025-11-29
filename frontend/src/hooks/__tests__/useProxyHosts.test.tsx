@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { useProxyHosts } from '../useProxyHosts'
 import * as api from '../../api/proxyHosts'
+import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
 
 // Mock the API
 vi.mock('../../api/proxyHosts', () => ({
@@ -13,26 +14,7 @@ vi.mock('../../api/proxyHosts', () => ({
   deleteProxyHost: vi.fn(),
 }))
 
-const createMockHost = (overrides: Partial<api.ProxyHost> = {}): api.ProxyHost => ({
-  uuid: '1',
-  name: 'Test Host',
-  domain_names: 'test.com',
-  forward_scheme: 'http',
-  forward_host: 'localhost',
-  forward_port: 8080,
-  ssl_forced: false,
-  http2_support: false,
-  hsts_enabled: false,
-  hsts_subdomains: false,
-  block_exploits: false,
-  websocket_support: false,
-  application: 'none',
-  locations: [],
-  enabled: true,
-  created_at: '2025-01-01T00:00:00Z',
-  updated_at: '2025-01-01T00:00:00Z',
-  ...overrides,
-})
+const createMockHost = (overrides: Partial<api.ProxyHost> = {}) => createMockProxyHost(overrides)
 
 const createWrapper = () => {
   const queryClient = new QueryClient({
@@ -75,7 +57,7 @@ describe('useProxyHosts', () => {
 
     expect(result.current.hosts).toEqual(mockHosts)
     expect(result.current.error).toBeNull()
-    expect(api.getProxyHosts).toHaveBeenCalledOnce()
+    expect(api.getProxyHosts).toHaveBeenCalledTimes(1)
   })
 
   it('handles loading errors', async () => {

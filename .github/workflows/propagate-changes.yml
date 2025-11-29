@@ -103,4 +103,5 @@ jobs:
               }
             }
         env:
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
           CPMP_TOKEN: ${{ secrets.CPMP_TOKEN }}

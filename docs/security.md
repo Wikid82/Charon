@@ -1,6 +1,6 @@
 # Security Services
 
-CaddyProxyManager+ (CPM+) includes optional, high-value security integrations to protect your services. These features are disabled by default to keep the application lightweight but can be easily enabled via environment variables.
+Charon includes the optional Cerberus security suite — a collection of high-value integrations (WAF, CrowdSec, ACL, Rate Limiting) designed to protect your services. These features are disabled by default to keep the application lightweight but can be easily enabled via environment variables (CHARON_ preferred; CPM_ still supported).
 
 ## Available Services
 
@@ -37,62 +37,67 @@ Protects your services from abuse by limiting the number of requests a client ca
 
 All security services are controlled via environment variables in your `docker-compose.yml`.
 
+### Enable Cerberus (Runtime Toggle)
+
+You can enable or disable Cerberus at runtime via the web UI `System Settings` or by setting the `security.cerberus.enabled` setting. This allows you to control the suite without restarting the service when using the UI.
+
+
 ### CrowdSec Configuration
 
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `CPM_SECURITY_CROWDSEC_MODE` | `disabled` | (Default) CrowdSec is turned off. |
+| `CERBERUS_SECURITY_CROWDSEC_MODE` | `disabled` | (Default) CrowdSec is turned off. (CERBERUS_ preferred; CHARON_/CPM_ still supported) |
 | | `local` | Installs and runs CrowdSec agent inside the container. |
 | | `external` | Connects to an external CrowdSec agent. |
-| `CPM_SECURITY_CROWDSEC_API_URL` | URL | (Required for `external`) e.g., `http://crowdsec:8080` |
-| `CPM_SECURITY_CROWDSEC_API_KEY` | String | (Required for `external`) Your CrowdSec bouncer API key. |
+| `CERBERUS_SECURITY_CROWDSEC_API_URL` | URL | (Required for `external`) e.g., `http://crowdsec:8080` |
+| `CERBERUS_SECURITY_CROWDSEC_API_KEY` | String | (Required for `external`) Your CrowdSec bouncer API key. |
 
 **Example (Local Mode):**
 ```yaml
 environment:
-  - CPM_SECURITY_CROWDSEC_MODE=local
+  - CERBERUS_SECURITY_CROWDSEC_MODE=local # CERBERUS_ preferred; CHARON_/CPM_ still supported
 ```
 
 **Example (External Mode):**
 ```yaml
-environment:
-  - CPM_SECURITY_CROWDSEC_MODE=external
-  - CPM_SECURITY_CROWDSEC_API_URL=http://192.168.1.50:8080
-  - CPM_SECURITY_CROWDSEC_API_KEY=your-bouncer-key-here
+ environment:
+  - CERBERUS_SECURITY_CROWDSEC_MODE=external
+  - CERBERUS_SECURITY_CROWDSEC_API_URL=http://192.168.1.50:8080
+  - CERBERUS_SECURITY_CROWDSEC_API_KEY=your-bouncer-key-here
 ```
 
 ### WAF Configuration
 
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `CPM_SECURITY_WAF_MODE` | `disabled` | (Default) WAF is turned off. |
+| `CERBERUS_SECURITY_WAF_MODE` | `disabled` | (Default) WAF is turned off. |
 | | `enabled` | Enables Coraza WAF with OWASP CRS. |
 
 **Example:**
 ```yaml
 environment:
-  - CPM_SECURITY_WAF_MODE=enabled
+  - CERBERUS_SECURITY_WAF_MODE=enabled
 ```
 
 ### ACL Configuration
 
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `CPM_SECURITY_ACL_MODE` | `disabled` | (Default) ACLs are turned off. |
+| `CERBERUS_SECURITY_ACL_MODE` | `disabled` | (Default) ACLs are turned off. |
 | | `enabled` | Enables IP and geo-blocking ACLs. |
-| `CPM_GEOIP_DB_PATH` | Path | Path to MaxMind GeoLite2-Country.mmdb (auto-configured in Docker) |
+| `CHARON_GEOIP_DB_PATH`/`CPM_GEOIP_DB_PATH` | Path | Path to MaxMind GeoLite2-Country.mmdb (auto-configured in Docker) (CHARON_ preferred; CPM_ still supported) |
 
 **Example:**
 ```yaml
 environment:
-  - CPM_SECURITY_ACL_MODE=enabled
+  - CERBERUS_SECURITY_ACL_MODE=enabled
 ```
 
 ### Rate Limiting Configuration
 
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `CPM_SECURITY_RATELIMIT_MODE` | `enabled` / `disabled` | Enable global rate limiting. |
+| `CERBERUS_SECURITY_RATELIMIT_MODE` | `enabled` / `disabled` | Enable global rate limiting. |
 
 ---
 
@@ -153,7 +158,7 @@ Before applying an ACL to a production service:
 
 ## Dashboard
 
-You can view the status of these services in the CPM+ web interface under the **Security** tab.
+You can view the status of these services in the Charon web interface under the **Security** tab.
 
 *   **CrowdSec**: Shows connection status and mode.
 *   **WAF**: Indicates if the Core Rule Set is loaded.

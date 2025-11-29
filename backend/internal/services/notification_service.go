@@ -9,7 +9,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/containrrr/shoutrrr"
 	"gorm.io/gorm"
 )
@@ -164,7 +164,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	if provider.Type == "webhook" {
 		data := map[string]interface{}{
 			"Title":   "Test Notification",
-			"Message": "This is a test notification from CaddyProxyManager+",
+			"Message": "This is a test notification from Charon",
 			"Status":  "TEST",
 			"Name":    "Test Monitor",
 			"Latency": 123,
@@ -173,7 +173,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		return s.sendCustomWebhook(provider, data)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
-	return shoutrrr.Send(url, "Test notification from CaddyProxyManager+")
+	return shoutrrr.Send(url, "Test notification from Charon")
 }
 
 // Provider Management

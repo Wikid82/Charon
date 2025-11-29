@@ -1,4 +1,4 @@
-# CaddyProxyManager+ Copilot Instructions
+# Charon Copilot Instructions
 
 ## 🚨 CRITICAL ARCHITECTURE RULES 🚨
 - **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
@@ -7,7 +7,7 @@
 
 ## Big Picture
 - `backend/cmd/api` loads config, opens SQLite, then hands off to `internal/server` where routes from `internal/api/routes` are registered.
-- `internal/config` respects `CPM_ENV`, `CPM_HTTP_PORT`, `CPM_DB_PATH`, `CPM_FRONTEND_DIR` and creates the `data/` directory; lean on these instead of hard-coded paths.
+- `internal/config` respects `CHARON_ENV`, `CHARON_HTTP_PORT`, `CHARON_DB_PATH`, `CHARON_FRONTEND_DIR` (CHARON_ preferred; CPM_ still supported) and creates the `data/` directory; lean on these instead of hard-coded paths.
 - All HTTP endpoints live under `/api/v1/*`; keep new handlers inside `internal/api/handlers` and register them via `routes.Register` so `db.AutoMigrate` runs for their models.
 - `internal/server` also mounts the built React app (via `attachFrontend`) whenever `frontend/dist` exists, falling back to JSON `{"error": ...}` for any `/api/*` misses.
 - Persistent types live in `internal/models`; GORM auto-migrates them each boot, so evolve schemas there before touching handlers or the frontend.
@@ -41,9 +41,9 @@
 - **Feature Documentation**: When adding new features, update `docs/features.md` to include the new capability. This is the canonical list of all features shown to users.
 - **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start, and links to docs. All detailed documentation belongs in `docs/`.
 - **Link Format**: Use GitHub Pages URLs for documentation links, not relative paths:
-  - Docs: `https://wikid82.github.io/cpmp/` (index) or `https://wikid82.github.io/cpmp/features` (specific page, no `.md`)
-  - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md`
-  - Issues/Discussions: `https://github.com/Wikid82/cpmp/issues` or `https://github.com/Wikid82/cpmp/discussions`
+  - Docs: `https://wikid82.github.io/charon/` (index) or `https://wikid82.github.io/charon/features` (specific page, no `.md`)
+  - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/charon/blob/main/CONTRIBUTING.md`
+  - Issues/Discussions: `https://github.com/Wikid82/charon/issues` or `https://github.com/Wikid82/charon/discussions`
 
 ## CI/CD & Commit Conventions
 - **Docker Builds**: The `docker-publish` workflow skips builds for commits starting with `chore:`.

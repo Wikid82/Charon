@@ -1,4 +1,4 @@
-# Contributing to CaddyProxyManager+
+# Contributing to Charon
 
 Thank you for your interest in contributing to CaddyProxyManager+! This document provides guidelines and instructions for contributing to the project.
 
@@ -36,13 +36,13 @@ This project follows a Code of Conduct that all contributors are expected to adh
 1. Fork the repository on GitHub
 2. Clone your fork locally:
 ```bash
-git clone https://github.com/YOUR_USERNAME/CaddyProxyManagerPlus.git
-cd CaddyProxyManagerPlus
+git clone https://github.com/YOUR_USERNAME/charon.git
+cd charon
 ```
 
 3. Add the upstream remote:
 ```bash
-git remote add upstream https://github.com/Wikid82/CaddyProxyManagerPlus.git
+git remote add upstream https://github.com/Wikid82/charon.git
 ```
 
 ### Set Up Development Environment
@@ -374,7 +374,7 @@ Contributors will be recognized in:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/Wikid82/CaddyProxyManagerPlus/discussions) for general questions
+- Open a [Discussion](https://github.com/Wikid82/charon/discussions) for general questions
 - Join our community chat (coming soon)
 - Tag maintainers in issues for urgent matters
 

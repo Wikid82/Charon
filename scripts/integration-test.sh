@@ -6,11 +6,11 @@ API_URL="http://localhost:8080/api/v1"
 ADMIN_EMAIL="admin@example.com"
 ADMIN_PASSWORD="changeme"
 
-echo "Waiting for CPMP to be ready..."
+echo "Waiting for Charon to be ready..."
 for i in $(seq 1 30); do
   code=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/health || echo "000")
   if [ "$code" = "200" ]; then
-    echo "✅ CPMP is ready!"
+    echo "✅ Charon is ready!"
     break
   fi
   echo "Attempt $i/30: health not ready (code=$code); waiting..."
@@ -18,7 +18,7 @@ for i in $(seq 1 30); do
 done
 
 if [ "$code" != "200" ]; then
-  echo "❌ CPMP failed to start"
+  echo "❌ Charon failed to start"
   exit 1
 fi
 

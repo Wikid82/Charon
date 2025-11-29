@@ -10,14 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/robfig/cron/v3"
 )
 
 type BackupService struct {
-	DataDir   string
-	BackupDir string
-	Cron      *cron.Cron
+	DataDir      string
+	BackupDir    string
+	DatabaseName string
+	Cron         *cron.Cron
 }
 
 type BackupFile struct {
@@ -34,9 +35,10 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	}
 
 	s := &BackupService{
-		DataDir:   filepath.Dir(cfg.DatabasePath), // e.g. /app/data
-		BackupDir: backupDir,
-		Cron:      cron.New(),
+		DataDir:      filepath.Dir(cfg.DatabasePath), // e.g. /app/data
+		BackupDir:    backupDir,
+		DatabaseName: filepath.Base(cfg.DatabasePath),
+		Cron:         cron.New(),
 	}
 
 	// Schedule daily backup at 3 AM
@@ -107,12 +109,12 @@ func (s *BackupService) CreateBackup() (string, error) {
 
 	// Files/Dirs to backup
 	// 1. Database
-	dbPath := filepath.Join(s.DataDir, "cpm.db")
+	dbPath := filepath.Join(s.DataDir, s.DatabaseName)
 	// Ensure DB exists before backing up
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("database file not found: %s", dbPath)
 	}
-	if err := s.addToZip(w, dbPath, "cpm.db"); err != nil {
+	if err := s.addToZip(w, dbPath, s.DatabaseName); err != nil {
 		return "", fmt.Errorf("backup db: %w", err)
 	}
 

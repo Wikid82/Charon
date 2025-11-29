@@ -12,8 +12,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupDomainTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {

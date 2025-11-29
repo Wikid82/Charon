@@ -4,11 +4,12 @@ set -e
 # Entrypoint script to run both Caddy and CPM+ in a single container
 # This simplifies deployment for home users
 
-echo "Starting CaddyProxyManager+ with integrated Caddy..."
+echo "Starting Charon with integrated Caddy..."
 
 # Optional: Install and start CrowdSec (Local Mode)
 CROWDSEC_PID=""
-if [ "$CPM_SECURITY_CROWDSEC_MODE" = "local" ]; then
+SECURITY_CROWDSEC_MODE=${CERBERUS_SECURITY_CROWDSEC_MODE:-${CHARON_SECURITY_CROWDSEC_MODE:-$CPM_SECURITY_CROWDSEC_MODE}}
+if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
     echo "CrowdSec Local Mode enabled. Installing CrowdSec agent..."
     # Install crowdsec from community repository if needed
     apk add --no-cache crowdsec --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community || \
@@ -49,16 +50,25 @@ while [ "$i" -le 30 ]; do
 done
 
 # Start CPM+ management application
-echo "Starting CPM+ management application..."
-if [ "$CPMP_DEBUG" = "1" ]; then
-    DEBUG_PORT=${CPMP_DEBUG_PORT:-2345}
-    echo "Running CPM+ under Delve (port $DEBUG_PORT)"
-    /usr/local/bin/dlv exec /app/cpmp --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+echo "Starting Charon management application..."
+DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
+DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
+if [ "$DEBUG_FLAG" = "1" ]; then
+    echo "Running Charon under Delve (port $DEBUG_PORT)"
+    bin_path=/app/charon
+    if [ ! -f "$bin_path" ]; then
+        bin_path=/app/cpmp
+    fi
+    /usr/local/bin/dlv exec "$bin_path" --headless --listen=":"$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
-    /app/cpmp &
+    bin_path=/app/charon
+    if [ ! -f "$bin_path" ]; then
+        bin_path=/app/cpmp
+    fi
+    "$bin_path" &
 fi
 APP_PID=$!
-echo "CPM+ started (PID: $APP_PID)"
+echo "Charon started (PID: $APP_PID)"
 shutdown() {
     echo "Shutting down..."
     kill -TERM "$APP_PID" 2>/dev/null || true
@@ -76,7 +86,7 @@ shutdown() {
 # Trap signals for graceful shutdown
 trap 'shutdown' TERM INT
 
-echo "CaddyProxyManager+ is running!"
+echo "Charon is running!"
 echo "  - Management UI: http://localhost:8080"
 echo "  - Caddy Proxy: http://localhost:80, https://localhost:443"
 echo "  - Caddy Admin API: http://localhost:2019"

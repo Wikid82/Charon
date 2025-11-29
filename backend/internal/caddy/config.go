@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
@@ -243,6 +243,35 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 
 		// Main proxy handler
 		dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+		// Insert user advanced config (if present) as headers or handlers before the reverse proxy
+		// so user-specified headers/handlers are applied prior to proxying.
+		if host.AdvancedConfig != "" {
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+				fmt.Printf("Warning: Failed to parse advanced_config for host %s: %v\n", host.UUID, err)
+			} else {
+				switch v := parsed.(type) {
+				case map[string]interface{}:
+					// Append as a handler
+					// Ensure it has a "handler" key
+					if _, ok := v["handler"]; ok {
+						handlers = append(handlers, Handler(v))
+					} else {
+						fmt.Printf("Warning: advanced_config for host %s is not a handler object\n", host.UUID)
+					}
+				case []interface{}:
+					for _, it := range v {
+						if m, ok := it.(map[string]interface{}); ok {
+							if _, ok2 := m["handler"]; ok2 {
+								handlers = append(handlers, Handler(m))
+							}
+						}
+					}
+				default:
+					fmt.Printf("Warning: advanced_config for host %s has unexpected JSON structure\n", host.UUID)
+				}
+			}
+		}
 		mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 
 		route := &Route{
@@ -269,7 +298,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		routes = append(routes, catchAllRoute)
 	}
 
-	config.Apps.HTTP.Servers["cpm_server"] = &Server{
+	config.Apps.HTTP.Servers["charon_server"] = &Server{
 		Listen: []string{":80", ":443"},
 		Routes: routes,
 		AutoHTTPS: &AutoHTTPSConfig{

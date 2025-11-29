@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-REPO="Wikid82/cpmp"
-MILESTONE="v0.2.0-beta.2"
+REPO="Wikid82/charon"
+MILESTONE="v$(cat .version | tr -d '\n')"
 
 echo "Creating Bulk ACL Testing Issues for $REPO"
 echo "============================================"
@@ -21,29 +21,14 @@ Comprehensive testing required for the newly implemented Bulk ACL (Access Contro
 ## Feature Overview
 
 The bulk ACL feature introduces:
-- Multi-select checkboxes in Proxy Hosts table
-- Bulk Actions button with ACL selection modal
-- Backend endpoint: \`PUT /api/v1/proxy-hosts/bulk-update-acl\`
-- Comprehensive error handling for partial failures
-
-## Testing Status
-
 ### Backend Testing ✅ (Completed)
 - [x] Unit tests for \`BulkUpdateACL\` handler (5 tests)
 - [x] Coverage: 82.2% maintained
 
-### Frontend Testing ✅ (Completed)
-- [x] Unit tests for API client and hooks (10 tests)
 - [x] Coverage: 86.06% (improved from 85.57%)
-
-### Manual Testing 🔴 (Required)
-See sub-issues below for detailed test plans.
 
 ## Sub-Issues
 
-- [ ] #TBD - Basic Functionality Testing
-- [ ] #TBD - ACL Removal Testing
-- [ ] #TBD - Error Handling Testing
 - [ ] #TBD - UI/UX Testing
 - [ ] #TBD - Integration Testing
 - [ ] #TBD - Cross-Browser Testing
@@ -75,7 +60,7 @@ See sub-issues below for detailed test plans.
 - \`docs/issues/bulk-acl-subissues.md\`
 
 **Implementation Date**: November 27, 2025
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created main issue #$MAIN_ISSUE"
 
@@ -112,7 +97,7 @@ Test the core functionality of the bulk ACL feature - selecting hosts and applyi
 
 ## Test Environment
 Local development
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB1"
 
@@ -146,7 +131,7 @@ Test the ability to remove access lists from multiple hosts simultaneously.
 
 ## Test Environment
 Local development
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB2"
 
@@ -180,7 +165,7 @@ Test error scenarios and edge cases to ensure graceful degradation.
 
 ## Test Environment
 Local development + simulated failures
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB3"
 
@@ -217,7 +202,7 @@ Test the user interface and experience aspects of the bulk ACL feature.
 
 ## Test Environment
 Local development (multiple screen sizes)
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB4"
 
@@ -253,7 +238,7 @@ Test the feature in realistic scenarios and with varying data loads.
 
 ## Test Environment
 Docker production build
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB5"
 
@@ -285,7 +270,7 @@ Verify the feature works across all major browsers and devices.
 
 ## Test Environment
 Multiple browsers/devices
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB6"
 
@@ -322,7 +307,7 @@ Ensure the new bulk ACL feature doesn't break existing functionality.
 
 ## Test Environment
 Docker production build
-" | grep -oP '(?<=github.com/Wikid82/cpmp/issues/)\d+')
+" | grep -oP '(?<=github.com/Wikid82/charon/issues/)\d+')
 
 echo "✓ Created sub-issue #$SUB7"
 

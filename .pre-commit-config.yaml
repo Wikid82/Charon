@@ -39,6 +39,12 @@ repos:
         language: system
         files: '\.go$'
         pass_filenames: false
+      - id: check-version-match
+        name: Check .version matches latest Git tag
+        entry: bash -c 'scripts/check-version-match-tag.sh'
+        language: system
+        files: '\.version$'
+        pass_filenames: false
 
       # === MANUAL/CI-ONLY HOOKS ===
       # These are slow and should only run on-demand or in CI

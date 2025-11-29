@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/caddy"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
@@ -123,10 +123,35 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(host); err != nil {
+	var incoming models.ProxyHost
+	if err := c.ShouldBindJSON(&incoming); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Backup advanced config if changed
+	if incoming.AdvancedConfig != host.AdvancedConfig {
+		incoming.AdvancedConfigBackup = host.AdvancedConfig
+	}
+
+	// Copy incoming fields into host
+	host.Name = incoming.Name
+	host.DomainNames = incoming.DomainNames
+	host.ForwardScheme = incoming.ForwardScheme
+	host.ForwardHost = incoming.ForwardHost
+	host.ForwardPort = incoming.ForwardPort
+	host.SSLForced = incoming.SSLForced
+	host.HTTP2Support = incoming.HTTP2Support
+	host.HSTSEnabled = incoming.HSTSEnabled
+	host.HSTSSubdomains = incoming.HSTSSubdomains
+	host.BlockExploits = incoming.BlockExploits
+	host.WebsocketSupport = incoming.WebsocketSupport
+	host.Application = incoming.Application
+	host.Enabled = incoming.Enabled
+	host.CertificateID = incoming.CertificateID
+	host.AccessListID = incoming.AccessListID
+	host.Locations = incoming.Locations
+	host.AdvancedConfig = incoming.AdvancedConfig
+	host.AdvancedConfigBackup = incoming.AdvancedConfigBackup
 
 	if err := h.service.Update(host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

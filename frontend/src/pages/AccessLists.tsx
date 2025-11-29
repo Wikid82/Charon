@@ -232,7 +232,7 @@ export default function AccessLists() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => window.open('https://wikid82.github.io/cpmp/docs/security.html#acl-best-practices-by-service-type', '_blank')}
+            onClick={() => window.open('https://wikid82.github.io/charon/docs/security.html#acl-best-practices-by-service-type', '_blank')}
           >
             <ExternalLink className="h-4 w-4 mr-2" />
             Best Practices

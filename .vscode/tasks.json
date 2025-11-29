@@ -63,13 +63,13 @@
 		{
 			"label": "Build & Run Local Docker",
 			"type": "shell",
-			"command": "docker build --build-arg VCS_REF=$(git rev-parse HEAD) -t cpmp:local . && docker compose -f docker-compose.local.yml up -d",
+			"command": "docker build --build-arg VCS_REF=$(git rev-parse HEAD) -t charon:local . && docker compose -f docker-compose.local.yml up -d",
 			"group": "test"
 		},
 		{
 			"label": "Run Local Docker (debug)",
 			"type": "shell",
-			"command": "docker run --rm -it --name cpmp-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -p 8080:8080 -p 2345:2345 -e CPM_ENV=development -e CPMP_DEBUG=1 cpmp:local",
+			"command": "docker run --rm -it --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -p 8080:8080 -p 2345:2345 -e CHARON_ENV=development -e CHARON_DEBUG=1 charon:local",
 			"group": "test"
 		},
 		{
@@ -91,7 +91,7 @@
 				"CRITICAL,HIGH",
 				"--output",
 				"/logs/trivy-report.txt",
-				"cpmp:local"
+				"charon:local"
 			],
 			"isBackground": false,
 			"group": "test"

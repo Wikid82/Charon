@@ -68,7 +68,7 @@ describe('useRemoteServers', () => {
 
     expect(result.current.servers).toEqual(mockServers)
     expect(result.current.error).toBeNull()
-    expect(api.getRemoteServers).toHaveBeenCalledOnce()
+    expect(api.getRemoteServers).toHaveBeenCalledTimes(1)
   })
 
   it('handles loading errors', async () => {

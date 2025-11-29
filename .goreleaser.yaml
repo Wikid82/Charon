@@ -1,12 +1,12 @@
 version: 2
 
-project_name: cpmp
+project_name: charon
 
 builds:
   - id: linux
     dir: backend
     main: ./cmd/api
-    binary: cpmp
+    binary: charon
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu
@@ -18,14 +18,14 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
   - id: windows
     dir: backend
     main: ./cmd/api
-    binary: cpmp
+    binary: charon
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-windows-gnu
@@ -36,14 +36,14 @@ builds:
       - amd64
     ldflags:
       - -s -w
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
   - id: darwin
     dir: backend
     main: ./cmd/api
-    binary: cpmp
+    binary: charon
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target {{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-macos-gnu
@@ -55,9 +55,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.Version={{.Version}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.GitCommit={{.Commit}}
-      - -X github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version.BuildTime={{.Date}}
+      - -X github.com/Wikid82/charon/backend/internal/version.Version={{.Version}}
+      - -X github.com/Wikid82/charon/backend/internal/version.GitCommit={{.Commit}}
+      - -X github.com/Wikid82/charon/backend/internal/version.BuildTime={{.Date}}
 
 archives:
   - format: tar.gz
@@ -91,21 +91,21 @@ nfpms:
   - id: packages
     builds:
       - linux
-    package_name: cpmp
-    vendor: CaddyProxyManagerPlus
-    homepage: https://github.com/Wikid82/CaddyProxyManagerPlus
+    package_name: charon
+    vendor: Charon
+    homepage: https://github.com/Wikid82/charon
     maintainer: Wikid82
-    description: "Caddy Proxy Manager Plus - A powerful reverse proxy manager"
+    description: "Charon - A powerful reverse proxy manager"
     license: MIT
     formats:
       - deb
       - rpm
     contents:
       - src: ./backend/data/
-        dst: /var/lib/cpmp/data/
+        dst: /var/lib/charon/data/
         type: dir
       - src: ./frontend/dist/
-        dst: /usr/share/cpmp/frontend/
+        dst: /usr/share/charon/frontend/
         type: dir
     dependencies:
       - libc6

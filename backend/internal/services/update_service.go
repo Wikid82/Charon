@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version"
+	"github.com/Wikid82/charon/backend/internal/version"
 )
 
 type UpdateService struct {
@@ -32,8 +32,8 @@ func NewUpdateService() *UpdateService {
 	return &UpdateService{
 		currentVersion: version.Version,
 		repoOwner:      "Wikid82",
-		repoName:       "CaddyProxyManagerPlus",
-		apiURL:         "https://api.github.com/repos/Wikid82/CaddyProxyManagerPlus/releases/latest",
+		repoName:       "charon",
+		apiURL:         "https://api.github.com/repos/Wikid82/charon/releases/latest",
 	}
 }
 
@@ -65,7 +65,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "CPMP-Update-Checker")
+	req.Header.Set("User-Agent", "Charon-Update-Checker")
 
 	resp, err := client.Do(req)
 	if err != nil {

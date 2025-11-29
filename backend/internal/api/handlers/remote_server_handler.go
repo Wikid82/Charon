@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // RemoteServerHandler handles HTTP requests for remote server management.

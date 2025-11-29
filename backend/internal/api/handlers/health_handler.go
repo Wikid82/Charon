@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/version"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,0 +1,1658 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>caddy: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/Wikid82/charon/backend/internal/caddy/client.go (95.0%)</option>
+				
+				<option value="file1">github.com/Wikid82/charon/backend/internal/caddy/config.go (100.0%)</option>
+				
+				<option value="file2">github.com/Wikid82/charon/backend/internal/caddy/importer.go (95.5%)</option>
+				
+				<option value="file3">github.com/Wikid82/charon/backend/internal/caddy/manager.go (95.1%)</option>
+				
+				<option value="file4">github.com/Wikid82/charon/backend/internal/caddy/types.go (100.0%)</option>
+				
+				<option value="file5">github.com/Wikid82/charon/backend/internal/caddy/validator.go (96.7%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package caddy
+
+import (
+        "bytes"
+        "context"
+        "encoding/json"
+        "fmt"
+        "io"
+        "net/http"
+        "time"
+)
+
+// Client wraps the Caddy admin API.
+type Client struct {
+        baseURL    string
+        httpClient *http.Client
+}
+
+// NewClient creates a Caddy API client.
+func NewClient(adminAPIURL string) *Client <span class="cov10" title="27">{
+        return &amp;Client{
+                baseURL: adminAPIURL,
+                httpClient: &amp;http.Client{
+                        Timeout: 30 * time.Second,
+                },
+        }
+}</span>
+
+// Load atomically replaces Caddy's entire configuration.
+// This is the primary method for applying configuration changes.
+func (c *Client) Load(ctx context.Context, config *Config) error <span class="cov8" title="18">{
+        body, err := json.Marshal(config)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("marshal config: %w", err)
+        }</span>
+
+        <span class="cov8" title="18">req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/load", bytes.NewReader(body))
+        if err != nil </span><span class="cov2" title="2">{
+                return fmt.Errorf("create request: %w", err)
+        }</span>
+        <span class="cov8" title="16">req.Header.Set("Content-Type", "application/json")
+
+        resp, err := c.httpClient.Do(req)
+        if err != nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("execute request: %w", err)
+        }</span>
+        <span class="cov8" title="15">defer resp.Body.Close()
+
+        if resp.StatusCode != http.StatusOK </span><span class="cov6" title="8">{
+                bodyBytes, _ := io.ReadAll(resp.Body)
+                return fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(bodyBytes))
+        }</span>
+
+        <span class="cov6" title="7">return nil</span>
+}
+
+// GetConfig retrieves the current running configuration from Caddy.
+func (c *Client) GetConfig(ctx context.Context) (*Config, error) <span class="cov5" title="6">{
+        req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", nil)
+        if err != nil </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("create request: %w", err)
+        }</span>
+
+        <span class="cov5" title="5">resp, err := c.httpClient.Do(req)
+        if err != nil </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("execute request: %w", err)
+        }</span>
+        <span class="cov4" title="4">defer resp.Body.Close()
+
+        if resp.StatusCode != http.StatusOK </span><span class="cov1" title="1">{
+                bodyBytes, _ := io.ReadAll(resp.Body)
+                return nil, fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(bodyBytes))
+        }</span>
+
+        <span class="cov4" title="3">var config Config
+        if err := json.NewDecoder(resp.Body).Decode(&amp;config); err != nil </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("decode response: %w", err)
+        }</span>
+
+        <span class="cov2" title="2">return &amp;config, nil</span>
+}
+
+// Ping checks if Caddy admin API is reachable.
+func (c *Client) Ping(ctx context.Context) error <span class="cov5" title="6">{
+        req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", nil)
+        if err != nil </span><span class="cov2" title="2">{
+                return fmt.Errorf("create request: %w", err)
+        }</span>
+
+        <span class="cov4" title="4">resp, err := c.httpClient.Do(req)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("caddy unreachable: %w", err)
+        }</span>
+        <span class="cov4" title="4">defer resp.Body.Close()
+
+        if resp.StatusCode != http.StatusOK </span><span class="cov2" title="2">{
+                return fmt.Errorf("caddy returned status %d", resp.StatusCode)
+        }</span>
+
+        <span class="cov2" title="2">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package caddy
+
+import (
+        "encoding/json"
+        "fmt"
+        "path/filepath"
+        "strings"
+
+        "github.com/Wikid82/charon/backend/internal/models"
+)
+
+// GenerateConfig creates a Caddy JSON configuration from proxy hosts.
+// This is the core transformation layer from our database model to Caddy config.
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) <span class="cov10" title="42">{
+        // Define log file paths
+        // We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
+        // storageDir is .../data/caddy/data
+        // Dir -&gt; .../data/caddy
+        // Dir -&gt; .../data
+        logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
+        logFile := filepath.Join(logDir, "access.log")
+
+        config := &amp;Config{
+                Logging: &amp;LoggingConfig{
+                        Logs: map[string]*LogConfig{
+                                "access": {
+                                        Level: "INFO",
+                                        Writer: &amp;WriterConfig{
+                                                Output:       "file",
+                                                Filename:     logFile,
+                                                Roll:         true,
+                                                RollSize:     10, // 10 MB
+                                                RollKeep:     5,  // Keep 5 files
+                                                RollKeepDays: 7,  // Keep for 7 days
+                                        },
+                                        Encoder: &amp;EncoderConfig{
+                                                Format: "json",
+                                        },
+                                        Include: []string{"http.log.access.access_log"},
+                                },
+                        },
+                },
+                Apps: Apps{
+                        HTTP: &amp;HTTPApp{
+                                Servers: map[string]*Server{},
+                        },
+                },
+                Storage: Storage{
+                        System: "file_system",
+                        Root:   storageDir,
+                },
+        }
+
+        if acmeEmail != "" </span><span class="cov7" title="16">{
+                var issuers []interface{}
+
+                // Configure issuers based on provider preference
+                switch sslProvider </span>{
+                case "letsencrypt":<span class="cov3" title="3">
+                        acmeIssuer := map[string]interface{}{
+                                "module": "acme",
+                                "email":  acmeEmail,
+                        }
+                        if acmeStaging </span><span class="cov2" title="2">{
+                                acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+                        }</span>
+                        <span class="cov3" title="3">issuers = append(issuers, acmeIssuer)</span>
+                case "zerossl":<span class="cov2" title="2">
+                        issuers = append(issuers, map[string]interface{}{
+                                "module": "zerossl",
+                        })</span>
+                default:<span class="cov6" title="11"> // "both" or empty
+                        acmeIssuer := map[string]interface{}{
+                                "module": "acme",
+                                "email":  acmeEmail,
+                        }
+                        if acmeStaging </span><span class="cov1" title="1">{
+                                acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+                        }</span>
+                        <span class="cov6" title="11">issuers = append(issuers, acmeIssuer)
+                        issuers = append(issuers, map[string]interface{}{
+                                "module": "zerossl",
+                        })</span>
+                }
+
+                <span class="cov7" title="16">config.Apps.TLS = &amp;TLSApp{
+                        Automation: &amp;AutomationConfig{
+                                Policies: []*AutomationPolicy{
+                                        {
+                                                IssuersRaw: issuers,
+                                        },
+                                },
+                        },
+                }</span>
+        }
+
+        // Collect CUSTOM certificates only (not Let's Encrypt - those are managed by ACME)
+        // Only custom/uploaded certificates should be loaded via LoadPEM
+        <span class="cov10" title="42">customCerts := make(map[uint]models.SSLCertificate)
+        for _, host := range hosts </span><span class="cov9" title="40">{
+                if host.CertificateID != nil &amp;&amp; host.Certificate != nil </span><span class="cov3" title="3">{
+                        // Only include custom certificates, not ACME-managed ones
+                        if host.Certificate.Provider == "custom" </span><span class="cov3" title="3">{
+                                customCerts[*host.CertificateID] = *host.Certificate
+                        }</span>
+                }
+        }
+
+        <span class="cov10" title="42">if len(customCerts) &gt; 0 </span><span class="cov3" title="3">{
+                var loadPEM []LoadPEMConfig
+                for _, cert := range customCerts </span><span class="cov3" title="3">{
+                        // Validate that custom cert has both certificate and key
+                        if cert.Certificate == "" || cert.PrivateKey == "" </span><span class="cov1" title="1">{
+                                fmt.Printf("Warning: Custom certificate %s missing certificate or key, skipping\n", cert.Name)
+                                continue</span>
+                        }
+                        <span class="cov2" title="2">loadPEM = append(loadPEM, LoadPEMConfig{
+                                Certificate: cert.Certificate,
+                                Key:         cert.PrivateKey,
+                                Tags:        []string{cert.UUID},
+                        })</span>
+                }
+
+                <span class="cov3" title="3">if len(loadPEM) &gt; 0 </span><span class="cov2" title="2">{
+                        if config.Apps.TLS == nil </span><span class="cov1" title="1">{
+                                config.Apps.TLS = &amp;TLSApp{}
+                        }</span>
+                        <span class="cov2" title="2">config.Apps.TLS.Certificates = &amp;CertificatesConfig{
+                                LoadPEM: loadPEM,
+                        }</span>
+                }
+        }
+
+        <span class="cov10" title="42">if len(hosts) == 0 &amp;&amp; frontendDir == "" </span><span class="cov4" title="5">{
+                return config, nil
+        }</span>
+
+        // Initialize routes slice
+        <span class="cov9" title="37">routes := make([]*Route, 0)
+
+        // Track processed domains to prevent duplicates (Ghost Host fix)
+        processedDomains := make(map[string]bool)
+
+        // Sort hosts by UpdatedAt desc to prefer newer configs in case of duplicates
+        // Note: This assumes the input slice is already sorted or we don't care about order beyond duplicates
+        // The caller (ApplyConfig) fetches all hosts. We should probably sort them here or there.
+        // For now, we'll just process them. If we encounter a duplicate domain, we skip it.
+        // To ensure we keep the *latest* one, we should iterate in reverse or sort.
+        // But ApplyConfig uses db.Find(&amp;hosts), which usually returns by ID asc.
+        // So later IDs (newer) come last.
+        // We want to keep the NEWER one.
+        // So we should iterate backwards? Or just overwrite?
+        // Caddy config structure is a list of servers/routes.
+        // If we have multiple routes matching the same host, Caddy uses the first one?
+        // Actually, Caddy matches routes in order.
+        // If we emit two routes for "example.com", the first one will catch it.
+        // So we want the NEWEST one to be FIRST in the list?
+        // Or we want to only emit ONE route for "example.com".
+        // If we emit only one, it should be the newest one.
+        // So we should process hosts from newest to oldest, and skip duplicates.
+
+        // Let's iterate in reverse order (assuming input is ID ASC)
+        for i := len(hosts) - 1; i &gt;= 0; i-- </span><span class="cov9" title="40">{
+                host := hosts[i]
+
+                if !host.Enabled </span><span class="cov1" title="1">{
+                        continue</span>
+                }
+
+                <span class="cov9" title="39">if host.DomainNames == "" </span><span class="cov2" title="2">{
+                        // Log warning?
+                        continue</span>
+                }
+
+                // Parse comma-separated domains
+                <span class="cov9" title="37">rawDomains := strings.Split(host.DomainNames, ",")
+                var uniqueDomains []string
+
+                for _, d := range rawDomains </span><span class="cov9" title="38">{
+                        d = strings.TrimSpace(d)
+                        d = strings.ToLower(d) // Normalize to lowercase
+                        if d == "" </span><span class="cov1" title="1">{
+                                continue</span>
+                        }
+                        <span class="cov9" title="37">if processedDomains[d] </span><span class="cov1" title="1">{
+                                fmt.Printf("Warning: Skipping duplicate domain %s for host %s (Ghost Host detection)\n", d, host.UUID)
+                                continue</span>
+                        }
+                        <span class="cov9" title="36">processedDomains[d] = true
+                        uniqueDomains = append(uniqueDomains, d)</span>
+                }
+
+                <span class="cov9" title="37">if len(uniqueDomains) == 0 </span><span class="cov1" title="1">{
+                        continue</span>
+                }
+
+                // Build handlers for this host
+                <span class="cov9" title="36">handlers := make([]Handler, 0)
+
+                // Add Access Control List (ACL) handler if configured
+                if host.AccessListID != nil &amp;&amp; host.AccessList != nil &amp;&amp; host.AccessList.Enabled </span><span class="cov2" title="2">{
+                        aclHandler, err := buildACLHandler(host.AccessList)
+                        if err != nil </span><span class="cov1" title="1">{
+                                fmt.Printf("Warning: Failed to build ACL handler for host %s: %v\n", host.UUID, err)
+                        }</span> else<span class="cov1" title="1"> if aclHandler != nil </span><span class="cov1" title="1">{
+                                handlers = append(handlers, aclHandler)
+                        }</span>
+                }
+
+                // Add HSTS header if enabled
+                <span class="cov9" title="36">if host.HSTSEnabled </span><span class="cov2" title="2">{
+                        hstsValue := "max-age=31536000"
+                        if host.HSTSSubdomains </span><span class="cov2" title="2">{
+                                hstsValue += "; includeSubDomains"
+                        }</span>
+                        <span class="cov2" title="2">handlers = append(handlers, HeaderHandler(map[string][]string{
+                                "Strict-Transport-Security": {hstsValue},
+                        }))</span>
+                }
+
+                // Add exploit blocking if enabled
+                <span class="cov9" title="36">if host.BlockExploits </span><span class="cov7" title="13">{
+                        handlers = append(handlers, BlockExploitsHandler())
+                }</span>
+
+                // Handle custom locations first (more specific routes)
+                <span class="cov9" title="36">for _, loc := range host.Locations </span><span class="cov2" title="2">{
+                        dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
+                        locRoute := &amp;Route{
+                                Match: []Match{
+                                        {
+                                                Host: uniqueDomains,
+                                                Path: []string{loc.Path, loc.Path + "/*"},
+                                        },
+                                },
+                                Handle: []Handler{
+                                        ReverseProxyHandler(dial, host.WebsocketSupport, host.Application),
+                                },
+                                Terminal: true,
+                        }
+                        routes = append(routes, locRoute)
+                }</span>
+
+                // Main proxy handler
+                <span class="cov9" title="36">dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+                // Insert user advanced config (if present) as headers or handlers before the reverse proxy
+                // so user-specified headers/handlers are applied prior to proxying.
+                if host.AdvancedConfig != "" </span><span class="cov4" title="5">{
+                        var parsed interface{}
+                        if err := json.Unmarshal([]byte(host.AdvancedConfig), &amp;parsed); err != nil </span><span class="cov1" title="1">{
+                                fmt.Printf("Warning: Failed to parse advanced_config for host %s: %v\n", host.UUID, err)
+                        }</span> else<span class="cov4" title="4"> {
+                                switch v := parsed.(type) </span>{
+                                case map[string]interface{}:<span class="cov2" title="2">
+                                        // Append as a handler
+                                        // Ensure it has a "handler" key
+                                        if _, ok := v["handler"]; ok </span><span class="cov1" title="1">{
+                                                handlers = append(handlers, Handler(v))
+                                        }</span> else<span class="cov1" title="1"> {
+                                                fmt.Printf("Warning: advanced_config for host %s is not a handler object\n", host.UUID)
+                                        }</span>
+                                case []interface{}:<span class="cov1" title="1">
+                                        for _, it := range v </span><span class="cov1" title="1">{
+                                                if m, ok := it.(map[string]interface{}); ok </span><span class="cov1" title="1">{
+                                                        if _, ok2 := m["handler"]; ok2 </span><span class="cov1" title="1">{
+                                                                handlers = append(handlers, Handler(m))
+                                                        }</span>
+                                                }
+                                        }
+                                default:<span class="cov1" title="1">
+                                        fmt.Printf("Warning: advanced_config for host %s has unexpected JSON structure\n", host.UUID)</span>
+                                }
+                        }
+                }
+                <span class="cov9" title="36">mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+
+                route := &amp;Route{
+                        Match: []Match{
+                                {Host: uniqueDomains},
+                        },
+                        Handle:   mainHandlers,
+                        Terminal: true,
+                }
+
+                routes = append(routes, route)</span>
+        }
+
+        // Add catch-all 404 handler
+        // This matches any request that wasn't handled by previous routes
+        <span class="cov9" title="37">if frontendDir != "" </span><span class="cov6" title="10">{
+                catchAllRoute := &amp;Route{
+                        Handle: []Handler{
+                                RewriteHandler("/unknown.html"),
+                                FileServerHandler(frontendDir),
+                        },
+                        Terminal: true,
+                }
+                routes = append(routes, catchAllRoute)
+        }</span>
+
+        <span class="cov9" title="37">config.Apps.HTTP.Servers["charon_server"] = &amp;Server{
+                Listen: []string{":80", ":443"},
+                Routes: routes,
+                AutoHTTPS: &amp;AutoHTTPSConfig{
+                        Disable:      false,
+                        DisableRedir: false,
+                },
+                Logs: &amp;ServerLogs{
+                        DefaultLoggerName: "access_log",
+                },
+        }
+
+        return config, nil</span>
+}
+
+// buildACLHandler creates access control handlers based on the AccessList configuration
+func buildACLHandler(acl *models.AccessList) (Handler, error) <span class="cov6" title="11">{
+        // For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
+        // For IP-based ACLs, we use Caddy's native remote_ip matcher
+
+        if strings.HasPrefix(acl.Type, "geo_") </span><span class="cov2" title="2">{
+                // Geo-blocking using caddy-geoip2
+                countryCodes := strings.Split(acl.CountryCodes, ",")
+                var trimmedCodes []string
+                for _, code := range countryCodes </span><span class="cov4" title="4">{
+                        trimmedCodes = append(trimmedCodes, `"`+strings.TrimSpace(code)+`"`)
+                }</span>
+
+                <span class="cov2" title="2">var expression string
+                if acl.Type == "geo_whitelist" </span><span class="cov1" title="1">{
+                        // Allow only these countries
+                        expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
+                }</span> else<span class="cov1" title="1"> {
+                        // geo_blacklist: Block these countries
+                        expression = fmt.Sprintf("{geoip2.country_code} not_in [%s]", strings.Join(trimmedCodes, ", "))
+                }</span>
+
+                <span class="cov2" title="2">return Handler{
+                        "handler": "subroute",
+                        "routes": []map[string]interface{}{
+                                {
+                                        "match": []map[string]interface{}{
+                                                {
+                                                        "not": []map[string]interface{}{
+                                                                {
+                                                                        "expression": expression,
+                                                                },
+                                                        },
+                                                },
+                                        },
+                                        "handle": []map[string]interface{}{
+                                                {
+                                                        "handler":     "static_response",
+                                                        "status_code": 403,
+                                                        "body":        "Access denied: Geographic restriction",
+                                                },
+                                        },
+                                        "terminal": true,
+                                },
+                        },
+                }, nil</span>
+        }
+
+        // IP/CIDR-based ACLs using Caddy's native remote_ip matcher
+        <span class="cov6" title="9">if acl.LocalNetworkOnly </span><span class="cov1" title="1">{
+                // Allow only RFC1918 private networks
+                return Handler{
+                        "handler": "subroute",
+                        "routes": []map[string]interface{}{
+                                {
+                                        "match": []map[string]interface{}{
+                                                {
+                                                        "not": []map[string]interface{}{
+                                                                {
+                                                                        "remote_ip": map[string]interface{}{
+                                                                                "ranges": []string{
+                                                                                        "10.0.0.0/8",
+                                                                                        "172.16.0.0/12",
+                                                                                        "192.168.0.0/16",
+                                                                                        "127.0.0.0/8",
+                                                                                        "169.254.0.0/16",
+                                                                                        "fc00::/7",
+                                                                                        "fe80::/10",
+                                                                                        "::1/128",
+                                                                                },
+                                                                        },
+                                                                },
+                                                        },
+                                                },
+                                        },
+                                        "handle": []map[string]interface{}{
+                                                {
+                                                        "handler":     "static_response",
+                                                        "status_code": 403,
+                                                        "body":        "Access denied: Not a local network IP",
+                                                },
+                                        },
+                                        "terminal": true,
+                                },
+                        },
+                }, nil
+        }</span>
+
+        // Parse IP rules
+        <span class="cov6" title="8">if acl.IPRules == "" </span><span class="cov1" title="1">{
+                return nil, nil
+        }</span>
+
+        <span class="cov5" title="7">var rules []models.AccessListRule
+        if err := json.Unmarshal([]byte(acl.IPRules), &amp;rules); err != nil </span><span class="cov2" title="2">{
+                return nil, fmt.Errorf("invalid IP rules JSON: %w", err)
+        }</span>
+
+        <span class="cov4" title="5">if len(rules) == 0 </span><span class="cov1" title="1">{
+                return nil, nil
+        }</span>
+
+        // Extract CIDR ranges
+        <span class="cov4" title="4">var cidrs []string
+        for _, rule := range rules </span><span class="cov4" title="4">{
+                cidrs = append(cidrs, rule.CIDR)
+        }</span>
+
+        <span class="cov4" title="4">if acl.Type == "whitelist" </span><span class="cov2" title="2">{
+                // Allow only these IPs (block everything else)
+                return Handler{
+                        "handler": "subroute",
+                        "routes": []map[string]interface{}{
+                                {
+                                        "match": []map[string]interface{}{
+                                                {
+                                                        "not": []map[string]interface{}{
+                                                                {
+                                                                        "remote_ip": map[string]interface{}{
+                                                                                "ranges": cidrs,
+                                                                        },
+                                                                },
+                                                        },
+                                                },
+                                        },
+                                        "handle": []map[string]interface{}{
+                                                {
+                                                        "handler":     "static_response",
+                                                        "status_code": 403,
+                                                        "body":        "Access denied: IP not in whitelist",
+                                                },
+                                        },
+                                        "terminal": true,
+                                },
+                        },
+                }, nil
+        }</span>
+
+        <span class="cov2" title="2">if acl.Type == "blacklist" </span><span class="cov1" title="1">{
+                // Block these IPs (allow everything else)
+                return Handler{
+                        "handler": "subroute",
+                        "routes": []map[string]interface{}{
+                                {
+                                        "match": []map[string]interface{}{
+                                                {
+                                                        "remote_ip": map[string]interface{}{
+                                                                "ranges": cidrs,
+                                                        },
+                                                },
+                                        },
+                                        "handle": []map[string]interface{}{
+                                                {
+                                                        "handler":     "static_response",
+                                                        "status_code": 403,
+                                                        "body":        "Access denied: IP blacklisted",
+                                                },
+                                        },
+                                        "terminal": true,
+                                },
+                        },
+                }, nil
+        }</span>
+
+        <span class="cov1" title="1">return nil, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package caddy
+
+import (
+        "encoding/json"
+        "errors"
+        "fmt"
+        "net"
+        "os"
+        "os/exec"
+        "path/filepath"
+        "strings"
+
+        "github.com/Wikid82/charon/backend/internal/models"
+)
+
+// Executor defines an interface for executing shell commands.
+type Executor interface {
+        Execute(name string, args ...string) ([]byte, error)
+}
+
+// DefaultExecutor implements Executor using os/exec.
+type DefaultExecutor struct{}
+
+func (e *DefaultExecutor) Execute(name string, args ...string) ([]byte, error) <span class="cov1" title="1">{
+        return exec.Command(name, args...).Output()
+}</span>
+
+// CaddyConfig represents the root structure of Caddy's JSON config.
+type CaddyConfig struct {
+        Apps *CaddyApps `json:"apps,omitempty"`
+}
+
+// CaddyApps contains application-specific configurations.
+type CaddyApps struct {
+        HTTP *CaddyHTTP `json:"http,omitempty"`
+}
+
+// CaddyHTTP represents the HTTP app configuration.
+type CaddyHTTP struct {
+        Servers map[string]*CaddyServer `json:"servers,omitempty"`
+}
+
+// CaddyServer represents a single server configuration.
+type CaddyServer struct {
+        Listen                []string      `json:"listen,omitempty"`
+        Routes                []*CaddyRoute `json:"routes,omitempty"`
+        TLSConnectionPolicies interface{}   `json:"tls_connection_policies,omitempty"`
+}
+
+// CaddyRoute represents a single route with matchers and handlers.
+type CaddyRoute struct {
+        Match  []*CaddyMatcher `json:"match,omitempty"`
+        Handle []*CaddyHandler `json:"handle,omitempty"`
+}
+
+// CaddyMatcher represents route matching criteria.
+type CaddyMatcher struct {
+        Host []string `json:"host,omitempty"`
+}
+
+// CaddyHandler represents a handler in the route.
+type CaddyHandler struct {
+        Handler   string      `json:"handler"`
+        Upstreams interface{} `json:"upstreams,omitempty"`
+        Headers   interface{} `json:"headers,omitempty"`
+        Routes    interface{} `json:"routes,omitempty"` // For subroute handlers
+}
+
+// ParsedHost represents a single host detected during Caddyfile import.
+type ParsedHost struct {
+        DomainNames      string   `json:"domain_names"`
+        ForwardScheme    string   `json:"forward_scheme"`
+        ForwardHost      string   `json:"forward_host"`
+        ForwardPort      int      `json:"forward_port"`
+        SSLForced        bool     `json:"ssl_forced"`
+        WebsocketSupport bool     `json:"websocket_support"`
+        RawJSON          string   `json:"raw_json"` // Original Caddy JSON for this route
+        Warnings         []string `json:"warnings"` // Unsupported features
+}
+
+// ImportResult contains parsed hosts and detected conflicts.
+type ImportResult struct {
+        Hosts     []ParsedHost `json:"hosts"`
+        Conflicts []string     `json:"conflicts"`
+        Errors    []string     `json:"errors"`
+}
+
+// Importer handles Caddyfile parsing and conversion to CPM+ models.
+type Importer struct {
+        caddyBinaryPath string
+        executor        Executor
+}
+
+// NewImporter creates a new Caddyfile importer.
+func NewImporter(binaryPath string) *Importer <span class="cov9" title="24">{
+        if binaryPath == "" </span><span class="cov7" title="12">{
+                binaryPath = "caddy" // Default to PATH
+        }</span>
+        <span class="cov9" title="24">return &amp;Importer{
+                caddyBinaryPath: binaryPath,
+                executor:        &amp;DefaultExecutor{},
+        }</span>
+}
+
+// ParseCaddyfile reads a Caddyfile and converts it to Caddy JSON.
+func (i *Importer) ParseCaddyfile(caddyfilePath string) ([]byte, error) <span class="cov6" title="6">{
+        if _, err := os.Stat(caddyfilePath); os.IsNotExist(err) </span><span class="cov1" title="1">{
+                return nil, fmt.Errorf("caddyfile not found: %s", caddyfilePath)
+        }</span>
+
+        <span class="cov5" title="5">output, err := i.executor.Execute(i.caddyBinaryPath, "adapt", "--config", caddyfilePath, "--adapter", "caddyfile")
+        if err != nil </span><span class="cov2" title="2">{
+                return nil, fmt.Errorf("caddy adapt failed: %w (output: %s)", err, string(output))
+        }</span>
+
+        <span class="cov4" title="3">return output, nil</span>
+}
+
+// extractHandlers recursively extracts handlers from a list, flattening subroutes.
+func (i *Importer) extractHandlers(handles []*CaddyHandler) []*CaddyHandler <span class="cov9" title="22">{
+        var result []*CaddyHandler
+
+        for _, handler := range handles </span><span class="cov10" title="25">{
+                // If this is a subroute, extract handlers from its first route
+                if handler.Handler == "subroute" </span><span class="cov6" title="6">{
+                        if routes, ok := handler.Routes.([]interface{}); ok &amp;&amp; len(routes) &gt; 0 </span><span class="cov5" title="5">{
+                                if subroute, ok := routes[0].(map[string]interface{}); ok </span><span class="cov4" title="4">{
+                                        if subhandles, ok := subroute["handle"].([]interface{}); ok </span><span class="cov4" title="3">{
+                                                // Convert the subhandles to CaddyHandler objects
+                                                for _, sh := range subhandles </span><span class="cov5" title="5">{
+                                                        if shMap, ok := sh.(map[string]interface{}); ok </span><span class="cov4" title="4">{
+                                                                subHandler := &amp;CaddyHandler{}
+                                                                if handlerType, ok := shMap["handler"].(string); ok </span><span class="cov4" title="4">{
+                                                                        subHandler.Handler = handlerType
+                                                                }</span>
+                                                                <span class="cov4" title="4">if upstreams, ok := shMap["upstreams"]; ok </span><span class="cov2" title="2">{
+                                                                        subHandler.Upstreams = upstreams
+                                                                }</span>
+                                                                <span class="cov4" title="4">if headers, ok := shMap["headers"]; ok </span><span class="cov1" title="1">{
+                                                                        subHandler.Headers = headers
+                                                                }</span>
+                                                                <span class="cov4" title="4">result = append(result, subHandler)</span>
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
+                } else<span class="cov9" title="19"> {
+                        // Regular handler, add it directly
+                        result = append(result, handler)
+                }</span>
+        }
+
+        <span class="cov9" title="22">return result</span>
+}
+
+// ExtractHosts parses Caddy JSON and extracts proxy host information.
+func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) <span class="cov8" title="17">{
+        var config CaddyConfig
+        if err := json.Unmarshal(caddyJSON, &amp;config); err != nil </span><span class="cov2" title="2">{
+                return nil, fmt.Errorf("parsing caddy json: %w", err)
+        }</span>
+
+        <span class="cov8" title="15">result := &amp;ImportResult{
+                Hosts:     []ParsedHost{},
+                Conflicts: []string{},
+                Errors:    []string{},
+        }
+
+        if config.Apps == nil || config.Apps.HTTP == nil || config.Apps.HTTP.Servers == nil </span><span class="cov1" title="1">{
+                return result, nil // Empty config
+        }</span>
+
+        <span class="cov8" title="14">seenDomains := make(map[string]bool)
+
+        for serverName, server := range config.Apps.HTTP.Servers </span><span class="cov8" title="15">{
+                // Detect if this server uses SSL based on listen address or TLS policies
+                serverUsesSSL := server.TLSConnectionPolicies != nil
+                for _, listenAddr := range server.Listen </span><span class="cov7" title="9">{
+                        // Check if listening on :443 or any HTTPS port indicator
+                        if strings.Contains(listenAddr, ":443") || strings.HasSuffix(listenAddr, "443") </span><span class="cov2" title="2">{
+                                serverUsesSSL = true
+                                break</span>
+                        }
+                }
+
+                <span class="cov8" title="15">for routeIdx, route := range server.Routes </span><span class="cov8" title="17">{
+                        for _, match := range route.Match </span><span class="cov8" title="17">{
+                                for _, hostMatcher := range match.Host </span><span class="cov9" title="18">{
+                                        domain := hostMatcher
+
+                                        // Check for duplicate domains (report domain names only)
+                                        if seenDomains[domain] </span><span class="cov2" title="2">{
+                                                result.Conflicts = append(result.Conflicts, domain)
+                                                continue</span>
+                                        }
+                                        <span class="cov8" title="16">seenDomains[domain] = true
+
+                                        // Extract reverse proxy handler
+                                        host := ParsedHost{
+                                                DomainNames: domain,
+                                                SSLForced:   strings.HasPrefix(domain, "https") || serverUsesSSL,
+                                        }
+
+                                        // Find reverse_proxy handler (may be nested in subroute)
+                                        handlers := i.extractHandlers(route.Handle)
+
+                                        for _, handler := range handlers </span><span class="cov9" title="19">{
+                                                if handler.Handler == "reverse_proxy" </span><span class="cov8" title="15">{
+                                                        upstreams, _ := handler.Upstreams.([]interface{})
+                                                        if len(upstreams) &gt; 0 </span><span class="cov8" title="13">{
+                                                                if upstream, ok := upstreams[0].(map[string]interface{}); ok </span><span class="cov7" title="12">{
+                                                                        dial, _ := upstream["dial"].(string)
+                                                                        if dial != "" </span><span class="cov7" title="12">{
+                                                                                hostStr, portStr, err := net.SplitHostPort(dial)
+                                                                                if err == nil </span><span class="cov7" title="10">{
+                                                                                        host.ForwardHost = hostStr
+                                                                                        if _, err := fmt.Sscanf(portStr, "%d", &amp;host.ForwardPort); err != nil </span><span class="cov0" title="0">{
+                                                                                                host.ForwardPort = 80
+                                                                                        }</span>
+                                                                                } else<span class="cov2" title="2"> {
+                                                                                        // Fallback: assume dial is just the host or has some other format
+                                                                                        // Try to handle simple "host:port" manually if net.SplitHostPort failed for some reason
+                                                                                        // or assume it's just a host
+                                                                                        parts := strings.Split(dial, ":")
+                                                                                        if len(parts) == 2 </span><span class="cov0" title="0">{
+                                                                                                host.ForwardHost = parts[0]
+                                                                                                if _, err := fmt.Sscanf(parts[1], "%d", &amp;host.ForwardPort); err != nil </span><span class="cov0" title="0">{
+                                                                                                        host.ForwardPort = 80
+                                                                                                }</span>
+                                                                                        } else<span class="cov2" title="2"> {
+                                                                                                host.ForwardHost = dial
+                                                                                                host.ForwardPort = 80
+                                                                                        }</span>
+                                                                                }
+                                                                        }
+                                                                }
+                                                        }
+
+                                                        // Check for websocket support
+                                                        <span class="cov8" title="15">if headers, ok := handler.Headers.(map[string]interface{}); ok </span><span class="cov2" title="2">{
+                                                                if upgrade, ok := headers["Upgrade"].([]interface{}); ok </span><span class="cov2" title="2">{
+                                                                        for _, v := range upgrade </span><span class="cov2" title="2">{
+                                                                                if v == "websocket" </span><span class="cov2" title="2">{
+                                                                                        host.WebsocketSupport = true
+                                                                                        break</span>
+                                                                                }
+                                                                        }
+                                                                }
+                                                        }
+
+                                                        // Default scheme
+                                                        <span class="cov8" title="15">host.ForwardScheme = "http"
+                                                        if host.SSLForced </span><span class="cov4" title="4">{
+                                                                host.ForwardScheme = "https"
+                                                        }</span>
+                                                }
+
+                                                // Detect unsupported features
+                                                <span class="cov9" title="19">if handler.Handler == "rewrite" </span><span class="cov2" title="2">{
+                                                        host.Warnings = append(host.Warnings, "Rewrite rules not supported - manual configuration required")
+                                                }</span>
+                                                <span class="cov9" title="19">if handler.Handler == "file_server" </span><span class="cov2" title="2">{
+                                                        host.Warnings = append(host.Warnings, "File server directives not supported")
+                                                }</span>
+                                        }
+
+                                        // Store raw JSON for this route
+                                        <span class="cov8" title="16">routeJSON, _ := json.Marshal(map[string]interface{}{
+                                                "server": serverName,
+                                                "route":  routeIdx,
+                                                "data":   route,
+                                        })
+                                        host.RawJSON = string(routeJSON)
+
+                                        result.Hosts = append(result.Hosts, host)</span>
+                                }
+                        }
+                }
+        }
+
+        <span class="cov8" title="14">return result, nil</span>
+}
+
+// ImportFile performs complete import: parse Caddyfile and extract hosts.
+func (i *Importer) ImportFile(caddyfilePath string) (*ImportResult, error) <span class="cov4" title="3">{
+        caddyJSON, err := i.ParseCaddyfile(caddyfilePath)
+        if err != nil </span><span class="cov1" title="1">{
+                return nil, err
+        }</span>
+
+        <span class="cov2" title="2">return i.ExtractHosts(caddyJSON)</span>
+}
+
+// ConvertToProxyHosts converts parsed hosts to ProxyHost models.
+func ConvertToProxyHosts(parsedHosts []ParsedHost) []models.ProxyHost <span class="cov1" title="1">{
+        hosts := make([]models.ProxyHost, 0, len(parsedHosts))
+
+        for _, parsed := range parsedHosts </span><span class="cov2" title="2">{
+                if parsed.ForwardHost == "" || parsed.ForwardPort == 0 </span><span class="cov1" title="1">{
+                        continue</span> // Skip invalid entries
+                }
+
+                <span class="cov1" title="1">hosts = append(hosts, models.ProxyHost{
+                        Name:             parsed.DomainNames, // Can be customized by user during review
+                        DomainNames:      parsed.DomainNames,
+                        ForwardScheme:    parsed.ForwardScheme,
+                        ForwardHost:      parsed.ForwardHost,
+                        ForwardPort:      parsed.ForwardPort,
+                        SSLForced:        parsed.SSLForced,
+                        WebsocketSupport: parsed.WebsocketSupport,
+                })</span>
+        }
+
+        <span class="cov1" title="1">return hosts</span>
+}
+
+// ValidateCaddyBinary checks if the Caddy binary is available.
+func (i *Importer) ValidateCaddyBinary() error <span class="cov2" title="2">{
+        _, err := i.executor.Execute(i.caddyBinaryPath, "version")
+        if err != nil </span><span class="cov1" title="1">{
+                return errors.New("caddy binary not found or not executable")
+        }</span>
+        <span class="cov1" title="1">return nil</span>
+}
+
+// BackupCaddyfile creates a timestamped backup of the original Caddyfile.
+func BackupCaddyfile(originalPath, backupDir string) (string, error) <span class="cov6" title="6">{
+        if err := os.MkdirAll(backupDir, 0755); err != nil </span><span class="cov1" title="1">{
+                return "", fmt.Errorf("creating backup directory: %w", err)
+        }</span>
+
+        <span class="cov5" title="5">timestamp := fmt.Sprintf("%d", os.Getpid()) // Simple timestamp placeholder
+        backupPath := filepath.Join(backupDir, fmt.Sprintf("Caddyfile.%s.backup", timestamp))
+
+        input, err := os.ReadFile(originalPath)
+        if err != nil </span><span class="cov2" title="2">{
+                return "", fmt.Errorf("reading original file: %w", err)
+        }</span>
+
+        <span class="cov4" title="3">if err := os.WriteFile(backupPath, input, 0644); err != nil </span><span class="cov0" title="0">{
+                return "", fmt.Errorf("writing backup: %w", err)
+        }</span>
+
+        <span class="cov4" title="3">return backupPath, nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package caddy
+
+import (
+        "context"
+        "crypto/sha256"
+        "encoding/json"
+        "fmt"
+        "os"
+        "path/filepath"
+        "sort"
+        "time"
+
+        "gorm.io/gorm"
+
+        "github.com/Wikid82/charon/backend/internal/models"
+)
+
+// Test hooks to allow overriding OS and JSON functions
+var (
+        writeFileFunc  = os.WriteFile
+        readFileFunc   = os.ReadFile
+        removeFileFunc = os.Remove
+        readDirFunc    = os.ReadDir
+        statFunc       = os.Stat
+        jsonMarshalFunc = json.MarshalIndent
+)
+
+// Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
+type Manager struct {
+        client      *Client
+        db          *gorm.DB
+        configDir   string
+        frontendDir string
+        acmeStaging bool
+}
+
+// NewManager creates a configuration manager.
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool) *Manager <span class="cov7" title="25">{
+        return &amp;Manager{
+                client:      client,
+                db:          db,
+                configDir:   configDir,
+                frontendDir: frontendDir,
+                acmeStaging: acmeStaging,
+        }
+}</span>
+
+// ApplyConfig generates configuration from database, validates it, applies to Caddy with rollback on failure.
+func (m *Manager) ApplyConfig(ctx context.Context) error <span class="cov6" title="13">{
+        // Fetch all proxy hosts from database
+        var hosts []models.ProxyHost
+        if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Find(&amp;hosts).Error; err != nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("fetch proxy hosts: %w", err)
+        }</span>
+
+        // Fetch ACME email setting
+        <span class="cov6" title="12">var acmeEmailSetting models.Setting
+        var acmeEmail string
+        if err := m.db.Where("key = ?", "caddy.acme_email").First(&amp;acmeEmailSetting).Error; err == nil </span><span class="cov1" title="1">{
+                acmeEmail = acmeEmailSetting.Value
+        }</span>
+
+        // Fetch SSL Provider setting
+        <span class="cov6" title="12">var sslProviderSetting models.Setting
+        var sslProvider string
+        if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&amp;sslProviderSetting).Error; err == nil </span><span class="cov1" title="1">{
+                sslProvider = sslProviderSetting.Value
+        }</span>
+
+        // Generate Caddy config
+        <span class="cov6" title="12">config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("generate config: %w", err)
+        }</span>
+
+        // Validate before applying
+        <span class="cov6" title="12">if err := Validate(config); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("validation failed: %w", err)
+        }</span>
+
+        // Save snapshot for rollback
+        <span class="cov6" title="12">snapshotPath, err := m.saveSnapshot(config)
+        if err != nil </span><span class="cov2" title="2">{
+                return fmt.Errorf("save snapshot: %w", err)
+        }</span>
+
+        // Calculate config hash for audit trail
+        <span class="cov5" title="10">configJSON, _ := json.Marshal(config)
+        configHash := fmt.Sprintf("%x", sha256.Sum256(configJSON))
+
+        // Apply to Caddy
+        if err := m.client.Load(ctx, config); err != nil </span><span class="cov4" title="5">{
+                // Remove the failed snapshot so rollback uses the previous one
+                _ = removeFileFunc(snapshotPath)
+
+                // Rollback on failure
+                if rollbackErr := m.rollback(ctx); rollbackErr != nil </span><span class="cov3" title="4">{
+                        // If rollback fails, we still want to record the failure
+                        m.recordConfigChange(configHash, false, err.Error())
+                        return fmt.Errorf("apply failed: %w, rollback also failed: %v", err, rollbackErr)
+                }</span>
+
+                // Record failed attempt
+                <span class="cov1" title="1">m.recordConfigChange(configHash, false, err.Error())
+                return fmt.Errorf("apply failed (rolled back): %w", err)</span>
+        }
+
+        // Record successful application
+        <span class="cov4" title="5">m.recordConfigChange(configHash, true, "")
+
+        // Cleanup old snapshots (keep last 10)
+        if err := m.rotateSnapshots(10); err != nil </span><span class="cov0" title="0">{
+                // Non-fatal - log but don't fail
+                fmt.Printf("warning: snapshot rotation failed: %v\n", err)
+        }</span>
+
+        <span class="cov4" title="5">return nil</span>
+}
+
+// saveSnapshot stores the config to disk with timestamp.
+func (m *Manager) saveSnapshot(config *Config) (string, error) <span class="cov6" title="15">{
+        timestamp := time.Now().Unix()
+        filename := fmt.Sprintf("config-%d.json", timestamp)
+        path := filepath.Join(m.configDir, filename)
+
+        configJSON, err := jsonMarshalFunc(config, "", "  ")
+        if err != nil </span><span class="cov1" title="1">{
+                return "", fmt.Errorf("marshal config: %w", err)
+        }</span>
+
+        <span class="cov6" title="14">if err := writeFileFunc(path, configJSON, 0644); err != nil </span><span class="cov3" title="3">{
+                return "", fmt.Errorf("write snapshot: %w", err)
+        }</span>
+
+        <span class="cov6" title="11">return path, nil</span>
+}
+
+// rollback loads the most recent snapshot from disk.
+func (m *Manager) rollback(ctx context.Context) error <span class="cov5" title="8">{
+        snapshots, err := m.listSnapshots()
+        if err != nil || len(snapshots) == 0 </span><span class="cov3" title="4">{
+                return fmt.Errorf("no snapshots available for rollback")
+        }</span>
+
+        // Load most recent snapshot
+        <span class="cov3" title="4">latestSnapshot := snapshots[len(snapshots)-1]
+        configJSON, err := readFileFunc(latestSnapshot)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("read snapshot: %w", err)
+        }</span>
+
+        <span class="cov3" title="4">var config Config
+        if err := json.Unmarshal(configJSON, &amp;config); err != nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("unmarshal snapshot: %w", err)
+        }</span>
+
+        // Apply the snapshot
+        <span class="cov3" title="3">if err := m.client.Load(ctx, &amp;config); err != nil </span><span class="cov2" title="2">{
+                return fmt.Errorf("load snapshot: %w", err)
+        }</span>
+
+        <span class="cov1" title="1">return nil</span>
+}
+
+// listSnapshots returns all snapshot file paths sorted by modification time.
+func (m *Manager) listSnapshots() ([]string, error) <span class="cov7" title="20">{
+        entries, err := readDirFunc(m.configDir)
+        if err != nil </span><span class="cov2" title="2">{
+                return nil, fmt.Errorf("read config dir: %w", err)
+        }</span>
+
+        <span class="cov7" title="18">var snapshots []string
+        for _, entry := range entries </span><span class="cov9" title="45">{
+                if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" </span><span class="cov1" title="1">{
+                        continue</span>
+                }
+                <span class="cov9" title="44">snapshots = append(snapshots, filepath.Join(m.configDir, entry.Name()))</span>
+        }
+
+        // Sort by modification time
+        <span class="cov7" title="18">sort.Slice(snapshots, func(i, j int) bool </span><span class="cov10" title="70">{
+                infoI, _ := statFunc(snapshots[i])
+                infoJ, _ := statFunc(snapshots[j])
+                return infoI.ModTime().Before(infoJ.ModTime())
+        }</span>)
+
+        <span class="cov7" title="18">return snapshots, nil</span>
+}
+
+// rotateSnapshots keeps only the N most recent snapshots.
+func (m *Manager) rotateSnapshots(keep int) error <span class="cov5" title="9">{
+        snapshots, err := m.listSnapshots()
+        if err != nil </span><span class="cov1" title="1">{
+                return err
+        }</span>
+
+        <span class="cov5" title="8">if len(snapshots) &lt;= keep </span><span class="cov3" title="4">{
+                return nil
+        }</span>
+
+        // Delete oldest snapshots
+        <span class="cov3" title="4">toDelete := snapshots[:len(snapshots)-keep]
+        for _, path := range toDelete </span><span class="cov6" title="11">{
+                if err := removeFileFunc(path); err != nil </span><span class="cov1" title="1">{
+                        return fmt.Errorf("delete snapshot %s: %w", path, err)
+                }</span>
+        }
+
+        <span class="cov3" title="3">return nil</span>
+}
+
+// recordConfigChange stores an audit record in the database.
+func (m *Manager) recordConfigChange(configHash string, success bool, errorMsg string) <span class="cov5" title="10">{
+        record := models.CaddyConfig{
+                ConfigHash: configHash,
+                AppliedAt:  time.Now(),
+                Success:    success,
+                ErrorMsg:   errorMsg,
+        }
+
+        // Best effort - don't fail if audit logging fails
+        m.db.Create(&amp;record)
+}</span>
+
+// Ping checks if Caddy is reachable.
+func (m *Manager) Ping(ctx context.Context) error <span class="cov1" title="1">{
+        return m.client.Ping(ctx)
+}</span>
+
+// GetCurrentConfig retrieves the running config from Caddy.
+func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) <span class="cov1" title="1">{
+        return m.client.GetConfig(ctx)
+}</span>
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package caddy
+
+// Config represents Caddy's top-level JSON configuration structure.
+// Reference: https://caddyserver.com/docs/json/
+type Config struct {
+        Apps    Apps           `json:"apps"`
+        Logging *LoggingConfig `json:"logging,omitempty"`
+        Storage Storage        `json:"storage,omitempty"`
+}
+
+// LoggingConfig configures Caddy's logging facility.
+type LoggingConfig struct {
+        Logs  map[string]*LogConfig `json:"logs,omitempty"`
+        Sinks *SinkConfig           `json:"sinks,omitempty"`
+}
+
+// LogConfig configures a specific logger.
+type LogConfig struct {
+        Writer  *WriterConfig  `json:"writer,omitempty"`
+        Encoder *EncoderConfig `json:"encoder,omitempty"`
+        Level   string         `json:"level,omitempty"`
+        Include []string       `json:"include,omitempty"`
+        Exclude []string       `json:"exclude,omitempty"`
+}
+
+// WriterConfig configures the log writer (output).
+type WriterConfig struct {
+        Output       string `json:"output"`
+        Filename     string `json:"filename,omitempty"`
+        Roll         bool   `json:"roll,omitempty"`
+        RollSize     int    `json:"roll_size_mb,omitempty"`
+        RollKeep     int    `json:"roll_keep,omitempty"`
+        RollKeepDays int    `json:"roll_keep_days,omitempty"`
+}
+
+// EncoderConfig configures the log format.
+type EncoderConfig struct {
+        Format string `json:"format"` // "json", "console", etc.
+}
+
+// SinkConfig configures log sinks (e.g. stderr).
+type SinkConfig struct {
+        Writer *WriterConfig `json:"writer,omitempty"`
+}
+
+// Storage configures the storage module.
+type Storage struct {
+        System string `json:"module"`
+        Root   string `json:"root,omitempty"`
+}
+
+// Apps contains all Caddy app modules.
+type Apps struct {
+        HTTP *HTTPApp `json:"http,omitempty"`
+        TLS  *TLSApp  `json:"tls,omitempty"`
+}
+
+// HTTPApp configures the HTTP app.
+type HTTPApp struct {
+        Servers map[string]*Server `json:"servers"`
+}
+
+// Server represents an HTTP server instance.
+type Server struct {
+        Listen    []string         `json:"listen"`
+        Routes    []*Route         `json:"routes"`
+        AutoHTTPS *AutoHTTPSConfig `json:"automatic_https,omitempty"`
+        Logs      *ServerLogs      `json:"logs,omitempty"`
+}
+
+// AutoHTTPSConfig controls automatic HTTPS behavior.
+type AutoHTTPSConfig struct {
+        Disable      bool     `json:"disable,omitempty"`
+        DisableRedir bool     `json:"disable_redirects,omitempty"`
+        Skip         []string `json:"skip,omitempty"`
+}
+
+// ServerLogs configures access logging.
+type ServerLogs struct {
+        DefaultLoggerName string `json:"default_logger_name,omitempty"`
+}
+
+// Route represents an HTTP route (matcher + handlers).
+type Route struct {
+        Match    []Match   `json:"match,omitempty"`
+        Handle   []Handler `json:"handle"`
+        Terminal bool      `json:"terminal,omitempty"`
+}
+
+// Match represents a request matcher.
+type Match struct {
+        Host []string `json:"host,omitempty"`
+        Path []string `json:"path,omitempty"`
+}
+
+// Handler is the interface for all handler types.
+// Actual types will implement handler-specific fields.
+type Handler map[string]interface{}
+
+// ReverseProxyHandler creates a reverse_proxy handler.
+// application: "none", "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden"
+func ReverseProxyHandler(dial string, enableWS bool, application string) Handler <span class="cov10" title="44">{
+        h := Handler{
+                "handler":        "reverse_proxy",
+                "flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
+                "upstreams": []map[string]interface{}{
+                        {"dial": dial},
+                },
+        }
+
+        // Build headers configuration
+        headers := make(map[string]interface{})
+        requestHeaders := make(map[string]interface{})
+        setHeaders := make(map[string][]string)
+
+        // WebSocket support
+        if enableWS </span><span class="cov3" title="3">{
+                setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
+                setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
+        }</span>
+
+        // Application-specific headers for proper client IP forwarding
+        // These are critical for media servers behind tunnels/CGNAT
+        <span class="cov10" title="44">switch application </span>{
+        case "plex":<span class="cov2" title="2">
+                // Pass-through common Plex headers for improved compatibility when proxying
+                setHeaders["X-Plex-Client-Identifier"] = []string{"{http.request.header.X-Plex-Client-Identifier}"}
+                setHeaders["X-Plex-Device"] = []string{"{http.request.header.X-Plex-Device}"}
+                setHeaders["X-Plex-Device-Name"] = []string{"{http.request.header.X-Plex-Device-Name}"}
+                setHeaders["X-Plex-Platform"] = []string{"{http.request.header.X-Plex-Platform}"}
+                setHeaders["X-Plex-Platform-Version"] = []string{"{http.request.header.X-Plex-Platform-Version}"}
+                setHeaders["X-Plex-Product"] = []string{"{http.request.header.X-Plex-Product}"}
+                setHeaders["X-Plex-Token"] = []string{"{http.request.header.X-Plex-Token}"}
+                setHeaders["X-Plex-Version"] = []string{"{http.request.header.X-Plex-Version}"}
+                // Also set X-Real-IP for accurate client IP reporting
+                setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+                setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}</span>
+        case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":<span class="cov1" title="1">
+                // X-Real-IP is required by most apps to identify the real client
+                // Caddy already sets X-Forwarded-For and X-Forwarded-Proto by default
+                setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+                // Some apps also check these headers
+                setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}</span>
+        }
+
+        // Only add headers config if we have headers to set
+        <span class="cov10" title="44">if len(setHeaders) &gt; 0 </span><span class="cov4" title="4">{
+                requestHeaders["set"] = setHeaders
+                headers["request"] = requestHeaders
+                h["headers"] = headers
+        }</span>
+
+        <span class="cov10" title="44">return h</span>
+}
+
+// HeaderHandler creates a handler that sets HTTP response headers.
+func HeaderHandler(headers map[string][]string) Handler <span class="cov3" title="3">{
+        return Handler{
+                "handler": "headers",
+                "response": map[string]interface{}{
+                        "set": headers,
+                },
+        }
+}</span>
+
+// BlockExploitsHandler creates a handler that blocks common exploits.
+// This uses Caddy's request matchers to block malicious patterns.
+func BlockExploitsHandler() Handler <span class="cov7" title="14">{
+        return Handler{
+                "handler": "vars",
+                // Placeholder for future exploit blocking logic
+                // Can be extended with specific matchers for SQL injection, XSS, etc.
+        }
+}</span>
+
+// RewriteHandler creates a rewrite handler.
+func RewriteHandler(uri string) Handler <span class="cov6" title="11">{
+        return Handler{
+                "handler": "rewrite",
+                "uri":     uri,
+        }
+}</span>
+
+// FileServerHandler creates a file_server handler.
+func FileServerHandler(root string) Handler <span class="cov6" title="11">{
+        return Handler{
+                "handler": "file_server",
+                "root":    root,
+        }
+}</span>
+
+// TLSApp configures the TLS app for certificate management.
+type TLSApp struct {
+        Automation   *AutomationConfig   `json:"automation,omitempty"`
+        Certificates *CertificatesConfig `json:"certificates,omitempty"`
+}
+
+// CertificatesConfig configures manual certificate loading.
+type CertificatesConfig struct {
+        LoadPEM []LoadPEMConfig `json:"load_pem,omitempty"`
+}
+
+// LoadPEMConfig defines a PEM-loaded certificate.
+type LoadPEMConfig struct {
+        Certificate string   `json:"certificate"`
+        Key         string   `json:"key"`
+        Tags        []string `json:"tags,omitempty"`
+}
+
+// AutomationConfig controls certificate automation.
+type AutomationConfig struct {
+        Policies []*AutomationPolicy `json:"policies,omitempty"`
+}
+
+// AutomationPolicy defines certificate management for specific domains.
+type AutomationPolicy struct {
+        Subjects   []string      `json:"subjects,omitempty"`
+        IssuersRaw []interface{} `json:"issuers,omitempty"`
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package caddy
+
+import (
+        "encoding/json"
+        "fmt"
+        "net"
+        "strconv"
+        "strings"
+)
+
+// Validate performs pre-flight validation on a Caddy config before applying it.
+func Validate(cfg *Config) error <span class="cov8" title="20">{
+        if cfg == nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("config cannot be nil")
+        }</span>
+
+        <span class="cov8" title="19">if cfg.Apps.HTTP == nil </span><span class="cov1" title="1">{
+                return nil // Empty config is valid
+        }</span>
+
+        // Track seen hosts to detect duplicates
+        <span class="cov8" title="18">seenHosts := make(map[string]bool)
+
+        for serverName, server := range cfg.Apps.HTTP.Servers </span><span class="cov8" title="16">{
+                if len(server.Listen) == 0 </span><span class="cov1" title="1">{
+                        return fmt.Errorf("server %s has no listen addresses", serverName)
+                }</span>
+
+                // Validate listen addresses
+                <span class="cov7" title="15">for _, addr := range server.Listen </span><span class="cov9" title="26">{
+                        if err := validateListenAddr(addr); err != nil </span><span class="cov1" title="1">{
+                                return fmt.Errorf("invalid listen address %s in server %s: %w", addr, serverName, err)
+                        }</span>
+                }
+
+                // Validate routes
+                <span class="cov7" title="14">for i, route := range server.Routes </span><span class="cov8" title="16">{
+                        if err := validateRoute(route, seenHosts); err != nil </span><span class="cov3" title="3">{
+                                return fmt.Errorf("invalid route %d in server %s: %w", i, serverName, err)
+                        }</span>
+                }
+        }
+
+        // Validate JSON marshalling works
+        <span class="cov7" title="13">if _, err := json.Marshal(cfg); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("config cannot be marshalled to JSON: %w", err)
+        }</span>
+
+        <span class="cov7" title="13">return nil</span>
+}
+
+func validateListenAddr(addr string) error <span class="cov10" title="35">{
+        // Strip network type prefix if present (tcp/, udp/)
+        if idx := strings.Index(addr, "/"); idx != -1 </span><span class="cov2" title="2">{
+                addr = addr[idx+1:]
+        }</span>
+
+        // Parse host:port
+        <span class="cov10" title="35">host, portStr, err := net.SplitHostPort(addr)
+        if err != nil </span><span class="cov1" title="1">{
+                return fmt.Errorf("invalid address format: %w", err)
+        }</span>
+
+        // Validate port
+        <span class="cov9" title="34">port, err := strconv.Atoi(portStr)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("invalid port: %w", err)
+        }</span>
+        <span class="cov9" title="34">if port &lt; 1 || port &gt; 65535 </span><span class="cov3" title="3">{
+                return fmt.Errorf("port %d out of range (1-65535)", port)
+        }</span>
+
+        // Validate host (allow empty for wildcard binding)
+        <span class="cov9" title="31">if host != "" &amp;&amp; net.ParseIP(host) == nil </span><span class="cov2" title="2">{
+                return fmt.Errorf("invalid IP address: %s", host)
+        }</span>
+
+        <span class="cov9" title="29">return nil</span>
+}
+
+func validateRoute(route *Route, seenHosts map[string]bool) error <span class="cov8" title="16">{
+        if len(route.Handle) == 0 </span><span class="cov1" title="1">{
+                return fmt.Errorf("route has no handlers")
+        }</span>
+
+        // Check for duplicate host matchers
+        <span class="cov7" title="15">for _, match := range route.Match </span><span class="cov7" title="15">{
+                for _, host := range match.Host </span><span class="cov7" title="15">{
+                        if seenHosts[host] </span><span class="cov1" title="1">{
+                                return fmt.Errorf("duplicate host matcher: %s", host)
+                        }</span>
+                        <span class="cov7" title="14">seenHosts[host] = true</span>
+                }
+        }
+
+        // Validate handlers
+        <span class="cov7" title="14">for i, handler := range route.Handle </span><span class="cov9" title="25">{
+                if err := validateHandler(handler); err != nil </span><span class="cov1" title="1">{
+                        return fmt.Errorf("invalid handler %d: %w", i, err)
+                }</span>
+        }
+
+        <span class="cov7" title="13">return nil</span>
+}
+
+func validateHandler(handler Handler) error <span class="cov9" title="29">{
+        handlerType, ok := handler["handler"].(string)
+        if !ok </span><span class="cov2" title="2">{
+                return fmt.Errorf("handler missing 'handler' field")
+        }</span>
+
+        <span class="cov9" title="27">switch handlerType </span>{
+        case "reverse_proxy":<span class="cov7" title="13">
+                return validateReverseProxy(handler)</span>
+        case "file_server", "static_response":<span class="cov2" title="2">
+                return nil</span> // Accept other common handlers
+        default:<span class="cov7" title="12">
+                // Unknown handlers are allowed (Caddy is extensible)
+                return nil</span>
+        }
+}
+
+func validateReverseProxy(handler Handler) error <span class="cov8" title="18">{
+        upstreams, ok := handler["upstreams"].([]map[string]interface{})
+        if !ok </span><span class="cov1" title="1">{
+                return fmt.Errorf("reverse_proxy missing upstreams")
+        }</span>
+
+        <span class="cov8" title="17">if len(upstreams) == 0 </span><span class="cov1" title="1">{
+                return fmt.Errorf("reverse_proxy has no upstreams")
+        }</span>
+
+        <span class="cov8" title="16">for i, upstream := range upstreams </span><span class="cov8" title="16">{
+                dial, ok := upstream["dial"].(string)
+                if !ok || dial == "" </span><span class="cov1" title="1">{
+                        return fmt.Errorf("upstream %d missing dial address", i)
+                }</span>
+
+                // Validate dial address format (host:port)
+                <span class="cov7" title="15">if _, _, err := net.SplitHostPort(dial); err != nil </span><span class="cov1" title="1">{
+                        return fmt.Errorf("upstream %d has invalid dial address %s: %w", i, dial, err)
+                }</span>
+        }
+
+        <span class="cov7" title="14">return nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

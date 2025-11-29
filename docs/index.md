@@ -1,6 +1,6 @@
 # 📚 Documentation
 
-Welcome to the Caddy Proxy Manager Plus documentation!
+Welcome to the Charon documentation!
 
 ---
 
@@ -8,7 +8,7 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [✨ Features](features.md) | See everything CPMP can do |
+| [✨ Features](features.md) | See everything Charon can do |
 | [🚀 Getting Started](getting-started.md) | Your first proxy in 5 minutes |
 | [📥 Import Guide](import-guide.md) | Migrate from Caddy or NPM |
 
@@ -36,7 +36,7 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 | Guide | Description |
 |-------|-------------|
-| [Contributing](https://github.com/Wikid82/cpmp/blob/main/CONTRIBUTING.md) | How to help improve CPMP |
+| [Contributing](https://github.com/Wikid82/charon/blob/main/CONTRIBUTING.md) | How to help improve Charon |
 | [Debugging Guide](debugging-local-container.md) | Troubleshooting containers |
 | [GitHub Setup](github-setup.md) | CI/CD and deployment |
 
@@ -44,8 +44,8 @@ Welcome to the Caddy Proxy Manager Plus documentation!
 
 ## 🆘 Getting Help
 
-- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/cpmp/discussions)
-- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/cpmp/issues)
+- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/charon/discussions)
+- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/charon/issues)
 - **📋 Roadmap** [Project Board](https://github.com/users/Wikid82/projects/7)
 
 ---

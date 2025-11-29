@@ -54,7 +54,7 @@ jobs:
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Caddy Proxy Manager Plus - Documentation</title>
+            <title>Charon - Documentation</title>
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
             <style>
               :root {
@@ -151,7 +151,7 @@ jobs:
           </head>
           <body>
             <header>
-              <h1>🚀 Caddy Proxy Manager Plus</h1>
+              <h1>🚀 Charon</h1>
               <p>Make your websites easy to reach - No coding required!</p>
             </header>
 
@@ -159,7 +159,7 @@ jobs:
               <section>
                 <h2>👋 Welcome!</h2>
                 <p style="font-size: 1.1rem; color: #cbd5e1;">
-                  This documentation will help you get started with Caddy Proxy Manager Plus.
+                  This documentation will help you get started with Charon.
                   Whether you're a complete beginner or an experienced developer, we've got you covered!
                 </p>
               </section>
@@ -220,15 +220,15 @@ jobs:
                   Stuck? Have questions? We're here to help!
                 </p>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/discussions"
+                  <a href="https://github.com/Wikid82/charon/discussions"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     💬 Ask a Question
                   </a>
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/issues"
+                  <a href="https://github.com/Wikid82/charon/issues"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     🐛 Report a Bug
                   </a>
-                  <a href="https://github.com/Wikid82/CaddyProxyManagerPlus"
+                  <a href="https://github.com/Wikid82/charon"
                      style="background: white; color: #1e40af; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none;">
                     ⭐ View on GitHub
                   </a>
@@ -289,10 +289,10 @@ jobs:
           </head>
           <body>
             <nav>
-              <a href="/cpmp/">🏠 Home</a>
-              <a href="/cpmp/docs/index.html">📚 Docs</a>
-              <a href="/cpmp/docs/getting-started.html">🚀 Get Started</a>
-              <a href="https://github.com/Wikid82/cpmp">⭐ GitHub</a>
+              <a href="/charon/">🏠 Home</a>
+              <a href="/charon/docs/index.html">📚 Docs</a>
+              <a href="/charon/docs/getting-started.html">🚀 Get Started</a>
+              <a href="https://github.com/Wikid82/charon">⭐ GitHub</a>
             </nav>
             <main>
           HEADER

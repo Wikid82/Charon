@@ -55,6 +55,11 @@ jobs:
           flags: backend
           fail_ci_if_error: true
 
+      - name: Enforce module-specific coverage (backend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --backend-only
+        continue-on-error: false
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
         with:
@@ -80,11 +85,11 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run frontend tests
+      - name: Run frontend tests and coverage
         id: frontend-tests
-        working-directory: frontend
+        working-directory: ${{ github.workspace }}
         run: |
-          npm run test:coverage 2>&1 | tee test-output.txt
+          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Frontend Test Summary
@@ -115,6 +120,11 @@ jobs:
           directory: ./frontend/coverage
           flags: frontend
           fail_ci_if_error: true
+
+      - name: Enforce module-specific coverage (frontend)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/check-module-coverage.sh --frontend-only
+        continue-on-error: false
 
       - name: Run frontend lint
         working-directory: frontend
