@@ -8,12 +8,12 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func main() {
 	// Connect to database
-	db, err := gorm.Open(sqlite.Open("./data/cpm.db"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("./data/charon.db"), &gorm.Config{})
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
@@ -152,7 +152,7 @@ func main() {
 	settings := []models.Setting{
 		{
 			Key:      "app_name",
-			Value:    "Caddy Proxy Manager+",
+			Value:    "Charon",
 			Type:     "string",
 			Category: "general",
 		},
