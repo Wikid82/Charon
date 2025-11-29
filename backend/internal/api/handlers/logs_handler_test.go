@@ -11,8 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/config"
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
@@ -29,7 +29,7 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	err = os.MkdirAll(dataDir, 0755)
 	require.NoError(t, err)
 
-	dbPath := filepath.Join(dataDir, "cpm.db")
+	dbPath := filepath.Join(dataDir, "charon.db")
 
 	// Create logs dir
 	logsDir := filepath.Join(dataDir, "logs")
@@ -42,7 +42,11 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 
 	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0644)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(logsDir, "cpmp.log"), []byte("app log line 1\napp log line 2"), 0644)
+	// Write a charon.log and create a cpmp.log symlink to it for backward compatibility (cpmp is legacy)
+	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0644)
+	require.NoError(t, err)
+	// Create legacy cpmp log symlink (cpmp is a legacy name for Charon)
+	_ = os.Symlink(filepath.Join(logsDir, "charon.log"), filepath.Join(logsDir, "cpmp.log"))
 	require.NoError(t, err)
 
 	cfg := &config.Config{
@@ -145,7 +149,7 @@ func TestLogsHandler_PathTraversal(t *testing.T) {
 	c.Params = gin.Params{{Key: "filename", Value: "../access.log"}}
 
 	cfg := &config.Config{
-		DatabasePath: filepath.Join(tmpDir, "data", "cpm.db"),
+		DatabasePath: filepath.Join(tmpDir, "data", "charon.db"),
 	}
 	svc := services.NewLogService(cfg)
 	h := NewLogsHandler(svc)

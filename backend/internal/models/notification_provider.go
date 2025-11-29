@@ -2,6 +2,7 @@ package models
 
 import (
 	"time"
+	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ type NotificationProvider struct {
 	Type    string `json:"type"`   // discord, slack, gotify, telegram, generic, webhook
 	URL     string `json:"url"`    // The shoutrrr URL or webhook URL
 	Config  string `json:"config"` // JSON payload template for custom webhooks
+	Template string `json:"template" gorm:"default:minimal"` // minimal|detailed|custom
 	Enabled bool   `json:"enabled"`
 
 	// Notification Preferences
@@ -35,5 +37,12 @@ func (n *NotificationProvider) BeforeCreate(tx *gorm.DB) (err error) {
 	// but for new creations via API, we can assume the frontend sends what it wants.
 	// If we wanted to force defaults in Go:
 	// n.NotifyProxyHosts = true ...
+	if strings.TrimSpace(n.Template) == "" {
+		if strings.TrimSpace(n.Config) != "" {
+			n.Template = "custom"
+		} else {
+			n.Template = "minimal"
+		}
+	}
 	return
 }

@@ -91,7 +91,7 @@ export default function Account() {
       queryClient.invalidateQueries({ queryKey: ['profile'] })
       toast.success('Profile updated successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to update profile: ${error.message}`)
     },
   })
@@ -103,7 +103,7 @@ export default function Account() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       toast.success('Certificate email updated')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to update certificate email: ${error.message}`)
     },
   })
@@ -114,7 +114,7 @@ export default function Account() {
       queryClient.invalidateQueries({ queryKey: ['profile'] })
       toast.success('API Key regenerated successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`Failed to regenerate API key: ${error.message}`)
     },
   })
@@ -223,7 +223,8 @@ export default function Account() {
       setOldPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (error: any) {
+    } catch (err) {
+      const error = err as Error
       toast.error(error.message || 'Failed to update password')
     } finally {
       setLoading(false)

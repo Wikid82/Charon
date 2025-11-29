@@ -10,8 +10,8 @@ The Docker build workflow uses GitHub Container Registry (GHCR) to store your im
 
 ### How It Works:
 
-GitHub Actions automatically uses the built-in `CPMP_TOKEN` which has permission to:
-- ✅ Push images to `ghcr.io/wikid82/caddyproxymanagerplus`
+GitHub Actions automatically uses the built-in secret token to authenticate with GHCR. We recommend creating a `CHARON_TOKEN` secret (preferred); workflows currently still work with `CPMP_TOKEN` for backward compatibility.
+ - ✅ Push images to `ghcr.io/wikid82/charon`
 - ✅ Link images to your repository
 - ✅ Publish images for free (public repositories)
 
@@ -21,7 +21,7 @@ GitHub Actions automatically uses the built-in `CPMP_TOKEN` which has permission
 
 By default, container images are private. To make them public:
 
-1. **Go to your repository** → https://github.com/Wikid82/CaddyProxyManagerPlus
+1. **Go to your repository** → https://github.com/Wikid82/charon
 2. **Look for "Packages"** on the right sidebar (after first build)
 3. **Click your package name**
 4. **Click "Package settings"** (right side)
@@ -38,7 +38,7 @@ Your documentation will be published to GitHub Pages (not the wiki). Pages is be
 
 ### Enable Pages:
 
-1. **Go to your repository** → https://github.com/Wikid82/CaddyProxyManagerPlus
+1. **Go to your repository** → https://github.com/Wikid82/charon
 2. **Click "Settings"** (top menu)
 3. **Click "Pages"** (left sidebar under "Code and automation")
 4. **Under "Build and deployment":**
@@ -47,7 +47,7 @@ Your documentation will be published to GitHub Pages (not the wiki). Pages is be
 
 Once enabled, your docs will be live at:
 ```
-https://wikid82.github.io/CaddyProxyManagerPlus/
+https://wikid82.github.io/charon/
 ```
 
 **Note:** The first deployment takes 2-3 minutes. Check the Actions tab to see progress!
@@ -78,9 +78,9 @@ https://wikid82.github.io/CaddyProxyManagerPlus/
 - `sha-abc1234` - Specific commit versions
 
 **Where images are stored:**
-- `ghcr.io/wikid82/caddyproxymanagerplus:latest`
-- `ghcr.io/wikid82/caddyproxymanagerplus:dev`
-- `ghcr.io/wikid82/caddyproxymanagerplus:1.0.0`
+ - `ghcr.io/wikid82/charon:latest`
+ - `ghcr.io/wikid82/charon:dev`
+ - `ghcr.io/wikid82/charon:1.0.0`
 
 ### Documentation Workflow (`.github/workflows/docs.yml`)
 
@@ -146,8 +146,8 @@ When you're ready to release a new version:
 
 3. **Users can pull it:**
    ```bash
-   docker pull ghcr.io/wikid82/caddyproxymanagerplus:1.0.0
-   docker pull ghcr.io/wikid82/caddyproxymanagerplus:latest
+   docker pull ghcr.io/wikid82/charon:1.0.0
+   docker pull ghcr.io/wikid82/charon:latest
    ```
 
 ---
@@ -157,12 +157,12 @@ When you're ready to release a new version:
 ### Docker Build Fails
 
 **Problem**: "Error: denied: requested access to the resource is denied"
-- **Fix**: This shouldn't happen with `CPMP_TOKEN` - check workflow permissions
+ - **Fix**: This shouldn't happen with `CHARON_TOKEN` or `CPMP_TOKEN` - check workflow permissions
 - **Verify**: Settings → Actions → General → Workflow permissions → "Read and write permissions" enabled
 
 **Problem**: Can't pull the image
 - **Fix**: Make the package public (see Step 1 above)
-- **Or**: Authenticate with GitHub: `echo $CPMP_TOKEN | docker login ghcr.io -u USERNAME --password-stdin`
+ - **Or**: Authenticate with GitHub: `echo $CHARON_TOKEN | docker login ghcr.io -u USERNAME --password-stdin` (or `CPMP_TOKEN` for backward compatibility)
 
 ### Docs Don't Deploy
 
@@ -184,7 +184,7 @@ When you're ready to release a new version:
 5. Read the error message
 
 **Still stuck?**
-- Open an issue: https://github.com/Wikid82/CaddyProxyManagerPlus/issues
+- Open an issue: https://github.com/Wikid82/charon/issues
 - We're here to help!
 
 ---
@@ -194,16 +194,16 @@ When you're ready to release a new version:
 ### Docker Commands
 ```bash
 # Pull latest development version
-docker pull ghcr.io/wikid82/caddyproxymanagerplus:dev
+docker pull ghcr.io/wikid82/charon:dev
 
 # Pull stable version
-docker pull ghcr.io/wikid82/cpmp:latest
+docker pull ghcr.io/wikid82/charon:latest
 
 # Pull specific version
-docker pull ghcr.io/wikid82/cpmp:1.0.0
+docker pull ghcr.io/wikid82/charon:1.0.0
 
 # Run the container
-docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/cpmp:latest
+docker run -d -p 8080:8080 -v caddy_data:/app/data ghcr.io/wikid82/charon:latest
 ```
 
 ### Git Tag Commands
@@ -255,5 +255,5 @@ Your CI/CD pipeline is now fully automated! Every time you:
 **No manual building needed!** 🚀
 
 <p align="center">
-  <em>Questions? Check the <a href="https://docs.github.com/en/actions">GitHub Actions docs</a> or <a href="https://github.com/Wikid82/CaddyProxyManagerPlus/issues">open an issue</a>!</em>
+   <em>Questions? Check the <a href="https://docs.github.com/en/actions">GitHub Actions docs</a> or <a href="https://github.com/Wikid82/charon/issues">open an issue</a>!</em>
 </p>

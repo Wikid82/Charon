@@ -4,7 +4,7 @@ version: '3.9'
 
 services:
   app:
-    image: ghcr.io/wikid82/cpmp:dev
+    image: ghcr.io/wikid82/charon:dev
     # Development: expose Caddy admin API externally for debugging
     ports:
       - "80:80"
@@ -13,12 +13,21 @@ services:
       - "8080:8080"
       - "2019:2019"  # Caddy admin API (dev only)
     environment:
+      - CHARON_ENV=development
       - CPM_ENV=development
-      - CPM_HTTP_PORT=8080
-      - CPM_DB_PATH=/app/data/cpm.db
-      - CPM_FRONTEND_DIR=/app/frontend/dist
-      - CPM_CADDY_ADMIN_API=http://localhost:2019
-      - CPM_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      # Security Services (Optional)
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled
+      #- CPM_SECURITY_CROWDSEC_API_URL=
+      #- CPM_SECURITY_CROWDSEC_API_KEY=
+      #- CPM_SECURITY_WAF_MODE=disabled
+      #- CPM_SECURITY_RATELIMIT_ENABLED=false
+      #- CPM_SECURITY_ACL_ENABLED=false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       # Mount your existing Caddyfile for automatic import (optional)

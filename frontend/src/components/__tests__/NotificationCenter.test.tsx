@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import NotificationCenter from '../NotificationCenter'
 import * as api from '../../api/system'
@@ -90,7 +91,7 @@ describe('NotificationCenter', () => {
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
     const bellButton = screen.getByRole('button', { name: /notifications/i })
-    fireEvent.click(bellButton)
+    await userEvent.click(bellButton)
 
     await waitFor(() => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
@@ -106,7 +107,7 @@ describe('NotificationCenter', () => {
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
     const bellButton = screen.getByRole('button', { name: /notifications/i })
-    fireEvent.click(bellButton)
+    await userEvent.click(bellButton)
 
     await waitFor(() => {
       expect(screen.getByText('No new notifications')).toBeInTheDocument()
@@ -119,14 +120,14 @@ describe('NotificationCenter', () => {
 
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Info Notification')).toBeInTheDocument()
     })
 
     const closeButtons = screen.getAllByRole('button', { name: /close/i })
-    fireEvent.click(closeButtons[0])
+    await userEvent.click(closeButtons[0])
 
     await waitFor(() => {
       expect(api.markNotificationRead).toHaveBeenCalledWith('1', expect.anything())
@@ -139,13 +140,13 @@ describe('NotificationCenter', () => {
 
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Mark all read')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByText('Mark all read'))
+    await userEvent.click(screen.getByText('Mark all read'))
 
     await waitFor(() => {
       expect(api.markAllNotificationsRead).toHaveBeenCalled()
@@ -156,13 +157,13 @@ describe('NotificationCenter', () => {
     vi.mocked(api.getNotifications).mockResolvedValue(mockNotifications)
     render(<NotificationCenter />, { wrapper: createWrapper() })
 
-    fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    await userEvent.click(screen.getByRole('button', { name: /notifications/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Notifications')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByTestId('notification-backdrop'))
+    await userEvent.click(screen.getByTestId('notification-backdrop'))
 
     await waitFor(() => {
       expect(screen.queryByText('Notifications')).not.toBeInTheDocument()

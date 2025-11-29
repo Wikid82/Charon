@@ -1,0 +1,52 @@
+name: Go Benchmark
+
+on:
+  push:
+    branches:
+      - main
+      - development
+    paths:
+      - 'backend/**'
+  pull_request:
+    branches:
+      - main
+      - development
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
+
+jobs:
+  benchmark:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+          cache-dependency-path: backend/go.sum
+
+      - name: Run Benchmark
+        working-directory: backend
+        run: go test -bench=. -benchmem ./... | tee output.txt
+
+      - name: Store Benchmark Result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Go Benchmark
+          tool: 'go'
+          output-file-path: backend/output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Show alert with commit comment on detection of performance regression
+          alert-threshold: '150%'
+          comment-on-alert: true
+          fail-on-alert: false
+          # Enable Job Summary for PRs
+          summary-always: true

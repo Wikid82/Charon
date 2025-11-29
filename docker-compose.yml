@@ -1,30 +1,44 @@
 version: '3.9'
 
 services:
-  cpmp:
-    image: ghcr.io/wikid82/cpmp:latest
-    container_name: cpmp
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    container_name: charon
     restart: unless-stopped
     ports:
       - "80:80"        # HTTP (Caddy proxy)
       - "443:443"      # HTTPS (Caddy proxy)
       - "443:443/udp"  # HTTP/3 (Caddy proxy)
-      - "8080:8080"    # Management UI (CPM+)
+      - "8080:8080"    # Management UI (Charon)
     environment:
-      - CPM_ENV=production
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
       - TZ=UTC # Set timezone (e.g., America/New_York)
-      - CPM_HTTP_PORT=8080
-      - CPM_DB_PATH=/app/data/cpm.db
-      - CPM_FRONTEND_DIR=/app/frontend/dist
-      - CPM_CADDY_ADMIN_API=http://localhost:2019
-      - CPM_CADDY_CONFIG_DIR=/app/data/caddy
-      - CPM_CADDY_BINARY=caddy
-      - CPM_IMPORT_CADDYFILE=/import/Caddyfile
-      - CPM_IMPORT_DIR=/app/data/imports
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      # Security Services (Optional)
+      #- CERBERUS_SECURITY_CROWDSEC_MODE=disabled # disabled, local, external (CERBERUS_ preferred; CHARON_/CPM_ still supported)
+      #- CERBERUS_SECURITY_CROWDSEC_API_URL= # Required if mode is external
+      #- CERBERUS_SECURITY_CROWDSEC_API_KEY= # Required if mode is external
+      #- CERBERUS_SECURITY_WAF_MODE=disabled # disabled, enabled
+      #- CERBERUS_SECURITY_RATELIMIT_ENABLED=false
+      #- CERBERUS_SECURITY_ACL_ENABLED=false
+      # Backward compatibility: CPM_ prefixed variables are still supported
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled
+      #- CPM_SECURITY_CROWDSEC_API_URL=
+      #- CPM_SECURITY_CROWDSEC_API_KEY=
+      #- CPM_SECURITY_WAF_MODE=disabled
+      #- CPM_SECURITY_RATELIMIT_ENABLED=false
+      #- CPM_SECURITY_ACL_ENABLED=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - cpm_data:/app/data
+      - cpm_data:/app/data # existing data (legacy name); charon will also use this path by default for backward compatibility
       - caddy_data:/data
       - caddy_config:/config
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
