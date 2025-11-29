@@ -92,6 +92,14 @@ codeql-results-go.sarif
 *.crdownload
 .vscode/launch.json
 
+# More CodeQL/analysis artifacts and DBs
+codeql-db-*/
+codeql-db-js/
+codeql-db-go/
+codeql-*.sarif
+.codeql/
+.codeql/**
+
 # Scripts (project-specific)
 create_issues.sh
 cookies.txt
