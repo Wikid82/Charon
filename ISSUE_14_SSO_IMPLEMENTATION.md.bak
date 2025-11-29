@@ -1,0 +1,331 @@
+# Built-in OAuth/OIDC Server Implementation Summary
+
+## Overview
+Implemented Phase 1 (Backend Core) and Phase 2 (Caddy Integration) for Issue #14: Built-in OAuth/OIDC Server (SSO - Plus Feature).
+
+## Phase 1: Backend Core
+
+### 1. Docker Configuration
+**File: `/projects/Charon/Dockerfile`**
+- Updated `xcaddy build` command to include `github.com/greenpau/caddy-security` plugin
+- This enables caddy-security functionality in the Caddy binary
+
+### 2. Database Models
+Created three new models in `/projects/Charon/backend/internal/models/`:
+
+#### `auth_user.go` - AuthUser Model
+- Local user accounts for SSO
+- Fields: UUID, Username, Email, Name, PasswordHash, Enabled, Roles, MFAEnabled, MFASecret, LastLoginAt
+- Methods:
+  - `SetPassword()` - Bcrypt password hashing
+  - `CheckPassword()` - Password verification
+  - `HasRole()` - Role checking
+
+#### `auth_provider.go` - AuthProvider Model
+- External OAuth/OIDC provider configurations
+- Fields: UUID, Name, Type (google, github, oidc, saml), ClientID, ClientSecret, IssuerURL, AuthURL, TokenURL, UserInfoURL, Scopes, RoleMapping, IconURL, DisplayName
+- Supports generic OIDC providers and specific ones (Google, GitHub, etc.)
+
+#### `auth_policy.go` - AuthPolicy Model
+- Access control policies for proxy hosts
+- Fields: UUID, Name, Description, AllowedRoles, AllowedUsers, AllowedDomains, RequireMFA, SessionTimeout
+- Method: `IsPublic()` - checks if policy allows unrestricted access
+
+### 3. ProxyHost Model Enhancement
+**File: `/projects/Charon/backend/internal/models/proxy_host.go`**
+- Added `AuthPolicyID` field (nullable foreign key)
+- Added `AuthPolicy` relationship
+- Enables linking proxy hosts to authentication policies
+
+### 4. API Handlers
+**File: `/projects/Charon/backend/internal/api/handlers/auth_handlers.go`**
+
+Created three handler structs with full CRUD operations:
+
+#### AuthUserHandler
+- `List()` - Get all auth users
+- `Get()` - Get user by UUID
+- `Create()` - Create new user (with password validation)
+- `Update()` - Update user (supports partial updates)
+- `Delete()` - Delete user (prevents deletion of last admin)
+- `Stats()` - Get user statistics (total, enabled, with MFA)
+
+#### AuthProviderHandler
+- `List()` - Get all OAuth providers
+- `Get()` - Get provider by UUID
+- `Create()` - Register new OAuth provider
+- `Update()` - Update provider configuration
+- `Delete()` - Remove OAuth provider
+
+#### AuthPolicyHandler
+- `List()` - Get all access policies
+- `Get()` - Get policy by UUID
+- `Create()` - Create new policy
+- `Update()` - Update policy rules
+- `Delete()` - Remove policy (prevents deletion if in use)
+
+### 5. API Routes
+**File: `/projects/Charon/backend/internal/api/routes/routes.go`**
+
+Registered new endpoints under `/api/v1/security/`:
+```
+GET    /security/users
+GET    /security/users/stats
+GET    /security/users/:uuid
+POST   /security/users
+PUT    /security/users/:uuid
+DELETE /security/users/:uuid
+
+GET    /security/providers
+GET    /security/providers/:uuid
+POST   /security/providers
+PUT    /security/providers/:uuid
+DELETE /security/providers/:uuid
+
+GET    /security/policies
+GET    /security/policies/:uuid
+POST   /security/policies
+PUT    /security/policies/:uuid
+DELETE /security/policies/:uuid
+```
+
+Added new models to AutoMigrate:
+- `models.AuthUser`
+- `models.AuthProvider`
+- `models.AuthPolicy`
+
+## Phase 2: Caddy Integration
+
+### 1. Caddy Configuration Types
+**File: `/projects/Charon/backend/internal/caddy/types.go`**
+
+Added new types for caddy-security integration:
+
+#### SecurityApp
+- Top-level security app configuration
+- Contains Authentication and Authorization configs
+
+#### AuthenticationConfig & AuthPortal
+- Portal configuration for authentication
+- Supports multiple backends (local, OAuth, SAML)
+- Cookie and token management settings
+
+#### AuthBackend
+- Configuration for individual auth backends
+- Supports local users and OAuth providers
+
+#### AuthorizationConfig & AuthzPolicy
+- Policy definitions for access control
+- Role-based and user-based restrictions
+- MFA requirements
+
+#### New Handler Functions
+- `SecurityAuthHandler()` - Authentication middleware
+- `SecurityAuthzHandler()` - Authorization middleware
+
+### 2. Config Generation
+**File: `/projects/Charon/backend/internal/caddy/config.go`**
+
+#### Updated `GenerateConfig()` Signature
+Added new parameters:
+- `authUsers []models.AuthUser`
+- `authProviders []models.AuthProvider`
+- `authPolicies []models.AuthPolicy`
+
+#### New Function: `generateSecurityApp()`
+Generates the caddy-security app configuration:
+- Creates authentication portal "charon_portal"
+- Configures local backend with user credentials
+- Adds OAuth providers dynamically
+- Generates authorization policies from database
+
+#### New Function: `convertAuthUsersToConfig()`
+Converts AuthUser models to caddy-security user config format:
+- Maps username, email, password hash
+- Converts comma-separated roles to arrays
+- Filters disabled users
+
+#### Route Handler Integration
+When generating routes for proxy hosts:
+- Checks if host has an `AuthPolicyID`
+- Injects `SecurityAuthHandler("charon_portal")` before other handlers
+- Injects `SecurityAuthzHandler(policy.Name)` for policy enforcement
+- Maintains compatibility with legacy Forward Auth
+
+### 3. Manager Updates
+**File: `/projects/Charon/backend/internal/caddy/manager.go`**
+
+Updated `ApplyConfig()` to:
+- Fetch enabled auth users from database
+- Fetch enabled auth providers from database
+- Fetch enabled auth policies from database
+- Preload AuthPolicy relationships for proxy hosts
+- Pass auth data to `GenerateConfig()`
+
+### 4. Test Updates
+Updated all test files to pass empty slices for new auth parameters:
+- `client_test.go`
+- `config_test.go`
+- `validator_test.go`
+- `manager_test.go`
+
+## Architecture Flow
+
+```
+1. User Management UI → API → Database (AuthUser, AuthProvider, AuthPolicy)
+2. ApplyConfig() → Fetch auth data → GenerateConfig()
+3. GenerateConfig() → Create SecurityApp config
+4. For each ProxyHost with AuthPolicyID:
+   - Inject SecurityAuthHandler (authentication)
+   - Inject SecurityAuthzHandler (authorization)
+5. Caddy receives full config with security app
+6. Incoming requests → Caddy → Security handlers → Backend services
+```
+
+## Database Schema
+
+### auth_users
+- id, uuid, created_at, updated_at
+- username, email, name
+- password_hash
+- enabled, roles
+- mfa_enabled, mfa_secret
+- last_login_at
+
+### auth_providers
+- id, uuid, created_at, updated_at
+- name, type, enabled
+- client_id, client_secret
+- issuer_url, auth_url, token_url, user_info_url
+- scopes, role_mapping
+- icon_url, display_name
+
+### auth_policies
+- id, uuid, created_at, updated_at
+- name, description, enabled
+- allowed_roles, allowed_users, allowed_domains
+- require_mfa, session_timeout
+
+### proxy_hosts (updated)
+- Added: auth_policy_id (nullable FK)
+
+## Configuration Example
+
+When a proxy host has `auth_policy_id = 1` (pointing to "Admins Only" policy):
+
+```json
+{
+  "apps": {
+    "security": {
+      "authentication": {
+        "portals": {
+          "charon_portal": {
+            "backends": [
+              {
+                "name": "local",
+                "method": "local",
+                "config": {
+                  "users": [
+                    {
+                      "username": "admin",
+                      "email": "admin@example.com",
+                      "password": "$2a$10$...",
+                      "roles": ["admin"]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "authorization": {
+        "policies": {
+          "Admins Only": {
+            "allowed_roles": ["admin"],
+            "require_mfa": false
+          }
+        }
+      }
+    },
+    "http": {
+      "servers": {
+        "charon_server": {
+          "routes": [
+            {
+              "match": [{"host": ["app.example.com"]}],
+              "handle": [
+                {"handler": "authentication", "portal": "charon_portal"},
+                {"handler": "authorization", "policy": "Admins Only"},
+                {"handler": "reverse_proxy", "upstreams": [{"dial": "backend:8080"}]}
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+## Security Considerations
+
+1. **Password Storage**: Uses bcrypt for secure password hashing
+2. **Secrets**: ClientSecret and MFASecret fields are never exposed in JSON responses
+3. **Admin Protection**: Cannot delete the last admin user
+4. **Policy Enforcement**: Cannot delete policies that are in use
+5. **MFA Support**: Framework ready for TOTP implementation
+
+## Next Steps (Phase 3 & 4)
+
+### Phase 3: Frontend Management UI
+- Create `/src/pages/Security/` directory
+- Implement Users management page
+- Implement Providers management page
+- Implement Policies management page
+- Add SSO dashboard with session overview
+
+### Phase 4: Proxy Host Integration
+- Update ProxyHostForm with "Access Control" tab
+- Add policy selector dropdown
+- Display active policy on host list
+- Show authentication status indicators
+
+## Testing
+
+All backend tests pass:
+```
+✓ internal/api/handlers
+✓ internal/api/middleware
+✓ internal/api/routes
+✓ internal/caddy (all tests updated)
+✓ internal/config
+✓ internal/database
+✓ internal/models
+✓ internal/server
+✓ internal/services
+✓ internal/version
+```
+
+Backend compiles successfully without errors.
+
+## Acceptance Criteria Status
+
+- ✅ Can create local users for authentication (AuthUser model + API)
+- ✅ Can protect services with built-in SSO (AuthPolicy + route integration)
+- ⏳ 2FA works correctly (framework ready, needs frontend implementation)
+- ✅ External OIDC providers can be configured (AuthProvider model + API)
+
+## Reserved Routes
+
+- `/auth/*` - Reserved for caddy-security authentication portal
+- Portal URL: `https://yourdomain.com/auth/login`
+- Logout URL: `https://yourdomain.com/auth/logout`
+
+## Notes
+
+1. The implementation uses SQLite as the source of truth
+2. Configuration is "compiled" from database to Caddy JSON on each ApplyConfig
+3. No direct database sharing with caddy-security (config-based integration)
+4. Compatible with existing Forward Auth feature (both can coexist)
+5. MFA secret storage is ready but TOTP setup flow needs frontend work
