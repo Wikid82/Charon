@@ -38,6 +38,7 @@ export interface LogFilter {
   level?: string;
   limit?: number;
   offset?: number;
+  sort?: 'asc' | 'desc';
 }
 
 export const getLogs = async (): Promise<LogFile[]> => {
@@ -53,6 +54,7 @@ export const getLogContent = async (filename: string, filter: LogFilter = {}): P
   if (filter.level) params.append('level', filter.level);
   if (filter.limit) params.append('limit', filter.limit.toString());
   if (filter.offset) params.append('offset', filter.offset.toString());
+  if (filter.sort) params.append('sort', filter.sort);
 
   const response = await client.get<LogResponse>(`/logs/${filename}?${params.toString()}`);
   return response.data;

@@ -2,8 +2,8 @@
 # Bump Beta Version Script
 # Automates version bumping for Beta releases.
 # Logic:
-# - If current is Alpha (0.1.0-alpha), bumps to 0.2.0-beta.1
-# - If current is Beta (0.2.0-beta.X), bumps to 0.2.0-beta.(X+1)
+# - If current is Alpha (x.y.z-alpha), bumps to next MINOR as beta (e.g., 0.3.0 -> 0.4.0-beta.1)
+# - If current is Beta (x.y.z-beta.X), bumps to x.y.z-beta.(X+1)
 # - Updates .version, backend/internal/version/version.go, package.json (root/frontend/backend), VERSION.md
 
 set -e
@@ -20,18 +20,24 @@ CURRENT_VERSION=$(cat .version 2>/dev/null || echo "0.0.0")
 echo "Current Version: $CURRENT_VERSION"
 
 # 2. Calculate new version
-if [[ "$CURRENT_VERSION" == *"alpha"* ]]; then
-    # Transition from Alpha to Beta
-    NEW_VERSION="0.2.0-beta.1"
-elif [[ "$CURRENT_VERSION" =~ 0\.2\.0-beta\.([0-9]+) ]]; then
-    # Increment Beta version
-    BETA_NUM="${BASH_REMATCH[1]}"
+if [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-beta\.([0-9]+)$ ]]; then
+    # Already a beta: increment the beta number
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    PATCH="${BASH_REMATCH[3]}"
+    BETA_NUM="${BASH_REMATCH[4]}"
     NEXT_NUM=$((BETA_NUM + 1))
-    NEW_VERSION="0.2.0-beta.$NEXT_NUM"
+    NEW_VERSION="$MAJOR.$MINOR.$PATCH-beta.$NEXT_NUM"
+elif [[ "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    # Plain semver; bump MINOR and add beta.1
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    NEXT_MINOR=$((MINOR + 1))
+    NEW_VERSION="$MAJOR.$NEXT_MINOR.0-beta.1"
 else
-    # Fallback / Safety
-    echo "Current version format not recognized for auto-beta bump. Defaulting to 0.2.0-beta.1"
-    NEW_VERSION="0.2.0-beta.1"
+    # Fallback / Safety: set to 0.3.0-beta.1
+    echo "Current version format not recognized for auto-beta bump. Defaulting to 0.3.0-beta.1"
+    NEW_VERSION="0.3.0-beta.1"
 fi
 
 echo -e "${GREEN}New Version: $NEW_VERSION${NC}"
@@ -52,9 +58,11 @@ echo "Updated backend/internal/version/version.go"
 sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" frontend/package.json
 echo "Updated frontend/package.json"
 
-# package.json (Backend)
-sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" backend/package.json
-echo "Updated backend/package.json"
+# package.json (Backend) - update if exists
+if [[ -f backend/package.json ]]; then
+    sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" backend/package.json
+    echo "Updated backend/package.json"
+fi
 
 # VERSION.md (Optional: just appending a log or ensuring it's mentioned?
 # For now, let's just leave it or maybe update a "Current Version" line if it existed.

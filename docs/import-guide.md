@@ -1,6 +1,6 @@
 # Caddyfile Import Guide
 
-This guide explains how to import existing Caddyfiles into CaddyProxyManager+, handle conflicts, and troubleshoot common issues.
+This guide explains how to import existing Caddyfiles into Charon, handle conflicts, and troubleshoot common issues.
 
 ## Table of Contents
 
@@ -15,9 +15,9 @@ This guide explains how to import existing Caddyfiles into CaddyProxyManager+, h
 
 ## Overview
 
-CaddyProxyManager+ can import existing Caddyfiles and convert them into managed proxy host configurations. This is useful when:
+Charon can import existing Caddyfiles and convert them into managed proxy host configurations. This is useful when:
 
-- Migrating from standalone Caddy to CaddyProxyManager+
+- Migrating from standalone Caddy to Charon
 - Importing configurations from other systems
 - Bulk importing multiple proxy hosts
 - Sharing configurations between environments

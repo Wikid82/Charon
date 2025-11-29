@@ -42,12 +42,15 @@ func Validate(cfg *Config) error {
 	}
 
 	// Validate JSON marshalling works
-	if _, err := json.Marshal(cfg); err != nil {
+	if _, err := jsonMarshalValidate(cfg); err != nil {
 		return fmt.Errorf("config cannot be marshalled to JSON: %w", err)
 	}
 
 	return nil
 }
+
+// allow tests to override JSON marshalling to simulate errors
+var jsonMarshalValidate = json.Marshal
 
 func validateListenAddr(addr string) error {
 	// Strip network type prefix if present (tcp/, udp/)

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
 import { Card } from '../components/ui/Card';
 import { Loader2, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -8,13 +9,15 @@ import { LogFilters } from '../components/LogFilters';
 import { Button } from '../components/ui/Button';
 
 const Logs: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
 
   // Filter State
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [host, setHost] = useState('');
   const [status, setStatus] = useState('');
   const [level, setLevel] = useState('');
+  const [sort, setSort] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(0);
   const limit = 50;
 
@@ -36,11 +39,12 @@ const Logs: React.FC = () => {
     status,
     level,
     limit,
-    offset: page * limit
+    offset: page * limit,
+    sort
   };
 
   const { data: logData, isLoading: isLoadingContent, refetch: refetchContent } = useQuery({
-    queryKey: ['logContent', selectedLog, search, host, status, level, page],
+    queryKey: ['logContent', selectedLog, search, host, status, level, page, sort],
     queryFn: () => selectedLog ? getLogContent(selectedLog, filter) : Promise.resolve(null),
     enabled: !!selectedLog,
   });
@@ -108,6 +112,8 @@ const Logs: React.FC = () => {
                 onStatusChange={(v) => { setStatus(v); setPage(0); }}
                 level={level}
                 onLevelChange={(v) => { setLevel(v); setPage(0); }}
+                sort={sort}
+                onSortChange={(v) => { setSort(v); setPage(0); }}
                 onRefresh={refetchContent}
                 onDownload={handleDownload}
                 isLoading={isLoadingContent}
@@ -121,27 +127,47 @@ const Logs: React.FC = () => {
 
                 {/* Pagination */}
                 {logData && logData.total > 0 && (
-                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="text-sm text-gray-500 dark:text-gray-400">
                       Showing {logData.offset + 1} to {Math.min(logData.offset + limit, logData.total)} of {logData.total} entries
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPage(p => Math.max(0, p - 1))}
-                        disabled={page === 0 || isLoadingContent}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setPage(p => p + 1)}
-                        disabled={page >= totalPages - 1 || isLoadingContent}
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
+
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Page</span>
+                        <select
+                          value={page}
+                          onChange={(e) => setPage(Number(e.target.value))}
+                          className="block w-20 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:text-white py-1"
+                          disabled={isLoadingContent}
+                        >
+                          {Array.from({ length: totalPages }, (_, i) => (
+                            <option key={i} value={i}>
+                              {i + 1}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">of {totalPages}</span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setPage(p => Math.max(0, p - 1))}
+                          disabled={page === 0 || isLoadingContent}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setPage(p => p + 1)}
+                          disabled={page >= totalPages - 1 || isLoadingContent}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 )}

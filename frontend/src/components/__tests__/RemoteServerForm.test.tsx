@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import RemoteServerForm from '../RemoteServerForm'
 import * as remoteServersApi from '../../api/remoteServers'
 
 // Mock the API
 vi.mock('../../api/remoteServers', () => ({
   testRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080' })),
+  testCustomRemoteServerConnection: vi.fn(() => Promise.resolve({ address: 'localhost:8080', reachable: true })),
 }))
 
 describe('RemoteServerForm', () => {
@@ -49,12 +51,12 @@ describe('RemoteServerForm', () => {
     expect(screen.getByDisplayValue('5000')).toBeInTheDocument()
   })
 
-  it('shows test connection button only in edit mode', () => {
+  it('shows test connection button in create and edit mode', () => {
     const { rerender } = render(
       <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    expect(screen.queryByText('Test Connection')).not.toBeInTheDocument()
+    expect(screen.getByText('Test Connection')).toBeInTheDocument()
 
     const mockServer = {
       uuid: '123',
@@ -75,13 +77,13 @@ describe('RemoteServerForm', () => {
     expect(screen.getByText('Test Connection')).toBeInTheDocument()
   })
 
-  it('calls onCancel when cancel button is clicked', () => {
+  it('calls onCancel when cancel button is clicked', async () => {
     render(
       <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    fireEvent.click(screen.getByText('Cancel'))
-    expect(mockOnCancel).toHaveBeenCalledOnce()
+    await userEvent.click(screen.getByText('Cancel'))
+    expect(mockOnCancel).toHaveBeenCalledTimes(1)
   })
 
   it('submits form with correct data', async () => {
@@ -93,11 +95,14 @@ describe('RemoteServerForm', () => {
     const hostInput = screen.getByPlaceholderText('192.168.1.100')
     const portInput = screen.getByDisplayValue('22')
 
-    fireEvent.change(nameInput, { target: { value: 'New Server' } })
-    fireEvent.change(hostInput, { target: { value: '10.0.0.5' } })
-    fireEvent.change(portInput, { target: { value: '9090' } })
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'New Server')
+    await userEvent.clear(hostInput)
+    await userEvent.type(hostInput, '10.0.0.5')
+    await userEvent.clear(portInput)
+    await userEvent.type(portInput, '9090')
 
-    fireEvent.click(screen.getByText('Create'))
+    await userEvent.click(screen.getByText('Create'))
 
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
@@ -110,13 +115,13 @@ describe('RemoteServerForm', () => {
     })
   })
 
-  it('handles provider selection', () => {
+  it('handles provider selection', async () => {
     render(
       <RemoteServerForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
     const providerSelect = screen.getByDisplayValue('Generic')
-    fireEvent.change(providerSelect, { target: { value: 'docker' } })
+    await userEvent.selectOptions(providerSelect, 'docker')
 
     expect(providerSelect).toHaveValue('docker')
   })
@@ -128,10 +133,12 @@ describe('RemoteServerForm', () => {
     )
 
     // Fill required fields
-    fireEvent.change(screen.getByPlaceholderText('My Production Server'), { target: { value: 'Test Server' } })
-    fireEvent.change(screen.getByPlaceholderText('192.168.1.100'), { target: { value: '10.0.0.1' } })
+    await userEvent.clear(screen.getByPlaceholderText('My Production Server'))
+    await userEvent.type(screen.getByPlaceholderText('My Production Server'), 'Test Server')
+    await userEvent.clear(screen.getByPlaceholderText('192.168.1.100'))
+    await userEvent.type(screen.getByPlaceholderText('192.168.1.100'), '10.0.0.1')
 
-    fireEvent.click(screen.getByText('Create'))
+    await userEvent.click(screen.getByText('Create'))
 
     await waitFor(() => {
       expect(screen.getByText('Submission failed')).toBeInTheDocument()
@@ -139,7 +146,6 @@ describe('RemoteServerForm', () => {
   })
 
   it('handles test connection success', async () => {
-    const mockAlert = vi.spyOn(window, 'alert').mockImplementation(() => {})
     const mockServer = {
       uuid: '123',
       name: 'Test Server',
@@ -156,17 +162,18 @@ describe('RemoteServerForm', () => {
       <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    fireEvent.click(screen.getByText('Test Connection'))
+    const testButton = screen.getByText('Test Connection')
+    await userEvent.click(testButton)
 
     await waitFor(() => {
-      expect(mockAlert).toHaveBeenCalledWith('Connection successful: localhost:8080')
+      // Check for success state (green background)
+      expect(testButton).toHaveClass('bg-green-600')
     })
-    mockAlert.mockRestore()
   })
 
   it('handles test connection failure', async () => {
     // Override mock for this test
-    vi.mocked(remoteServersApi.testRemoteServerConnection).mockRejectedValueOnce(new Error('Connection failed'))
+    vi.mocked(remoteServersApi.testCustomRemoteServerConnection).mockRejectedValueOnce(new Error('Connection failed'))
 
     const mockServer = {
       uuid: '123',
@@ -184,7 +191,7 @@ describe('RemoteServerForm', () => {
       <RemoteServerForm server={mockServer} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
-    fireEvent.click(screen.getByText('Test Connection'))
+    await userEvent.click(screen.getByText('Test Connection'))
 
     await waitFor(() => {
       expect(screen.getByText('Connection failed')).toBeInTheDocument()

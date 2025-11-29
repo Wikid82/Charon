@@ -2,9 +2,10 @@ import client from './client';
 
 export interface ImportSession {
   id: string;
-  state: 'pending' | 'reviewing' | 'completed' | 'failed';
+  state: 'pending' | 'reviewing' | 'completed' | 'failed' | 'transient';
   created_at: string;
   updated_at: string;
+  source_file?: string;
 }
 
 export interface ImportPreview {
@@ -15,6 +16,23 @@ export interface ImportPreview {
     errors: string[];
   };
   caddyfile_content?: string;
+  conflict_details?: Record<string, {
+    existing: {
+      forward_scheme: string;
+      forward_host: string;
+      forward_port: number;
+      ssl_forced: boolean;
+      websocket: boolean;
+      enabled: boolean;
+    };
+    imported: {
+      forward_scheme: string;
+      forward_host: string;
+      forward_port: number;
+      ssl_forced: boolean;
+      websocket: boolean;
+    };
+  }>;
 }
 
 export const uploadCaddyfile = async (content: string): Promise<ImportPreview> => {
@@ -27,8 +45,12 @@ export const getImportPreview = async (): Promise<ImportPreview> => {
   return data;
 };
 
-export const commitImport = async (sessionUUID: string, resolutions: Record<string, string>): Promise<void> => {
-  await client.post('/import/commit', { session_uuid: sessionUUID, resolutions });
+export const commitImport = async (
+  sessionUUID: string,
+  resolutions: Record<string, string>,
+  names: Record<string, string>
+): Promise<void> => {
+  await client.post('/import/commit', { session_uuid: sessionUUID, resolutions, names });
 };
 
 export const cancelImport = async (): Promise<void> => {

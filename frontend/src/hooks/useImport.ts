@@ -20,7 +20,7 @@ export function useImport() {
     queryFn: getImportStatus,
     refetchInterval: (query) => {
       const data = query.state.data;
-      // Poll if we have a pending session in reviewing state
+      // Poll if we have a pending session in reviewing state (but not transient, as those don't change)
       if (data?.has_pending && data?.session?.state === 'reviewing') {
         return 3000;
       }
@@ -31,7 +31,7 @@ export function useImport() {
   const previewQuery = useQuery({
     queryKey: ['import-preview'],
     queryFn: getImportPreview,
-    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending'),
+    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending' || statusQuery.data?.session?.state === 'transient'),
   });
 
   const uploadMutation = useMutation({
@@ -43,10 +43,10 @@ export function useImport() {
   });
 
   const commitMutation = useMutation({
-    mutationFn: (resolutions: Record<string, string>) => {
+    mutationFn: ({ resolutions, names }: { resolutions: Record<string, string>; names: Record<string, string> }) => {
       const sessionId = statusQuery.data?.session?.id;
       if (!sessionId) throw new Error("No active session");
-      return commitImport(sessionId, resolutions);
+      return commitImport(sessionId, resolutions, names);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
@@ -72,7 +72,8 @@ export function useImport() {
       ? ((statusQuery.error || previewQuery.error || uploadMutation.error || commitMutation.error || cancelMutation.error) as Error).message
       : null,
     upload: uploadMutation.mutateAsync,
-    commit: commitMutation.mutateAsync,
+    commit: (resolutions: Record<string, string>, names: Record<string, string>) =>
+      commitMutation.mutateAsync({ resolutions, names }),
     cancel: cancelMutation.mutateAsync,
   };
 }

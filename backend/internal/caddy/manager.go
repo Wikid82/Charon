@@ -12,22 +12,39 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/CaddyProxyManagerPlus/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/models"
+)
+
+// Test hooks to allow overriding OS and JSON functions
+var (
+	writeFileFunc   = os.WriteFile
+	readFileFunc    = os.ReadFile
+	removeFileFunc  = os.Remove
+	readDirFunc     = os.ReadDir
+	statFunc        = os.Stat
+	jsonMarshalFunc = json.MarshalIndent
+	// Test hooks for bandaging validation/generation flows
+	generateConfigFunc = GenerateConfig
+	validateConfigFunc = Validate
 )
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client    *Client
-	db        *gorm.DB
-	configDir string
+	client      *Client
+	db          *gorm.DB
+	configDir   string
+	frontendDir string
+	acmeStaging bool
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool) *Manager {
 	return &Manager{
-		client:    client,
-		db:        db,
-		configDir: configDir,
+		client:      client,
+		db:          db,
+		configDir:   configDir,
+		frontendDir: frontendDir,
+		acmeStaging: acmeStaging,
 	}
 }
 
@@ -35,7 +52,7 @@ func NewManager(client *Client, db *gorm.DB, configDir string) *Manager {
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
-	if err := m.db.Find(&hosts).Error; err != nil {
+	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 
@@ -46,14 +63,21 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		acmeEmail = acmeEmailSetting.Value
 	}
 
+	// Fetch SSL Provider setting
+	var sslProviderSetting models.Setting
+	var sslProvider string
+	if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&sslProviderSetting).Error; err == nil {
+		sslProvider = sslProviderSetting.Value
+	}
+
 	// Generate Caddy config
-	config, err := GenerateConfig(hosts, filepath.Join(m.configDir, "data"), acmeEmail)
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
 
 	// Validate before applying
-	if err := Validate(config); err != nil {
+	if err := validateConfigFunc(config); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
@@ -70,7 +94,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Apply to Caddy
 	if err := m.client.Load(ctx, config); err != nil {
 		// Remove the failed snapshot so rollback uses the previous one
-		os.Remove(snapshotPath)
+		_ = removeFileFunc(snapshotPath)
 
 		// Rollback on failure
 		if rollbackErr := m.rollback(ctx); rollbackErr != nil {
@@ -102,12 +126,12 @@ func (m *Manager) saveSnapshot(config *Config) (string, error) {
 	filename := fmt.Sprintf("config-%d.json", timestamp)
 	path := filepath.Join(m.configDir, filename)
 
-	configJSON, err := json.MarshalIndent(config, "", "  ")
+	configJSON, err := jsonMarshalFunc(config, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(path, configJSON, 0644); err != nil {
+	if err := writeFileFunc(path, configJSON, 0644); err != nil {
 		return "", fmt.Errorf("write snapshot: %w", err)
 	}
 
@@ -123,7 +147,7 @@ func (m *Manager) rollback(ctx context.Context) error {
 
 	// Load most recent snapshot
 	latestSnapshot := snapshots[len(snapshots)-1]
-	configJSON, err := os.ReadFile(latestSnapshot)
+	configJSON, err := readFileFunc(latestSnapshot)
 	if err != nil {
 		return fmt.Errorf("read snapshot: %w", err)
 	}
@@ -143,7 +167,7 @@ func (m *Manager) rollback(ctx context.Context) error {
 
 // listSnapshots returns all snapshot file paths sorted by modification time.
 func (m *Manager) listSnapshots() ([]string, error) {
-	entries, err := os.ReadDir(m.configDir)
+	entries, err := readDirFunc(m.configDir)
 	if err != nil {
 		return nil, fmt.Errorf("read config dir: %w", err)
 	}
@@ -158,8 +182,8 @@ func (m *Manager) listSnapshots() ([]string, error) {
 
 	// Sort by modification time
 	sort.Slice(snapshots, func(i, j int) bool {
-		infoI, _ := os.Stat(snapshots[i])
-		infoJ, _ := os.Stat(snapshots[j])
+		infoI, _ := statFunc(snapshots[i])
+		infoJ, _ := statFunc(snapshots[j])
 		return infoI.ModTime().Before(infoJ.ModTime())
 	})
 
@@ -180,7 +204,7 @@ func (m *Manager) rotateSnapshots(keep int) error {
 	// Delete oldest snapshots
 	toDelete := snapshots[:len(snapshots)-keep]
 	for _, path := range toDelete {
-		if err := os.Remove(path); err != nil {
+		if err := removeFileFunc(path); err != nil {
 			return fmt.Errorf("delete snapshot %s: %w", path, err)
 		}
 	}

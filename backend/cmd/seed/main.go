@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/sqlite"
@@ -182,22 +183,65 @@ func main() {
 	}
 
 	// Seed default admin user (for future authentication)
+	defaultAdminEmail := os.Getenv("CHARON_DEFAULT_ADMIN_EMAIL")
+	if defaultAdminEmail == "" {
+		defaultAdminEmail = "admin@localhost"
+	}
+	defaultAdminPassword := os.Getenv("CHARON_DEFAULT_ADMIN_PASSWORD")
+	// If a default password is not specified, leave the hashed placeholder (non-loginable)
+	forceAdmin := os.Getenv("CHARON_FORCE_DEFAULT_ADMIN") == "1"
+
 	user := models.User{
-		UUID:         uuid.NewString(),
-		Email:        "admin@localhost",
-		Name:         "Administrator",
-		PasswordHash: "$2a$10$example_hashed_password", // This would be properly hashed in production
-		Role:         "admin",
-		Enabled:      true,
+		UUID:    uuid.NewString(),
+		Email:   defaultAdminEmail,
+		Name:    "Administrator",
+		Role:    "admin",
+		Enabled: true,
 	}
-	result := db.Where("email = ?", user.Email).FirstOrCreate(&user)
-	if result.Error != nil {
-		log.Printf("Failed to seed user: %v", result.Error)
-	} else if result.RowsAffected > 0 {
-		fmt.Printf("✓ Created default user: %s\n", user.Email)
+
+	// If a default password provided, use SetPassword to generate a proper bcrypt hash
+	if defaultAdminPassword != "" {
+		if err := user.SetPassword(defaultAdminPassword); err != nil {
+			log.Printf("Failed to hash default admin password: %v", err)
+		}
 	} else {
-		fmt.Printf("  User already exists: %s\n", user.Email)
+		// Keep previous behavior: using example hashed password (not valid)
+		user.PasswordHash = "$2a$10$example_hashed_password"
 	}
+
+	var existing models.User
+	// Find by email first
+	if err := db.Where("email = ?", user.Email).First(&existing).Error; err != nil {
+		// Not found -> create
+		result := db.Create(&user)
+		if result.Error != nil {
+			log.Printf("Failed to seed user: %v", result.Error)
+		} else if result.RowsAffected > 0 {
+			fmt.Printf("✓ Created default user: %s\n", user.Email)
+		}
+	} else {
+		// Found existing user - optionally update if forced
+		if forceAdmin {
+			existing.Email = user.Email
+			existing.Name = user.Name
+			existing.Role = user.Role
+			existing.Enabled = user.Enabled
+			if defaultAdminPassword != "" {
+				if err := existing.SetPassword(defaultAdminPassword); err == nil {
+					db.Save(&existing)
+					fmt.Printf("✓ Updated existing admin user password for: %s\n", existing.Email)
+				} else {
+					log.Printf("Failed to update existing admin password: %v", err)
+				}
+			} else {
+				db.Save(&existing)
+				fmt.Printf("  User already exists: %s\n", existing.Email)
+			}
+		} else {
+			fmt.Printf("  User already exists: %s\n", existing.Email)
+		}
+	}
+	// result handling is done inline above
 
 	fmt.Println("\n✓ Database seeding completed successfully!")
 	fmt.Println("  You can now start the application and see sample data.")

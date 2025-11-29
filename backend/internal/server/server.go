@@ -15,6 +15,9 @@ func NewRouter(frontendDir string) *gin.Engine {
 	if frontendDir != "" {
 		router.Static("/assets", frontendDir+"/assets")
 		router.StaticFile("/", frontendDir+"/index.html")
+		router.StaticFile("/banner.png", frontendDir+"/banner.png")
+		router.StaticFile("/logo.png", frontendDir+"/logo.png")
+		router.StaticFile("/favicon.png", frontendDir+"/favicon.png")
 		router.NoRoute(func(c *gin.Context) {
 			c.File(frontendDir + "/index.html")
 		})

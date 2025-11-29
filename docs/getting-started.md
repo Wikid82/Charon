@@ -1,4 +1,4 @@
-# 🏠 Getting Started with Caddy Proxy Manager Plus
+# 🏠 Getting Started with Charon
 
 **Welcome!** This guide will walk you through setting up your first proxy. Don't worry if you're new to this - we'll explain everything step by step!
 
@@ -39,10 +39,10 @@ Open your **terminal** (or Command Prompt on Windows) and paste this:
 
 ```bash
 docker run -d \
-  -p 8080:8080 \
-  -v caddy_data:/app/data \
-  --name caddy-proxy-manager \
-  ghcr.io/wikid82/cpmp:latest
+   -p 8080:8080 \
+   -v caddy_data:/app/data \
+   --name charon \
+   ghcr.io/wikid82/charon:latest
 ```
 
 **What does this do?** It downloads and starts the app. You don't need to understand the details - just copy and paste!
@@ -161,7 +161,7 @@ It's a **text file that tells Caddy how to route traffic**. If you're not sure i
 
 Done! Your existing setup is now in the app.
 
-> **Need more help?** Check the detailed [Import Guide](import-guide.html)
+> **Need more help?** Check the detailed [Import Guide](import-guide.md)
 
 ---
 
@@ -188,6 +188,44 @@ The app stores everything in a database. The Docker command above saves it in `c
 
 ---
 
+## ⚙️ Environment Variables (Advanced)
+
+Want to customize how the app runs? You can set these options:
+
+### Common Options
+
+| Variable | Default | What It Does |
+|----------|---------|--------------|
+| `CHARON_ENV` | `development` | Set to `production` for live use (CHARON_ preferred; CPM_ still supported) |
+| `CHARON_HTTP_PORT` | `8080` | Change the web interface port |
+| `CHARON_ACME_STAGING` | `false` | Use Let's Encrypt staging (see below) |
+
+### 🧪 Development Mode: ACME Staging
+
+**Problem:** Testing SSL certificates repeatedly can hit Let's Encrypt rate limits (50 certs/week)
+
+**Solution:** Use staging mode for development!
+
+```bash
+docker run -d \
+  -p 8080:8080 \
+   -e CHARON_ACME_STAGING=true \
+  -v caddy_data:/app/data \
+  --name caddy-proxy-manager \
+   ghcr.io/wikid82/charon:latest
+```
+
+**What happens:**
+- ✅ No rate limits
+- ⚠️ Certificates are "fake" (untrusted by browsers)
+- Perfect for testing
+
+**For production:** Remove `CHARON_ACME_STAGING` or set to `false` (CPM_ vars still supported)
+
+📖 **Learn more:** [ACME Staging Guide](acme-staging.md)
+
+---
+
 ## 🐛 Something Not Working?
 
 ### App Won't Start
@@ -204,6 +242,11 @@ The app stores everything in a database. The Docker command above saves it in `c
 - **Check your Caddyfile syntax** - paste it at [Caddy Validate](https://caddyserver.com/docs/caddyfile)
 - **Look at the error message** - it usually tells you what's wrong
 - **Start with a simple file** - test with just one site first
+
+### Hit Let's Encrypt Rate Limit
+- **Use staging mode** - set `CHARON_ACME_STAGING=true` (see above; CHARON_ preferred; CPM_ still supported)
+- **Wait a week** - limits reset weekly
+- **Check current limits** - visit [Let's Encrypt Status](https://letsencrypt.status.io/)
 
 ---
 
@@ -222,9 +265,9 @@ You now know the basics! Here's what to explore:
 
 We're here for you!
 
-- 💬 [Ask on GitHub Discussions](https://github.com/Wikid82/cpmp/discussions)
-- 🐛 [Report a Bug](https://github.com/Wikid82/cpmp/issues)
-- 📖 [Read the Full Documentation](index.html)
+- 💬 [Ask on GitHub Discussions](https://github.com/Wikid82/charon/discussions)
+- 🐛 [Report a Bug](https://github.com/Wikid82/charon/issues)
+- 📖 [Read the Full Documentation](index.md)
 
 ---
 

@@ -1,6 +1,6 @@
 # Database Schema Documentation
 
-CaddyProxyManager+ uses SQLite with GORM ORM for data persistence. This document describes the database schema and relationships.
+ Charon uses SQLite with GORM ORM for data persistence. This document describes the database schema and relationships.
 
 ## Overview
 
@@ -249,7 +249,7 @@ Stores application-wide settings as key-value pairs.
 - Unique index on `key`
 
 **Default Settings:**
-- `app_name`: "CaddyProxyManager+"
+- `app_name`: "Charon"
 - `default_scheme`: "http"
 - `enable_ssl_by_default`: "false"
 
@@ -312,13 +312,15 @@ This ensures the database schema stays in sync with model definitions.
 ### Backup
 
 ```bash
-cp backend/data/cpm.db backend/data/cpm.db.backup
+# Backup default DB (charon.db). cpm.db will still be recognized for compatibility.
+cp backend/data/charon.db backend/data/charon.db.backup
 ```
 
 ### Restore
 
 ```bash
-cp backend/data/cpm.db.backup backend/data/cpm.db
+# Restore default DB (charon.db). cpm.db backup will still be recognized for compatibility.
+cp backend/data/charon.db.backup backend/data/charon.db
 ```
 
 ## Performance Considerations

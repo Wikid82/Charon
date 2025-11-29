@@ -47,6 +47,7 @@ export function useRemoteServers(enabledOnly = false) {
   return {
     servers: query.data || [],
     loading: query.isLoading,
+    isFetching: query.isFetching,
     error: query.error ? (query.error as Error).message : null,
     createServer: createMutation.mutateAsync,
     updateServer: (uuid: string, data: Partial<RemoteServer>) => updateMutation.mutateAsync({ uuid, data }),
