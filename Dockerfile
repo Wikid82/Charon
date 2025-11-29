@@ -11,7 +11,9 @@ ARG VCS_REF
 # Setting this to '2' tells xcaddy to resolve the latest v2.x tag so we
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
-ARG CADDY_VERSION=2
+## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
+## If the requested tag isn't available, fall back to a known-good v2.10.2 build.
+ARG CADDY_VERSION=2.11.1
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -102,15 +104,23 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Build Caddy for the target architecture with security plugins
+# Build Caddy for the target architecture with security plugins.
+# Try the requested v${CADDY_VERSION} tag first; if it fails (unknown tag),
+# fall back to a known-good v2.10.2 build to keep the build resilient.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
-    --with github.com/greenpau/caddy-security \
-    --with github.com/corazawaf/coraza-caddy/v2 \
-    --with github.com/hslatman/caddy-crowdsec-bouncer \
-    --with github.com/zhangjiayin/caddy-geoip2 \
-    --output /usr/bin/caddy
+        --mount=type=cache,target=/go/pkg/mod \
+        sh -c "GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+            --with github.com/greenpau/caddy-security \
+            --with github.com/corazawaf/coraza-caddy/v2 \
+            --with github.com/hslatman/caddy-crowdsec-bouncer \
+            --with github.com/zhangjiayin/caddy-geoip2 \
+            --output /usr/bin/caddy || \
+            (echo 'Requested Caddy tag v${CADDY_VERSION} failed; falling back to v2.10.2' && \
+             GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.10.2 \
+                 --with github.com/greenpau/caddy-security \
+                 --with github.com/corazawaf/coraza-caddy/v2 \
+                 --with github.com/hslatman/caddy-crowdsec-bouncer \
+                 --with github.com/zhangjiayin/caddy-geoip2 --output /usr/bin/caddy)"
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
