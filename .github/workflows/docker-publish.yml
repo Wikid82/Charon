@@ -272,3 +272,26 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Integration Test**: ${{ job.status == 'success' && '✅ Passed' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+
+  trivy-pr-app-only:
+    name: Trivy (PR) - App-only
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build image locally for PR
+        run: |
+          docker build -t charon:pr-${{ github.sha }} .
+
+      - name: Extract `charon` binary from image
+        run: |
+          CONTAINER=$(docker create charon:pr-${{ github.sha }})
+          docker cp ${CONTAINER}:/app/charon ./charon_binary || true
+          docker rm ${CONTAINER} || true
+
+      - name: Run Trivy filesystem scan on `charon` (fail PR on HIGH/CRITICAL)
+        run: |
+          docker run --rm -v $HOME/.cache/trivy:/root/.cache/trivy -v $PWD:/workdir aquasec/trivy:latest fs --exit-code 1 --severity CRITICAL,HIGH /workdir/charon_binary
+        shell: bash
