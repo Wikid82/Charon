@@ -141,7 +141,26 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 }
 
 func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, data map[string]interface{}) error {
-	// Built-in templates (used by RenderTemplate)
+	// Built-in templates
+	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
+	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
+
+	// Select template based on provider.Template; if 'custom' use Config; else builtin.
+	tmplStr := p.Config
+	switch strings.ToLower(strings.TrimSpace(p.Template)) {
+	case "detailed":
+		tmplStr = detailedTemplate
+	case "minimal":
+		tmplStr = minimalTemplate
+	case "custom":
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	default:
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	}
 
 	// Validate webhook URL to reduce SSRF risk (returns parsed URL)
 	u, err := validateWebhookURL(p.URL)
@@ -149,13 +168,21 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 		return fmt.Errorf("invalid webhook url: %w", err)
 	}
 
-	rendered, _, err := s.RenderTemplate(p, data)
+	// Parse template and add helper funcs
+	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
+		"toJSON": func(v interface{}) string {
+			b, _ := json.Marshal(v)
+			return string(b)
+		},
+	}).Parse(tmplStr)
 	if err != nil {
-		return fmt.Errorf("failed to render webhook template: %w", err)
+		return fmt.Errorf("failed to parse webhook template: %w", err)
 	}
 
 	var body bytes.Buffer
-	body.WriteString(rendered)
+	if err := tmpl.Execute(&body, data); err != nil {
+		return fmt.Errorf("failed to execute webhook template: %w", err)
+	}
 
 	// Send Request with a safe client (timeout, no auto-redirect)
 	client := &http.Client{
@@ -182,54 +209,6 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 		return fmt.Errorf("webhook returned status: %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// RenderTemplate renders a provider template with given data and validates it as JSON when applicable.
-// It returns the rendered string, the parsed JSON object (or nil), or an error while rendering/parsing.
-func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (string, interface{}, error) {
-	// Same built-in templates as sendCustomWebhook
-	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
-	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
-
-	tmplStr := p.Config
-	switch strings.ToLower(strings.TrimSpace(p.Template)) {
-	case "detailed":
-		tmplStr = detailedTemplate
-	case "minimal":
-		tmplStr = minimalTemplate
-	case "custom":
-		if tmplStr == "" {
-			tmplStr = minimalTemplate
-		}
-	default:
-		if tmplStr == "" {
-			tmplStr = minimalTemplate
-		}
-	}
-
-	// Parse template and add helper funcs
-	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
-		"toJSON": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-	}).Parse(tmplStr)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", nil, fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	// Validate that result is valid JSON
-	var parsed interface{}
-	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
-		// Not valid JSON
-		return buf.String(), nil, fmt.Errorf("rendered template is not valid JSON: %w", err)
-	}
-	return buf.String(), parsed, nil
 }
 
 // isPrivateIP returns true for RFC1918, loopback and link-local addresses.
@@ -308,6 +287,53 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	return shoutrrr.Send(url, "Test notification from Charon")
 }
 
+// RenderTemplate renders a provider template with provided data and returns
+// the rendered JSON string and the parsed object for previewing/validation.
+func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (string, interface{}, error) {
+	// Built-in templates
+	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
+	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
+
+	tmplStr := p.Config
+	switch strings.ToLower(strings.TrimSpace(p.Template)) {
+	case "detailed":
+		tmplStr = detailedTemplate
+	case "minimal":
+		tmplStr = minimalTemplate
+	case "custom":
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	default:
+		if tmplStr == "" {
+			tmplStr = minimalTemplate
+		}
+	}
+
+	// Parse and execute template with helper funcs
+	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
+		"toJSON": func(v interface{}) string {
+			b, _ := json.Marshal(v)
+			return string(b)
+		},
+	}).Parse(tmplStr)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse webhook template: %w", err)
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, data); err != nil {
+		return "", nil, fmt.Errorf("failed to execute webhook template: %w", err)
+	}
+
+	// Validate produced JSON
+	var parsed interface{}
+	if err := json.Unmarshal(body.Bytes(), &parsed); err != nil {
+		return body.String(), nil, fmt.Errorf("failed to parse rendered template: %w", err)
+	}
+	return body.String(), parsed, nil
+}
+
 // Provider Management
 
 func (s *NotificationService) ListProviders() ([]models.NotificationProvider, error) {
@@ -317,10 +343,11 @@ func (s *NotificationService) ListProviders() ([]models.NotificationProvider, er
 }
 
 func (s *NotificationService) CreateProvider(provider *models.NotificationProvider) error {
-	// Validate custom template if provided
+	// Validate custom template before creating
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		sample := map[string]interface{}{"Title": "Preview", "Message": "Test", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, sample); err != nil {
+		// Provide a minimal preview payload
+		payload := map[string]interface{}{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}
@@ -328,10 +355,10 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 }
 
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
-	// Validate custom template if provided
+	// Validate custom template before saving
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		sample := map[string]interface{}{"Title": "Preview", "Message": "Test", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
-		if _, _, err := s.RenderTemplate(*provider, sample); err != nil {
+		payload := map[string]interface{}{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
 	}
