@@ -6,6 +6,9 @@ import (
 	"net"
 	"strconv"
 	"time"
+	"encoding/json"
+
+	"github.com/Wikid82/charon/backend/internal/caddy"
 
 	"gorm.io/gorm"
 
@@ -48,6 +51,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 		return err
 	}
 
+	// Normalize and validate advanced config (if present)
+	if host.AdvancedConfig != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config JSON: %w", err)
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+		} else {
+			host.AdvancedConfig = string(norm)
+		}
+	}
+
 	return s.db.Create(host).Error
 }
 
@@ -55,6 +72,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 	if err := s.ValidateUniqueDomain(host.DomainNames, host.ID); err != nil {
 		return err
+	}
+
+	// Normalize and validate advanced config (if present)
+	if host.AdvancedConfig != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config JSON: %w", err)
+		}
+		parsed = caddy.NormalizeAdvancedConfig(parsed)
+		if norm, err := json.Marshal(parsed); err != nil {
+			return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+		} else {
+			host.AdvancedConfig = string(norm)
+		}
 	}
 
 	return s.db.Save(host).Error

@@ -255,6 +255,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 					// Append as a handler
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
+						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
 						fmt.Printf("Warning: advanced_config for host %s is not a handler object\n", host.UUID)
@@ -262,6 +263,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 				case []interface{}:
 					for _, it := range v {
 						if m, ok := it.(map[string]interface{}); ok {
+							normalizeHandlerHeaders(m)
 							if _, ok2 := m["handler"]; ok2 {
 								handlers = append(handlers, Handler(m))
 							}
@@ -311,6 +313,87 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 	}
 
 	return config, nil
+}
+
+// normalizeHandlerHeaders ensures header values in handlers are arrays of strings
+// Caddy's JSON schema expects header values to be an array of strings (e.g. ["websocket"]) rather than a single string.
+func normalizeHandlerHeaders(h map[string]interface{}) {
+	// normalize top-level headers key
+	if headersRaw, ok := h["headers"].(map[string]interface{}); ok {
+		normalizeHeaderOps(headersRaw)
+	}
+	// also normalize in nested request/response if present explicitly
+	for _, side := range []string{"request", "response"} {
+		if sideRaw, ok := h[side].(map[string]interface{}); ok {
+			normalizeHeaderOps(sideRaw)
+		}
+	}
+}
+
+func normalizeHeaderOps(headerOps map[string]interface{}) {
+	if setRaw, ok := headerOps["set"].(map[string]interface{}); ok {
+		for k, v := range setRaw {
+			switch vv := v.(type) {
+			case string:
+				setRaw[k] = []string{vv}
+			case []interface{}:
+				// convert to []string
+				arr := make([]string, 0, len(vv))
+				for _, it := range vv {
+					arr = append(arr, fmt.Sprintf("%v", it))
+				}
+				setRaw[k] = arr
+			case []string:
+				// nothing to do
+			default:
+				// coerce anything else to string slice
+				setRaw[k] = []string{fmt.Sprintf("%v", vv)}
+			}
+		}
+		headerOps["set"] = setRaw
+	}
+}
+
+// NormalizeAdvancedConfig traverses a parsed JSON advanced config (map or array)
+// and normalizes any headers blocks so that header values are arrays of strings.
+// It returns the modified config object which can be JSON marshaled again.
+func NormalizeAdvancedConfig(parsed interface{}) interface{} {
+	switch v := parsed.(type) {
+	case map[string]interface{}:
+		// This might be a handler object
+		normalizeHandlerHeaders(v)
+		// Also inspect nested 'handle' or 'routes' arrays for nested handlers
+		if handles, ok := v["handle"].([]interface{}); ok {
+			for _, it := range handles {
+				if m, ok := it.(map[string]interface{}); ok {
+					NormalizeAdvancedConfig(m)
+				}
+			}
+		}
+		if routes, ok := v["routes"].([]interface{}); ok {
+			for _, rit := range routes {
+				if rm, ok := rit.(map[string]interface{}); ok {
+					if handles, ok := rm["handle"].([]interface{}); ok {
+						for _, it := range handles {
+							if m, ok := it.(map[string]interface{}); ok {
+								NormalizeAdvancedConfig(m)
+							}
+						}
+					}
+				}
+			}
+		}
+		return v
+	case []interface{}:
+		for _, it := range v {
+			if m, ok := it.(map[string]interface{}); ok {
+				NormalizeAdvancedConfig(m)
+			}
+		}
+		return v
+	default:
+		return parsed
+	}
 }
 
 // buildACLHandler creates access control handlers based on the AccessList configuration
