@@ -104,6 +104,12 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
+# Pre-fetch/override vulnerable module versions in the module cache so xcaddy
+# will pick them up during the build. These `go get` calls attempt to pin
+# fixed versions of dependencies known to cause Trivy findings (expr, quic-go).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go get github.com/expr-lang/expr@v1.17.0 github.com/quic-go/quic-go@v0.54.1 || true
+
 # Build Caddy for the target architecture with security plugins.
 # Try the requested v${CADDY_VERSION} tag first; if it fails (unknown tag),
 # fall back to a known-good v2.10.2 build to keep the build resilient.
