@@ -63,7 +63,7 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
         </a>
         {' • '}
         <a
-          href="https://wikid82.github.io/cpmp/docs/security.html#acl-best-practices-by-service-type"
+          href="https://wikid82.github.io/charon/docs/security.html#acl-best-practices-by-service-type"
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-400 hover:underline inline-flex items-center gap-1"

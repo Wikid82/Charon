@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// SSLCertificate represents TLS certificates managed by CPM+.
+// SSLCertificate represents TLS certificates managed by Charon.
 // Can be Let's Encrypt auto-generated or custom uploaded certs.
 type SSLCertificate struct {
 	ID          uint       `json:"id" gorm:"primaryKey"`

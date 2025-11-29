@@ -117,3 +117,5 @@ PROJECT_BOARD_SETUP.md
 PROJECT_PLANNING.md
 SECURITY_IMPLEMENTATION_PLAN.md
 VERSIONING_IMPLEMENTATION.md
+backend/internal/api/handlers/import_handler.go.bak
+docker-compose.local.yml

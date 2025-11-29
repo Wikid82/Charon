@@ -36,7 +36,7 @@ func main() {
 		Compress:   true,
 	}
 
-	// Ensure legacy cpmp.log exists as symlink for compatibility
+	// Ensure legacy cpmp.log exists as symlink for compatibility (cpmp is a legacy name for Charon)
 	legacyLog := filepath.Join(logDir, "cpmp.log")
 	if _, err := os.Lstat(legacyLog); os.IsNotExist(err) {
 		_ = os.Symlink(logFile, legacyLog) // ignore errors

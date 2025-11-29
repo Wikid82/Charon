@@ -75,7 +75,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
-        <img src="/banner.png" alt="CPM+" height={1280} width={640} />
+        <img src="/banner.png" alt="Charon" height={1280} width={640} />
         <div className="flex items-center gap-2">
           <NotificationCenter />
           <ThemeToggle />
@@ -94,9 +94,9 @@ export default function Layout({ children }: LayoutProps) {
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
            {isCollapsed ? (
-             <img src="/logo.png" alt="CPM+" className="h-12 w-10" />
+             <img src="/logo.png" alt="Charon" className="h-12 w-10" />
            ) : (
-             <img src="/banner.png" alt="CPM+" className="h-16 w-auto" />
+             <img src="/banner.png" alt="Charon" className="h-16 w-auto" />
            )}
         </div>
 

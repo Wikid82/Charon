@@ -109,7 +109,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM ${CADDY_IMAGE}
 WORKDIR /app
 
-# Install runtime dependencies for CPM+ (no bash needed)
+# Install runtime dependencies for Charon (no bash needed)
 # hadolint ignore=DL3018
 RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl \
     && apk --no-cache upgrade
@@ -162,7 +162,7 @@ ARG BUILD_DATE
 ARG VCS_REF
 
 # OCI image labels for version metadata
-LABEL org.opencontainers.image.title="Charon (CPMP)" \
+LABEL org.opencontainers.image.title="Charon (CPMP legacy)" \
       org.opencontainers.image.description="Web UI for managing Caddy reverse proxy configurations" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
@@ -175,5 +175,5 @@ LABEL org.opencontainers.image.title="Charon (CPMP)" \
 # Expose ports
 EXPOSE 80 443 443/udp 8080 2019
 
-# Use custom entrypoint to start both Caddy and CPM+
+# Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

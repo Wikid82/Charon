@@ -368,3 +368,28 @@ func TestBackupCaddyfile_WriteErrorDeterministic(t *testing.T) {
 	_, err := BackupCaddyfile(originalFile, backupDir)
 	require.Error(t, err)
 }
+
+func TestParseCaddyfile_InvalidPath(t *testing.T) {
+	importer := NewImporter("")
+	_, err := importer.ParseCaddyfile("")
+	require.Error(t, err)
+
+	_, err = importer.ParseCaddyfile(".")
+	require.Error(t, err)
+
+	// Path traversal should be rejected
+	traversal := ".." + string(os.PathSeparator) + "Caddyfile"
+	_, err = importer.ParseCaddyfile(traversal)
+	require.Error(t, err)
+}
+
+func TestBackupCaddyfile_InvalidOriginalPath(t *testing.T) {
+	tmp := t.TempDir()
+	// Empty path
+	_, err := BackupCaddyfile("", tmp)
+	require.Error(t, err)
+
+	// Path traversal rejection
+	_, err = BackupCaddyfile(".."+string(os.PathSeparator)+"Caddyfile", tmp)
+	require.Error(t, err)
+}

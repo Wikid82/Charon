@@ -160,6 +160,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.PUT("/notifications/providers/:id", notificationProviderHandler.Update)
 		protected.DELETE("/notifications/providers/:id", notificationProviderHandler.Delete)
 		protected.POST("/notifications/providers/test", notificationProviderHandler.Test)
+		protected.POST("/notifications/providers/preview", notificationProviderHandler.Preview)
+		protected.GET("/notifications/templates", notificationProviderHandler.Templates)
 
 		// Start background checker (every 1 minute)
 		go func() {

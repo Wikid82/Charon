@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // ImportHandler handles Caddyfile import operations.
@@ -250,13 +252,20 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 
 	// Save upload to import/uploads/<uuid>.caddyfile and return transient preview (do not persist yet)
 	sid := uuid.NewString()
-	uploadsDir := filepath.Join(h.importDir, "uploads")
+	uploadsDir, err := safeJoin(h.importDir, "uploads")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid import directory"})
+		return
+	}
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
 	}
-
-	tempPath := filepath.Join(uploadsDir, fmt.Sprintf("%s.caddyfile", sid))
+	tempPath, err := safeJoin(uploadsDir, fmt.Sprintf("%s.caddyfile", sid))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid temp path"})
+		return
+	}
 	if err := os.WriteFile(tempPath, []byte(req.Content), 0644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
@@ -354,7 +363,11 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 	// Create session directory
 	sid := uuid.NewString()
-	sessionDir := filepath.Join(h.importDir, "uploads", sid)
+	sessionDir, err := safeJoin(h.importDir, filepath.Join("uploads", sid))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid session directory"})
+		return
+	}
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
 		return
@@ -370,7 +383,11 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 		// Clean filename and create subdirectories if needed
 		cleanName := filepath.Clean(f.Filename)
-		targetPath := filepath.Join(sessionDir, cleanName)
+		targetPath, err := safeJoin(sessionDir, cleanName)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid filename: %s", f.Filename)})
+			return
+		}
 
 		// Create parent directory if file is in a subdirectory
 		if dir := filepath.Dir(targetPath); dir != sessionDir {
@@ -434,6 +451,43 @@ func detectImportDirectives(content string) []string {
 	return imports
 }
 
+// safeJoin joins a user-supplied path to a base directory and ensures
+// the resulting path is contained within the base directory.
+func safeJoin(baseDir, userPath string) (string, error) {
+	clean := filepath.Clean(userPath)
+	if clean == "" || clean == "." {
+		return "", fmt.Errorf("empty path not allowed")
+	}
+	if filepath.IsAbs(clean) {
+		return "", fmt.Errorf("absolute paths not allowed")
+	}
+
+	// Prevent attempts like ".." at start
+	if strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || clean == ".." {
+		return "", fmt.Errorf("path traversal detected")
+	}
+
+	target := filepath.Join(baseDir, clean)
+	rel, err := filepath.Rel(baseDir, target)
+	if err != nil {
+		return "", fmt.Errorf("invalid path")
+	}
+	if strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("path traversal detected")
+	}
+
+	// Normalize to use base's separators
+	target = path.Clean(target)
+	return target, nil
+}
+
+// isSafePathUnderBase reports whether userPath, when cleaned and joined
+// to baseDir, stays within baseDir. Used by tests.
+func isSafePathUnderBase(baseDir, userPath string) bool {
+	_, err := safeJoin(baseDir, userPath)
+	return err == nil
+}
+
 // Commit finalizes the import with user's conflict resolutions.
 func (h *ImportHandler) Commit(c *gin.Context) {
 	var req struct {
@@ -449,8 +503,14 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	// Try to find a DB-backed session first
 	var session models.ImportSession
+	// Basic sanitize of session id to prevent path separators
+	sid := filepath.Base(req.SessionUUID)
+	if sid == "" || sid == "." || strings.Contains(sid, string(os.PathSeparator)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session_uuid"})
+		return
+	}
 	var result *caddy.ImportResult
-	if err := h.db.Where("uuid = ? AND status = ?", req.SessionUUID, "reviewing").First(&session).Error; err == nil {
+	if err := h.db.Where("uuid = ? AND status = ?", sid, "reviewing").First(&session).Error; err == nil {
 		// DB session found
 		if err := json.Unmarshal([]byte(session.ParsedData), &result); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse import data"})
@@ -458,31 +518,39 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		}
 	} else {
 		// No DB session: check for uploaded temp file
-		uploadsPath := filepath.Join(h.importDir, "uploads", fmt.Sprintf("%s.caddyfile", req.SessionUUID))
-		if _, err := os.Stat(uploadsPath); err == nil {
-			r, err := h.importerservice.ImportFile(uploadsPath)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse uploaded file"})
-				return
-			}
-			result = r
-			// We'll create a committed DB session after applying
-			session = models.ImportSession{UUID: req.SessionUUID, SourceFile: uploadsPath}
-		} else if h.mountPath != "" {
-			if _, err := os.Stat(h.mountPath); err == nil {
-				r, err := h.importerservice.ImportFile(h.mountPath)
+		var parseErr error
+		uploadsPath, err := safeJoin(h.importDir, filepath.Join("uploads", fmt.Sprintf("%s.caddyfile", sid)))
+		if err == nil {
+			if _, err := os.Stat(uploadsPath); err == nil {
+				r, err := h.importerservice.ImportFile(uploadsPath)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse mounted Caddyfile"})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse uploaded file"})
 					return
 				}
 				result = r
-				session = models.ImportSession{UUID: req.SessionUUID, SourceFile: h.mountPath}
-			} else {
-				c.JSON(http.StatusNotFound, gin.H{"error": "session not found or file missing"})
+				// We'll create a committed DB session after applying
+				session = models.ImportSession{UUID: sid, SourceFile: uploadsPath}
+			}
+		}
+		// If not found yet, check mounted Caddyfile
+		if result == nil && h.mountPath != "" {
+			if _, err := os.Stat(h.mountPath); err == nil {
+				r, err := h.importerservice.ImportFile(h.mountPath)
+				if err != nil {
+					parseErr = err
+				} else {
+					result = r
+					session = models.ImportSession{UUID: sid, SourceFile: h.mountPath}
+				}
+			}
+		}
+		// If still not parsed, return not found or error
+		if result == nil {
+			if parseErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse mounted Caddyfile"})
 				return
 			}
-		} else {
-			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "session not found or file missing"})
 			return
 		}
 	}
@@ -532,10 +600,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				if err := h.proxyHostSvc.Update(&host); err != nil {
 					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 					errors = append(errors, errMsg)
-					log.Printf("Import Commit Error (update): %s", errMsg)
+					log.Printf("Import Commit Error (update): %s", sanitizeForLog(errMsg))
 				} else {
 					updated++
-					log.Printf("Import Commit Success: Updated host %s", host.DomainNames)
+					log.Printf("Import Commit Success: Updated host %s", sanitizeForLog(host.DomainNames))
 				}
 				continue
 			}
@@ -547,10 +615,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		if err := h.proxyHostSvc.Create(&host); err != nil {
 			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 			errors = append(errors, errMsg)
-			log.Printf("Import Commit Error: %s", errMsg)
+					log.Printf("Import Commit Error: %s", util.SanitizeForLog(errMsg))
 		} else {
 			created++
-			log.Printf("Import Commit Success: Created host %s", host.DomainNames)
+					log.Printf("Import Commit Success: Created host %s", util.SanitizeForLog(host.DomainNames))
 		}
 	}
 
@@ -586,8 +654,14 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 		return
 	}
 
+	sid := filepath.Base(sessionUUID)
+	if sid == "" || sid == "." || strings.Contains(sid, string(os.PathSeparator)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session_uuid"})
+		return
+	}
+
 	var session models.ImportSession
-	if err := h.db.Where("uuid = ?", sessionUUID).First(&session).Error; err == nil {
+	if err := h.db.Where("uuid = ?", sid).First(&session).Error; err == nil {
 		session.Status = "rejected"
 		h.db.Save(&session)
 		c.JSON(http.StatusOK, gin.H{"message": "import cancelled"})
@@ -595,11 +669,13 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 	}
 
 	// If no DB session, check for uploaded temp file and delete it
-	uploadsPath := filepath.Join(h.importDir, "uploads", fmt.Sprintf("%s.caddyfile", sessionUUID))
-	if _, err := os.Stat(uploadsPath); err == nil {
-		os.Remove(uploadsPath)
-		c.JSON(http.StatusOK, gin.H{"message": "transient upload cancelled"})
-		return
+	uploadsPath, err := safeJoin(h.importDir, filepath.Join("uploads", fmt.Sprintf("%s.caddyfile", sid)))
+	if err == nil {
+		if _, err := os.Stat(uploadsPath); err == nil {
+			os.Remove(uploadsPath)
+			c.JSON(http.StatusOK, gin.H{"message": "transient upload cancelled"})
+			return
+		}
 	}
 
 	// If neither exists, return not found

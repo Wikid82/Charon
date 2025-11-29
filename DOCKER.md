@@ -30,7 +30,7 @@ This unified architecture simplifies deployment, updates, and data management.
 │  Container (charon / cpmp)               │
 │                                          │
 │  ┌──────────┐   API    ┌──────────────┐  │
-│  │  Caddy   │◄──:2019──┤  CPM+ App    │  │
+│  │  Caddy   │◄──:2019──┤  Charon App  │  │
 │  │ (Proxy)  │          │  (Manager)   │  │
 │  └────┬─────┘          └──────┬───────┘  │
 │       │                       │          │
@@ -58,8 +58,8 @@ Configure the application via `docker-compose.yml`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
-| `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
+ | `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
+ | `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
 | `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |
 | `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Internal URL for Caddy API (`CPM_CADDY_ADMIN_API` supported for backward compatibility). |
 
@@ -126,7 +126,7 @@ docker-compose logs app
 # View current Caddy config
 curl http://localhost:2019/config/ | jq
 
-# Check CPM+ logs
+# Check Charon logs
 docker-compose logs app
 
 # Manual config reload
@@ -170,14 +170,14 @@ make docker-build
 
 ## Integration with Existing Caddy
 
-If you already have Caddy running, you can point CPM+ to it:
+If you already have Caddy running, you can point Charon to it:
 
 ```yaml
 environment:
   - CPM_CADDY_ADMIN_API=http://your-caddy-host:2019
 ```
 
-**Warning**: CPM+ will replace Caddy's entire configuration. Backup first!
+**Warning**: Charon will replace Caddy's entire configuration. Backup first!
 
 ## Performance Tuning
 

@@ -6,6 +6,7 @@ export interface NotificationProvider {
   type: string;
   url: string;
   config?: string;
+  template?: string;
   enabled: boolean;
   notify_proxy_hosts: boolean;
   notify_remote_servers: boolean;
@@ -36,4 +37,16 @@ export const deleteProvider = async (id: string) => {
 
 export const testProvider = async (provider: Partial<NotificationProvider>) => {
   await client.post('/notifications/providers/test', provider);
+};
+
+export const getTemplates = async () => {
+  const response = await client.get('/notifications/templates');
+  return response.data;
+};
+
+export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, any>) => {
+  const payload: any = { ...provider };
+  if (data) payload.data = data;
+  const response = await client.post('/notifications/providers/preview', payload);
+  return response.data;
 };
