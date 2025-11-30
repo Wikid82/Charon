@@ -12,6 +12,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
+const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
 const Account = lazy(() => import('./pages/Account'))
@@ -67,6 +68,10 @@ export default function App() {
                 <Route index element={<Backups />} />
                 <Route path="backups" element={<Backups />} />
                 <Route path="logs" element={<Logs />} />
+                <Route path="import">
+                  <Route path="caddyfile" element={<ImportCaddy />} />
+                  <Route path="crowdsec" element={<ImportCrowdSec />} />
+                </Route>
               </Route>
 
             </Route>

@@ -44,7 +44,7 @@ describe('Uptime page', () => {
     const card = screen.getByText('Test Monitor').closest('div') as HTMLElement
     const settingsBtn = within(card).getByTitle('Monitor settings')
     await userEvent.click(settingsBtn)
-    const toggleBtn = within(card).getByText('Disable Monitoring')
+    const toggleBtn = within(card).getByText('Pause')
     await userEvent.click(toggleBtn)
     await waitFor(() => expect(uptimeApi.updateMonitor).toHaveBeenCalledWith('m1', { enabled: false }))
   })
@@ -141,8 +141,10 @@ describe('Uptime page', () => {
     const maxRetriesInput = spinbuttons.find(el => el.getAttribute('value') === '3') as HTMLInputElement
     await userEvent.clear(maxRetriesInput)
     await userEvent.type(maxRetriesInput, '6')
+    await userEvent.clear(screen.getByLabelText('Name'))
+    await userEvent.type(screen.getByLabelText('Name'), 'Renamed Monitor')
     await userEvent.click(screen.getByText('Save Changes'))
-    await waitFor(() => expect(uptimeApi.updateMonitor).toHaveBeenCalledWith('m6', { max_retries: 6, interval: 60 }))
+    await waitFor(() => expect(uptimeApi.updateMonitor).toHaveBeenCalledWith('m6', { name: 'Renamed Monitor', max_retries: 6, interval: 60 }))
   })
 
   it('does not call deleteMonitor when canceling delete', async () => {
@@ -177,7 +179,7 @@ describe('Uptime page', () => {
     await waitFor(() => expect(screen.getByText('ToggleFail')).toBeInTheDocument())
     const card = screen.getByText('ToggleFail').closest('div') as HTMLElement
     await userEvent.click(within(card).getByTitle('Monitor settings'))
-    await userEvent.click(within(card).getByText('Disable Monitoring'))
+    await userEvent.click(within(card).getByText('Pause'))
     const toast = (await import('react-hot-toast')).toast
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
   })

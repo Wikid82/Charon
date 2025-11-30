@@ -87,6 +87,21 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                 <button
                   onClick={async () => {
                     setShowMenu(false)
+                    try {
+                      await toggleMutation.mutateAsync({ id: monitor.id, enabled: !monitor.enabled })
+                      toast.success(`${monitor.enabled ? 'Paused' : 'Unpaused'}`)
+                    } catch {
+                      // handled in onError
+                    }
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-yellow-600 hover:bg-gray-100 dark:hover:bg-gray-900 flex items-center gap-2"
+                >
+                  <Pause className="w-4 h-4 mr-1" />
+                  {monitor.enabled ? 'Pause' : 'Unpause'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setShowMenu(false)
                     const confirmDelete = confirm('Delete this monitor? This cannot be undone.')
                     if (!confirmDelete) return
                     try {
@@ -98,20 +113,6 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-900"
                 >
                   Delete
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowMenu(false)
-                    try {
-                      await toggleMutation.mutateAsync({ id: monitor.id, enabled: !monitor.enabled })
-                      toast.success(`${monitor.enabled ? 'Monitoring disabled' : 'Monitoring enabled'}`)
-                    } catch {
-                      // handled in onError
-                    }
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-900"
-                >
-                  {monitor.enabled ? 'Disable Monitoring' : 'Enable Monitoring'}
                 </button>
               </div>
             )}
@@ -176,11 +177,12 @@ Message: ${beat.message}`}
 
 const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({ monitor, onClose }) => {
     const queryClient = useQueryClient();
+    const [name, setName] = useState(monitor.name || '')
     const [maxRetries, setMaxRetries] = useState(monitor.max_retries || 3);
     const [interval, setInterval] = useState(monitor.interval || 60);
 
     const mutation = useMutation({
-        mutationFn: (data: Partial<UptimeMonitor>) => updateMonitor(monitor.id, data),
+      mutationFn: (data: Partial<UptimeMonitor>) => updateMonitor(monitor.id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['monitors'] });
             onClose();
@@ -189,7 +191,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
-        mutation.mutate({ max_retries: maxRetries, interval });
+      mutation.mutate({ name, max_retries: maxRetries, interval });
     };
 
     return (
@@ -203,6 +205,18 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="monitor-name" className="block text-sm font-medium text-gray-300 mb-1">
+                    Name
+                  </label>
+                  <input
+                    id="monitor-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">
                             Max Retries
