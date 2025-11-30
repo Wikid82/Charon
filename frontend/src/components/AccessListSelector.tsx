@@ -58,7 +58,7 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
 
       <p className="text-xs text-gray-500 mt-1">
         Restrict access based on IP address, CIDR ranges, or geographic location.{' '}
-        <a href="/access-lists" className="text-blue-400 hover:underline">
+        <a href="/security/access-lists" className="text-blue-400 hover:underline">
           Manage lists
         </a>
         {' • '}
