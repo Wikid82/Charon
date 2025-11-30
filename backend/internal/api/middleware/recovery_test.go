@@ -8,6 +8,7 @@ import (
     "strings"
     "testing"
 
+    "github.com/Wikid82/charon/backend/internal/logger"
     "github.com/gin-gonic/gin"
 )
 
@@ -16,8 +17,11 @@ func TestRecoveryLogsStacktraceVerbose(t *testing.T) {
     buf := &bytes.Buffer{}
     log.SetOutput(buf)
     defer log.SetOutput(old)
+    // Ensure structured logger writes to the same buffer and enable debug
+    logger.Init(true, buf)
 
     router := gin.New()
+    router.Use(RequestID())
     router.Use(Recovery(true))
     router.GET("/panic", func(c *gin.Context) {
         panic("test panic")
@@ -38,6 +42,9 @@ func TestRecoveryLogsStacktraceVerbose(t *testing.T) {
     if !strings.Contains(out, "Stacktrace:") {
         t.Fatalf("verbose log did not include stack trace: %s", out)
     }
+    if !strings.Contains(out, "request_id") {
+        t.Fatalf("verbose log did not include request_id: %s", out)
+    }
 }
 
 func TestRecoveryLogsBriefWhenNotVerbose(t *testing.T) {
@@ -46,7 +53,10 @@ func TestRecoveryLogsBriefWhenNotVerbose(t *testing.T) {
     log.SetOutput(buf)
     defer log.SetOutput(old)
 
+    // Ensure structured logger writes to the same buffer and keep debug off
+    logger.Init(false, buf)
     router := gin.New()
+    router.Use(RequestID())
     router.Use(Recovery(false))
     router.GET("/panic", func(c *gin.Context) {
         panic("brief panic")
