@@ -8,7 +8,7 @@ import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
-import { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig } from '../api/crowdsec'
+// CrowdSec runtime control is now in the Security page
 import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
 
 interface HealthResponse {
@@ -107,33 +107,7 @@ export default function SystemSettings() {
   })
 
   // CrowdSec control
-  const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
 
-  const fetchCrowdsecStatus = async () => {
-    try {
-      const s = await statusCrowdsec()
-      setCrowdsecStatus(s)
-    } catch {
-      setCrowdsecStatus(null)
-    }
-  }
-
-  useEffect(() => { fetchCrowdsecStatus() }, [])
-
-  const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
-  const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
-
-  const importMutation = useMutation({
-    mutationFn: async (file: File) => importCrowdsecConfig(file),
-    onSuccess: () => { toast.success('CrowdSec config imported'); fetchCrowdsecStatus() },
-    onError: (e: unknown) => toast.error(String(e)),
-  })
-
-  const handleCrowdsecUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    if (!f) return
-    importMutation.mutate(f)
-  }
 
   return (
     <div className="space-y-6">
@@ -344,44 +318,7 @@ export default function SystemSettings() {
         </div>
       </Card>
 
-      {/* CrowdSec Controls */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">CrowdSec</h2>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Status</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus ? (crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped') : 'Unknown'}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button onClick={() => startMutation.mutate()} isLoading={startMutation.isPending}>Start</Button>
-              <Button onClick={() => stopMutation.mutate()} isLoading={stopMutation.isPending} variant="secondary">Stop</Button>
-              <Button onClick={async () => {
-                try {
-                  const b = await exportCrowdsecConfig()
-                  const url = window.URL.createObjectURL(new Blob([b]))
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `crowdsec-config-${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.tar.gz`
-                  document.body.appendChild(a)
-                  a.click()
-                  a.remove()
-                  window.URL.revokeObjectURL(url)
-                  toast.success('CrowdSec configuration exported')
-                } catch {
-                  toast.error('Failed to export CrowdSec configuration')
-                }
-              }} variant="secondary">Export</Button>
-            </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Import CrowdSec Config</label>
-            <input type="file" onChange={handleCrowdsecUpload} />
-            <p className="text-sm text-gray-500 mt-1">Upload a tar.gz or zip with your CrowdSec configuration. Existing config will be backed up.</p>
-          </div>
-        </div>
-      </Card>
     </div>
   )
 }
