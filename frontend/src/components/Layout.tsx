@@ -50,7 +50,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Security', path: '/security', icon: '🛡️' },
     { name: 'Uptime', path: '/uptime', icon: '📈' },
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
-    { name: 'Import Caddyfile', path: '/import', icon: '📥' },
+    // Import group moved under Tasks
     {
       name: 'Settings',
       path: '/settings',
@@ -65,6 +65,15 @@ export default function Layout({ children }: LayoutProps) {
       path: '/tasks',
       icon: '📋',
       children: [
+        {
+          name: 'Import',
+          path: '/tasks/import',
+          icon: '📥',
+          children: [
+            { name: 'Caddyfile', path: '/tasks/import/caddyfile', icon: '📥' },
+            { name: 'CrowdSec', path: '/tasks/import/crowdsec', icon: '🛡️' },
+          ]
+        },
         { name: 'Backups', path: '/tasks/backups', icon: '💾' },
         { name: 'Logs', path: '/tasks/logs', icon: '📝' },
       ]
@@ -154,6 +163,52 @@ export default function Layout({ children }: LayoutProps) {
                     {isExpanded && (
                       <div className="pl-11 space-y-1">
                         {item.children.map((child) => {
+                          // If this child has its own children, render a nested accordion
+                          if ((child as any).children) {
+
+                            const nestedExpandedKey = `${item.name}:${child.name}`
+                            const isNestedOpen = expandedMenus.includes(nestedExpandedKey)
+                            return (
+                              <div key={child.path} className="space-y-1">
+                                <button
+                                  onClick={() => toggleMenu(nestedExpandedKey)}
+                                  className={`w-full flex items-center justify-between py-2 px-3 rounded-md text-sm transition-colors ${
+                                    location.pathname.startsWith(child.path!)
+                                      ? 'text-blue-700 dark:text-blue-400'
+                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">{child.icon}</span>
+                                    <span>{child.name}</span>
+                                  </div>
+                                  {isNestedOpen ? (
+                                    <ChevronDown className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4" />
+                                  )}
+                                </button>
+                                {isNestedOpen && (
+                                  <div className="pl-6 space-y-1">
+                                    {(child as any).children.map((sub: any) => (
+                                      <Link
+                                        key={sub.path}
+                                        to={sub.path}
+                                        onClick={() => setMobileSidebarOpen(false)}
+                                        className={`block py-2 px-3 rounded-md text-sm transition-colors ${
+                                          location.pathname === sub.path
+                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                        }`}
+                                      >
+                                        {sub.name}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          }
                           const isChildActive = location.pathname === child.path
                           return (
                             <Link

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createBackup } from '../api/backups'
 import { useImport } from '../hooks/useImport'
 import ImportBanner from '../components/ImportBanner'
 import ImportReviewTable from '../components/ImportReviewTable'
@@ -34,6 +35,8 @@ export default function ImportCaddy() {
 
   const handleCommit = async (resolutions: Record<string, string>, names: Record<string, string>) => {
     try {
+      // Create a backup before committing import to allow rollback
+      await createBackup()
       await commit(resolutions, names)
       setContent('')
       setShowReview(false)

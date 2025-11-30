@@ -57,7 +57,7 @@ describe('Layout', () => {
     expect(logos[0]).toBeInTheDocument()
   })
 
-  it('renders all navigation items', () => {
+  it('renders all navigation items', async () => {
     renderWithProviders(
       <Layout>
         <div>Test Content</div>
@@ -68,7 +68,12 @@ describe('Layout', () => {
     expect(screen.getByText('Proxy Hosts')).toBeInTheDocument()
     expect(screen.getByText('Remote Servers')).toBeInTheDocument()
     expect(screen.getByText('Certificates')).toBeInTheDocument()
-    expect(screen.getByText('Import Caddyfile')).toBeInTheDocument()
+    // Expand Tasks and Import to see nested items
+    await userEvent.click(screen.getByText('Tasks'))
+    expect(screen.getByText('Import')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Import'))
+    expect(screen.getByText('Caddyfile')).toBeInTheDocument()
+    expect(screen.getByText('CrowdSec')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 
