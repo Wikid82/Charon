@@ -107,7 +107,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"proxy_host",
 			"Proxy Host Created",
 			fmt.Sprintf("Proxy Host %s (%s) created", host.Name, host.DomainNames),
@@ -243,7 +243,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"proxy_host",
 			"Proxy Host Deleted",
 			fmt.Sprintf("Proxy Host %s deleted", host.Name),
