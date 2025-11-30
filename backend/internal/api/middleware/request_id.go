@@ -1,6 +1,7 @@
 package middleware
 
 import (
+    "context"
     "github.com/Wikid82/charon/backend/internal/logger"
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
@@ -19,6 +20,9 @@ func RequestID() gin.HandlerFunc {
         // Add to logger fields for this request
         entry := logger.WithFields(map[string]interface{}{"request_id": rid})
         c.Set("logger", entry)
+        // Propagate into the request context so it can be used by services
+        ctx := context.WithValue(c.Request.Context(), RequestIDKey, rid)
+        c.Request = c.Request.WithContext(ctx)
         c.Next()
     }
 }
