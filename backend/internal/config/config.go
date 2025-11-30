@@ -19,6 +19,7 @@ type Config struct {
 	ImportDir       string
 	JWTSecret       string
 	ACMEStaging     bool
+	Debug           bool
 	Security        SecurityConfig
 }
 
@@ -56,6 +57,7 @@ func Load() (Config, error) {
 			ACLMode:         getEnvAny("disabled", "CERBERUS_SECURITY_ACL_MODE", "CHARON_SECURITY_ACL_MODE", "CPM_SECURITY_ACL_MODE"),
 			CerberusEnabled: getEnvAny("false", "CERBERUS_SECURITY_CERBERUS_ENABLED", "CHARON_SECURITY_CERBERUS_ENABLED", "CPM_SECURITY_CERBERUS_ENABLED") == "true",
 		},
+		Debug: getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}
 
 	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {
