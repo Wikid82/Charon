@@ -54,7 +54,13 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
-    { name: 'Security', path: '/security', icon: '🛡️' },
+    { name: 'Security', path: '/security', icon: '🛡️', children: [
+      { name: 'Overview', path: '/security', icon: '🛡️' },
+      { name: 'CrowdSec', path: '/security/crowdsec', icon: '🛡️' },
+      { name: 'Access Lists', path: '/security/access-lists', icon: '🔒' },
+      { name: 'Rate Limiting', path: '/security/rate-limiting', icon: '⚡' },
+      { name: 'WAF (Coraza)', path: '/security/waf', icon: '🛡️' },
+    ]},
     { name: 'Uptime', path: '/uptime', icon: '📈' },
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
     // Import group moved under Tasks
@@ -64,7 +70,6 @@ export default function Layout({ children }: LayoutProps) {
       icon: '⚙️',
       children: [
         { name: 'System', path: '/settings/system', icon: '⚙️' },
-        { name: 'CrowdSec', path: '/settings/crowdsec', icon: '🛡️' },
         { name: 'Account', path: '/settings/account', icon: '🛡️' },
       ]
     },
