@@ -14,6 +14,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
+	github.com/sirupsen/logrus v1.9.3
 )
 
 require (
