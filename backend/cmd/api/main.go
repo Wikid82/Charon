@@ -48,6 +48,8 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, rotator)
 	log.SetOutput(mw)
 	gin.DefaultWriter = mw
+	// Initialize a basic logger so CLI and early code can log.
+	logger.Init(false, mw)
 
 	// Handle CLI commands
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
@@ -84,11 +86,11 @@ func main() {
 			log.Fatalf("failed to save user: %v", err)
 		}
 
-		log.Printf("Password updated successfully for user %s", email)
+		logger.Log().Infof("Password updated successfully for user %s", email)
 		return
 	}
 
-	log.Printf("starting %s backend on version %s", version.Name, version.Full())
+	logger.Log().Infof("starting %s backend on version %s", version.Name, version.Full())
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -120,7 +122,7 @@ func main() {
 
 	// Check for mounted Caddyfile on startup
 	if err := handlers.CheckMountedImport(db, cfg.ImportCaddyfile, cfg.CaddyBinary, cfg.ImportDir); err != nil {
-		log.Printf("WARNING: failed to process mounted Caddyfile: %v", err)
+		logger.Log().WithError(err).Warn("WARNING: failed to process mounted Caddyfile")
 	}
 
 	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
