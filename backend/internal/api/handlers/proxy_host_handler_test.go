@@ -29,7 +29,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
 
 	ns := services.NewNotificationService(db)
-	h := NewProxyHostHandler(db, nil, ns)
+	h := NewProxyHostHandler(db, nil, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -97,6 +97,47 @@ func TestProxyHostLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, getResp2.Code)
 }
 
+func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
+	// Setup DB and router with uptime service
+	dsn := "file:test-delete-uptime?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.UptimeMonitor{}, &models.UptimeHeartbeat{}))
+
+	ns := services.NewNotificationService(db)
+	us := services.NewUptimeService(db, ns)
+	h := NewProxyHostHandler(db, nil, ns, us)
+
+	r := gin.New()
+	api := r.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	// Create host and monitor
+	host := models.ProxyHost{UUID: "ph-delete-1", Name: "Del Host", DomainNames: "del.test", ForwardHost: "127.0.0.1", ForwardPort: 80}
+	db.Create(&host)
+	monitor := models.UptimeMonitor{ID: "ut-mon-1", ProxyHostID: &host.ID, Name: "linked", Type: "http", URL: "http://del.test"}
+	db.Create(&monitor)
+
+	// Ensure monitor exists
+	var count int64
+	db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
+	require.Equal(t, int64(1), count)
+
+	// Delete host with delete_uptime=true
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID+"?delete_uptime=true", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Host should be deleted
+	var ph models.ProxyHost
+	require.Error(t, db.First(&ph, "uuid = ?", host.UUID).Error)
+
+	// Monitor should also be deleted
+	db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
+	require.Equal(t, int64(0), count)
+}
+
 func TestProxyHostErrors(t *testing.T) {
 	// Mock Caddy Admin API that fails
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +158,7 @@ func TestProxyHostErrors(t *testing.T) {
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)
-	h := NewProxyHostHandler(db, manager, ns)
+	h := NewProxyHostHandler(db, manager, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
@@ -304,7 +345,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)
-	h := NewProxyHostHandler(db, manager, ns)
+	h := NewProxyHostHandler(db, manager, ns, nil)
 	r := gin.New()
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)

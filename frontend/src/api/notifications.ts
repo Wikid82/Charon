@@ -40,12 +40,17 @@ export const testProvider = async (provider: Partial<NotificationProvider>) => {
 };
 
 export const getTemplates = async () => {
-  const response = await client.get('/notifications/templates');
+  const response = await client.get<NotificationTemplate[]>('/notifications/templates');
   return response.data;
 };
 
-export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, any>) => {
-  const payload: any = { ...provider };
+export interface NotificationTemplate {
+  id: string;
+  name: string;
+}
+
+export const previewProvider = async (provider: Partial<NotificationProvider>, data?: Record<string, unknown>) => {
+  const payload: Record<string, unknown> = { ...provider } as Record<string, unknown>;
   if (data) payload.data = data;
   const response = await client.post('/notifications/providers/preview', payload);
   return response.data;
@@ -80,8 +85,8 @@ export const deleteExternalTemplate = async (id: string) => {
   await client.delete(`/notifications/external-templates/${id}`);
 };
 
-export const previewExternalTemplate = async (templateId?: string, template?: string, data?: Record<string, any>) => {
-  const payload: any = {};
+export const previewExternalTemplate = async (templateId?: string, template?: string, data?: Record<string, unknown>) => {
+  const payload: Record<string, unknown> = {};
   if (templateId) payload.template_id = templateId;
   if (template) payload.template = template;
   if (data) payload.data = data;

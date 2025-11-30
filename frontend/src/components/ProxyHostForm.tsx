@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info } from 'lucide-react'
+import { toast } from 'react-hot-toast'
 import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
+import { syncMonitors } from '../api/uptime'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
@@ -85,7 +87,8 @@ interface ProxyHostFormProps {
 }
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
-  const [formData, setFormData] = useState({
+  type ProxyHostFormState = Partial<ProxyHost> & { addUptime?: boolean; uptimeInterval?: number; uptimeMaxRetries?: number }
+  const [formData, setFormData] = useState<ProxyHostFormState>({
     name: host?.name || '',
     domain_names: host?.domain_names || '',
     forward_scheme: host?.forward_scheme || 'http',
@@ -144,7 +147,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   // Get the external URL for this proxy host
   const getExternalUrl = () => {
-    const domain = formData.domain_names.split(',')[0]?.trim()
+    const domain = (formData.domain_names ?? '').split(',')[0]?.trim()
     if (!domain) return ''
     return `https://${domain}:443`
   }
@@ -269,28 +272,38 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
+  const [addUptime, setAddUptime] = useState(false)
+  const [uptimeInterval, setUptimeInterval] = useState(60)
+  const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    setError(null)
-    setNameError(null)
-
-    // Validate name is required
-    if (!formData.name.trim()) {
-      setNameError('Name is required')
-      setLoading(false)
-      return
-    }
-
     try {
-      await onSubmit(formData)
-    } catch (err: unknown) {
-      console.error("Submit error:", err)
-      // Extract error message from axios response if available
-      const errorObj = err as { response?: { data?: { error?: string } }; message?: string }
-      const message = errorObj.response?.data?.error || errorObj.message || 'Failed to save proxy host'
+      const payload = { ...formData }
+      // strip temporary uptime-only flags from payload by destructuring
+      const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries: _uptimeMaxRetries, ...payloadWithoutUptime } = payload as ProxyHostFormState
+      void _addUptime; void _uptimeInterval; void _uptimeMaxRetries;
+      const res = await onSubmit(payloadWithoutUptime)
+
+      // if user asked to add uptime, request server to sync monitors
+      if (addUptime) {
+        try {
+          await syncMonitors({ interval: uptimeInterval, max_retries: uptimeMaxRetries })
+          toast.success('Requested uptime monitor creation')
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          toast.error(msg || 'Failed to request uptime creation')
+        }
+      }
+
+      onCancel()
+      return res
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save host'
       setError(message)
+      toast.error(message)
+      throw err
     } finally {
       setLoading(false)
     }
@@ -555,7 +568,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 min="1"
                 max="65535"
                 value={formData.forward_port}
-                onChange={e => setFormData({ ...formData, forward_port: parseInt(e.target.value) })}
+                onChange={e => {
+                  const v = parseInt(e.target.value)
+                  setFormData({ ...formData, forward_port: Number.isNaN(v) ? 0 : v })
+                }}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -873,6 +889,44 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               />
               <span className="text-sm font-medium text-white">Enable Proxy Host</span>
             </label>
+          </div>
+
+          {/* Uptime option */}
+          <div className="border-t border-gray-800 pt-4">
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={addUptime}
+                onChange={e => setAddUptime(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-300">Add Uptime monitoring for this host</span>
+            </label>
+
+            {addUptime && (
+              <div className="grid grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
+                  <input
+                    type="number"
+                    min={10}
+                    value={uptimeInterval}
+                    onChange={e => setUptimeInterval(parseInt(e.target.value || '60'))}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Max Retries</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={uptimeMaxRetries}
+                    onChange={e => setUptimeMaxRetries(parseInt(e.target.value || '3'))}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

@@ -53,3 +53,21 @@ func (h *UptimeHandler) Update(c *gin.Context) {
 
 	c.JSON(http.StatusOK, monitor)
 }
+
+func (h *UptimeHandler) Sync(c *gin.Context) {
+	if err := h.service.SyncMonitors(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sync monitors"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Sync started"})
+}
+
+// Delete removes a monitor and its associated data
+func (h *UptimeHandler) Delete(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.DeleteMonitor(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete monitor"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Monitor deleted"})
+}

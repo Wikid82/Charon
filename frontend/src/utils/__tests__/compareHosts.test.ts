@@ -46,7 +46,8 @@ const hostB: ProxyHost = {
 
 describe('compareHosts', () => {
   it('returns 0 for unknown sort column (default case)', () => {
-    const res = compareHosts(hostA, hostB, 'unknown' as any, 'asc')
+    const compareAny = compareHosts as unknown as (a: ProxyHost, b: ProxyHost, sortColumn: string, sortDirection: 'asc' | 'desc') => number
+    const res = compareAny(hostA, hostB, 'unknown', 'asc')
     expect(res).toBe(0)
   })
 

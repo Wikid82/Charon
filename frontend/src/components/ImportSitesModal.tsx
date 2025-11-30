@@ -32,8 +32,9 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       setLoading(false)
       if (onUploaded) onUploaded()
       onClose()
-    } catch (err: any) {
-      setError(err?.message || 'Upload failed')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(msg || 'Upload failed')
       setLoading(false)
     }
   }

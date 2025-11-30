@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 interface HostPreview {
@@ -150,15 +150,15 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
-            {hosts.map((h, idx) => {
+            {hosts.map((h) => {
               const domain = h.domain_names
               const hasConflict = conflicts.includes(domain)
               const isExpanded = expandedRows.has(domain)
               const details = conflictDetails?.[domain]
 
               return (
-                <>
-                  <tr key={`${domain}-${idx}`} className="hover:bg-gray-900/50">
+                <React.Fragment key={domain}>
+                  <tr className="hover:bg-gray-900/50">
                     <td className="px-6 py-4">
                       <input
                         type="text"
@@ -218,7 +218,7 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
                   </tr>
 
                   {hasConflict && isExpanded && details && (
-                    <tr key={`${domain}-details`} className="bg-gray-900/30">
+                    <tr className="bg-gray-900/30">
                       <td colSpan={4} className="px-6 py-4">
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 gap-6">
@@ -316,7 +316,7 @@ export default function ImportReviewTable({ hosts, conflicts, conflictDetails, e
                       </td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               )
             })}
           </tbody>

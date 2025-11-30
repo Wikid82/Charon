@@ -1,80 +1,63 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
-import Login from '../Login';
-import * as setupApi from '../../api/setup';
-
-// Mock AuthContext so useAuth works in tests
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    login: vi.fn(),
-    logout: vi.fn(),
-    isAuthenticated: false,
-    isLoading: false,
-    user: null,
-  }),
-}));
-
-// Mock API client
-vi.mock('../../api/client', () => ({
-  default: {
-    post: vi.fn().mockResolvedValue({ data: {} }),
-    get: vi.fn().mockResolvedValue({ data: {} }),
-  },
-}));
-
-// Mock react-router-dom
-const mockNavigate = vi.fn();
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+// Mock react-router-dom useNavigate at module level
+const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
+  const actual = await vi.importActual('react-router-dom')
   return {
     ...actual,
     useNavigate: () => mockNavigate,
-  };
-});
+  }
+})
 
-// Mock the API module
-vi.mock('../../api/setup', () => ({
-  getSetupStatus: vi.fn(),
-  performSetup: vi.fn(),
-}));
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import Login from '../Login'
+import * as setupApi from '../../api/setup'
+import client from '../../api/client'
+import * as authHook from '../../hooks/useAuth'
+import type { AuthContextType } from '../../context/AuthContextValue'
+import { toast } from '../../utils/toast'
+import { MemoryRouter } from 'react-router-dom'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-    },
-  },
-});
+vi.mock('../../api/setup')
+vi.mock('../../hooks/useAuth')
 
-const renderWithProviders = (ui: React.ReactNode) => {
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        {ui}
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
-};
+describe('<Login />', () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const renderWithProviders = (ui: React.ReactNode) => (
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    )
+  )
 
-describe('Login Page', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    queryClient.clear();
-  });
+    vi.restoreAllMocks()
+    vi.spyOn(authHook, 'useAuth').mockReturnValue({ login: vi.fn() } as unknown as AuthContextType)
+  })
 
-  it('renders login form and logo when setup is not required', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false });
-
-    renderWithProviders(<Login />);
-
-    // The page will redirect to setup if setup is required; for our test we mock it as not required
+  it('navigates to /setup when setup is required', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: true })
+    renderWithProviders(<Login />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Sign In' })).toBeTruthy();
-    });
+      expect(mockNavigate).toHaveBeenCalledWith('/setup')
+    })
+  })
 
-    // Verify logo is present
-    expect(screen.getAllByAltText('Charon').length).toBeGreaterThan(0);
-  });
-});
+  it('shows error toast when login fails', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
+    const postSpy = vi.spyOn(client, 'post').mockRejectedValueOnce({ response: { data: { error: 'Bad creds' } } })
+    const toastSpy = vi.spyOn(toast, 'error')
+    renderWithProviders(<Login />)
+    // Fill and submit
+    const email = screen.getByPlaceholderText(/admin@example.com/i)
+    const pass = screen.getByPlaceholderText(/••••••••/i)
+    fireEvent.change(email, { target: { value: 'a@b.com' } })
+    fireEvent.change(pass, { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }))
+    // Wait for the promise chain
+    await waitFor(() => expect(postSpy).toHaveBeenCalled())
+    expect(toastSpy).toHaveBeenCalledWith('Bad creds')
+  })
+})

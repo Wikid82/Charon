@@ -100,8 +100,9 @@ export default function SystemSettings() {
       refetchFlags()
       toast.success('Feature flag updated')
     },
-    onError: (err: any) => {
-      toast.error(`Failed to update flag: ${err?.message || err}`)
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`Failed to update flag: ${msg}`)
     },
   })
 
@@ -119,13 +120,13 @@ export default function SystemSettings() {
 
   useEffect(() => { fetchCrowdsecStatus() }, [])
 
-  const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e:any) => toast.error(String(e)) })
-  const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e:any) => toast.error(String(e)) })
+  const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
+  const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => importCrowdsecConfig(file),
     onSuccess: () => { toast.success('CrowdSec config imported'); fetchCrowdsecStatus() },
-    onError: (e:any) => toast.error(String(e)),
+    onError: (e: unknown) => toast.error(String(e)),
   })
 
   const handleCrowdsecUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
