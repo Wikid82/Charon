@@ -30,7 +30,7 @@ export default function ImportSitesModal({ visible, onClose, onUploaded }: Props
       const cleaned = sites.map(s => s || '')
       await uploadCaddyfilesMulti(cleaned)
       setLoading(false)
-      onUploaded && onUploaded()
+      if (onUploaded) onUploaded()
       onClose()
     } catch (err: any) {
       setError(err?.message || 'Upload failed')

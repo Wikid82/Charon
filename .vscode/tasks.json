@@ -133,5 +133,40 @@
 			"isBackground": false,
 			"problemMatcher": []
 		}
+	,
+		{
+			"label": "Frontend: Type Check",
+			"type": "shell",
+			"command": "cd frontend && npm run type-check",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Go Test Coverage",
+			"type": "shell",
+			"command": "bash -c 'scripts/go-test-coverage.sh'",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Frontend: Test Coverage",
+			"type": "shell",
+			"command": "bash -c 'scripts/frontend-test-coverage.sh'",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		}
 	]
+
 }

@@ -245,10 +245,19 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		Filename string `json:"filename"`
 	}
 
+	// Capture raw request for better diagnostics in tests
 	if err := c.ShouldBindJSON(&req); err != nil {
+		// Try to include raw body preview when binding fails
+		if raw, _ := c.GetRawData(); len(raw) > 0 {
+			log.Printf("Import Upload: failed to bind JSON: %v; raw_body_preview=%s", err, util.SanitizeForLog(string(raw)))
+		} else {
+			log.Printf("Import Upload: failed to bind JSON: %v", err)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Printf("Import Upload: received upload filename=%s content_len=%d", req.Filename, len(req.Content))
 
 	// Save upload to import/uploads/<uuid>.caddyfile and return transient preview (do not persist yet)
 	sid := uuid.NewString()
@@ -267,6 +276,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 	if err := os.WriteFile(tempPath, []byte(req.Content), 0644); err != nil {
+		log.Printf("Import Upload: failed to write temp file %s: %v", tempPath, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
 	}
@@ -274,6 +284,16 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// Parse uploaded file transiently
 	result, err := h.importerservice.ImportFile(tempPath)
 	if err != nil {
+		// Read a small preview of the uploaded file for diagnostics
+		preview := ""
+		if b, rerr := os.ReadFile(tempPath); rerr == nil {
+			if len(b) > 200 {
+				preview = string(b[:200])
+			} else {
+				preview = string(b)
+			}
+		}
+		log.Printf("Import Upload: import failed: %v; tempPath=%s; content_preview=%s", err, tempPath, util.SanitizeForLog(preview))
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -281,6 +301,11 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// If no hosts were parsed, provide a clearer error when import directives exist
 	if len(result.Hosts) == 0 {
 		imports := detectImportDirectives(req.Content)
+		if len(imports) > 0 {
+			log.Printf("Import Upload: no hosts parsed but imports detected=%v", imports)
+		} else {
+			log.Printf("Import Upload: no hosts parsed and no imports detected; content_len=%d", len(req.Content))
+		}
 		if len(imports) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow" , "imports": imports})
 			return
@@ -334,6 +359,11 @@ func (h *ImportHandler) DetectImports(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if raw, _ := c.GetRawData(); len(raw) > 0 {
+			log.Printf("Import UploadMulti: failed to bind JSON: %v; raw_body_preview=%s", err, util.SanitizeForLog(string(raw)))
+		} else {
+			log.Printf("Import UploadMulti: failed to bind JSON: %v", err)
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -422,6 +452,16 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	// Parse the main Caddyfile (which will automatically resolve imports)
 	result, err := h.importerservice.ImportFile(mainCaddyfile)
 	if err != nil {
+		// Provide diagnostics
+		preview := ""
+		if b, rerr := os.ReadFile(mainCaddyfile); rerr == nil {
+			if len(b) > 200 {
+				preview = string(b[:200])
+			} else {
+				preview = string(b)
+			}
+		}
+		log.Printf("Import UploadMulti: import failed: %v; mainCaddyfile=%s; preview=%s", err, mainCaddyfile, util.SanitizeForLog(preview))
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}

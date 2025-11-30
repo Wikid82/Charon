@@ -152,6 +152,18 @@ RUN mkdir -p /app/data/geoip && \
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
+# Install CrowdSec binary (default version can be overridden at build time)
+ARG CROWDSEC_VERSION=1.6.0
+RUN apk add --no-cache curl tar gzip && \
+    set -eux; \
+    URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-v${CROWDSEC_VERSION}-linux-musl.tar.gz"; \
+    curl -fSL "$URL" -o /tmp/crowdsec.tar.gz && \
+    mkdir -p /tmp/crowdsec && tar -xzf /tmp/crowdsec.tar.gz -C /tmp/crowdsec --strip-components=1 || true; \
+    if [ -f /tmp/crowdsec/crowdsec ]; then \
+        mv /tmp/crowdsec/crowdsec /usr/local/bin/crowdsec && chmod +x /usr/local/bin/crowdsec; \
+    fi && \
+    rm -rf /tmp/crowdsec /tmp/crowdsec.tar.gz || true
+
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
@@ -183,6 +195,7 @@ ENV CHARON_ENV=production \
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config
+RUN mkdir -p /app/data/crowdsec
 
 # Re-declare build args for LABEL usage
 ARG VERSION=dev

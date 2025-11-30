@@ -111,6 +111,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
 
+		// Feature flags (DB-backed with env fallback)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		protected.GET("/feature-flags", featureFlagsHandler.GetFlags)
+		protected.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
+
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
 		protected.GET("/user/profile", userHandler.GetProfile)
@@ -196,6 +201,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// Security Status
 		securityHandler := handlers.NewSecurityHandler(cfg.Security, db)
 		protected.GET("/security/status", securityHandler.GetStatus)
+
+		// CrowdSec process management and import
+		// Data dir for crowdsec (persisted on host via volumes)
+		crowdsecDataDir := "data/crowdsec"
+		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
+		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
+		crowdsecHandler.RegisterRoutes(protected)
 	}
 
 	// Caddy Manager
