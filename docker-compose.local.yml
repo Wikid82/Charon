@@ -29,9 +29,9 @@ services:
     security_opt:
       - seccomp:unconfined
     volumes:
-      - charon_data_local:/app/data
-      - caddy_data_local:/data
-      - caddy_config_local:/config
+      - charon_data:/app/data
+      - caddy_data:/data
+      - caddy_config:/config
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - ./backend:/app/backend:ro # Mount source for debugging
       # Mount your existing Caddyfile for automatic import (optional)
@@ -45,11 +45,11 @@ services:
       start_period: 40s
 
 volumes:
-  charon_data_local:
+  charon_data:
     driver: local
-  caddy_data_local:
+  caddy_data:
     driver: local
-  caddy_config_local:
+  caddy_config:
     driver: local
 
 networks:
