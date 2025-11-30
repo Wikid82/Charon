@@ -3,7 +3,8 @@ package services
 import (
 	"bytes"
 	"fmt"
-	"log"
+	"context"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"net"
 	neturl "net/url"
 	"strings"
@@ -73,10 +74,10 @@ func (s *NotificationService) MarkAllAsRead() error {
 
 // External Notifications (Shoutrrr & Custom Webhooks)
 
-func (s *NotificationService) SendExternal(eventType, title, message string, data map[string]interface{}) {
+func (s *NotificationService) SendExternal(ctx context.Context, eventType, title, message string, data map[string]interface{}) {
 	var providers []models.NotificationProvider
 	if err := s.DB.Where("enabled = ?", true).Find(&providers).Error; err != nil {
-		log.Printf("Failed to fetch notification providers: %v", err)
+		logger.Log().WithError(err).Error("Failed to fetch notification providers")
 		return
 	}
 
@@ -118,29 +119,29 @@ func (s *NotificationService) SendExternal(eventType, title, message string, dat
 
 		go func(p models.NotificationProvider) {
 			if p.Type == "webhook" {
-				if err := s.sendCustomWebhook(p, data); err != nil {
-					log.Printf("Failed to send webhook to %s: %v", p.Name, err)
+				if err := s.sendCustomWebhook(ctx, p, data); err != nil {
+					logger.Log().WithError(err).WithField("provider", p.Name).Error("Failed to send webhook")
 				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
 				// Validate HTTP/HTTPS destinations used by shoutrrr to reduce SSRF risk
 				if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 					if _, err := validateWebhookURL(url); err != nil {
-						log.Printf("Skipping notification for provider %s due to invalid destination", p.Name)
+						logger.Log().WithField("provider", p.Name).Warn("Skipping notification for provider due to invalid destination")
 						return
 					}
 				}
 				// Use newline for better formatting in chat apps
 				msg := fmt.Sprintf("%s\n\n%s", title, message)
 				if err := shoutrrr.Send(url, msg); err != nil {
-					log.Printf("Failed to send notification to %s: %v", p.Name, err)
+					logger.Log().WithError(err).WithField("provider", p.Name).Error("Failed to send notification")
 				}
 			}
 		}(provider)
 	}
 }
 
-func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, data map[string]interface{}) error {
+func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.NotificationProvider, data map[string]interface{}) error {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
 	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
@@ -249,11 +250,17 @@ func (s *NotificationService) sendCustomWebhook(p models.NotificationProvider, d
 		Path:     u.Path,
 		RawQuery: u.RawQuery,
 	}
-	req, err := http.NewRequest("POST", safeURL.String(), &body)
+	req, err := http.NewRequestWithContext(ctx, "POST", safeURL.String(), &body)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Propagate request id header if present in context
+	if rid := ctx.Value("requestID"); rid != nil {
+		if ridStr, ok := rid.(string); ok {
+			req.Header.Set("X-Request-ID", ridStr)
+		}
+	}
 	// Preserve original hostname for virtual host (Host header)
 	req.Host = u.Host
 
@@ -344,7 +351,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 			"Latency": 123,
 			"Time":    time.Now().Format(time.RFC3339),
 		}
-		return s.sendCustomWebhook(provider, data)
+		return s.sendCustomWebhook(context.Background(), provider, data)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
 	return shoutrrr.Send(url, "Test notification from Charon")

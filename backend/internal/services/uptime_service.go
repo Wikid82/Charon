@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -521,7 +522,7 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 		"Services":     downMonitors,
 		"Time":         time.Now().Format(time.RFC1123),
 	}
-	s.NotificationService.SendExternal("uptime", title, sb.String(), data)
+	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
 
 	logger.Log().WithField("host_name", host.Name).WithField("service_count", len(downMonitors)).Info("Sent consolidated DOWN notification")
 }
@@ -751,7 +752,7 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 		"Services":     pending.downMonitors,
 		"Time":         time.Now().Format(time.RFC1123),
 	}
-	s.NotificationService.SendExternal("uptime", title, sb.String(), data)
+	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
 
 	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", pending.hostName).Info("Sent batched DOWN notification")
 }
@@ -781,7 +782,7 @@ func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, d
 		"Time":     time.Now().Format(time.RFC1123),
 		"URL":      monitor.URL,
 	}
-	s.NotificationService.SendExternal("uptime", title, sb.String(), data)
+	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
 }
 
 // FlushPendingNotifications flushes all pending batched notifications immediately.

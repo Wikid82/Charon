@@ -68,7 +68,7 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"remote_server",
 			"Remote Server Added",
 			fmt.Sprintf("Remote Server %s (%s:%d) added", server.Name, server.Host, server.Port),
@@ -136,17 +136,17 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	}
 
 	// Send Notification
-	if h.notificationService != nil {
-		h.notificationService.SendExternal(
-			"remote_server",
-			"Remote Server Deleted",
-			fmt.Sprintf("Remote Server %s deleted", server.Name),
-			map[string]interface{}{
-				"Name":   server.Name,
-				"Action": "deleted",
-			},
-		)
-	}
+		if h.notificationService != nil {
+			h.notificationService.SendExternal(c.Request.Context(),
+				"remote_server",
+				"Remote Server Deleted",
+				fmt.Sprintf("Remote Server %s deleted", server.Name),
+				map[string]interface{}{
+					"Name":   server.Name,
+					"Action": "deleted",
+				},
+			)
+		}
 
 	c.JSON(http.StatusNoContent, nil)
 }

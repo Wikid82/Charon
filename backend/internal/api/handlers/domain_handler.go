@@ -52,7 +52,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"domain",
 			"Domain Added",
 			fmt.Sprintf("Domain %s added", domain.Name),
@@ -72,7 +72,7 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	if err := h.DB.Where("uuid = ?", id).First(&domain).Error; err == nil {
 		// Send Notification before delete (or after if we keep the name)
 		if h.notificationService != nil {
-			h.notificationService.SendExternal(
+			h.notificationService.SendExternal(c.Request.Context(),
 				"domain",
 				"Domain Deleted",
 				fmt.Sprintf("Domain %s deleted", domain.Name),

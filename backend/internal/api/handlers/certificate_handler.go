@@ -92,7 +92,7 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"cert",
 			"Certificate Uploaded",
 			fmt.Sprintf("Certificate %s uploaded", cert.Name),
@@ -122,7 +122,7 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"cert",
 			"Certificate Deleted",
 			fmt.Sprintf("Certificate ID %d deleted", id),
