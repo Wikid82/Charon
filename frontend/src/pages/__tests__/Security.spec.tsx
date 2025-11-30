@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { cleanup } from '@testing-library/react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -64,10 +65,8 @@ describe('Security page', () => {
     expect(crowdsecToggle).toBeTruthy()
     await userEvent.click(crowdsecToggle)
     await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool'))
-    // Test Enable All toggles also call updateSetting for multiple keys
-    const enableAllBtn = screen.getByTestId('enable-all-btn')
-    await userEvent.click(enableAllBtn)
-    await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.waf.enabled', 'true', 'security', 'bool'))
+    // Ensure enable-all controls were removed
+    expect(screen.queryByTestId('enable-all-btn')).toBeNull()
   })
 
   it('calls export endpoint when clicking Export', async () => {
@@ -86,6 +85,38 @@ describe('Security page', () => {
     const exportBtn = screen.getByText('Export')
     await userEvent.click(exportBtn)
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
+  })
+
+  it('calls start/stop endpoints for CrowdSec', async () => {
+    const status: SecurityStatus = {
+      cerberus: { enabled: true },
+      crowdsec: { enabled: true, mode: 'local' as const, api_url: '' },
+      waf: { enabled: false, mode: 'disabled' as const },
+      rate_limit: { enabled: false },
+      acl: { enabled: false },
+    }
+    vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
+    // Test start
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    renderWithProviders(<Security />)
+    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    const startBtn = screen.getByText('Start')
+    await userEvent.click(startBtn)
+    await waitFor(() => expect(crowdsecApi.startCrowdsec).toHaveBeenCalled())
+    // Cleanup before re-render to avoid multiple DOM instances
+    cleanup()
+
+    // Test stop: render with running state and click stop
+    vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123 })
+    renderWithProviders(<Security />)
+    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Stop')).toBeInTheDocument())
+    const stopBtn = screen.getAllByText('Stop').find(b => !b.hasAttribute('disabled'))
+    if (!stopBtn) throw new Error('No enabled Stop button found')
+    await userEvent.click(stopBtn)
+    await waitFor(() => expect(crowdsecApi.stopCrowdsec).toHaveBeenCalled())
   })
 
   it('disables service toggles when cerberus is off', async () => {
