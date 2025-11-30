@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
+
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -111,7 +113,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		for _, cert := range customCerts {
 			// Validate that custom cert has both certificate and key
 			if cert.Certificate == "" || cert.PrivateKey == "" {
-				fmt.Printf("Warning: Custom certificate %s missing certificate or key, skipping\n", cert.Name)
+				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate missing certificate or key, skipping")
 				continue
 			}
 			loadPEM = append(loadPEM, LoadPEMConfig{
@@ -183,7 +185,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 				continue
 			}
 			if processedDomains[d] {
-				fmt.Printf("Warning: Skipping duplicate domain %s for host %s (Ghost Host detection)\n", d, host.UUID)
+				logger.Log().WithField("domain", d).WithField("host", host.UUID).Warn("Skipping duplicate domain for host (Ghost Host detection)")
 				continue
 			}
 			processedDomains[d] = true
@@ -201,7 +203,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		if host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			aclHandler, err := buildACLHandler(host.AccessList)
 			if err != nil {
-				fmt.Printf("Warning: Failed to build ACL handler for host %s: %v\n", host.UUID, err)
+				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
 			} else if aclHandler != nil {
 				handlers = append(handlers, aclHandler)
 			}
@@ -248,7 +250,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		if host.AdvancedConfig != "" {
 			var parsed interface{}
 			if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-				fmt.Printf("Warning: Failed to parse advanced_config for host %s: %v\n", host.UUID, err)
+				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to parse advanced_config for host")
 			} else {
 				switch v := parsed.(type) {
 				case map[string]interface{}:
@@ -258,7 +260,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
-						fmt.Printf("Warning: advanced_config for host %s is not a handler object\n", host.UUID)
+						logger.Log().WithField("host", host.UUID).Warn("advanced_config for host is not a handler object")
 					}
 				case []interface{}:
 					for _, it := range v {
@@ -270,7 +272,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						}
 					}
 				default:
-					fmt.Printf("Warning: advanced_config for host %s has unexpected JSON structure\n", host.UUID)
+					logger.Log().WithField("host", host.UUID).Warn("advanced_config for host has unexpected JSON structure")
 				}
 			}
 		}
