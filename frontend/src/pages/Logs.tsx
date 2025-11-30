@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect, type FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
@@ -27,7 +27,7 @@ const Logs: React.FC = () => {
   });
 
   // Select first log by default if none selected
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selectedLog && logs && logs.length > 0) {
       setSelectedLog(logs[0].name);
     }
@@ -54,7 +54,7 @@ const Logs: React.FC = () => {
       downloadLog(selectedLog);
     }
   };
-
+  const Logs: FC = () => {
   const totalPages = logData ? Math.ceil(logData.total / limit) : 0;
 
   return (

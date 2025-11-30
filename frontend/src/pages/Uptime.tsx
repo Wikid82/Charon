@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, type FC, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMonitors, getMonitorHistory, updateMonitor, UptimeMonitor } from '../api/uptime';
 import { Activity, ArrowUp, ArrowDown, Settings, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-const MonitorCard: React.FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void }> = ({ monitor, onEdit }) => {
+const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void }> = ({ monitor, onEdit }) => {
   const { data: history } = useQuery({
     queryKey: ['uptimeHistory', monitor.id],
     queryFn: () => getMonitorHistory(monitor.id, 60),
@@ -90,7 +90,7 @@ Message: ${beat.message}`}
   );
 };
 
-const EditMonitorModal: React.FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({ monitor, onClose }) => {
+const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({ monitor, onClose }) => {
     const queryClient = useQueryClient();
     const [maxRetries, setMaxRetries] = useState(monitor.max_retries || 3);
     const [interval, setInterval] = useState(monitor.interval || 60);
@@ -103,7 +103,7 @@ const EditMonitorModal: React.FC<{ monitor: UptimeMonitor; onClose: () => void }
         },
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         mutation.mutate({ max_retries: maxRetries, interval });
     };
@@ -172,7 +172,7 @@ const EditMonitorModal: React.FC<{ monitor: UptimeMonitor; onClose: () => void }
     );
 };
 
-const Uptime: React.FC = () => {
+const Uptime: FC = () => {
   const { data: monitors, isLoading } = useQuery({
     queryKey: ['monitors'],
     queryFn: getMonitors,

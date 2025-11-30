@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, type FC } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate } from '../api/notifications';
 import { Card } from '../components/ui/Card';
@@ -6,7 +6,7 @@ import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 
-const ProviderForm: React.FC<{
+const ProviderForm: FC<{
   initialData?: Partial<NotificationProvider>;
   onClose: () => void;
   onSubmit: (data: Partial<NotificationProvider>) => void;
@@ -225,7 +225,7 @@ const ProviderForm: React.FC<{
   );
 };
 
-const TemplateForm: React.FC<{
+const TemplateForm: FC<{
   initialData?: Partial<ExternalTemplate>;
   onClose: () => void;
   onSubmit: (data: Partial<ExternalTemplate>) => void;
@@ -287,7 +287,7 @@ const TemplateForm: React.FC<{
   );
 };
 
-const Notifications: React.FC = () => {
+const Notifications: FC = () => {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
