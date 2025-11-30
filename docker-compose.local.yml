@@ -32,6 +32,7 @@ services:
       - charon_data:/app/data
       - caddy_data:/data
       - caddy_config:/config
+      - crowdsec_data:/app/data/crowdsec
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - ./backend:/app/backend:ro # Mount source for debugging
       # Mount your existing Caddyfile for automatic import (optional)
@@ -50,6 +51,8 @@ volumes:
   caddy_data:
     driver: local
   caddy_config:
+    driver: local
+  crowdsec_data:
     driver: local
 
 networks:

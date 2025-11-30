@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type FC, type FormEvent } from 'react';
+import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMonitors, getMonitorHistory, updateMonitor, UptimeMonitor } from '../api/uptime';
 import { Activity, ArrowUp, ArrowDown, Settings, X } from 'lucide-react';
