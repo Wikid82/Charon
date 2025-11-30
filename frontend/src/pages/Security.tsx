@@ -149,6 +149,9 @@ export default function Security() {
                 ? `Mode: ${status.crowdsec.mode}`
                 : 'Intrusion Prevention System'}
             </p>
+            {crowdsecStatus && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
+            )}
             {status.crowdsec.enabled && (
               <div className="mt-4 flex gap-2">
                   <Button
