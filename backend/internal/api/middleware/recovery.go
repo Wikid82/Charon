@@ -1,7 +1,6 @@
 package middleware
 
 import (
-    "log"
     "net/http"
     "runtime/debug"
 
@@ -14,10 +13,16 @@ func Recovery(verbose bool) gin.HandlerFunc {
     return func(c *gin.Context) {
         defer func() {
             if r := recover(); r != nil {
+                // Try to get a request-scoped logger; fall back to global logger
+                entry := GetRequestLogger(c)
                 if verbose {
-                    log.Printf("PANIC: %v\nRequest: %s %s\nHeaders: %v\nStacktrace:\n%s", r, c.Request.Method, c.Request.URL.String(), c.Request.Header, debug.Stack())
+                    entry.WithFields(map[string]interface{}{
+                        "method":  c.Request.Method,
+                        "path":    c.Request.URL.Path,
+                        "headers": c.Request.Header,
+                    }).Errorf("PANIC: %v\nStacktrace:\n%s", r, debug.Stack())
                 } else {
-                    log.Printf("PANIC: %v", r)
+                    entry.Errorf("PANIC: %v", r)
                 }
                 c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
             }
