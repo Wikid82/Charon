@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
-import { exportCrowdsecConfig } from '../api/crowdsec'
+import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
 import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
@@ -16,6 +17,7 @@ export default function Security() {
     queryFn: getSecurityStatus,
   })
   const queryClient = useQueryClient()
+  const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
   // Generic toggle mutation for per-service settings
   const toggleServiceMutation = useMutation({
     mutationFn: async ({ key, enabled }: { key: string; enabled: boolean }) => {
@@ -40,6 +42,20 @@ export default function Security() {
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
     },
   })
+
+  const fetchCrowdsecStatus = async () => {
+    try {
+      const s = await statusCrowdsec()
+      setCrowdsecStatus(s)
+    } catch {
+      setCrowdsecStatus(null)
+    }
+  }
+
+  useEffect(() => { fetchCrowdsecStatus() }, [])
+
+  const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
+  const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
 
   if (isLoading) {
     return <div className="p-8 text-center">Loading security status...</div>
@@ -91,41 +107,7 @@ export default function Security() {
               data-testid="toggle-cerberus"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                // enable all services
-                const keys = [
-                  'security.crowdsec.enabled',
-                  'security.waf.enabled',
-                  'security.acl.enabled',
-                  'security.rate_limit.enabled',
-                ]
-                keys.forEach(k => toggleServiceMutation.mutate({ key: k, enabled: true }))
-              }}
-              data-testid="enable-all-btn"
-            >
-              Enable All
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const keys = [
-                  'security.crowdsec.enabled',
-                  'security.waf.enabled',
-                  'security.acl.enabled',
-                  'security.rate_limit.enabled',
-                ]
-                keys.forEach(k => toggleServiceMutation.mutate({ key: k, enabled: false }))
-              }}
-              data-testid="disable-all-btn"
-            >
-              Disable All
-            </Button>
-          </div>
+          <div/>
         <Button
           variant="secondary"
           onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
@@ -204,6 +186,30 @@ export default function Security() {
                   <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/settings/crowdsec')}>
                     Configure
                   </Button>
+                  <div className="flex gap-2 w-full">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => startMutation.mutate()}
+                      isLoading={startMutation.isPending}
+                      disabled={!!crowdsecStatus?.running}
+                    >
+
+                      Start
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => stopMutation.mutate()}
+                      isLoading={stopMutation.isPending}
+                      disabled={!crowdsecStatus?.running}
+                    >
+
+                      Stop
+                    </Button>
+                  </div>
                 </div>
             )}
           </div>
