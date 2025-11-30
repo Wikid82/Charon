@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -19,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 )
 
 // ImportHandler handles Caddyfile import operations.
@@ -248,16 +248,17 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// Capture raw request for better diagnostics in tests
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Try to include raw body preview when binding fails
+		entry := middleware.GetRequestLogger(c)
 		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			log.Printf("Import Upload: failed to bind JSON: %v; raw_body_preview=%s", err, util.SanitizeForLog(string(raw)))
+			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import Upload: failed to bind JSON")
 		} else {
-			log.Printf("Import Upload: failed to bind JSON: %v", err)
+			entry.WithError(err).Error("Import Upload: failed to bind JSON")
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	log.Printf("Import Upload: received upload filename=%s content_len=%d", req.Filename, len(req.Content))
+	middleware.GetRequestLogger(c).WithField("filename", req.Filename).WithField("content_len", len(req.Content)).Info("Import Upload: received upload")
 
 	// Save upload to import/uploads/<uuid>.caddyfile and return transient preview (do not persist yet)
 	sid := uuid.NewString()
@@ -276,7 +277,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 	if err := os.WriteFile(tempPath, []byte(req.Content), 0644); err != nil {
-		log.Printf("Import Upload: failed to write temp file %s: %v", tempPath, err)
+		middleware.GetRequestLogger(c).WithField("tempPath", tempPath).WithError(err).Error("Import Upload: failed to write temp file")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
 	}
@@ -293,7 +294,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 				preview = string(b)
 			}
 		}
-		log.Printf("Import Upload: import failed: %v; tempPath=%s; content_preview=%s", err, tempPath, util.SanitizeForLog(preview))
+		middleware.GetRequestLogger(c).WithError(err).WithField("tempPath", tempPath).WithField("content_preview", util.SanitizeForLog(preview)).Error("Import Upload: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -302,9 +303,9 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	if len(result.Hosts) == 0 {
 		imports := detectImportDirectives(req.Content)
 		if len(imports) > 0 {
-			log.Printf("Import Upload: no hosts parsed but imports detected=%v", imports)
+			middleware.GetRequestLogger(c).WithField("imports", imports).Warn("Import Upload: no hosts parsed but imports detected")
 		} else {
-			log.Printf("Import Upload: no hosts parsed and no imports detected; content_len=%d", len(req.Content))
+			middleware.GetRequestLogger(c).WithField("content_len", len(req.Content)).Warn("Import Upload: no hosts parsed and no imports detected")
 		}
 		if len(imports) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow", "imports": imports})
@@ -359,10 +360,11 @@ func (h *ImportHandler) DetectImports(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		entry := middleware.GetRequestLogger(c)
 		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			log.Printf("Import UploadMulti: failed to bind JSON: %v; raw_body_preview=%s", err, util.SanitizeForLog(string(raw)))
+			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import UploadMulti: failed to bind JSON")
 		} else {
-			log.Printf("Import UploadMulti: failed to bind JSON: %v", err)
+			entry.WithError(err).Error("Import UploadMulti: failed to bind JSON")
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -461,7 +463,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 				preview = string(b)
 			}
 		}
-		log.Printf("Import UploadMulti: import failed: %v; mainCaddyfile=%s; preview=%s", err, mainCaddyfile, util.SanitizeForLog(preview))
+		middleware.GetRequestLogger(c).WithError(err).WithField("mainCaddyfile", mainCaddyfile).WithField("preview", util.SanitizeForLog(preview)).Error("Import UploadMulti: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -621,7 +623,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 	// Convert parsed hosts to ProxyHost models
 	proxyHosts := caddy.ConvertToProxyHosts(result.Hosts)
-	log.Printf("Import Commit: Parsed %d hosts, converted to %d proxy hosts", len(result.Hosts), len(proxyHosts))
+	middleware.GetRequestLogger(c).WithField("parsed_hosts", len(result.Hosts)).WithField("proxy_hosts", len(proxyHosts)).Info("Import Commit: Parsed and converted hosts")
 
 	created := 0
 	updated := 0
@@ -664,10 +666,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				if err := h.proxyHostSvc.Update(&host); err != nil {
 					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 					errors = append(errors, errMsg)
-					log.Printf("Import Commit Error (update): %s", sanitizeForLog(errMsg))
+					middleware.GetRequestLogger(c).WithField("host", host.DomainNames).WithField("error", sanitizeForLog(errMsg)).Error("Import Commit Error (update)")
 				} else {
 					updated++
-					log.Printf("Import Commit Success: Updated host %s", sanitizeForLog(host.DomainNames))
+					middleware.GetRequestLogger(c).WithField("host", sanitizeForLog(host.DomainNames)).Info("Import Commit Success: Updated host")
 				}
 				continue
 			}
@@ -679,10 +681,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		if err := h.proxyHostSvc.Create(&host); err != nil {
 			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 			errors = append(errors, errMsg)
-			log.Printf("Import Commit Error: %s", util.SanitizeForLog(errMsg))
+			middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error")
 		} else {
 			created++
-			log.Printf("Import Commit Success: Created host %s", util.SanitizeForLog(host.DomainNames))
+			middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Import Commit Success: Created host")
 		}
 	}
 
@@ -699,7 +701,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		session.ConflictReport = string(mustMarshal(result.Conflicts))
 	}
 	if err := h.db.Save(&session).Error; err != nil {
-		log.Printf("Warning: failed to save import session: %v", err)
+		middleware.GetRequestLogger(c).WithError(err).Warn("Warning: failed to save import session")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
