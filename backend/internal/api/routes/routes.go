@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // Register wires up API routes and performs automatic migrations.
@@ -44,14 +45,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	// Clean up invalid Let's Encrypt certificate associations
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
-	fmt.Println("Cleaning up invalid Let's Encrypt certificate associations...")
+	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	var hostsWithInvalidCerts []models.ProxyHost
 	if err := db.Joins("LEFT JOIN ssl_certificates ON proxy_hosts.certificate_id = ssl_certificates.id").
 		Where("ssl_certificates.provider = ?", "letsencrypt").
 		Find(&hostsWithInvalidCerts).Error; err == nil {
 		if len(hostsWithInvalidCerts) > 0 {
 			for _, host := range hostsWithInvalidCerts {
-				fmt.Printf("Removing invalid Let's Encrypt cert assignment from %s\n", host.DomainNames)
+				logger.Log().WithField("domain", host.DomainNames).Info("Removing invalid Let's Encrypt cert assignment")
 				db.Model(&host).Update("certificate_id", nil)
 			}
 		}
@@ -152,7 +153,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 			dockerHandler.RegisterRoutes(protected)
 		} else {
-			fmt.Printf("Warning: Docker service unavailable: %v\n", err)
+			logger.Log().WithError(err).Warn("Docker service unavailable")
 		}
 
 		// Uptime Service
@@ -188,7 +189,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			time.Sleep(30 * time.Second)
 			// Initial sync
 			if err := uptimeService.SyncMonitors(); err != nil {
-				fmt.Printf("Failed to sync monitors: %v\n", err)
+				logger.Log().WithError(err).Error("Failed to sync monitors")
 			}
 
 			ticker := time.NewTicker(1 * time.Minute)
@@ -242,7 +243,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
 	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
 	caddyDataDir := cfg.CaddyConfigDir + "/data"
-	fmt.Printf("Using Caddy data directory for certificates scan: %s\n", caddyDataDir)
+	logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
 	certService := services.NewCertificateService(caddyDataDir, db)
 	certHandler := handlers.NewCertificateHandler(certService, notificationService)
 	api.GET("/certificates", certHandler.List)
@@ -261,7 +262,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		for {
 			select {
 			case <-timeout:
-				fmt.Println("Timeout waiting for Caddy to be ready")
+				logger.Log().Warn("Timeout waiting for Caddy to be ready")
 				return
 			case <-ticker.C:
 				if err := caddyManager.Ping(ctx); err == nil {
@@ -275,9 +276,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		if ready {
 			// Apply config
 			if err := caddyManager.ApplyConfig(ctx); err != nil {
-				fmt.Printf("Failed to apply initial Caddy config: %v\n", err)
+				logger.Log().WithError(err).Error("Failed to apply initial Caddy config")
 			} else {
-				fmt.Printf("Successfully applied initial Caddy config\n")
+				logger.Log().Info("Successfully applied initial Caddy config")
 			}
 		}
 	}()
