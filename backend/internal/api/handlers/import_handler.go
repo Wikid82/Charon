@@ -278,6 +278,17 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		return
 	}
 
+	// If no hosts were parsed, provide a clearer error when import directives exist
+	if len(result.Hosts) == 0 {
+		imports := detectImportDirectives(req.Content)
+		if len(imports) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow" , "imports": imports})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile"})
+		return
+	}
+
 	// Check for conflicts with existing hosts and build conflict details
 	existingHosts, _ := h.proxyHostSvc.List()
 	existingDomainsMap := make(map[string]models.ProxyHost)
@@ -412,6 +423,19 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	result, err := h.importerservice.ImportFile(mainCaddyfile)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
+		return
+	}
+
+	// If parsing succeeded but no hosts were found, and imports were present in the main file,
+	// inform the caller to upload the site files.
+	if len(result.Hosts) == 0 {
+		mainContentBytes, _ := os.ReadFile(mainCaddyfile)
+		imports := detectImportDirectives(string(mainContentBytes))
+		if len(imports) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites parsed from main Caddyfile; import directives detected; please include site files in upload", "imports": imports})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no sites parsed from main Caddyfile"})
 		return
 	}
 
