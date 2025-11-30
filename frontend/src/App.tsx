@@ -53,6 +53,10 @@ export default function App() {
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
               <Route path="security" element={<Security />} />
+              <Route path="security/access-lists" element={<AccessLists />} />
+              <Route path="security/crowdsec" element={<CrowdSecConfig />} />
+              <Route path="security/rate-limiting" element={<SystemSettings />} />
+              <Route path="security/waf" element={<div className="p-6">WAF has no configuration at this time.</div>} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
@@ -62,7 +66,7 @@ export default function App() {
               <Route path="settings" element={<Settings />}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
-                <Route path="crowdsec" element={<CrowdSecConfig />} />
+                <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="account" element={<Account />} />
               </Route>
 
