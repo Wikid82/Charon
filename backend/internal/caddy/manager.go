@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // Test hooks to allow overriding OS and JSON functions
@@ -114,7 +115,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {
 		// Non-fatal - log but don't fail
-		fmt.Printf("warning: snapshot rotation failed: %v\n", err)
+		logger.Log().WithError(err).Warn("warning: snapshot rotation failed")
 	}
 
 	return nil
