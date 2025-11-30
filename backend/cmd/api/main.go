@@ -9,6 +9,8 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -99,6 +101,14 @@ func main() {
 	}
 
 	router := server.NewRouter(cfg.FrontendDir)
+	// Initialize structured logger with same writer as stdlib log so both capture logs
+	logger.Init(cfg.Debug, mw)
+	// Request ID middleware must run before recovery so the recover logs include the request id
+	router.Use(middleware.RequestID())
+	// Log requests with request-scoped logger
+	router.Use(middleware.RequestLogger())
+	// Attach a recovery middleware that logs stack traces when debug is enabled
+	router.Use(middleware.Recovery(cfg.Debug))
 
 	// Pass config to routes for auth service and certificate service
 	if err := routes.Register(router, db, cfg); err != nil {
@@ -114,7 +124,7 @@ func main() {
 	}
 
 	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
-	log.Printf("starting %s backend on %s", version.Name, addr)
+	logger.Log().Infof("starting %s backend on %s", version.Name, addr)
 
 	if err := router.Run(addr); err != nil {
 		log.Fatalf("server error: %v", err)
