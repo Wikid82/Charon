@@ -8,7 +8,7 @@ import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
-import { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig } from '../api/crowdsec'
+import { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig } from '../api/crowdsec'
 import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
 
 interface HealthResponse {
@@ -356,6 +356,22 @@ export default function SystemSettings() {
             <div className="flex items-center gap-3">
               <Button onClick={() => startMutation.mutate()} isLoading={startMutation.isPending}>Start</Button>
               <Button onClick={() => stopMutation.mutate()} isLoading={stopMutation.isPending} variant="secondary">Stop</Button>
+              <Button onClick={async () => {
+                try {
+                  const b = await exportCrowdsecConfig()
+                  const url = window.URL.createObjectURL(new Blob([b]))
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `crowdsec-config-${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.tar.gz`
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  window.URL.revokeObjectURL(url)
+                  toast.success('CrowdSec configuration exported')
+                } catch {
+                  toast.error('Failed to export CrowdSec configuration')
+                }
+              }} variant="secondary">Export</Button>
             </div>
           </div>
 

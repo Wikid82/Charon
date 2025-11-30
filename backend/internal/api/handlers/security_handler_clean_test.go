@@ -80,3 +80,77 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 	cerb := response["cerberus"].(map[string]interface{})
 	assert.Equal(t, true, cerb["enabled"].(bool))
 }
+
+func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db := setupTestDB(t)
+	// set DB to configure crowdsec.mode to local
+	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error; err != nil {
+		t.Fatalf("failed to insert setting: %v", err)
+	}
+
+	cfg := config.SecurityConfig{CrowdSecMode: "disabled"}
+	handler := NewSecurityHandler(cfg, db)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	cs := response["crowdsec"].(map[string]interface{})
+	assert.Equal(t, "local", cs["mode"].(string))
+}
+
+func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	// set DB to configure crowdsec.mode to external
+	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "external"}).Error; err != nil {
+		t.Fatalf("failed to insert setting: %v", err)
+	}
+	cfg := config.SecurityConfig{CrowdSecMode: "local"}
+	handler := NewSecurityHandler(cfg, db)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	cs := response["crowdsec"].(map[string]interface{})
+	assert.Equal(t, "disabled", cs["mode"].(string))
+	assert.Equal(t, false, cs["enabled"].(bool))
+}
+
+func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := config.SecurityConfig{
+		CrowdSecMode:  "external",
+		WAFMode:       "disabled",
+		RateLimitMode: "disabled",
+		ACLMode:       "disabled",
+	}
+	handler := NewSecurityHandler(cfg, nil)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	cs := response["crowdsec"].(map[string]interface{})
+	assert.Equal(t, "disabled", cs["mode"].(string))
+	assert.Equal(t, false, cs["enabled"].(bool))
+}

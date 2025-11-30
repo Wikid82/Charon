@@ -64,6 +64,7 @@ export default function Layout({ children }: LayoutProps) {
       icon: '⚙️',
       children: [
         { name: 'System', path: '/settings/system', icon: '⚙️' },
+        { name: 'CrowdSec', path: '/settings/crowdsec', icon: '🛡️' },
         { name: 'Account', path: '/settings/account', icon: '🛡️' },
       ]
     },

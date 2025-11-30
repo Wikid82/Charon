@@ -24,4 +24,24 @@ export async function importCrowdsecConfig(file: File) {
   return resp.data
 }
 
-export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig }
+export async function exportCrowdsecConfig() {
+  const resp = await client.get('/admin/crowdsec/export', { responseType: 'blob' })
+  return resp.data
+}
+
+export async function listCrowdsecFiles() {
+  const resp = await client.get<{ files: string[] }>('/admin/crowdsec/files')
+  return resp.data
+}
+
+export async function readCrowdsecFile(path: string) {
+  const resp = await client.get<{ content: string }>(`/admin/crowdsec/file?path=${encodeURIComponent(path)}`)
+  return resp.data
+}
+
+export async function writeCrowdsecFile(path: string, content: string) {
+  const resp = await client.post('/admin/crowdsec/file', { path, content })
+  return resp.data
+}
+
+export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile }

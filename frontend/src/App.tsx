@@ -16,6 +16,7 @@ const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
+const CrowdSecConfig = lazy(() => import('./pages/CrowdSecConfig'))
 const Account = lazy(() => import('./pages/Account'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Backups = lazy(() => import('./pages/Backups'))
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="settings" element={<Settings />}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
+                <Route path="crowdsec" element={<CrowdSecConfig />} />
                 <Route path="account" element={<Account />} />
               </Route>
 
