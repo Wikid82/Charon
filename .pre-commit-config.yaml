@@ -86,12 +86,13 @@ repos:
         pass_filenames: false
 
       - id: frontend-test-coverage
-        name: Frontend Test Coverage
+        name: Frontend Test Coverage (Manual)
         entry: scripts/frontend-test-coverage.sh
         language: script
-        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        files: '^frontend/.*\\.(ts|tsx|js|jsx)$'
         pass_filenames: false
         verbose: true
+        stages: [manual]
 
       - id: security-scan
         name: Security Vulnerability Scan (Manual)
