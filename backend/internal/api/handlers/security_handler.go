@@ -42,12 +42,33 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		}
 	}
 
+	// Allow runtime overrides for CrowdSec mode + API URL via settings table
+	mode := h.cfg.CrowdSecMode
+	apiURL := h.cfg.CrowdSecAPIURL
+	if h.db != nil {
+		var m struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&m).Error; err == nil && m.Value != "" {
+			mode = m.Value
+		}
+		var a struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.api_url").Scan(&a).Error; err == nil && a.Value != "" {
+			apiURL = a.Value
+		}
+	}
+
+	// Treat external crowdsec mode as unsupported in this release. If configured as 'external',
+	// present it as disabled so the UI doesn't attempt to call out to an external agent.
+	if mode == "external" {
+		mode = "disabled"
+		apiURL = ""
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
-			"mode":    h.cfg.CrowdSecMode,
-			"api_url": h.cfg.CrowdSecAPIURL,
-			"enabled": h.cfg.CrowdSecMode != "disabled",
+			"mode":    mode,
+			"api_url": apiURL,
+			"enabled": mode == "local",
 		},
 		"waf": gin.H{
 			"mode":    h.cfg.WAFMode,

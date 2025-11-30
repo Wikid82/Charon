@@ -307,7 +307,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 			log.Printf("Import Upload: no hosts parsed and no imports detected; content_len=%d", len(req.Content))
 		}
 		if len(imports) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow" , "imports": imports})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile; imports detected; please upload the referenced site files using the multi-file import flow", "imports": imports})
 			return
 		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no sites found in uploaded Caddyfile"})
@@ -679,10 +679,10 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		if err := h.proxyHostSvc.Create(&host); err != nil {
 			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 			errors = append(errors, errMsg)
-					log.Printf("Import Commit Error: %s", util.SanitizeForLog(errMsg))
+			log.Printf("Import Commit Error: %s", util.SanitizeForLog(errMsg))
 		} else {
 			created++
-					log.Printf("Import Commit Success: Created host %s", util.SanitizeForLog(host.DomainNames))
+			log.Printf("Import Commit Success: Created host %s", util.SanitizeForLog(host.DomainNames))
 		}
 	}
 
