@@ -100,6 +100,37 @@ describe('Uptime page', () => {
     expect(barTitles.some(el => (el.getAttribute('title') || '').includes('Status: DOWN'))).toBeTruthy()
   })
 
+  it('pause button is yellow and appears before delete in settings menu', async () => {
+    const monitor = {
+      id: 'm12', name: 'OrderTest', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
+      status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3,
+    }
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([monitor])
+    vi.mocked(uptimeApi.getMonitorHistory).mockResolvedValue([])
+
+    renderWithProviders(<Uptime />)
+    await waitFor(() => expect(screen.getByText('OrderTest')).toBeInTheDocument())
+    const card = screen.getByText('OrderTest').closest('div') as HTMLElement
+    await userEvent.click(within(card).getByTitle('Monitor settings'))
+
+    const configureBtn = within(card).getByText('Configure')
+    // Find the menu container by traversing up until the absolute positioned menu is found
+    let menuContainer: HTMLElement | null = configureBtn.parentElement
+    while (menuContainer && !menuContainer.className.includes('absolute')) {
+      menuContainer = menuContainer.parentElement
+    }
+    expect(menuContainer).toBeTruthy()
+    const buttons = Array.from(menuContainer!.querySelectorAll('button'))
+    const pauseBtn = buttons.find(b => b.textContent?.trim() === 'Pause')
+    const deleteBtn = buttons.find(b => b.textContent?.trim() === 'Delete')
+    expect(pauseBtn).toBeTruthy()
+    expect(deleteBtn).toBeTruthy()
+    // Ensure Pause appears before Delete
+    expect(buttons.indexOf(pauseBtn!)).toBeLessThan(buttons.indexOf(deleteBtn!))
+    // Ensure Pause has yellow styling class
+    expect(pauseBtn!.className).toContain('text-yellow-600')
+  })
+
   it('deletes monitor when delete confirmed and shows toast', async () => {
     const monitor = {
       id: 'm5', name: 'DeleteMe', url: 'http://example.com', type: 'http', interval: 60, enabled: true,
