@@ -135,7 +135,10 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                 min={1}
                 max={65535}
                 value={formData.port}
-                onChange={e => setFormData({ ...formData, port: parseInt(e.target.value) })}
+                onChange={e => {
+                  const v = parseInt(e.target.value)
+                  setFormData({ ...formData, port: Number.isNaN(v) ? 0 : v })
+                }}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>

@@ -22,14 +22,16 @@ type ProxyHostHandler struct {
 	service             *services.ProxyHostService
 	caddyManager        *caddy.Manager
 	notificationService *services.NotificationService
+	uptimeService       *services.UptimeService
 }
 
 // NewProxyHostHandler creates a new proxy host handler.
-func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService) *ProxyHostHandler {
+func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService, uptimeService *services.UptimeService) *ProxyHostHandler {
 	return &ProxyHostHandler{
 		service:             services.NewProxyHostService(db),
 		caddyManager:        caddyManager,
 		notificationService: ns,
+		uptimeService:       uptimeService,
 	}
 }
 
@@ -213,6 +215,19 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
+	}
+
+	// check if we should also delete associated uptime monitors (query param: delete_uptime=true)
+	deleteUptime := c.DefaultQuery("delete_uptime", "false") == "true"
+
+	if deleteUptime && h.uptimeService != nil {
+		// Find all monitors referencing this proxy host and delete each
+		var monitors []models.UptimeMonitor
+		if err := h.uptimeService.DB.Where("proxy_host_id = ?", host.ID).Find(&monitors).Error; err == nil {
+			for _, m := range monitors {
+				_ = h.uptimeService.DeleteMonitor(m.ID)
+			}
+		}
 	}
 
 	if err := h.service.Delete(host.ID); err != nil {

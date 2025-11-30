@@ -4,16 +4,20 @@ import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
+import type { ProxyHost } from '../../api/proxyHosts'
 import ProxyHosts from '../ProxyHosts'
+import { formatSettingLabel, settingHelpText, settingKeyToField, applyBulkSettingsToHosts } from '../../utils/proxyHostsHelpers'
 import * as proxyHostsApi from '../../api/proxyHosts'
 import * as certificatesApi from '../../api/certificates'
 import * as accessListsApi from '../../api/accessLists'
+import type { AccessList } from '../../api/accessLists'
 import * as settingsApi from '../../api/settings'
+import * as uptimeApi from '../../api/uptime'
+// Certificate type not required in this spec
+import type { UptimeMonitor } from '../../api/uptime'
 // toast is mocked in other tests; not used here
 
-vi.mock('react-hot-toast', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
-}))
+vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
 
 vi.mock('../../api/proxyHosts', () => ({
   getProxyHosts: vi.fn(),
@@ -28,6 +32,7 @@ vi.mock('../../api/certificates', () => ({ getCertificates: vi.fn() }))
 vi.mock('../../api/accessLists', () => ({ accessListsApi: { list: vi.fn() } }))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
 vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
+vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
 
 const createQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } })
 
@@ -42,7 +47,7 @@ const renderWithProviders = (ui: React.ReactNode) => {
 
 import { createMockProxyHost } from '../../testUtils/createMockProxyHost'
 
-const baseHost = (overrides: any = {}) => createMockProxyHost(overrides)
+const baseHost = (overrides: Partial<ProxyHost> = {}) => createMockProxyHost(overrides)
 
 describe('ProxyHosts - Coverage enhancements', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -79,7 +84,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
         certificate: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      } as any)
+      } as ProxyHost)
       vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
       vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
       vi.mocked(settingsApi.getSettings).mockResolvedValue({})
@@ -151,7 +156,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
       vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
       vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
         { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-      ] as any)
+      ] as AccessList[])
       vi.mocked(settingsApi.getSettings).mockResolvedValue({})
       vi.mocked(proxyHostsApi.bulkUpdateACL).mockRejectedValue(new Error('Bad things'))
 
@@ -251,7 +256,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
       vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
         { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist', enabled: true, ip_rules: '[]', country_codes: '', local_network_only: false, created_at: '2025-01-01', updated_at: '2025-01-01' },
-      ] as any)
+      ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
@@ -275,7 +280,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
@@ -303,7 +308,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 2, errors: [] })
 
@@ -331,7 +336,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
@@ -360,7 +365,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 1, errors: [{ uuid: 's2', error: 'Bad' }] })
 
@@ -386,7 +391,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockRejectedValue(new Error('Bulk fail'))
 
@@ -459,7 +464,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
   })
 
   it('renders SSL states: custom, staging, letsencrypt variations', async () => {
-    const hostCustom = baseHost({ uuid: 'c1', name: 'Custom', domain_names: 'custom.com', ssl_forced: true, certificate: { provider: 'custom', name: 'CustomCert' } })
+    const hostCustom = baseHost({ uuid: 'c1', name: 'Custom', domain_names: 'custom.com', ssl_forced: true, certificate: { id: 123, uuid: 'cert-1', name: 'CustomCert', provider: 'custom', domains: 'custom.com', expires_at: '2026-01-01' } })
     const hostStaging = baseHost({ uuid: 's1', name: 'Staging', domain_names: 'staging.com', ssl_forced: true })
     const hostAuto = baseHost({ uuid: 'a1', name: 'Auto', domain_names: 'auto.com', ssl_forced: true })
     const hostLets = baseHost({ uuid: 'l1', name: 'Lets', domain_names: 'lets.com', ssl_forced: true })
@@ -540,6 +545,87 @@ describe('ProxyHosts - Coverage enhancements', () => {
     await userEvent.click(delButton)
     await waitFor(() => expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('del1'))
     confirmSpy.mockRestore()
+  })
+
+  it('deletes associated uptime monitors when confirmed', async () => {
+    const host = baseHost({ uuid: 'del2', name: 'Del2', forward_host: '127.0.0.5' })
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host])
+    vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
+    vi.mocked(settingsApi.getSettings).mockResolvedValue({})
+    // uptime monitors associated with host
+    vi.mocked(uptimeApi.getMonitors).mockResolvedValue([{ id: 'm1', name: 'm1', url: 'http://example', type: 'http', interval: 60, enabled: true, status: 'up', last_check: new Date().toISOString(), latency: 10, max_retries: 3, upstream_host: '127.0.0.5' } as UptimeMonitor])
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    renderWithProviders(<ProxyHosts />)
+    await waitFor(() => expect(screen.getByText('Del2')).toBeTruthy())
+    const row = screen.getByText('Del2').closest('tr') as HTMLTableRowElement
+    const delButton = within(row).getByText('Delete')
+    await userEvent.click(delButton)
+    // Should call delete with deleteUptime true
+    await waitFor(() => expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('del2', true))
+    confirmSpy.mockRestore()
+  })
+
+  it('ignores uptime API errors and deletes host without deleting uptime', async () => {
+    const host = baseHost({ uuid: 'del3', name: 'Del3', forward_host: '127.0.0.6' })
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host])
+    vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
+    vi.mocked(settingsApi.getSettings).mockResolvedValue({})
+    // Make getMonitors throw
+    vi.mocked(uptimeApi.getMonitors).mockRejectedValue(new Error('OOPS'))
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    renderWithProviders(<ProxyHosts />)
+    await waitFor(() => expect(screen.getByText('Del3')).toBeTruthy())
+    const row = screen.getByText('Del3').closest('tr') as HTMLTableRowElement
+    const delButton = within(row).getByText('Delete')
+    await userEvent.click(delButton)
+    // Should call delete without second param
+    await waitFor(() => expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('del3'))
+    confirmSpy.mockRestore()
+  })
+
+  it('applies bulk settings sequentially with progress and updates hosts', async () => {
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([
+      baseHost({ uuid: 'host-1', name: 'H1' }),
+      baseHost({ uuid: 'host-2', name: 'H2' }),
+    ])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
+    vi.mocked(settingsApi.getSettings).mockResolvedValue({})
+    vi.mocked(proxyHostsApi.updateProxyHost).mockResolvedValue({} as ProxyHost)
+
+    renderWithProviders(<ProxyHosts />)
+    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+
+    // Select both hosts
+    const headerCheckbox = screen.getAllByRole('checkbox')[0]
+    await userEvent.click(headerCheckbox)
+
+    // Open Bulk Apply modal
+    await userEvent.click(screen.getByText('Bulk Apply'))
+    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+
+    // In the modal, find Force SSL row and enable apply and set value true
+    const forceLabel = screen.getByText('Force SSL')
+    const rowEl = forceLabel.closest('.p-2') as HTMLElement || forceLabel.closest('div') as HTMLElement
+    // Use within to find checkboxes within this row for robust selection
+    const rowCheckboxes = within(rowEl).getAllByRole('checkbox', { hidden: true })
+    if (rowCheckboxes.length >= 1) await userEvent.click(rowCheckboxes[0])
+
+    // Click Apply in the modal (narrow to modal scope)
+    const modal = screen.getByText('Bulk Apply Settings').closest('div') as HTMLElement
+    const applyBtn = within(modal).getByRole('button', { name: /Apply/i })
+    await userEvent.click(applyBtn)
+
+    // Expect updateProxyHost called for each host with ssl_forced true included in payload
+    await waitFor(() => expect(proxyHostsApi.updateProxyHost).toHaveBeenCalledTimes(2))
+    const calls = vi.mocked(proxyHostsApi.updateProxyHost).mock.calls
+    expect(calls.some(call => call[1] && (call[1] as Partial<ProxyHost>).ssl_forced === true)).toBeTruthy()
   })
 
   it('shows Unnamed when name missing', async () => {
@@ -668,7 +754,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-a1', name: 'A1', description: 'A1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
       { id: 2, uuid: 'acl-a2', name: 'A2', description: 'A2', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
     vi.mocked(proxyHostsApi.bulkUpdateACL).mockResolvedValue({ updated: 2, errors: [] })
     renderWithProviders(<ProxyHosts />)
@@ -707,7 +793,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-1', name: 'List1', description: 'List 1', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
       { id: 2, uuid: 'acl-2', name: 'List2', description: 'List 2', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: true, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
@@ -744,7 +830,7 @@ describe('ProxyHosts - Coverage enhancements', () => {
     vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([
       { id: 1, uuid: 'acl-disable1', name: 'Disabled1', description: 'Disabled 1', type: 'blacklist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: false, created_at: '2025-01-01', updated_at: '2025-01-01' },
       { id: 2, uuid: 'acl-disable2', name: 'Disabled2', description: 'Disabled 2', type: 'whitelist' as const, ip_rules: '[]', country_codes: '', local_network_only: false, enabled: false, created_at: '2025-01-01', updated_at: '2025-01-01' },
-    ] as any)
+    ] as AccessList[])
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     renderWithProviders(<ProxyHosts />)
@@ -757,6 +843,120 @@ describe('ProxyHosts - Coverage enhancements', () => {
 
     // Should show the 'No enabled access lists available' message
     await waitFor(() => expect(screen.getByText('No enabled access lists available')).toBeTruthy())
+  })
+
+  it('formatSettingLabel, settingHelpText and settingKeyToField return expected values and defaults', () => {
+    expect(formatSettingLabel('ssl_forced')).toBe('Force SSL')
+    expect(formatSettingLabel('http2_support')).toBe('HTTP/2 Support')
+    expect(formatSettingLabel('hsts_enabled')).toBe('HSTS Enabled')
+    expect(formatSettingLabel('hsts_subdomains')).toBe('HSTS Subdomains')
+    expect(formatSettingLabel('block_exploits')).toBe('Block Exploits')
+    expect(formatSettingLabel('websocket_support')).toBe('Websockets Support')
+    expect(formatSettingLabel('unknown_key')).toBe('unknown_key')
+
+    expect(settingHelpText('ssl_forced')).toContain('Redirect all HTTP traffic')
+    expect(settingHelpText('http2_support')).toContain('Enable HTTP/2')
+    expect(settingHelpText('hsts_enabled')).toContain('Send HSTS header')
+    expect(settingHelpText('hsts_subdomains')).toContain('Include subdomains')
+    expect(settingHelpText('block_exploits')).toContain('Add common exploit-mitigation')
+    expect(settingHelpText('websocket_support')).toContain('Enable websocket proxying')
+    expect(settingHelpText('unknown_key')).toBe('')
+
+    expect(settingKeyToField('ssl_forced')).toBe('ssl_forced')
+    expect(settingKeyToField('http2_support')).toBe('http2_support')
+    expect(settingKeyToField('hsts_enabled')).toBe('hsts_enabled')
+    expect(settingKeyToField('hsts_subdomains')).toBe('hsts_subdomains')
+    expect(settingKeyToField('block_exploits')).toBe('block_exploits')
+    expect(settingKeyToField('websocket_support')).toBe('websocket_support')
+    expect(settingKeyToField('unknown_key')).toBe('unknown_key')
+  })
+
+  it('closes bulk apply modal when clicking backdrop', async () => {
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([
+      baseHost({ uuid: 's1', name: 'S1' }),
+    ])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
+    vi.mocked(settingsApi.getSettings).mockResolvedValue({})
+
+    renderWithProviders(<ProxyHosts />)
+    await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
+    const headerCheckbox = screen.getAllByRole('checkbox')[0]
+    const user = userEvent.setup()
+    await user.click(headerCheckbox)
+    await user.click(screen.getByText('Bulk Apply'))
+    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    // click backdrop
+    const overlay = document.querySelector('.fixed.inset-0')
+    if (overlay) await user.click(overlay)
+    await waitFor(() => expect(screen.queryByText('Bulk Apply Settings')).toBeNull())
+  })
+
+  it('shows toast error when updateHost rejects during bulk apply', async () => {
+    const h1 = baseHost({ uuid: 'host-1', name: 'H1' })
+    const h2 = baseHost({ uuid: 'host-2', name: 'H2' })
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([h1, h2])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(accessListsApi.accessListsApi.list).mockResolvedValue([])
+    vi.mocked(settingsApi.getSettings).mockResolvedValue({})
+    // mock updateProxyHost to fail for host-2
+    vi.mocked(proxyHostsApi.updateProxyHost).mockImplementation(async (uuid: string) => {
+      if (uuid === 'host-2') throw new Error('update fail')
+      const result = baseHost({ uuid })
+      return result
+    })
+
+    renderWithProviders(<ProxyHosts />)
+    await waitFor(() => expect(screen.getByText('H1')).toBeTruthy())
+    // select both
+    const headerCheckbox = screen.getAllByRole('checkbox')[0]
+    const user = userEvent.setup()
+    await user.click(headerCheckbox)
+    // Open Bulk Apply
+    await user.click(screen.getByText('Bulk Apply'))
+    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
+    // enable Force SSL apply + set switch
+    const forceLabel = screen.getByText('Force SSL')
+    const rowEl = forceLabel.closest('.p-2') as HTMLElement || forceLabel.closest('div') as HTMLElement
+    // click apply checkbox and toggle switch reliably
+    const rowChecks = within(rowEl).getAllByRole('checkbox', { hidden: true })
+    if (rowChecks[0]) await user.click(rowChecks[0])
+    if (rowChecks[1]) await user.click(rowChecks[1])
+    // click Apply
+    const modal = screen.getByText('Bulk Apply Settings').closest('div') as HTMLElement
+    const applyBtn = within(modal).getByRole('button', { name: /Apply/i })
+    await user.click(applyBtn)
+
+    const toast = (await import('react-hot-toast')).toast
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+  })
+
+  it('applyBulkSettingsToHosts returns error when host is not found and reports progress', async () => {
+    const hosts: ProxyHost[] = [] // no hosts
+    const hostUUIDs = ['missing-1']
+    const keysToApply = ['ssl_forced']
+    const bulkApplySettings: Record<string, { apply: boolean; value: boolean }> = { ssl_forced: { apply: true, value: true } }
+    const updateHost = vi.fn().mockResolvedValue({})
+    const setApplyProgress = vi.fn()
+
+    const result = await applyBulkSettingsToHosts({ hosts, hostUUIDs, keysToApply, bulkApplySettings, updateHost, setApplyProgress })
+    expect(result.errors).toBe(1)
+    expect(setApplyProgress).toHaveBeenCalled()
+    expect(updateHost).not.toHaveBeenCalled()
+  })
+
+  it('applyBulkSettingsToHosts handles updateHost rejection and counts errors', async () => {
+    const h1 = baseHost({ uuid: 'h1', name: 'H1' })
+    const hosts = [h1]
+    const hostUUIDs = ['h1']
+    const keysToApply = ['ssl_forced']
+    const bulkApplySettings: Record<string, { apply: boolean; value: boolean }> = { ssl_forced: { apply: true, value: true } }
+    const updateHost = vi.fn().mockRejectedValue(new Error('fail'))
+    const setApplyProgress = vi.fn()
+
+    const result = await applyBulkSettingsToHosts({ hosts, hostUUIDs, keysToApply, bulkApplySettings, updateHost, setApplyProgress })
+    expect(result.errors).toBe(1)
+    expect(updateHost).toHaveBeenCalled()
   })
 })
 

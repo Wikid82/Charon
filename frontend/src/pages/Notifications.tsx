@@ -1,6 +1,6 @@
 import { useState, type FC } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate } from '../api/notifications';
+import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
@@ -59,8 +59,9 @@ const ProviderForm: FC<{
         const res = await previewProvider(formData as Partial<NotificationProvider>);
         if (res.parsed) setPreviewContent(JSON.stringify(res.parsed, null, 2)); else setPreviewContent(res.rendered);
       }
-    } catch (err: any) {
-      setPreviewError(err?.response?.data?.error || err?.message || 'Failed to generate preview');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPreviewError(msg || 'Failed to generate preview');
     }
   };
 
@@ -133,11 +134,11 @@ const ProviderForm: FC<{
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template</label>
             <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300">
               {/* Built-in template options */}
-              {builtins?.map((t: any) => (
+              {builtins?.map((t: NotificationTemplate) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
               {/* External saved templates (id values are UUIDs) */}
-              {externalTemplates?.map((t: any) => (
+              {externalTemplates?.map((t: ExternalTemplate) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
@@ -244,8 +245,9 @@ const TemplateForm: FC<{
     try {
       const res = await previewExternalTemplate(undefined, form.config, { Title: 'Preview Title', Message: 'Preview Message', Time: new Date().toISOString(), EventType: 'preview' });
       if (res.parsed) setPreview(JSON.stringify(res.parsed, null, 2)); else setPreview(res.rendered);
-    } catch (err: any) {
-      setPreviewErr(err?.response?.data?.error || err?.message || 'Preview failed');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPreviewErr(msg || 'Preview failed');
     }
   };
 
@@ -379,7 +381,7 @@ const Notifications: FC = () => {
           {editingTemplateId !== null && (
             <Card className="p-4">
               <TemplateForm
-                initialData={externalTemplates?.find((t: any) => t.id === editingTemplateId) as Partial<ExternalTemplate>}
+                initialData={externalTemplates?.find((t: ExternalTemplate) => t.id === editingTemplateId) as Partial<ExternalTemplate>}
                 onClose={() => setEditingTemplateId(null)}
                 onSubmit={(data) => {
                   if (editingTemplateId) updateTemplateMutation.mutate({ id: editingTemplateId, data });

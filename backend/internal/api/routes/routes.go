@@ -87,6 +87,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
 
+	// Uptime Service - define early so it can be used during route registration
+	uptimeService := services.NewUptimeService(db, notificationService)
+
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
 	{
@@ -158,6 +161,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
+		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
+		protected.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
 		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
@@ -214,7 +219,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging)
 
-	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
 	proxyHostHandler.RegisterRoutes(api)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)

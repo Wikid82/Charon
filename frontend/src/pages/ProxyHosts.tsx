@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Loader2, ExternalLink, AlertTriangle, ChevronUp, ChevronDown, CheckSquare, Square, Trash2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
+import { getMonitors, type UptimeMonitor } from '../api/uptime'
 import { useCertificates } from '../hooks/useCertificates'
 import { useAccessLists } from '../hooks/useAccessLists'
 import { getSettings } from '../api/settings'
@@ -12,6 +13,10 @@ import type { AccessList } from '../api/accessLists'
 import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
 import { toast } from 'react-hot-toast'
+import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
+
+// Helper functions extracted for unit testing and reuse
+// Helpers moved to ../utils/proxyHostsHelpers to keep component files component-only for fast refresh
 
 type SortColumn = 'name' | 'domain' | 'forward'
 type SortDirection = 'asc' | 'desc'
@@ -26,11 +31,20 @@ export default function ProxyHosts() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set())
   const [showBulkACLModal, setShowBulkACLModal] = useState(false)
+  const [showBulkApplyModal, setShowBulkApplyModal] = useState(false)
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
   const [isCreatingBackup, setIsCreatingBackup] = useState(false)
   const [selectedACLs, setSelectedACLs] = useState<Set<number>>(new Set())
   const [bulkACLAction, setBulkACLAction] = useState<'apply' | 'remove'>('apply')
   const [applyProgress, setApplyProgress] = useState<{ current: number; total: number } | null>(null)
+  const [bulkApplySettings, setBulkApplySettings] = useState<Record<string, { apply: boolean; value: boolean }>>({
+    ssl_forced: { apply: false, value: true },
+    http2_support: { apply: false, value: true },
+    hsts_enabled: { apply: false, value: true },
+    hsts_subdomains: { apply: false, value: true },
+    block_exploits: { apply: false, value: true },
+    websocket_support: { apply: false, value: true },
+  })
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -80,6 +94,12 @@ export default function ProxyHosts() {
     }
   }
 
+
+
+  // local usage now relies on the exported settingHelpText helper
+
+  // local usage now relies on exported settingKeyToField helper
+
   const handleAdd = () => {
     setEditingHost(undefined)
     setShowForm(true)
@@ -101,12 +121,29 @@ export default function ProxyHosts() {
   }
 
   const handleDelete = async (uuid: string) => {
-    if (confirm('Are you sure you want to delete this proxy host?')) {
+    const host = hosts.find(h => h.uuid === uuid)
+    if (!host) return
+
+    if (!confirm('Are you sure you want to delete this proxy host?')) return
+
+    try {
+      // See if there are uptime monitors associated with this host (match by upstream_host / forward_host)
+      let associatedMonitors: UptimeMonitor[] = []
       try {
-        await deleteHost(uuid)
-      } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete')
+        const monitors = await getMonitors()
+        associatedMonitors = monitors.filter(m => m.upstream_host === host.forward_host || (m.proxy_host_id && m.proxy_host_id === (host as unknown as { id?: number }).id))
+      } catch {
+        // ignore errors fetching uptime data; continue with host deletion
       }
+
+      if (associatedMonitors.length > 0) {
+        const deleteUptime = confirm('This proxy host has uptime monitors associated with it. Delete the monitors as well?')
+        await deleteHost(uuid, deleteUptime)
+      } else {
+        await deleteHost(uuid)
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete')
     }
   }
 
@@ -203,6 +240,12 @@ export default function ProxyHosts() {
                 {selectedHosts.size} {selectedHosts.size === hosts.length && '(all)'} selected
               </span>
               <button
+                onClick={() => setShowBulkApplyModal(true)}
+                className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Bulk Apply
+              </button>
+              <button
                 onClick={() => setShowBulkACLModal(true)}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
                 disabled={isBulkUpdating}
@@ -233,6 +276,106 @@ export default function ProxyHosts() {
         </div>
       )}
 
+      {/* Bulk Apply Modal */}
+      {showBulkApplyModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowBulkApplyModal(false)}
+        >
+          <div
+            className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold text-white mb-4">Bulk Apply Settings</h2>
+            <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+              <p className="text-sm text-gray-400">
+                Applying settings to <span className="text-blue-400 font-medium">{selectedHosts.size}</span> selected host(s)
+              </p>
+
+              <div className="flex-1 overflow-y-auto border border-gray-700 rounded-lg p-3 space-y-3">
+                {Object.entries(bulkApplySettings).map(([key, cfg]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 p-2 bg-gray-900/30 rounded">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={cfg.apply}
+                          onChange={(e) => setBulkApplySettings(prev => ({ ...prev, [key]: { ...prev[key], apply: e.target.checked } }))}
+                          className="w-4 h-4 rounded border-gray-600 text-blue-500 bg-gray-700"
+                        />
+                        <div>
+                          <div className="text-white font-medium">{formatSettingLabel(key)}</div>
+                          <div className="text-xs text-gray-400">{settingHelpText(key)}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400">Set:</span>
+                      <Switch
+                        checked={cfg.value}
+                        onCheckedChange={(v: boolean) => setBulkApplySettings(prev => ({ ...prev, [key]: { ...prev[key], value: v } }))}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {applyProgress && (
+                <div className="border border-blue-800/50 rounded-lg bg-blue-900/20 p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                    <span className="text-blue-300 font-medium">
+                      Applying settings... ({applyProgress.current}/{applyProgress.total})
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(applyProgress.current / applyProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setShowBulkApplyModal(false)
+                  }}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+                  disabled={applyProgress !== null}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    const keysToApply = Object.keys(bulkApplySettings).filter(k => bulkApplySettings[k].apply)
+                    if (keysToApply.length === 0) return
+
+                    const hostUUIDs = Array.from(selectedHosts)
+                    const result = await applyBulkSettingsToHosts({ hosts, hostUUIDs, keysToApply, bulkApplySettings, updateHost, setApplyProgress })
+
+                    if (result.errors > 0) {
+                      toast.error(`Applied settings with ${result.errors} error(s)`)
+                    } else {
+                      toast.success(`Applied settings to ${hostUUIDs.length} host(s)`)
+                    }
+
+                    setSelectedHosts(new Set())
+                    setShowBulkApplyModal(false)
+                  }}
+                  disabled={applyProgress !== null || Object.values(bulkApplySettings).every(s => !s.apply)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {(applyProgress !== null) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
         {loading ? (
           <div className="text-center text-gray-400 py-12">Loading...</div>
@@ -242,11 +385,12 @@ export default function ProxyHosts() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full table-fixed min-w-0">
               <thead className="bg-gray-900 border-b border-gray-800">
                 <tr>
                   <th
                     onClick={() => handleSort('name')}
+                    style={{ width: '20%' }}
                     className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
                   >
                     <div className="flex items-center gap-1">
@@ -256,6 +400,7 @@ export default function ProxyHosts() {
                   </th>
                   <th
                     onClick={() => handleSort('domain')}
+                    style={{ width: '26%' }}
                     className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
                   >
                     <div className="flex items-center gap-1">
@@ -265,6 +410,7 @@ export default function ProxyHosts() {
                   </th>
                   <th
                     onClick={() => handleSort('forward')}
+                    style={{ width: '18%' }}
                     className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
                   >
                     <div className="flex items-center gap-1">
@@ -272,16 +418,16 @@ export default function ProxyHosts() {
                       <SortIcon column="forward" />
                     </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th style={{ width: '8%' }} className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     SSL
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th style={{ width: '10%' }} className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th style={{ width: '12%' }} className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Actions
                   </th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th style={{ width: '6%' }} className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider">
                     <button
                       onClick={toggleSelectAll}
                       role="checkbox"
@@ -302,37 +448,40 @@ export default function ProxyHosts() {
                 {sortedHosts.map((host) => (
                   <tr key={host.uuid} className="hover:bg-gray-900/50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">
-                        {host.name || <span className="text-gray-500 italic">Unnamed</span>}
-                      </div>
+                        <div className="text-sm font-medium text-white max-w-full truncate">
+                          {host.name || <span className="text-gray-500 italic">Unnamed</span>}
+                        </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-white">
-                        {host.domain_names.split(',').map((domain, i) => {
-                          const url = `${host.ssl_forced ? 'https' : 'http'}://${domain.trim()}`
-                          return (
-                            <div key={i} className="flex items-center gap-1">
-                              <a
-                                href={url}
-                                target={linkBehavior === 'same_tab' ? '_self' : '_blank'}
-                                rel="noopener noreferrer"
-                                onClick={(e) => handleDomainClick(e, url)}
-                                className="hover:text-blue-400 hover:underline flex items-center gap-1"
-                              >
-                                {domain.trim()}
-                                <ExternalLink size={12} className="opacity-50" />
-                              </a>
-                            </div>
-                          )
-                        })}
-                      </div>
+                        <div className="text-sm font-medium text-white">
+                          {host.domain_names.split(',').map((domain, i) => {
+                            const d = domain.trim()
+                            const url = `${host.ssl_forced ? 'https' : 'http'}://${d}`
+                            return (
+                              <div key={i} className="flex items-center gap-1">
+                                <a
+                                  href={url}
+                                  title={url}
+                                  target={linkBehavior === 'same_tab' ? '_self' : '_blank'}
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => handleDomainClick(e, url)}
+                                  className="hover:text-blue-400 hover:underline flex items-center gap-1 truncate block max-w-full"
+                                  style={{ maxWidth: '100%' }}
+                                >
+                                  <span className="truncate block max-w-[40ch]">{d}</span>
+                                  <ExternalLink size={12} className="opacity-50" />
+                                </a>
+                              </div>
+                            )
+                          })}
+                        </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-300">
                         {host.forward_scheme}://{host.forward_host}:{host.forward_port}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
                       {(() => {
                         // Get the primary domain to look up cert status (case-insensitive)
                         const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
@@ -386,7 +535,7 @@ export default function ProxyHosts() {
                         )
                       })()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="flex items-center gap-2">
                         <Switch
                           checked={host.enabled}

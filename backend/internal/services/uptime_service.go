@@ -821,6 +821,9 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]interface{})
 	if val, ok := updates["interval"]; ok {
 		allowedUpdates["interval"] = val
 	}
+	if val, ok := updates["enabled"]; ok {
+		allowedUpdates["enabled"] = val
+	}
 	// Add other fields as needed, but be careful not to overwrite SyncMonitors logic
 
 	if err := s.DB.Model(&monitor).Updates(allowedUpdates).Error; err != nil {
@@ -828,4 +831,28 @@ func (s *UptimeService) UpdateMonitor(id string, updates map[string]interface{})
 	}
 
 	return &monitor, nil
+}
+
+// DeleteMonitor removes a monitor and its heartbeats, and optionally cleans up the parent UptimeHost.
+func (s *UptimeService) DeleteMonitor(id string) error {
+	// Find monitor
+	var monitor models.UptimeMonitor
+	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+		return err
+	}
+
+	// Delete heartbeats
+	if err := s.DB.Where("monitor_id = ?", id).Delete(&models.UptimeHeartbeat{}).Error; err != nil {
+		return err
+	}
+
+	// Delete the monitor
+	if err := s.DB.Delete(&monitor).Error; err != nil {
+		return err
+	}
+
+	// If no other monitors reference the uptime host, we don't automatically delete the host.
+	// Leave host cleanup to a manual process or separate endpoint.
+
+	return nil
 }
