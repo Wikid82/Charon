@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState, type FC } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, X, Info, AlertTriangle, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, checkUpdates } from '../api/system';
 
-const NotificationCenter: React.FC = () => {
+const NotificationCenter: FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const queryClient = useQueryClient();
 

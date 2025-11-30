@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type FormEvent, type FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSetupStatus, performSetup, SetupRequest } from '../api/setup';
@@ -9,7 +9,7 @@ import { Button } from '../components/ui/Button';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { isValidEmail } from '../utils/validation';
 
-const Setup: React.FC = () => {
+const Setup: FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { login, isAuthenticated } = useAuth();
@@ -70,7 +70,7 @@ const Setup: React.FC = () => {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     mutation.mutate(formData);
