@@ -1,7 +1,7 @@
 services:
-  app:
-    image: cpmp:local
-    container_name: cpmp-debug
+  charon:
+    image: charon:local
+    container_name: charon-debug
     restart: unless-stopped
     ports:
       - "80:80"        # HTTP (Caddy proxy)
@@ -10,18 +10,18 @@ services:
       - "8080:8080"    # Management UI (CPM+)
       - "2345:2345"    # Delve Debugger
     environment:
-      - CPM_ENV=development
-      - CPMP_DEBUG=1
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
       - TZ=America/New_York
-      - CPM_HTTP_PORT=8080
-      - CPM_DB_PATH=/app/data/cpm.db
-      - CPM_FRONTEND_DIR=/app/frontend/dist
-      - CPM_CADDY_ADMIN_API=http://localhost:2019
-      - CPM_CADDY_CONFIG_DIR=/app/data/caddy
-      - CPM_CADDY_BINARY=caddy
-      - CPM_IMPORT_CADDYFILE=/import/Caddyfile
-      - CPM_IMPORT_DIR=/app/data/imports
-      - CPM_ACME_STAGING=false
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      - CHARON_ACME_STAGING=false
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
@@ -29,7 +29,7 @@ services:
     security_opt:
       - seccomp:unconfined
     volumes:
-      - cpm_data_local:/app/data
+      - charon_data_local:/app/data
       - caddy_data_local:/data
       - caddy_config_local:/config
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
@@ -45,7 +45,7 @@ services:
       start_period: 40s
 
 volumes:
-  cpm_data_local:
+  charon_data_local:
     driver: local
   caddy_data_local:
     driver: local
