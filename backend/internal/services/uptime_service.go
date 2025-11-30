@@ -3,7 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"net"
 	"net/http"
 	"net/url"
@@ -146,9 +146,9 @@ func (s *UptimeService) SyncMonitors() error {
 				Enabled:      true,
 				Status:       "pending",
 			}
-			if err := s.DB.Create(&monitor).Error; err != nil {
-				log.Printf("Failed to create monitor for host %d: %v", host.ID, err)
-			}
+				if err := s.DB.Create(&monitor).Error; err != nil {
+					logger.Log().WithError(err).WithField("host_id", host.ID).Error("Failed to create monitor")
+				}
 		case nil:
 			// Always sync the name from proxy host
 			newName := host.Name
@@ -176,18 +176,18 @@ func (s *UptimeService) SyncMonitors() error {
 			}
 
 			// Update existing monitor if it looks like it's using the old default (TCP to internal upstream)
-			if monitor.Type == "tcp" && monitor.URL == internalURL {
+				if monitor.Type == "tcp" && monitor.URL == internalURL {
 				monitor.Type = "http"
 				monitor.URL = publicURL
 				needsSave = true
-				log.Printf("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
+					logger.Log().WithField("host_id", host.ID).Infof("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
 			}
 
 			// Upgrade to HTTPS if SSL is forced and we are currently checking HTTP
-			if host.SSLForced && strings.HasPrefix(monitor.URL, "http://") {
+				if host.SSLForced && strings.HasPrefix(monitor.URL, "http://") {
 				monitor.URL = strings.Replace(monitor.URL, "http://", "https://", 1)
 				needsSave = true
-				log.Printf("Upgraded monitor for host %d to HTTPS: %s", host.ID, monitor.URL)
+					logger.Log().WithField("host_id", host.ID).Infof("Upgraded monitor for host %d to HTTPS: %s", host.ID, monitor.URL)
 			}
 
 			if needsSave {
@@ -234,7 +234,7 @@ func (s *UptimeService) SyncMonitors() error {
 				Status:         "pending",
 			}
 			if err := s.DB.Create(&monitor).Error; err != nil {
-				log.Printf("Failed to create monitor for remote server %d: %v", server.ID, err)
+				logger.Log().WithError(err).WithField("remote_server_id", server.ID).Error("Failed to create monitor for remote server")
 			}
 		case nil:
 			needsSave := false
@@ -288,10 +288,10 @@ func (s *UptimeService) ensureUptimeHost(host, defaultName string) string {
 			Status: "pending",
 		}
 		if err := s.DB.Create(&uptimeHost).Error; err != nil {
-			log.Printf("Failed to create UptimeHost for %s: %v", host, err)
+			logger.Log().WithError(err).WithField("host", host).Error("Failed to create UptimeHost")
 			return ""
 		}
-		log.Printf("Created UptimeHost for %s", host)
+		logger.Log().WithField("host", host).Info("Created UptimeHost")
 	}
 
 	return uptimeHost.ID
@@ -304,7 +304,7 @@ func (s *UptimeService) CheckAll() {
 
 	var monitors []models.UptimeMonitor
 	if err := s.DB.Where("enabled = ?", true).Find(&monitors).Error; err != nil {
-		log.Printf("Failed to fetch monitors: %v", err)
+		logger.Log().WithError(err).Error("Failed to fetch monitors")
 		return
 	}
 
@@ -342,7 +342,7 @@ func (s *UptimeService) CheckAll() {
 func (s *UptimeService) checkAllHosts() {
 	var hosts []models.UptimeHost
 	if err := s.DB.Find(&hosts).Error; err != nil {
-		log.Printf("Failed to fetch uptime hosts: %v", err)
+		logger.Log().WithError(err).Error("Failed to fetch uptime hosts")
 		return
 	}
 
@@ -398,10 +398,16 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 	host.LastCheck = time.Now()
 	host.Latency = latency
 
-	if statusChanged {
-		host.LastStatusChange = time.Now()
-		log.Printf("Host %s (%s) status changed: %s -> %s (%s)", host.Name, host.Host, oldStatus, newStatus, msg)
-	}
+		if statusChanged {
+			host.LastStatusChange = time.Now()
+			logger.Log().WithFields(map[string]interface{}{
+				"host_name": host.Name,
+				"host_ip":   host.Host,
+				"old":       oldStatus,
+				"new":       newStatus,
+				"message":   msg,
+			}).Info("Host status changed")
+		}
 
 	s.DB.Save(host)
 }
@@ -517,7 +523,7 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 	}
 	s.NotificationService.SendExternal("uptime", title, sb.String(), data)
 
-	log.Printf("Sent consolidated DOWN notification for host %s with %d services", host.Name, len(downMonitors))
+	logger.Log().WithField("host_name", host.Name).WithField("service_count", len(downMonitors)).Info("Sent consolidated DOWN notification")
 }
 
 func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
@@ -660,7 +666,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 	if pending, exists := s.pendingNotifications[hostID]; exists {
 		// Add to existing batch
 		pending.downMonitors = append(pending.downMonitors, info)
-		log.Printf("Added %s to pending notification batch for host %s (now %d services)", monitor.Name, hostName, len(pending.downMonitors))
+		logger.Log().WithField("monitor", monitor.Name).WithField("host", hostName).WithField("count", len(pending.downMonitors)).Info("Added to pending notification batch")
 	} else {
 		// Create new batch with timer
 		pending := &pendingHostNotification{
@@ -675,7 +681,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 		})
 
 		s.pendingNotifications[hostID] = pending
-		log.Printf("Created pending notification batch for host %s with %s", hostName, monitor.Name)
+		logger.Log().WithField("host", hostName).WithField("monitor", monitor.Name).Info("Created pending notification batch")
 	}
 }
 
@@ -747,7 +753,7 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 	}
 	s.NotificationService.SendExternal("uptime", title, sb.String(), data)
 
-	log.Printf("Sent batched DOWN notification for %d services on %s", len(pending.downMonitors), pending.hostName)
+	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", pending.hostName).Info("Sent batched DOWN notification")
 }
 
 // sendRecoveryNotification sends a notification when a service recovers
