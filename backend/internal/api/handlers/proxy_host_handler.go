@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
@@ -93,12 +93,12 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	}
 
 	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
 			// Rollback: delete the created host if config application fails
-			log.Printf("Error applying config: %s", sanitizeForLog(err.Error()))
+			middleware.GetRequestLogger(c).WithError(err).Error("Error applying config")
 			if deleteErr := h.service.Delete(host.ID); deleteErr != nil {
 				idStr := strconv.FormatUint(uint64(host.ID), 10)
-				log.Printf("Critical: Failed to rollback host %s: %s", sanitizeForLog(idStr), sanitizeForLog(deleteErr.Error()))
+					middleware.GetRequestLogger(c).WithField("host_id", idStr).WithError(deleteErr).Error("Critical: Failed to rollback host")
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
 			return
