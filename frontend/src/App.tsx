@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react'
+import { Navigate } from 'react-router-dom'
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
 import Layout from './components/Layout'
 import { ToastContainer } from './components/Toast'
@@ -54,7 +55,7 @@ export default function App() {
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
-              <Route path="import" element={<ImportCaddy />} />
+              <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}
               <Route path="settings" element={<Settings />}>

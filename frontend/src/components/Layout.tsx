@@ -13,6 +13,13 @@ interface LayoutProps {
   children: ReactNode
 }
 
+type NavItem = {
+  name: string
+  path?: string
+  icon?: string
+  children?: NavItem[]
+}
+
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -41,7 +48,7 @@ export default function Layout({ children }: LayoutProps) {
     staleTime: 1000 * 60 * 60, // 1 hour
   })
 
-  const navigation = [
+  const navigation: NavItem[] = [
     { name: 'Dashboard', path: '/', icon: '📊' },
     { name: 'Proxy Hosts', path: '/proxy-hosts', icon: '🌐' },
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
@@ -162,9 +169,9 @@ export default function Layout({ children }: LayoutProps) {
 
                     {isExpanded && (
                       <div className="pl-11 space-y-1">
-                        {item.children.map((child) => {
+                        {item.children.map((child: NavItem) => {
                           // If this child has its own children, render a nested accordion
-                          if ((child as any).children) {
+                          if (child.children && child.children.length > 0) {
 
                             const nestedExpandedKey = `${item.name}:${child.name}`
                             const isNestedOpen = expandedMenus.includes(nestedExpandedKey)
@@ -190,10 +197,10 @@ export default function Layout({ children }: LayoutProps) {
                                 </button>
                                 {isNestedOpen && (
                                   <div className="pl-6 space-y-1">
-                                    {(child as any).children.map((sub: any) => (
+                                    {child.children.map((sub: NavItem) => (
                                       <Link
                                         key={sub.path}
-                                        to={sub.path}
+                                        to={sub.path!}
                                         onClick={() => setMobileSidebarOpen(false)}
                                         className={`block py-2 px-3 rounded-md text-sm transition-colors ${
                                           location.pathname === sub.path
