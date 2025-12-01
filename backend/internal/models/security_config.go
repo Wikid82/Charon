@@ -13,7 +13,7 @@ type SecurityConfig struct {
     Enabled         bool      `json:"enabled"`
     AdminWhitelist  string    `json:"admin_whitelist" gorm:"type:text"` // JSON array or comma-separated CIDRs
     BreakGlassHash  string    `json:"-" gorm:"column:break_glass_hash"`
-    CrowdSecMode    string    `json:"crowdsec_mode"` // "disabled", "monitor", "block"; also supports "local"/"external"
+    CrowdSecMode    string    `json:"crowdsec_mode"` // "disabled" or "local"
     CrowdSecAPIURL  string    `json:"crowdsec_api_url" gorm:"type:text"`
     WAFMode         string    `json:"waf_mode"`      // "disabled", "monitor", "block"
     WAFRulesSource  string    `json:"waf_rules_source" gorm:"type:text"` // URL or name of ruleset

@@ -10,8 +10,7 @@ Charon includes the optional Cerberus security suite — a collection of high-va
 **Modes:**
 *   **Local**: Installs the CrowdSec agent *inside* the Charon container. Useful for single-container setups.
     *   *Note*: Increases container startup time and resource usage.
-*   **External**: Connects to an existing CrowdSec agent running elsewhere (e.g., on the host or another container).
-    *   *Recommended* for production or multi-server setups.
+*   **External**: (Deprecated) connections to external CrowdSec agents are no longer supported.
 
 ### 2. WAF (Web Application Firewall)
 Uses [Coraza](https://coraza.io/), a Go-native WAF, with the **OWASP Core Rule Set (CRS)** to protect against common web attacks (SQL Injection, XSS, etc.).
@@ -48,9 +47,7 @@ You can enable or disable Cerberus at runtime via the web UI `System Settings` o
 | :--- | :--- | :--- |
 | `CERBERUS_SECURITY_CROWDSEC_MODE` | `disabled` | (Default) CrowdSec is turned off. (CERBERUS_ preferred; CHARON_/CPM_ still supported) |
 | | `local` | Installs and runs CrowdSec agent inside the container. |
-| | `external` | Connects to an external CrowdSec agent. |
-| `CERBERUS_SECURITY_CROWDSEC_API_URL` | URL | (Required for `external`) e.g., `http://crowdsec:8080` |
-| `CERBERUS_SECURITY_CROWDSEC_API_KEY` | String | (Required for `external`) Your CrowdSec bouncer API key. |
+| | `local` | Installs and runs CrowdSec agent inside the container. |
 
 **Example (Local Mode):**
 ```yaml

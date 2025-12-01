@@ -79,11 +79,7 @@ export default function CrowdSecConfig() {
 
   const handleModeChange = async (mode: string) => {
     updateModeMutation.mutate(mode)
-    if (mode === 'external') {
-      toast.error('External CrowdSec mode is not supported in this release')
-    } else {
-      toast.success('CrowdSec mode saved (restart may be required)')
-    }
+    toast.success('CrowdSec mode saved (restart may be required)')
   }
 
   if (!status) return <div className="p-8 text-center">Loading...</div>
@@ -101,12 +97,11 @@ export default function CrowdSecConfig() {
                 <select value={status.crowdsec.mode} onChange={(e) => handleModeChange(e.target.value)} className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white">
                   <option value="disabled">Disabled</option>
                   <option value="local">Local</option>
-                  <option value="external">External (unsupported)</option>
                 </select>
               </div>
             </div>
             {status.crowdsec.mode === 'disabled' && (
-              <p className="text-xs text-yellow-500">Note: External CrowdSec mode is not supported in this build.</p>
+              <p className="text-xs text-yellow-500">CrowdSec is disabled</p>
             )}
           </div>
           <div className="flex items-center gap-2">

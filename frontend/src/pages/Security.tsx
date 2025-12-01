@@ -184,11 +184,6 @@ export default function Security() {
                 disabled={!status.cerberus?.enabled}
                 onChange={(e) => {
                   console.log('crowdsec onChange', e.target.checked)
-                  // pre-validate if enabling external CrowdSec without API URL
-                  if (e.target.checked && status.crowdsec?.mode === 'external') {
-                      toast.error('External CrowdSec mode is not supported in this release')
-                      return
-                    }
                   toggleServiceMutation.mutate({ key: 'security.crowdsec.enabled', enabled: e.target.checked })
                 }}
                 data-testid="toggle-crowdsec"

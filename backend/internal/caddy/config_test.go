@@ -10,8 +10,10 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config.Apps.HTTP)
+	require.Empty(t, config.Apps.HTTP.Servers)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
 	require.Empty(t, config.Apps.HTTP.Servers)
@@ -32,8 +34,10 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config.Apps.HTTP)
+	require.Len(t, config.Apps.HTTP.Servers, 1)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
 	require.Len(t, config.Apps.HTTP.Servers, 1)
@@ -72,8 +76,9 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
 	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
 }
 
@@ -88,8 +93,9 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 			Enabled:          true,
 		},
 	}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config.Apps.HTTP)
 
 	route := config.Apps.HTTP.Servers["charon_server"].Routes[0]
 	handler := route.Handle[0]
@@ -109,16 +115,18 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.Empty(t, config.Apps.HTTP.Servers["charon_server"].Routes)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
 	require.Empty(t, config.Apps.HTTP.Servers["charon_server"].Routes)
 }
 
 func TestGenerateConfig_Logging(t *testing.T) {
 	hosts := []models.ProxyHost{}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config.Logging)
 
 	// Verify logging configuration
 	require.NotNil(t, config.Logging)
@@ -155,8 +163,9 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config)
 	require.NotNil(t, config)
 
 	server := config.Apps.HTTP.Servers["charon_server"]
@@ -202,8 +211,9 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	}
 
 	// Test with staging enabled
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true, false, false, false, true, "")
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true, false, false, false, true, "", nil, nil, nil)
 	require.NoError(t, err)
+	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)
 	require.Len(t, config.Apps.TLS.Automation.Policies, 1)
@@ -217,7 +227,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	require.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", acmeIssuer["ca"])
 
 	// Test with staging disabled (production)
-	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false, false, false, false, false, "")
+	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false, false, false, false, false, "", nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)

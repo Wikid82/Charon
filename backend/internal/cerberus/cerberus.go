@@ -36,7 +36,7 @@ func (c *Cerberus) IsEnabled() bool {
 
 	// If any of the security modes are explicitly enabled, consider Cerberus enabled.
 	// Treat empty values as disabled to avoid treating zero-values ("") as enabled.
-	if c.cfg.CrowdSecMode == "local" || c.cfg.CrowdSecMode == "remote" || c.cfg.CrowdSecMode == "enabled" {
+	if c.cfg.CrowdSecMode == "local" {
 		return true
 	}
 	if c.cfg.WAFMode == "enabled" || c.cfg.RateLimitMode == "enabled" || c.cfg.ACLMode == "enabled" {
