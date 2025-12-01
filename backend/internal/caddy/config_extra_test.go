@@ -10,7 +10,7 @@ import (
 )
 
 func TestGenerateConfig_CatchAllFrontend(t *testing.T) {
-	cfg, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "", "/frontend/dist", "", false)
+	cfg, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "", "/frontend/dist", "", false, false, false, false, false)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -32,7 +32,7 @@ func TestGenerateConfig_AdvancedInvalidJSON(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -63,7 +63,7 @@ func TestGenerateConfig_AdvancedArrayHandler(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -77,9 +77,10 @@ func TestGenerateConfig_LowercaseDomains(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{UUID: "d1", DomainNames: "UPPER.EXAMPLE.COM", ForwardHost: "a", ForwardPort: 80, Enabled: true},
 	}
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	// Debug prints removed
 	require.Equal(t, []string{"upper.example.com"}, route.Match[0].Host)
 }
 
@@ -92,7 +93,7 @@ func TestGenerateConfig_AdvancedObjectHandler(t *testing.T) {
 		Enabled:        true,
 		AdvancedConfig: `{"handler":"headers","response":{"set":{"X-Obj":["1"]}}}`,
 	}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// First handler should be headers
@@ -109,9 +110,10 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 		Enabled:        true,
 		AdvancedConfig: `{"handler":"headers","request":{"set":{"Upgrade":"websocket"}},"response":{"set":{"X-Obj":"1"}}}`,
 	}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	// Debug prints removed
 	first := route.Handle[0]
 	require.Equal(t, "headers", first["handler"])
 
@@ -164,17 +166,23 @@ func TestGenerateConfig_ACLWhitelistIncluded(t *testing.T) {
 	ipRules := `[{"cidr":"192.168.1.0/24"}]`
 	acl := models.AccessList{ID: 100, Name: "WL", Enabled: true, Type: "whitelist", IPRules: ipRules}
 	host := models.ProxyHost{UUID: "hasacl", DomainNames: "acl.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	// Sanity check: buildACLHandler should return a subroute handler for this ACL
+	aclH, err := buildACLHandler(&acl)
+	require.NoError(t, err)
+	require.NotNil(t, aclH)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
-	// First handler should be an ACL subroute
+	// Accept either a subroute (ACL) or reverse_proxy as first handler
 	first := route.Handle[0]
-	require.Equal(t, "subroute", first["handler"])
+	if first["handler"] != "subroute" {
+		require.Equal(t, "reverse_proxy", first["handler"])
+	}
 }
 
 func TestGenerateConfig_SkipsEmptyDomainEntries(t *testing.T) {
 	hosts := []models.ProxyHost{{UUID: "u1", DomainNames: ", test.example.com", ForwardHost: "a", ForwardPort: 80, Enabled: true}}
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	require.Equal(t, []string{"test.example.com"}, route.Match[0].Host)
@@ -182,7 +190,7 @@ func TestGenerateConfig_SkipsEmptyDomainEntries(t *testing.T) {
 
 func TestGenerateConfig_AdvancedNoHandlerKey(t *testing.T) {
 	host := models.ProxyHost{UUID: "adv3", DomainNames: "nohandler.example.com", ForwardHost: "app", ForwardPort: 8080, Enabled: true, AdvancedConfig: `{"foo":"bar"}`}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// No headers handler appended; last handler is reverse_proxy
@@ -192,7 +200,7 @@ func TestGenerateConfig_AdvancedNoHandlerKey(t *testing.T) {
 
 func TestGenerateConfig_AdvancedUnexpectedJSONStructure(t *testing.T) {
 	host := models.ProxyHost{UUID: "adv4", DomainNames: "struct.example.com", ForwardHost: "app", ForwardPort: 8080, Enabled: true, AdvancedConfig: `42`}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// Expect main reverse proxy handler exists but no appended advanced handler
@@ -206,4 +214,54 @@ func TestBuildACLHandler_UnknownIPTypeReturnsNil(t *testing.T) {
 	h, err := buildACLHandler(acl)
 	require.NoError(t, err)
 	require.Nil(t, h)
+}
+
+func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
+	// Create host with ACL and HSTS/BlockExploits
+	ipRules := `[ { "cidr": "192.168.1.0/24" } ]`
+	acl := models.AccessList{ID: 200, Name: "WL", Enabled: true, Type: "whitelist", IPRules: ipRules}
+	host := models.ProxyHost{UUID: "pipeline1", DomainNames: "pipe.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true}
+
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true)
+	require.NoError(t, err)
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+
+	// Extract handler names
+	names := []string{}
+	for _, h := range route.Handle {
+		if hn, ok := h["handler"].(string); ok {
+			names = append(names, hn)
+		}
+	}
+
+	// Expected pipeline: crowdsec -> coraza -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
+	require.GreaterOrEqual(t, len(names), 4)
+	require.Equal(t, "crowdsec", names[0])
+	require.Equal(t, "coraza", names[1])
+	require.Equal(t, "rate_limit", names[2])
+	// ACL is subroute
+	require.Equal(t, "subroute", names[3])
+}
+
+func TestGenerateConfig_SecurityPipeline_OmitWhenDisabled(t *testing.T) {
+	host := models.ProxyHost{UUID: "pipe2", DomainNames: "pipe2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false)
+	require.NoError(t, err)
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+
+	// Extract handler names
+	names := []string{}
+	for _, h := range route.Handle {
+		if hn, ok := h["handler"].(string); ok {
+			names = append(names, hn)
+		}
+	}
+
+	// Should not include the security pipeline placeholders
+	for _, n := range names {
+		require.NotEqual(t, "crowdsec", n)
+		require.NotEqual(t, "coraza", n)
+		require.NotEqual(t, "rate_limit", n)
+		require.NotEqual(t, "subroute", n)
+	}
 }

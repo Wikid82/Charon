@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
@@ -19,11 +18,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupTestDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect to test database")
-	}
+func setupTestDB(t *testing.T) *gorm.DB {
+	db := handlers.OpenTestDB(t)
 
 	// Auto migrate
 	db.AutoMigrate(
@@ -38,7 +34,7 @@ func setupTestDB() *gorm.DB {
 
 func TestRemoteServerHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -72,7 +68,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 
 func TestRemoteServerHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
@@ -105,7 +101,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 
 func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -139,7 +135,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 
 func TestRemoteServerHandler_Get(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -172,7 +168,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 
 func TestRemoteServerHandler_Update(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -217,7 +213,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 
 func TestRemoteServerHandler_Delete(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -252,7 +248,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 
 func TestProxyHostHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test proxy host
 	host := &models.ProxyHost{
@@ -287,7 +283,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 
 func TestProxyHostHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
 	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
@@ -340,7 +336,7 @@ func TestHealthHandler(t *testing.T) {
 
 func TestRemoteServerHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)

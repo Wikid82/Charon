@@ -13,14 +13,12 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func setupDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	db.AutoMigrate(&models.NotificationTemplate{})
+	db := OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
 	return db
 }
 

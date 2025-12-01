@@ -8,6 +8,7 @@ import (
     "testing"
     "strings"
     "os"
+    "regexp"
 
     "github.com/Wikid82/charon/backend/internal/logger"
     "github.com/Wikid82/charon/backend/internal/services"
@@ -26,8 +27,11 @@ func TestBackupHandlerSanitizesFilename(t *testing.T) {
     svc := &services.BackupService{DataDir: tmpDir, BackupDir: tmpDir, DatabaseName: "db.sqlite", Cron: nil}
     h := NewBackupHandler(svc)
 
-    router := gin.New()
-    router.GET("/backups/:filename/restore", h.Restore)
+        // Create a gin test context and use it to call handler directly
+        w := httptest.NewRecorder()
+        c, _ := gin.CreateTestContext(w)
+        // Ensure request-scoped logger is present and writes to our buffer
+        c.Set("logger", logger.WithFields(map[string]interface{}{"test": "1"}))
 
     // initialize logger to buffer
     buf := &bytes.Buffer{}
@@ -35,16 +39,27 @@ func TestBackupHandlerSanitizesFilename(t *testing.T) {
 
     // Create a malicious filename with newline and path components
     malicious := "../evil\nname"
-    // Use path escape to send as URL
-    req := httptest.NewRequest(http.MethodPost, "/backups/"+strings.ReplaceAll(malicious, "\n", "%0A")+"/restore", nil)
-    w := httptest.NewRecorder()
-    router.ServeHTTP(w, req)
+    c.Request = httptest.NewRequest(http.MethodGet, "/backups/"+strings.ReplaceAll(malicious, "\n", "%0A")+"/restore", nil)
+        // Call handler directly with the test context
+        h.Restore(c)
 
     out := buf.String()
-    if strings.Contains(out, "\n") {
-        t.Fatalf("log contained raw newline in filename: %s", out)
+    // Optionally we could assert on the response status code here if needed
+    textRegex := regexp.MustCompile(`filename=?"?([^"\s]*)"?`)
+    jsonRegex := regexp.MustCompile(`"filename":"([^"]*)"`)
+    var loggedFilename string
+    if m := textRegex.FindStringSubmatch(out); len(m) == 2 {
+        loggedFilename = m[1]
+    } else if m := jsonRegex.FindStringSubmatch(out); len(m) == 2 {
+        loggedFilename = m[1]
+    } else {
+        t.Fatalf("could not extract filename from logs: %s", out)
     }
-    if strings.Contains(out, "..") {
-        t.Fatalf("log contained path traversals in filename: %s", out)
+
+    if strings.Contains(loggedFilename, "\n") || strings.Contains(loggedFilename, "\r") {
+        t.Fatalf("log filename contained raw newline: %q", loggedFilename)
+    }
+    if strings.Contains(loggedFilename, "..") {
+        t.Fatalf("log filename contained path traversals in filename: %q", loggedFilename)
     }
 }
