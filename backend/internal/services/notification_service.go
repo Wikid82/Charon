@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"context"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/trace"
 	"net"
 	neturl "net/url"
 	"strings"
@@ -256,7 +257,7 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// Propagate request id header if present in context
-	if rid := ctx.Value("requestID"); rid != nil {
+	if rid := ctx.Value(trace.RequestIDKey); rid != nil {
 		if ridStr, ok := rid.(string); ok {
 			req.Header.Set("X-Request-ID", ridStr)
 		}

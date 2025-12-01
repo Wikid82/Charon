@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -469,7 +470,7 @@ func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T)
 	provider := models.NotificationProvider{Type: "webhook", URL: ts.URL}
 	data := map[string]interface{}{"Title": "Test", "Message": "Test"}
 	// Build context with requestID value
-	ctx := context.WithValue(context.Background(), "requestID", "my-rid")
+	ctx := context.WithValue(context.Background(), trace.RequestIDKey, "my-rid")
 	err := svc.sendCustomWebhook(ctx, provider, data)
 	require.NoError(t, err)
 
