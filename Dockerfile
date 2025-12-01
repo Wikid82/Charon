@@ -154,6 +154,7 @@ COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # Install CrowdSec binary (default version can be overridden at build time)
 ARG CROWDSEC_VERSION=1.6.0
+# hadolint ignore=DL3018
 RUN apk add --no-cache curl tar gzip && \
     set -eux; \
     URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-v${CROWDSEC_VERSION}-linux-musl.tar.gz"; \
@@ -194,8 +195,7 @@ ENV CHARON_ENV=production \
     CPM_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb
 
 # Create necessary directories
-RUN mkdir -p /app/data /app/data/caddy /config
-RUN mkdir -p /app/data/crowdsec
+RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
 # Re-declare build args for LABEL usage
 ARG VERSION=dev
