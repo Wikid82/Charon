@@ -13,7 +13,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -257,7 +257,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		}
 
 		// WAF handler (placeholder) — add according to runtime flag
-		if wafH, err := buildWAFHandler(&host, rulesets, secCfg, wafEnabled); err == nil && wafH != nil {
+		if wafH, err := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); err == nil && wafH != nil {
 			securityHandlers = append(securityHandlers, wafH)
 		}
 
@@ -701,7 +701,7 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 // buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
 // This is a stub; integration with a Coraza caddy plugin would be required
 // for real runtime enforcement.
-func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
 	// Find a ruleset to associate with WAF; prefer name match by host.Application or default 'owasp-crs'
 	var selected *models.SecurityRuleSet
 	for i, r := range rulesets {
@@ -718,6 +718,11 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	if selected != nil {
 		h["ruleset_name"] = selected.Name
 		h["ruleset_content"] = selected.Content
+		if rulesetPaths != nil {
+			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
+				h["ruleset_path"] = p
+			}
+		}
 	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
 		// If there was a requested ruleset name but nothing matched, include it as a reference
 		h["ruleset_name"] = secCfg.WAFRulesSource
