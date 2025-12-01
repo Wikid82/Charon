@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
 import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
@@ -23,20 +23,55 @@ export default function Security() {
     mutationFn: async ({ key, enabled }: { key: string; enabled: boolean }) => {
       await updateSetting(key, enabled ? 'true' : 'false', 'security', 'bool')
     },
+    onMutate: async ({ key, enabled }: { key: string; enabled: boolean }) => {
+      await queryClient.cancelQueries({ queryKey: ['security-status'] })
+      const previous = queryClient.getQueryData(['security-status'])
+      queryClient.setQueryData(['security-status'], (old: any) => {
+        if (!old) return old
+        const parts = key.split('.')
+        const section = parts[1]
+        const field = parts[2]
+        const copy = { ...old }
+        if (copy[section]) {
+          copy[section] = { ...copy[section], [field]: enabled }
+        }
+        return copy
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous) queryClient.setQueryData(['security-status'], context.previous)
+      const msg = _err instanceof Error ? _err.message : String(_err)
+      toast.error(`Failed to update setting: ${msg}`)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
       toast.success('Security setting updated')
     },
-    onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Failed to update setting: ${msg}`)
-    },
+
   })
   const toggleCerberusMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       await updateSetting('security.cerberus.enabled', enabled ? 'true' : 'false', 'security', 'bool')
     },
+    onMutate: async (enabled: boolean) => {
+      await queryClient.cancelQueries({ queryKey: ['security-status'] })
+      const previous = queryClient.getQueryData(['security-status'])
+      if (previous) {
+        queryClient.setQueryData(['security-status'], (old: any) => {
+          const copy = JSON.parse(JSON.stringify(old))
+          if (!copy.cerberus) copy.cerberus = {}
+          copy.cerberus.enabled = enabled
+          return copy
+        })
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous) queryClient.setQueryData(['security-status'], context.previous)
+    },
+    // onSuccess: already set below
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
@@ -65,11 +100,11 @@ export default function Security() {
     return <div className="p-8 text-center text-red-500">Failed to load security status</div>
   }
 
-  const allDisabled = !status?.crowdsec?.enabled && !status?.waf?.enabled && !status?.rate_limit?.enabled && !status?.acl?.enabled
+  // const suiteDisabled = !(status?.cerberus?.enabled ?? false)
 
   // Replace the previous early-return that instructed enabling via env vars.
   // If allDisabled, show a banner and continue to render the dashboard with disabled controls.
-  const headerBanner = allDisabled ? (
+  const headerBanner = (!status.cerberus?.enabled) ? (
     <div className="flex flex-col items-center justify-center text-center space-y-4 p-6 bg-gray-900/5 dark:bg-gray-800 rounded-lg">
       <div className="flex items-center gap-3">
         <Shield className="w-8 h-8 text-gray-400" />
@@ -118,6 +153,7 @@ export default function Security() {
         </Button>
       </div>
 
+      <Outlet />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* CrowdSec */}
         <Card className={status.crowdsec.enabled ? 'border-green-200 dark:border-green-900' : ''}>
@@ -128,6 +164,7 @@ export default function Security() {
                 checked={status.crowdsec.enabled}
                 disabled={!status.cerberus?.enabled}
                 onChange={(e) => {
+                  console.log('crowdsec onChange', e.target.checked)
                   // pre-validate if enabling external CrowdSec without API URL
                   if (e.target.checked && status.crowdsec?.mode === 'external') {
                       toast.error('External CrowdSec mode is not supported in this release')
@@ -186,7 +223,7 @@ export default function Security() {
                   >
                     Export
                   </Button>
-                  <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/settings/crowdsec')}>
+                  <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/security/crowdsec')}>
                     Configure
                   </Button>
                   <div className="flex gap-2 w-full">
@@ -195,6 +232,7 @@ export default function Security() {
                       size="sm"
                       className="w-full"
                       onClick={() => startMutation.mutate()}
+                      data-testid="crowdsec-start"
                       isLoading={startMutation.isPending}
                       disabled={!!crowdsecStatus?.running}
                     >
@@ -206,6 +244,7 @@ export default function Security() {
                       size="sm"
                       className="w-full"
                       onClick={() => stopMutation.mutate()}
+                      data-testid="crowdsec-stop"
                       isLoading={stopMutation.isPending}
                       disabled={!crowdsecStatus?.running}
                     >
@@ -269,7 +308,7 @@ export default function Security() {
                   variant="secondary"
                   size="sm"
                   className="w-full"
-                  onClick={() => navigate('/access-lists')}
+                  onClick={() => navigate('/security/access-lists')}
                 >
                   Manage Lists
                 </Button>
@@ -277,7 +316,7 @@ export default function Security() {
             )}
             {!status.acl.enabled && (
               <div className="mt-4">
-                <Button size="sm" variant="secondary" onClick={() => navigate('/access-lists')}>Configure</Button>
+                <Button size="sm" variant="secondary" onClick={() => navigate('/security/access-lists')}>Configure</Button>
               </div>
             )}
           </div>
@@ -306,14 +345,14 @@ export default function Security() {
             </p>
             {status.rate_limit.enabled && (
               <div className="mt-4">
-                <Button variant="secondary" size="sm" className="w-full">
+                <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/security/rate-limiting')}>
                   Configure Limits
                 </Button>
               </div>
             )}
             {!status.rate_limit.enabled && (
               <div className="mt-4">
-                <Button variant="secondary" size="sm" onClick={() => navigate('/settings/system')}>Configure</Button>
+                <Button variant="secondary" size="sm" onClick={() => navigate('/security/rate-limiting')}>Configure</Button>
               </div>
             )}
           </div>
