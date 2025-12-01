@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSecurityStatus, getSecurityConfig, updateSecurityConfig, generateBreakGlassToken, enableCerberus, disableCerberus } from '../api/security'
+import { getSecurityStatus, getSecurityConfig, updateSecurityConfig, generateBreakGlassToken, enableCerberus, disableCerberus, getDecisions, createDecision, getRuleSets, upsertRuleSet } from '../api/security'
 import toast from 'react-hot-toast'
 
 export function useSecurityStatus() {
@@ -27,6 +27,30 @@ export function useUpdateSecurityConfig() {
 
 export function useGenerateBreakGlassToken() {
   return useMutation({ mutationFn: () => generateBreakGlassToken() })
+}
+
+export function useDecisions(limit = 50) {
+  return useQuery({ queryKey: ['securityDecisions', limit], queryFn: () => getDecisions(limit) })
+}
+
+export function useCreateDecision() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: any) => createDecision(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['securityDecisions'] }),
+  })
+}
+
+export function useRuleSets() {
+  return useQuery({ queryKey: ['securityRulesets'], queryFn: () => getRuleSets() })
+}
+
+export function useUpsertRuleSet() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: any) => upsertRuleSet(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['securityRulesets'] }),
+  })
 }
 
 export function useEnableCerberus() {

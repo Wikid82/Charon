@@ -3,6 +3,7 @@ package handlers
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -143,6 +144,82 @@ func (h *SecurityHandler) GenerateBreakGlass(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+// ListDecisions returns recent security decisions
+func (h *SecurityHandler) ListDecisions(c *gin.Context) {
+	limit := 50
+	if q := c.Query("limit"); q != "" {
+		if v, err := strconv.Atoi(q); err == nil {
+			limit = v
+		}
+	}
+	list, err := h.svc.ListDecisions(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list decisions"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"decisions": list})
+}
+
+// CreateDecision creates a manual decision (override) - for now no checks besides payload
+func (h *SecurityHandler) CreateDecision(c *gin.Context) {
+	var payload models.SecurityDecision
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if payload.IP == "" || payload.Action == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip and action are required"})
+		return
+	}
+	// Populate source
+	payload.Source = "manual"
+	if err := h.svc.LogDecision(&payload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to log decision"})
+		return
+	}
+	// Record an audit entry
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "create_decision", Details: payload.Details})
+	c.JSON(http.StatusOK, gin.H{"decision": payload})
+}
+
+// ListRuleSets returns the list of known rulesets
+func (h *SecurityHandler) ListRuleSets(c *gin.Context) {
+	list, err := h.svc.ListRuleSets()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list rule sets"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rulesets": list})
+}
+
+// UpsertRuleSet uploads or updates a ruleset
+func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
+	var payload models.SecurityRuleSet
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if payload.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	if err := h.svc.UpsertRuleSet(&payload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert ruleset"})
+		return
+	}
+	// Create an audit event
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "upsert_ruleset", Details: payload.Name})
+	c.JSON(http.StatusOK, gin.H{"ruleset": payload})
 }
 
 // Enable toggles Cerberus on, validating admin whitelist or break-glass token

@@ -39,7 +39,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UptimeHost{},
 		&models.UptimeNotificationEvent{},
 		&models.Domain{},
-        &models.SecurityConfig{},
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -214,6 +217,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/security/enable", securityHandler.Enable)
 		protected.POST("/security/disable", securityHandler.Disable)
 		protected.POST("/security/breakglass/generate", securityHandler.GenerateBreakGlass)
+		protected.GET("/security/decisions", securityHandler.ListDecisions)
+		protected.POST("/security/decisions", securityHandler.CreateDecision)
+		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
+		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
