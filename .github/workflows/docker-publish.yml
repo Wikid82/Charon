@@ -84,13 +84,16 @@ jobs:
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Choose Registry Token
+        id: choose-registry-token
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         run: |
           if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
             echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_OUTPUT
             echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_OUTPUT
             echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
           fi
 
@@ -100,7 +103,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ env.REGISTRY_PASSWORD }}
+          password: ${{ steps.choose-registry-token.outputs.REGISTRY_PASSWORD }}
 
       - name: Extract metadata (tags, labels)
         if: steps.skip.outputs.skip_build != 'true'
@@ -213,12 +216,15 @@ jobs:
           fi
 
       - name: Choose Registry Token
+        id: choose-registry-token
         run: |
           if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
             echo "Using CHARON_TOKEN" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_OUTPUT
             echo "REGISTRY_PASSWORD=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using CPMP_TOKEN fallback" >&2
+            echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_OUTPUT
             echo "REGISTRY_PASSWORD=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
           fi
 
@@ -227,7 +233,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ env.REGISTRY_PASSWORD }}
+          password: ${{ steps.choose-registry-token.outputs.REGISTRY_PASSWORD }}
 
       - name: Pull Docker image
         run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
