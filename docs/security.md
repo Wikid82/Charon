@@ -141,6 +141,19 @@ environment:
 
 ---
 
+## Multi-Layer Protection & When to Use ACLs
+
+Charon follows a multi-layered security approach. The recommendation below shows which module is best suited for specific types of threats:
+
+- **CrowdSec**: Best for dynamic, behavior-driven blocking — bots, scanners, credential stuffing, IP reputation. CrowdSec integrates with local or external agents and should be used for most bot and scanner detection/remediation.
+- **WAF (Coraza)**: Best for payload and application-level attacks (XSS, SQLi, file inclusion). Protects against malicious payloads regardless of source IP.
+- **Rate Limiting**: Best for high-volume scanners and brute-force attempts; helps prevent abuse from cloud providers and scrapers.
+- **ACLs (Geo/Page-Level)**: Best for static location-based or private network restrictions, e.g., geo-blocking or restricting access to RFC1918 ranges for internal services.
+
+Because IP-based blocklists are dynamic and often incomplete, we removed the IP-based Access List presets (e.g., botnet, scanner, VPN lists) from the default UI presets. These dynamic IP blocklists are now the recommended responsibility of CrowdSec and rate limiting; they are easier to maintain, update, and automatically mitigate at scale.
+
+Use ACLs primarily for explicit or static restrictions such as geofencing or limiting access to your home/office IP ranges.
+
 ## Testing ACLs
 
 Before applying an ACL to a production service:
