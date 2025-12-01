@@ -6,7 +6,9 @@ import (
     "errors"
     "strings"
     "net"
+    "time"
 
+    "github.com/google/uuid"
     "golang.org/x/crypto/bcrypt"
 
     "github.com/Wikid82/charon/backend/internal/models"
@@ -132,6 +134,82 @@ func (s *SecurityService) VerifyBreakGlassToken(name, token string) (bool, error
         return false, ErrBreakGlassInvalid
     }
     return true, nil
+}
+
+// LogDecision stores a security decision record
+func (s *SecurityService) LogDecision(d *models.SecurityDecision) error {
+    if d == nil {
+        return nil
+    }
+    if d.UUID == "" {
+        d.UUID = uuid.NewString()
+    }
+    if d.CreatedAt.IsZero() {
+        d.CreatedAt = time.Now()
+    }
+    return s.db.Create(d).Error
+}
+
+// ListDecisions returns recent security decisions, ordered by created_at desc
+func (s *SecurityService) ListDecisions(limit int) ([]models.SecurityDecision, error) {
+    var res []models.SecurityDecision
+    q := s.db.Order("created_at desc")
+    if limit > 0 {
+        q = q.Limit(limit)
+    }
+    if err := q.Find(&res).Error; err != nil {
+        return nil, err
+    }
+    return res, nil
+}
+
+// LogAudit stores an audit entry
+func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
+    if a == nil {
+        return nil
+    }
+    if a.UUID == "" {
+        a.UUID = uuid.NewString()
+    }
+    if a.CreatedAt.IsZero() {
+        a.CreatedAt = time.Now()
+    }
+    return s.db.Create(a).Error
+}
+
+// UpsertRuleSet saves or updates a ruleset content
+func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
+    if r == nil {
+        return nil
+    }
+    var existing models.SecurityRuleSet
+    if err := s.db.Where("name = ?", r.Name).First(&existing).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            if r.UUID == "" {
+                r.UUID = uuid.NewString()
+            }
+            if r.LastUpdated.IsZero() {
+                r.LastUpdated = time.Now()
+            }
+            return s.db.Create(r).Error
+        }
+        return err
+    }
+    existing.SourceURL = r.SourceURL
+    existing.Content = r.Content
+    existing.Mode = r.Mode
+    existing.LastUpdated = r.LastUpdated
+    return s.db.Save(&existing).Error
+}
+
+
+// ListRuleSets returns all known rulesets
+func (s *SecurityService) ListRuleSets() ([]models.SecurityRuleSet, error) {
+    var res []models.SecurityRuleSet
+    if err := s.db.Find(&res).Error; err != nil {
+        return nil, err
+    }
+    return res, nil
 }
 
 // helper: reused from access_list_service validation for CIDR/IP parsing

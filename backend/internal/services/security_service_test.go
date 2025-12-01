@@ -14,7 +14,7 @@ func setupSecurityTestDB(t *testing.T) *gorm.DB {
     db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
     assert.NoError(t, err)
 
-    err = db.AutoMigrate(&models.SecurityConfig{})
+    err = db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityDecision{}, &models.SecurityAudit{}, &models.SecurityRuleSet{})
     assert.NoError(t, err)
 
     return db
@@ -63,4 +63,32 @@ func TestSecurityService_BreakGlassTokenLifecycle(t *testing.T) {
     ok, err = svc.VerifyBreakGlassToken("default", "wrongtoken")
     assert.Error(t, err)
     assert.False(t, ok)
+}
+
+func TestSecurityService_LogDecisionAndList(t *testing.T) {
+    db := setupSecurityTestDB(t)
+    svc := NewSecurityService(db)
+
+    dec := &models.SecurityDecision{Source: "manual", Action: "block", IP: "1.2.3.4", Host: "example.com", RuleID: "manual-1", Details: "test manual block"}
+    err := svc.LogDecision(dec)
+    assert.NoError(t, err)
+
+    list, err := svc.ListDecisions(10)
+    assert.NoError(t, err)
+    assert.GreaterOrEqual(t, len(list), 1)
+    assert.Equal(t, "manual", list[0].Source)
+}
+
+func TestSecurityService_UpsertRuleSet(t *testing.T) {
+    db := setupSecurityTestDB(t)
+    svc := NewSecurityService(db)
+
+    rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: "rule: 1"}
+    err := svc.UpsertRuleSet(rs)
+    assert.NoError(t, err)
+
+    list, err := svc.ListRuleSets()
+    assert.NoError(t, err)
+    assert.GreaterOrEqual(t, len(list), 1)
+    assert.Equal(t, "owasp-crs", list[0].Name)
 }

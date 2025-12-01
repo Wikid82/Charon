@@ -30,9 +30,14 @@ export interface SecurityConfigPayload {
   enabled?: boolean
   admin_whitelist?: string
   crowdsec_mode?: string
+  crowdsec_api_url?: string
   waf_mode?: string
+  waf_rules_source?: string
+  waf_learning?: boolean
   rate_limit_enable?: boolean
   rate_limit_burst?: number
+  rate_limit_requests?: number
+  rate_limit_window_sec?: number
 }
 
 export const getSecurityConfig = async () => {
@@ -57,5 +62,25 @@ export const enableCerberus = async (payload?: any) => {
 
 export const disableCerberus = async (payload?: any) => {
   const response = await client.post('/security/disable', payload || {})
+  return response.data
+}
+
+export const getDecisions = async (limit = 50) => {
+  const response = await client.get(`/security/decisions?limit=${limit}`)
+  return response.data
+}
+
+export const createDecision = async (payload: any) => {
+  const response = await client.post('/security/decisions', payload)
+  return response.data
+}
+
+export const getRuleSets = async () => {
+  const response = await client.get('/security/rulesets')
+  return response.data
+}
+
+export const upsertRuleSet = async (payload: any) => {
+  const response = await client.post('/security/rulesets', payload)
   return response.data
 }
