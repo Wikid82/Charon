@@ -101,6 +101,17 @@ environment:
 
 ---
 
+## Self-Lockout Protection
+
+When enabling the Cerberus suite (CrowdSec, WAF, ACLs, Rate Limiting) there is a risk of accidentally locking yourself out of the Admin UI or services you rely on. Charon provides the following safeguards to reduce this risk:
+
+- **Admin Whitelist**: When enabling Cerberus you should enter at least one administrative IP or CIDR range (for example your VPN IP, Tailscale IP, or a trusted office IP). This whitelist is always excluded from blocking decisions.
+- **Break-Glass Token**: You can generate a temporary break-glass token from the Security UI. This one-time token (returned plaintext once) can be used to disable Cerberus if you lose access.
+- **Localhost Bypass**: Requests from `127.0.0.1` or `::1` may be allowed to manage the system locally without a token (helpful for local management access).
+- **Manager Checks**: Config deployment will be refused if Cerberus is enabled and no admin whitelist is configured — this prevents accidental global lockouts when applying new configurations.
+
+Follow a phased approach: deploy in `monitor`/`log-only` modes, validate findings, add admin whitelist entries, then switch to `block`/`enforce` mode.
+
 ## ACL Best Practices by Service Type
 
 ### Internal Services (Pi-hole, Home Assistant, Router Admin)

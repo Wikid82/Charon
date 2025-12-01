@@ -1,7 +1,6 @@
 package caddy
 
 import (
-		"strings"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -9,13 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // Test hooks to allow overriding OS and JSON functions
@@ -33,12 +33,12 @@ var (
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client       *Client
-	db           *gorm.DB
-	configDir    string
-	frontendDir  string
-	acmeStaging  bool
-	securityCfg  config.SecurityConfig
+	client      *Client
+	db          *gorm.DB
+	configDir   string
+	frontendDir string
+	acmeStaging bool
+	securityCfg config.SecurityConfig
 }
 
 // NewManager creates a configuration manager.
@@ -78,8 +78,22 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Compute effective security flags (re-read runtime overrides)
 	_, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled := m.computeEffectiveFlags(ctx)
 
+	// Safety check: if Cerberus is enabled in DB and no admin whitelist configured,
+	// block applying changes to avoid accidental self-lockout.
+	var secCfg models.SecurityConfig
+	if err := m.db.Where("name = ?", "default").First(&secCfg).Error; err == nil {
+		if secCfg.Enabled && strings.TrimSpace(secCfg.AdminWhitelist) == "" {
+			return fmt.Errorf("refusing to apply config: Cerberus is enabled but admin_whitelist is empty; add an admin whitelist entry or generate a break-glass token")
+		}
+	}
+
 	// Generate Caddy config
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled)
+	// Read admin whitelist for config generation so handlers can exclude admin IPs
+	var adminWhitelist string
+	if secCfg.AdminWhitelist != "" {
+		adminWhitelist = secCfg.AdminWhitelist
+	}
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

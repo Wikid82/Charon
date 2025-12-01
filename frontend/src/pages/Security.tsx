@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
+import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
 import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
 import { Switch } from '../components/ui/Switch'
@@ -16,6 +17,15 @@ export default function Security() {
     queryKey: ['security-status'],
     queryFn: getSecurityStatus,
   })
+  const { data: securityConfig } = useSecurityConfig()
+  const [adminWhitelist, setAdminWhitelist] = useState<string>('')
+  useEffect(() => {
+    if (securityConfig && securityConfig.config) {
+      setAdminWhitelist(securityConfig.config.admin_whitelist || '')
+    }
+  }, [securityConfig])
+  const updateSecurityConfigMutation = useUpdateSecurityConfig()
+  const generateBreakGlassMutation = useGenerateBreakGlassToken()
   const queryClient = useQueryClient()
   const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
   // Generic toggle mutation for per-service settings
@@ -151,6 +161,15 @@ export default function Security() {
           <ExternalLink className="w-4 h-4" />
           Documentation
         </Button>
+      </div>
+
+      <div className="mt-4 p-4 bg-gray-800 rounded-lg">
+        <label className="text-sm text-gray-400">Admin whitelist (comma-separated CIDR/IPs)</label>
+        <div className="flex gap-2 mt-2">
+          <input className="flex-1 p-2 rounded bg-gray-700 text-white" value={adminWhitelist} onChange={(e) => setAdminWhitelist(e.target.value)} />
+          <Button size="sm" variant="primary" onClick={() => updateSecurityConfigMutation.mutate({ name: 'default', admin_whitelist: adminWhitelist })}>Save</Button>
+          <Button size="sm" variant="secondary" onClick={() => generateBreakGlassMutation.mutate()}>Generate Token</Button>
+        </div>
       </div>
 
       <Outlet />
