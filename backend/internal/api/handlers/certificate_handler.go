@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 type CertificateHandler struct {
@@ -95,10 +96,10 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"cert",
 			"Certificate Uploaded",
-			fmt.Sprintf("Certificate %s uploaded", cert.Name),
+			fmt.Sprintf("Certificate %s uploaded", util.SanitizeForLog(cert.Name)),
 			map[string]interface{}{
-				"Name":    cert.Name,
-				"Domains": cert.Domains,
+				"Name":    util.SanitizeForLog(cert.Name),
+				"Domains": util.SanitizeForLog(cert.Domains),
 				"Action":  "uploaded",
 			},
 		)

@@ -8,6 +8,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 type DomainHandler struct {
@@ -55,9 +56,9 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"domain",
 			"Domain Added",
-			fmt.Sprintf("Domain %s added", domain.Name),
+			fmt.Sprintf("Domain %s added", util.SanitizeForLog(domain.Name)),
 			map[string]interface{}{
-				"Name":   domain.Name,
+				"Name":   util.SanitizeForLog(domain.Name),
 				"Action": "created",
 			},
 		)
@@ -75,9 +76,9 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 			h.notificationService.SendExternal(c.Request.Context(),
 				"domain",
 				"Domain Deleted",
-				fmt.Sprintf("Domain %s deleted", domain.Name),
+				fmt.Sprintf("Domain %s deleted", util.SanitizeForLog(domain.Name)),
 				map[string]interface{}{
-					"Name":   domain.Name,
+					"Name":   util.SanitizeForLog(domain.Name),
 					"Action": "deleted",
 				},
 			)

@@ -18,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/containrrr/shoutrrr"
 	"gorm.io/gorm"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 type NotificationService struct {
@@ -119,23 +120,23 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		}
 
 		go func(p models.NotificationProvider) {
-			if p.Type == "webhook" {
+					if p.Type == "webhook" {
 				if err := s.sendCustomWebhook(ctx, p, data); err != nil {
-					logger.Log().WithError(err).WithField("provider", p.Name).Error("Failed to send webhook")
+					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
 				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
 				// Validate HTTP/HTTPS destinations used by shoutrrr to reduce SSRF risk
 				if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 					if _, err := validateWebhookURL(url); err != nil {
-						logger.Log().WithField("provider", p.Name).Warn("Skipping notification for provider due to invalid destination")
+						logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Skipping notification for provider due to invalid destination")
 						return
 					}
 				}
 				// Use newline for better formatting in chat apps
 				msg := fmt.Sprintf("%s\n\n%s", title, message)
-				if err := shoutrrr.Send(url, msg); err != nil {
-					logger.Log().WithError(err).WithField("provider", p.Name).Error("Failed to send notification")
+					if err := shoutrrr.Send(url, msg); err != nil {
+					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send notification")
 				}
 			}
 		}(provider)

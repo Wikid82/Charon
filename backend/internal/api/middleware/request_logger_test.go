@@ -11,6 +11,42 @@ import (
     "github.com/gin-gonic/gin"
 )
 
+func TestRequestLoggerSanitizesPath(t *testing.T) {
+    old := logger.Log()
+    buf := &bytes.Buffer{}
+    logger.Init(true, buf)
+
+    longPath := "/" + strings.Repeat("a", 300)
+
+    router := gin.New()
+    router.Use(RequestID())
+    router.Use(RequestLogger())
+    router.GET(longPath, func(c *gin.Context) { c.Status(http.StatusOK) })
+
+    req := httptest.NewRequest(http.MethodGet, longPath, nil)
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    out := buf.String()
+    if strings.Contains(out, strings.Repeat("a", 300)) {
+        t.Fatalf("logged unsanitized long path")
+    }
+    i := strings.Index(out, "path=")
+    if i == -1 {
+        t.Fatalf("could not find path in logs: %s", out)
+    }
+    sub := out[i:]
+    j := strings.Index(sub, " request_id=")
+    if j == -1 {
+        t.Fatalf("could not isolate path field from logs: %s", out)
+    }
+    pathField := sub[len("path=") : j]
+    if strings.Contains(pathField, "\n") || strings.Contains(pathField, "\r") {
+        t.Fatalf("path field contains control characters after sanitization: %s", pathField)
+    }
+    _ = old // silence unused var
+}
+
 func TestRequestLoggerIncludesRequestID(t *testing.T) {
     buf := &bytes.Buffer{}
     logger.Init(true, buf)

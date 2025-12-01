@@ -18,8 +18,8 @@ func Recovery(verbose bool) gin.HandlerFunc {
                 if verbose {
                     entry.WithFields(map[string]interface{}{
                         "method":  c.Request.Method,
-                        "path":    c.Request.URL.Path,
-                        "headers": c.Request.Header,
+                        "path":    SanitizePath(c.Request.URL.Path),
+                        "headers": SanitizeHeaders(c.Request.Header),
                     }).Errorf("PANIC: %v\nStacktrace:\n%s", r, debug.Stack())
                 } else {
                     entry.Errorf("PANIC: %v", r)

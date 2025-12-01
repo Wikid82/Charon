@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -144,11 +145,11 @@ func main() {
 	for _, host := range proxyHosts {
 		result := db.Where("domain_names = ?", host.DomainNames).FirstOrCreate(&host)
 		if result.Error != nil {
-			logger.Log().WithField("host", host.DomainNames).WithError(result.Error).Error("Failed to seed proxy host")
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).WithError(result.Error).Error("Failed to seed proxy host")
 		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("host", host.DomainNames).Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
 		} else {
-			logger.Log().WithField("host", host.DomainNames).Info("Proxy host already exists")
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Proxy host already exists")
 		}
 	}
 
