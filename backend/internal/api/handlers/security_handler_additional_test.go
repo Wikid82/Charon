@@ -24,7 +24,7 @@ func TestSecurityHandler_GetConfigAndUpdateConfig(t *testing.T) {
     require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
 
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
 
     // Create a gin test context for GetConfig when no config exists
     w := httptest.NewRecorder()

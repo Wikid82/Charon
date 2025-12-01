@@ -41,7 +41,7 @@ func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
 		RateLimitMode: "disabled",
 		ACLMode:       "disabled",
 	}
-	handler := NewSecurityHandler(cfg, nil)
+	handler := NewSecurityHandler(cfg, nil, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -67,7 +67,7 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 	}
 
 	cfg := config.SecurityConfig{CerberusEnabled: false}
-	handler := NewSecurityHandler(cfg, db)
+	handler := NewSecurityHandler(cfg, db, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -103,7 +103,7 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 
 	// Ensure Cerberus is enabled so ACL can be active
 	cfg := config.SecurityConfig{ACLMode: "disabled", CerberusEnabled: true}
-	handler := NewSecurityHandler(cfg, db)
+	handler := NewSecurityHandler(cfg, db, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -132,7 +132,7 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	}
 
 	cfg := config.SecurityConfig{ACLMode: "enabled", CerberusEnabled: true}
-	handler := NewSecurityHandler(cfg, db)
+	handler := NewSecurityHandler(cfg, db, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -161,7 +161,7 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 	}
 
 	cfg := config.SecurityConfig{CrowdSecMode: "disabled"}
-	handler := NewSecurityHandler(cfg, db)
+	handler := NewSecurityHandler(cfg, db, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -185,7 +185,7 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 	cfg := config.SecurityConfig{CrowdSecMode: "local"}
-	handler := NewSecurityHandler(cfg, db)
+	handler := NewSecurityHandler(cfg, db, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -209,7 +209,7 @@ func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
 		RateLimitMode: "disabled",
 		ACLMode:       "disabled",
 	}
-	handler := NewSecurityHandler(cfg, nil)
+	handler := NewSecurityHandler(cfg, nil, nil)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
 
@@ -234,7 +234,7 @@ func TestSecurityHandler_Enable_Disable_WithAdminWhitelistAndToken(t *testing.T)
 		t.Fatalf("failed to create security config: %v", err)
 	}
 
-	handler := NewSecurityHandler(config.SecurityConfig{}, db)
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	router := gin.New()
 	api := router.Group("/api/v1")
 	api.POST("/security/enable", handler.Enable)

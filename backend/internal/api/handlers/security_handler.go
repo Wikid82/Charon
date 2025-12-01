@@ -13,6 +13,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/caddy"
 )
 
 // SecurityHandler handles security-related API requests.
@@ -20,12 +21,13 @@ type SecurityHandler struct {
 	cfg config.SecurityConfig
 	db  *gorm.DB
 	svc *services.SecurityService
+	caddyManager *caddy.Manager
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
-func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB) *SecurityHandler {
+func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
-	return &SecurityHandler{cfg: cfg, db: db, svc: svc}
+	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
 }
 
 // GetStatus returns the current status of all security services.
@@ -209,10 +211,16 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
 		return
 	}
-	if err := h.svc.UpsertRuleSet(&payload); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert ruleset"})
-		return
-	}
+	    if err := h.svc.UpsertRuleSet(&payload); err != nil {
+		    c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert ruleset"})
+		    return
+	    }
+	    if h.caddyManager != nil {
+		    if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			    return
+		    }
+	    }
 	// Create an audit event
 	actor := c.GetString("user_id")
 	if actor == "" {
@@ -234,7 +242,7 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if err := h.svc.DeleteRuleSet(uint(id)); err != nil {
+	    if err := h.svc.DeleteRuleSet(uint(id)); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
 			return
@@ -242,6 +250,12 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
 		return
 	}
+	    if h.caddyManager != nil {
+		    if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			    c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			    return
+		    }
+	    }
 	actor := c.GetString("user_id")
 	if actor == "" {
 		actor = c.ClientIP()

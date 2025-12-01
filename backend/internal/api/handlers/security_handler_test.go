@@ -30,7 +30,7 @@ func setupSecurityTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
     r := gin.New()
     api := r.Group("/api/v1")
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
     api.GET("/security/status", h.GetStatus)
     api.GET("/security/config", h.GetConfig)
     api.POST("/security/config", h.UpdateConfig)
@@ -67,7 +67,7 @@ func TestSecurityHandler_ConfigUpsertAndBreakGlass(t *testing.T) {
 }
 
 func TestSecurityHandler_GetStatus(t *testing.T) {
-    handler := NewSecurityHandler(config.SecurityConfig{CrowdSecMode: "disabled", WAFMode: "disabled", RateLimitMode: "disabled", ACLMode: "disabled"}, nil)
+    handler := NewSecurityHandler(config.SecurityConfig{CrowdSecMode: "disabled", WAFMode: "disabled", RateLimitMode: "disabled", ACLMode: "disabled"}, nil, nil)
     router := gin.New()
     router.GET("/security/status", handler.GetStatus)
 
@@ -104,7 +104,7 @@ func setupSecurityTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
     r := gin.New()
     api := r.Group("/api/v1")
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
     api.GET("/security/status", h.GetStatus)
     api.GET("/security/config", h.GetConfig)
     api.POST("/security/config", h.UpdateConfig)
@@ -232,7 +232,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -282,7 +282,7 @@ func setupSecurityTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
     r := gin.New()
     api := r.Group("/api/v1")
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
     api.GET("/security/status", h.GetStatus)
     api.GET("/security/config", h.GetConfig)
     api.POST("/security/config", h.UpdateConfig)
@@ -410,7 +410,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -459,7 +459,7 @@ func setupSecurityTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
     r := gin.New()
     api := r.Group("/api/v1")
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
     // The NewSecurityHandler above matches pattern; here we'll use the real handler
     // Register the routes manually
     api.GET("/security/status", h.GetStatus)
@@ -602,7 +602,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -713,7 +713,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -824,7 +824,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -935,7 +935,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -1046,7 +1046,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
             router := gin.New()
             router.GET("/security/status", handler.GetStatus)
 
@@ -1147,7 +1147,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 					"enabled": true,
 				},
 				"acl": map[string]interface{}{
-			handler := NewSecurityHandler(tt.cfg, nil)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
 					"enabled": true,
 				},
 			},
@@ -1156,7 +1156,7 @@ func TestSecurityHandler_GetStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewSecurityHandler(tt.cfg)
+            handler := NewSecurityHandler(tt.cfg, nil, nil)
 			router := gin.New()
 			router.GET("/security/status", handler.GetStatus)
 

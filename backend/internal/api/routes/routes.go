@@ -70,6 +70,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	cerb := cerberus.New(cfg.Security, db)
 	api.Use(cerb.Middleware())
 
+	// Caddy Manager declaration so it can be used across the entire Register function
+	var caddyManager *caddy.Manager
+
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
 	authHandler := handlers.NewAuthHandler(authService)
@@ -208,8 +211,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
 
+		// Caddy Manager
+		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+
 		// Security Status
-		securityHandler := handlers.NewSecurityHandler(cfg.Security, db)
+		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
@@ -231,9 +238,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecHandler.RegisterRoutes(protected)
 	}
 
-	// Caddy Manager
-	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+	// Caddy Manager already created above
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
 	proxyHostHandler.RegisterRoutes(api)

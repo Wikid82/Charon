@@ -245,8 +245,9 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 		os.Chtimes(p, tmo, tmo)
 	}
 
-	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	    client := NewClient(caddyServer.URL)
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 
 	// ApplyConfig should succeed even if rotateSnapshots later returns an error
 	err = manager.ApplyConfig(context.Background())
@@ -643,6 +644,95 @@ func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(capturedRules), 1)
 	assert.Equal(t, "owasp-crs", capturedRules[0].Name)
+}
+
+func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-coraza")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a host
+	h := models.ProxyHost{DomainNames: "ruleset.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert ruleset
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+
+	// Insert SecurityConfig with WAF enabled and rulesource set
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	loadCh := make(chan []byte, 1)
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			loadCh <- body
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture wafEnabled and rulesets passed into GenerateConfig
+	var capturedWafEnabled bool
+	var capturedRulesets []models.SecurityRuleSet
+	origGen := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedWafEnabled = wafEnabled
+		capturedRulesets = rulesets
+		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, decisions, secCfg)
+	}
+	defer func() { generateConfigFunc = origGen }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	assert.True(t, capturedWafEnabled, "wafEnabled expected to be true when Cerberus and WAF enabled")
+	assert.GreaterOrEqual(t, len(capturedRulesets), 1)
+
+	var body []byte
+	select {
+	case body = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request")
+	}
+	var cfg Config
+	assert.NoError(t, json.Unmarshal(body, &cfg))
+	t.Logf("generated config: %s", string(body))
+
+	// Find the route for our host and assert coraza handler exists
+	found := false
+	for _, r := range cfg.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "ruleset.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "coraza" {
+							// Validate ruleset fields
+							if rsName, ok := handle["ruleset_name"].(string); ok && rsName == "owasp-crs" {
+								if rsContent, ok := handle["ruleset_content"].(string); ok && rsContent == "test-rule-content" {
+									if mode, ok := handle["mode"].(string); ok && mode == "block" {
+										found = true
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, found, "coraza handler with inlined ruleset should be present in generated config")
 }
 
 func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
