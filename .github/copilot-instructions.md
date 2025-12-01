@@ -1,7 +1,7 @@
 # Charon Copilot Instructions
 
 ## Code Quality Guidelines
-Every session should improve the codebase, not just add to it. Activly refactore code you encounter, even outside of your immediate task scope.
+Every session should improve the codebase, not just add to it. Activly refactore code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
 
 -**DRY**. Consolidate duplicate patterns into reusanble functions, types, or components after the second occurence.
 -**CLEAN**. Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
@@ -47,7 +47,7 @@ Every session should improve the codebase, not just add to it. Activly refactore
 
 ## Documentation
 - **Feature Documentation**: When adding new features, update `docs/features.md` to include the new capability. This is the canonical list of all features shown to users.
-- **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start, and links to docs. All detailed documentation belongs in `docs/`.
+- **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start with docker compose and docker run, and links to docs. All detailed documentation belongs in `docs/`.
 - **Link Format**: Use GitHub Pages URLs for documentation links, not relative paths:
   - Docs: `https://wikid82.github.io/charon/` (index) or `https://wikid82.github.io/charon/features` (specific page, no `.md`)
   - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/charon/blob/main/CONTRIBUTING.md`
