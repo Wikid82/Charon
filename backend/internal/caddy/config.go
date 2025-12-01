@@ -13,7 +13,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -202,23 +202,70 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build security pre-handlers for this host, in pipeline order.
 		securityHandlers := make([]Handler, 0)
 
-		// CrowdSec handler (placeholder) — first in pipeline
-		if crowdsecEnabled {
-			if csH, err := buildCrowdSecHandler(&host); err == nil && csH != nil {
-				securityHandlers = append(securityHandlers, csH)
+		// Global decisions (e.g. manual block by IP) are applied first; collect IP blocks where action == "block"
+		decisionIPs := make([]string, 0)
+		for _, d := range decisions {
+			if d.Action == "block" && d.IP != "" {
+				decisionIPs = append(decisionIPs, d.IP)
 			}
+		}
+		if len(decisionIPs) > 0 {
+			// Build a subroute to match these remote IPs and serve 403
+			// Admin whitelist exclusion must be applied: exclude adminWhitelist if present
+			// Build matchParts
+			var matchParts []map[string]interface{}
+			matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": decisionIPs}})
+			if adminWhitelist != "" {
+				adminParts := strings.Split(adminWhitelist, ",")
+				trims := make([]string, 0)
+				for _, p := range adminParts {
+					p = strings.TrimSpace(p)
+					if p == "" {
+						continue
+					}
+					trims = append(trims, p)
+				}
+				if len(trims) > 0 {
+					matchParts = append(matchParts, map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}})
+				}
+			}
+			decHandler := Handler{
+				"handler": "subroute",
+				"routes": []map[string]interface{}{
+					{
+						"match": matchParts,
+						"handle": []map[string]interface{}{
+							{
+								"handler":     "static_response",
+								"status_code": 403,
+								"body":        "Access denied: Blocked by security decision",
+							},
+						},
+						"terminal": true,
+					},
+				},
+			}
+			// Prepend at the start of securityHandlers so it's evaluated first
+			securityHandlers = append(securityHandlers, decHandler)
+		}
+
+		// CrowdSec handler (placeholder) — first in pipeline. The handler builder
+		// now consumes the runtime flag so we can rely on the computed value
+		// rather than requiring a persisted SecurityConfig row to be present.
+		if csH, err := buildCrowdSecHandler(&host, secCfg, crowdsecEnabled); err == nil && csH != nil {
+			securityHandlers = append(securityHandlers, csH)
 		}
 
 		// WAF handler (placeholder)
 		if wafEnabled {
-			if wafH, err := buildWAFHandler(&host); err == nil && wafH != nil {
+			if wafH, err := buildWAFHandler(&host, rulesets, secCfg); err == nil && wafH != nil {
 				securityHandlers = append(securityHandlers, wafH)
 			}
 		}
 
 		// Rate Limit handler (placeholder)
 		if rateLimitEnabled {
-			if rlH, err := buildRateLimitHandler(&host); err == nil && rlH != nil {
+			if rlH, err := buildRateLimitHandler(&host, secCfg); err == nil && rlH != nil {
 				securityHandlers = append(securityHandlers, rlH)
 			}
 		}
@@ -641,21 +688,61 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 // buildCrowdSecHandler returns a placeholder CrowdSec handler. In a future
 // implementation this can be replaced with a proper Caddy plugin integration
 // to call into a local CrowdSec agent.
-func buildCrowdSecHandler(host *models.ProxyHost) (Handler, error) {
-	// Placeholder handler to represent CrowdSec in the Caddy pipeline
-	return Handler{"handler": "crowdsec"}, nil
+func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
+	// The computed flag incorporates runtime overrides and global Cerberus enablement.
+	if !crowdsecEnabled {
+		return nil, nil
+	}
+	// For now, the local-only mode is supported; crowdsecEnabled implies 'local'
+	h := Handler{"handler": "crowdsec"}
+	h["mode"] = "local"
+	return h, nil
 }
 
 // buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
 // This is a stub; integration with a Coraza caddy plugin would be required
 // for real runtime enforcement.
-func buildWAFHandler(host *models.ProxyHost) (Handler, error) {
-	return Handler{"handler": "coraza"}, nil
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, secCfg *models.SecurityConfig) (Handler, error) {
+	// Find a ruleset to associate with WAF; prefer name match by host.Application or default 'owasp-crs'
+	var selected *models.SecurityRuleSet
+	for i, r := range rulesets {
+		if r.Name == "owasp-crs" || r.Name == host.Application || (secCfg != nil && r.Name == secCfg.WAFRulesSource) {
+			selected = &rulesets[i]
+			break
+		}
+	}
+
+	h := Handler{"handler": "coraza"}
+	if selected != nil {
+		h["ruleset_name"] = selected.Name
+		h["ruleset_content"] = selected.Content
+	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
+		// If there was a requested ruleset name but nothing matched, include it as a reference
+		h["ruleset_name"] = secCfg.WAFRulesSource
+	}
+	// Learning mode flag
+	if secCfg != nil && secCfg.WAFLearning {
+		h["mode"] = "monitor"
+	} else if secCfg != nil && secCfg.WAFMode == "disabled" {
+		return nil, nil
+	} else if secCfg != nil {
+		h["mode"] = secCfg.WAFMode
+	} else {
+		h["mode"] = "disabled"
+	}
+	return h, nil
 }
 
 // buildRateLimitHandler returns a placeholder for a rate-limit handler.
 // Real implementation should use the relevant Caddy module/plugin when available.
-func buildRateLimitHandler(host *models.ProxyHost) (Handler, error) {
+func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
 	// If host has custom rate limit metadata we could parse and construct it.
-	return Handler{"handler": "rate_limit"}, nil
+	h := Handler{"handler": "rate_limit"}
+	if secCfg != nil && secCfg.RateLimitRequests > 0 && secCfg.RateLimitWindowSec > 0 {
+		h["requests"] = secCfg.RateLimitRequests
+		h["window_sec"] = secCfg.RateLimitWindowSec
+		h["burst"] = secCfg.RateLimitBurst
+	}
+	return h, nil
 }

@@ -181,7 +181,7 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 	// set DB to configure crowdsec.mode to external
-	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "external"}).Error; err != nil {
+	if err := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 	cfg := config.SecurityConfig{CrowdSecMode: "local"}
@@ -204,7 +204,7 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.SecurityConfig{
-		CrowdSecMode:  "external",
+		CrowdSecMode:  "unknown",
 		WAFMode:       "disabled",
 		RateLimitMode: "disabled",
 		ACLMode:       "disabled",

@@ -4,6 +4,7 @@ import (
     "crypto/rand"
     "encoding/hex"
     "errors"
+    "fmt"
     "strings"
     "net"
     "time"
@@ -62,6 +63,11 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
     // If a breakglass token is present in BreakGlassHash as empty string,
     // do not overwrite it here. Token generation should be done explicitly.
 
+    // Validate CrowdSec mode on input prior to any DB operations: only 'local' or 'disabled' supported
+    if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
+        return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
+    }
+
     // Upsert behaviour: try to find existing record
     var existing models.SecurityConfig
     if err := s.db.Where("name = ?", cfg.Name).First(&existing).Error; err != nil {
@@ -78,6 +84,10 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
     }
     existing.Enabled = cfg.Enabled
     existing.AdminWhitelist = cfg.AdminWhitelist
+    // Validate CrowdSec mode: only 'local' or 'disabled' supported. Reject external/remote values.
+    if cfg.CrowdSecMode != "" && cfg.CrowdSecMode != "local" && cfg.CrowdSecMode != "disabled" {
+        return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
+    }
     existing.CrowdSecMode = cfg.CrowdSecMode
     existing.WAFMode = cfg.WAFMode
     existing.RateLimitEnable = cfg.RateLimitEnable

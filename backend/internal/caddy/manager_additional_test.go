@@ -419,7 +419,7 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 
 	// stub generateConfigFunc to always return error
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		return nil, fmt.Errorf("generate fail")
 	}
 	defer func() { generateConfigFunc = orig }()
@@ -581,7 +581,7 @@ func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) 
 	// Stub generateConfigFunc to capture adminWhitelist
 	var capturedAdmin string
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		capturedAdmin = adminWhitelist
 		// return minimal config
 		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
@@ -592,6 +592,57 @@ func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) 
 	err = manager.ApplyConfig(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, "10.0.0.1/32", capturedAdmin)
+}
+
+func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "ruleset.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert ruleset
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "rules"}
+	assert.NoError(t, db.Create(&rs).Error)
+
+	// Insert SecurityConfig with WAF enabled and rulesource set
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Setup caddy server stub
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	var capturedRules []models.SecurityRuleSet
+	orig := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedRules = rulesets
+		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
+	}
+	defer func() { generateConfigFunc = orig }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, len(capturedRules), 1)
+	assert.Equal(t, "owasp-crs", capturedRules[0].Name)
 }
 
 func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {

@@ -3,7 +3,7 @@ import client from './client'
 export interface SecurityStatus {
   cerberus?: { enabled: boolean }
   crowdsec: {
-    mode: 'disabled' | 'local' | 'external'
+    mode: 'disabled' | 'local'
     api_url: string
     enabled: boolean
   }

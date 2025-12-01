@@ -57,9 +57,8 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		}
 	}
 
-	// Treat external crowdsec mode as unsupported in this release. If configured as 'external',
-	// present it as disabled so the UI doesn't attempt to call out to an external agent.
-	if mode == "external" {
+	// Only allow 'local' as an enabled mode. Any other value should be treated as disabled.
+	if mode != "local" {
 		mode = "disabled"
 		apiURL = ""
 	}

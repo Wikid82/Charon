@@ -87,13 +87,26 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
+	// Load ruleset metadata (WAF/Coraza) for config generation
+	var rulesets []models.SecurityRuleSet
+	if err := m.db.Find(&rulesets).Error; err != nil {
+		// non-fatal: just log the error and continue with empty rules
+		logger.Log().WithError(err).Warn("failed to load rulesets for generate config")
+	}
+
+	// Load recent security decisions so they can be injected into the generated config
+	var decisions []models.SecurityDecision
+	if err := m.db.Order("created_at desc").Find(&decisions).Error; err != nil {
+		logger.Log().WithError(err).Warn("failed to load security decisions for generate config")
+	}
+
 	// Generate Caddy config
 	// Read admin whitelist for config generation so handlers can exclude admin IPs
 	var adminWhitelist string
 	if secCfg.AdminWhitelist != "" {
 		adminWhitelist = secCfg.AdminWhitelist
 	}
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist)
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
@@ -264,7 +277,8 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, 
 	cerbEnabled = m.securityCfg.CerberusEnabled
 	wafEnabled = m.securityCfg.WAFMode == "enabled"
 	rateLimitEnabled = m.securityCfg.RateLimitMode == "enabled"
-	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local" || m.securityCfg.CrowdSecMode == "remote" || m.securityCfg.CrowdSecMode == "enabled"
+	// CrowdSec only supports 'local' mode; treat other values as disabled
+	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local"
 	aclEnabled = m.securityCfg.ACLMode == "enabled"
 
 	if m.db != nil {
@@ -286,10 +300,8 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, 
 		// runtime override for crowdsec mode (mode value determines whether it's local/remote/enabled)
 		var cm struct{ Value string }
 		if err := m.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&cm).Error; err == nil && cm.Value != "" {
-			// If crowdsec mode is external, we mark it disabled for our plugin
-			if cm.Value == "external" {
-				crowdsecEnabled = false
-			} else if cm.Value == "local" || cm.Value == "remote" || cm.Value == "enabled" {
+			// Only 'local' runtime mode enables CrowdSec; all other values are disabled
+			if cm.Value == "local" {
 				crowdsecEnabled = true
 			} else {
 				crowdsecEnabled = false

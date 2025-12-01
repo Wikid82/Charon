@@ -92,3 +92,23 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
     assert.GreaterOrEqual(t, len(list), 1)
     assert.Equal(t, "owasp-crs", list[0].Name)
 }
+
+func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
+    db := setupSecurityTestDB(t)
+    svc := NewSecurityService(db)
+
+    // External mode should be rejected by validation
+    cfg := &models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external"}
+    err := svc.Upsert(cfg)
+    assert.Error(t, err)
+
+    // Unknown mode should also be rejected
+    cfg.CrowdSecMode = "unknown"
+    err = svc.Upsert(cfg)
+    assert.Error(t, err)
+
+    // Local mode should be accepted
+    cfg.CrowdSecMode = "local"
+    err = svc.Upsert(cfg)
+    assert.NoError(t, err)
+}

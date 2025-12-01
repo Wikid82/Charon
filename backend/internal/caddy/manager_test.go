@@ -354,8 +354,8 @@ func TestComputeEffectiveFlags_DefaultsNoDB(t *testing.T) {
 	require.False(t, rl)
 	require.False(t, cs)
 
-	// CrowdSec external mode should disable CrowdSec in computed flags
-	secCfg = config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "external"}
+	// Unknown/unrecognized CrowdSec mode should disable CrowdSec in computed flags
+	secCfg = config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "unknown"}
 	manager = NewManager(nil, nil, "", "", false, secCfg)
 	cerb, acl, waf, rl, cs = manager.computeEffectiveFlags(context.Background())
 	require.True(t, cerb)
@@ -400,7 +400,7 @@ func TestComputeEffectiveFlags_DB_CrowdSecExternal(t *testing.T) {
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
 	manager := NewManager(nil, db, "", "", false, secCfg)
 
-	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "external"})
+	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"})
 	require.NoError(t, res.Error)
 
 	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
