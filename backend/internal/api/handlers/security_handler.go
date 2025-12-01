@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
@@ -91,7 +92,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		},
 		"waf": gin.H{
 			"mode":    h.cfg.WAFMode,
-			"enabled": h.cfg.WAFMode == "enabled",
+			"enabled": h.cfg.WAFMode != "" && h.cfg.WAFMode != "disabled",
 		},
 		"rate_limit": gin.H{
 			"mode":    h.cfg.RateLimitMode,
@@ -219,6 +220,34 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 	}
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "upsert_ruleset", Details: payload.Name})
 	c.JSON(http.StatusOK, gin.H{"ruleset": payload})
+}
+
+// DeleteRuleSet removes a ruleset by id
+func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
+	idParam := c.Param("id")
+	if idParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+		return
+	}
+	id, err := strconv.ParseUint(idParam, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.svc.DeleteRuleSet(uint(id)); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ruleset not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete ruleset"})
+		return
+	}
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "delete_ruleset", Details: idParam})
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
 // Enable toggles Cerberus on, validating admin whitelist or break-glass token

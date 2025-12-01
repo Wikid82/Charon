@@ -93,6 +93,40 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
     assert.Equal(t, "owasp-crs", list[0].Name)
 }
 
+func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
+    db := setupSecurityTestDB(t)
+    svc := NewSecurityService(db)
+
+    // Create a string slightly larger than 2MB
+    large := strings.Repeat("x", 2*1024*1024+1)
+    rs := &models.SecurityRuleSet{Name: "big-crs", Content: large}
+    err := svc.UpsertRuleSet(rs)
+    assert.Error(t, err)
+}
+
+func TestSecurityService_DeleteRuleSet(t *testing.T) {
+    db := setupSecurityTestDB(t)
+    svc := NewSecurityService(db)
+
+    rs := &models.SecurityRuleSet{Name: "owasp-crs", Content: "rule: 1"}
+    err := svc.UpsertRuleSet(rs)
+    assert.NoError(t, err)
+
+    // Get list and pick ID
+    list, err := svc.ListRuleSets()
+    assert.NoError(t, err)
+    assert.GreaterOrEqual(t, len(list), 1)
+
+    id := list[0].ID
+    // Delete
+    err = svc.DeleteRuleSet(id)
+    assert.NoError(t, err)
+    // Ensure no rulesets left
+    list, err = svc.ListRuleSets()
+    assert.NoError(t, err)
+    assert.Equal(t, 0, len(list))
+}
+
 func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
     db := setupSecurityTestDB(t)
     svc := NewSecurityService(db)

@@ -192,6 +192,14 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
     if r == nil {
         return nil
     }
+    // Basic validations
+    if r.Name == "" {
+        return fmt.Errorf("rule set name required")
+    }
+    // Prevent huge payloads from being stored in DB (e.g., limit 2MB)
+    if len(r.Content) > 2*1024*1024 {
+        return fmt.Errorf("ruleset content too large")
+    }
     var existing models.SecurityRuleSet
     if err := s.db.Where("name = ?", r.Name).First(&existing).Error; err != nil {
         if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -210,6 +218,15 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
     existing.Mode = r.Mode
     existing.LastUpdated = r.LastUpdated
     return s.db.Save(&existing).Error
+}
+
+// DeleteRuleSet removes a ruleset by id
+func (s *SecurityService) DeleteRuleSet(id uint) error {
+    var rs models.SecurityRuleSet
+    if err := s.db.First(&rs, id).Error; err != nil {
+        return err
+    }
+    return s.db.Delete(&rs).Error
 }
 
 
