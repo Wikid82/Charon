@@ -155,6 +155,16 @@ Charon follows a multi-layered security approach. The recommendation below shows
 
 - **CrowdSec**: Best for dynamic, behavior-driven blocking — bots, scanners, credential stuffing, IP reputation. CrowdSec integrates with local or external agents and should be used for most bot and scanner detection/remediation.
 - **WAF (Coraza)**: Best for payload and application-level attacks (XSS, SQLi, file inclusion). Protects against malicious payloads regardless of source IP.
+
+### Coraza runtime integration test
+
+To validate runtime Coraza WAF integration locally using Docker Compose:
+
+1. Build the local Docker image and start services: `docker build -t charon:local . && docker compose -f docker-compose.local.yml up -d`.
+2. Configure a ruleset via the API: POST to `/api/v1/security/rulesets` with a rule that would match an XSS payload.
+3. Send a request that triggers the rule (e.g., POST with `<script>` payload) and verify `403` or similar WAF-blocking response.
+
+There is a lightweight helper script `scripts/coraza_integration.sh` which performs these steps and can be used as a starting point for CI integration tests.
 - **Rate Limiting**: Best for high-volume scanners and brute-force attempts; helps prevent abuse from cloud providers and scrapers.
 - **ACLs (Geo/Page-Level)**: Best for static location-based or private network restrictions, e.g., geo-blocking or restricting access to RFC1918 ranges for internal services.
 

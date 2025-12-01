@@ -106,7 +106,27 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	if secCfg.AdminWhitelist != "" {
 		adminWhitelist = secCfg.AdminWhitelist
 	}
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, decisions, &secCfg)
+	// Ensure ruleset files exist on disk and build a map of their paths for GenerateConfig
+	rulesetPaths := make(map[string]string)
+	if len(rulesets) > 0 {
+		corazaDir := filepath.Join(m.configDir, "coraza", "rulesets")
+		if err := os.MkdirAll(corazaDir, 0755); err != nil {
+			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
+		}
+		for _, rs := range rulesets {
+			// sanitize name to a safe filename
+			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
+			safeName = strings.ReplaceAll(safeName, "/", "-")
+			filePath := filepath.Join(corazaDir, safeName+".conf")
+			if err := writeFileFunc(filePath, []byte(rs.Content), 0600); err != nil {
+				logger.Log().WithError(err).WithField("ruleset", rs.Name).Warn("failed to write coraza ruleset file")
+			} else {
+				rulesetPaths[rs.Name] = filePath
+			}
+		}
+	}
+
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

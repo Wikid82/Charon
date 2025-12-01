@@ -24,7 +24,7 @@ func TestGenerateConfig_CustomCertsAndTLS(t *testing.T) {
 			Locations:      []models.Location{{Path: "/app", ForwardHost: "127.0.0.1", ForwardPort: 8081}},
 		},
 	}
-	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "letsencrypt", true, false, false, false, false, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	// TLS should be configured

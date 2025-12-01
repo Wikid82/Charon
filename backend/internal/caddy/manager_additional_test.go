@@ -420,7 +420,7 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 
 	// stub generateConfigFunc to always return error
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		return nil, fmt.Errorf("generate fail")
 	}
 	defer func() { generateConfigFunc = orig }()
@@ -582,7 +582,7 @@ func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) 
 	// Stub generateConfigFunc to capture adminWhitelist
 	var capturedAdmin string
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		capturedAdmin = adminWhitelist
 		// return minimal config
 		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
@@ -633,7 +633,7 @@ func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
 
 	var capturedRules []models.SecurityRuleSet
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		capturedRules = rulesets
 		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
 	}
@@ -688,10 +688,10 @@ func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
 	var capturedWafEnabled bool
 	var capturedRulesets []models.SecurityRuleSet
 	origGen := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		capturedWafEnabled = wafEnabled
 		capturedRulesets = rulesets
-		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, decisions, secCfg)
+		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, secCfg)
 	}
 	defer func() { generateConfigFunc = origGen }()
 
@@ -720,8 +720,17 @@ func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "coraza" {
 							// Validate ruleset fields
 							if rsName, ok := handle["ruleset_name"].(string); ok && rsName == "owasp-crs" {
+								// check for inlined content
 								if rsContent, ok := handle["ruleset_content"].(string); ok && rsContent == "test-rule-content" {
 									if mode, ok := handle["mode"].(string); ok && mode == "block" {
+										found = true
+									}
+								}
+								// check for written ruleset_path file, if present validate file content
+								if rsPath, ok := handle["ruleset_path"].(string); ok && rsPath != "" {
+									// Ensure file exists and contains our content
+									b, err := os.ReadFile(rsPath)
+									if err == nil && string(b) == "test-rule-content" {
 										found = true
 									}
 								}
@@ -733,6 +742,102 @@ func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "coraza handler with inlined ruleset should be present in generated config")
+}
+
+func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-failwrite")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "rulesetw.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub writeFileFunc to return an error for coraza ruleset files only to exercise the warn branch
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, string(filepath.Separator)+"coraza"+string(filepath.Separator)+"rulesets") {
+			return fmt.Errorf("cannot write")
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	// Capture rulesetPaths from GenerateConfig
+	var capturedPaths map[string]string
+	origGen := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedPaths = rulesetPaths
+		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, secCfg)
+	}
+	defer func() { generateConfigFunc = origGen }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	// writeFile failed, capturedPaths should not contain our ruleset entry
+	assert.NotContains(t, capturedPaths, "owasp-crs")
+}
+
+func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
+	tmp := t.TempDir()
+	// Create a file at tmp/coraza to cause MkdirAll on tmp/coraza/rulesets to fail
+	corazaFile := filepath.Join(tmp, "coraza")
+	os.WriteFile(corazaFile, []byte("not a dir"), 0644)
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-mkdirfail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "rulesetm.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	// Use tmp as configDir and we already have a file at tmp/coraza which should make MkdirAll to create rulesets fail
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// This should not error (failures to create coraza dir are warned only)
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
 }
 
 func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
