@@ -30,6 +30,20 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 <output_format>
 ## 📋 Plan: {Title}
 
+### 🏗️ Phase 1: Backend Implementation (Go)
+...
+
+### 🎨 Phase 2: Frontend Implementation (React)
+...
+
+### 🕵️ Phase 3: QA & Security (The Adversary)
+- **Edge Cases**: {List specific scenarios for the QA agent to test e.g., "Create proxy with 0.0.0.0 IP"}
+- **Security**: {Specific vulnerabilities to check for}
+
+### 📚 Phase 4: Documentation (The Closer)
+- **Files**: Update `docs/features.md`.
+- **User Guide**: {Briefly describe what the user needs to know about this feature}
+
 ### 🧐 UX & Context Analysis
 {Describe the desired user flow. e.g., "User clicks 'Scan', sees a spinner, then a live list of results."}
 
