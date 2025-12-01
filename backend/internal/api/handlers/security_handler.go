@@ -63,6 +63,19 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		apiURL = ""
 	}
 
+	// Allow runtime override for ACL enabled flag via settings table
+	aclEnabled := h.cfg.ACLMode == "enabled"
+	if h.db != nil {
+		var a struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&a).Error; err == nil {
+			if strings.EqualFold(a.Value, "true") {
+				aclEnabled = true
+			} else if strings.EqualFold(a.Value, "false") {
+				aclEnabled = false
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
@@ -80,7 +93,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		},
 		"acl": gin.H{
 			"mode":    h.cfg.ACLMode,
-			"enabled": h.cfg.ACLMode == "enabled",
+			"enabled": aclEnabled,
 		},
 	})
 }
