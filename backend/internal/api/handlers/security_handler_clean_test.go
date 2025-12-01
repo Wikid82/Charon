@@ -81,6 +81,32 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 	assert.Equal(t, true, cerb["enabled"].(bool))
 }
 
+func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db := setupTestDB(t)
+	// set DB to enable ACL (override config)
+	if err := db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error; err != nil {
+		t.Fatalf("failed to insert setting: %v", err)
+	}
+
+	cfg := config.SecurityConfig{ACLMode: "disabled"}
+	handler := NewSecurityHandler(cfg, db)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	acl := response["acl"].(map[string]interface{})
+	assert.Equal(t, true, acl["enabled"].(bool))
+}
+
 func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
