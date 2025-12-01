@@ -30,10 +30,8 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	// Check runtime setting override
 	var settingKey = "security.cerberus.enabled"
 	if h.db != nil {
-		var setting struct {
-			Value string
-		}
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", settingKey).Scan(&setting).Error; err == nil {
+		var setting struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", settingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
 			if strings.EqualFold(setting.Value, "true") {
 				enabled = true
 			} else {
@@ -65,14 +63,20 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 
 	// Allow runtime override for ACL enabled flag via settings table
 	aclEnabled := h.cfg.ACLMode == "enabled"
+	aclEffective := aclEnabled && enabled
 	if h.db != nil {
 		var a struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&a).Error; err == nil {
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&a).Error; err == nil && a.Value != "" {
 			if strings.EqualFold(a.Value, "true") {
 				aclEnabled = true
 			} else if strings.EqualFold(a.Value, "false") {
 				aclEnabled = false
 			}
+
+			// If Cerberus is disabled, ACL should not be considered enabled even
+			// if the ACL setting is true. This keeps ACL tied to the Cerberus
+			// suite state in the UI and APIs.
+			aclEffective = aclEnabled && enabled
 		}
 	}
 
@@ -93,7 +97,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		},
 		"acl": gin.H{
 			"mode":    h.cfg.ACLMode,
-			"enabled": aclEnabled,
+			"enabled": aclEffective,
 		},
 	})
 }
