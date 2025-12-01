@@ -27,11 +27,12 @@ func setupSecurityTestRouterWithExtras(t *testing.T) (*gin.Engine, *gorm.DB) {
     r := gin.New()
     api := r.Group("/api/v1")
     cfg := config.SecurityConfig{}
-    h := NewSecurityHandler(cfg, db)
+    h := NewSecurityHandler(cfg, db, nil)
     api.POST("/security/decisions", h.CreateDecision)
     api.GET("/security/decisions", h.ListDecisions)
     api.POST("/security/rulesets", h.UpsertRuleSet)
     api.GET("/security/rulesets", h.ListRuleSets)
+    api.DELETE("/security/rulesets/:id", h.DeleteRuleSet)
     return r, db
 }
 
@@ -54,7 +55,9 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
     req = httptest.NewRequest(http.MethodGet, "/api/v1/security/decisions?limit=10", nil)
     resp = httptest.NewRecorder()
     r.ServeHTTP(resp, req)
-    assert.Equal(t, http.StatusOK, resp.Code)
+    if resp.Code != http.StatusOK {
+        t.Fatalf("Upsert ruleset expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
+    }
     var listResp map[string][]map[string]interface{}
     require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &listResp))
     require.GreaterOrEqual(t, len(listResp["decisions"]), 1)
@@ -65,7 +68,9 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
     req.Header.Set("Content-Type", "application/json")
     resp = httptest.NewRecorder()
     r.ServeHTTP(resp, req)
-    assert.Equal(t, http.StatusOK, resp.Code)
+    if resp.Code != http.StatusOK {
+        t.Fatalf("Upsert ruleset expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
+    }
     var rsResp map[string]interface{}
     require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &rsResp))
     require.NotNil(t, rsResp["ruleset"])
@@ -73,7 +78,9 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
     req = httptest.NewRequest(http.MethodGet, "/api/v1/security/rulesets", nil)
     resp = httptest.NewRecorder()
     r.ServeHTTP(resp, req)
-    assert.Equal(t, http.StatusOK, resp.Code)
+    if resp.Code != http.StatusOK {
+        t.Fatalf("List rulesets expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
+    }
     var listRsResp map[string][]map[string]interface{}
     require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &listRsResp))
     require.GreaterOrEqual(t, len(listRsResp["rulesets"]), 1)
