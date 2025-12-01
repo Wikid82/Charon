@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -154,7 +155,7 @@ func TestProxyHostErrors(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir, "", false)
+	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)
@@ -341,7 +342,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
 	client := caddy.NewClient(caddyServer.URL)
-	manager := caddy.NewManager(client, db, tmpDir, "", false)
+	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
 	ns := services.NewNotificationService(db)

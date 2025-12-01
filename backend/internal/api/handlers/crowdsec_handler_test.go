@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -36,10 +35,7 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (bool, int, err
 }
 
 func setupCrowdDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("db open: %v", err)
-	}
+	db := OpenTestDB(t)
 	return db
 }
 

@@ -1,6 +1,7 @@
 package caddy
 
 import (
+		"strings"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
@@ -31,21 +33,23 @@ var (
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client      *Client
-	db          *gorm.DB
-	configDir   string
-	frontendDir string
-	acmeStaging bool
+	client       *Client
+	db           *gorm.DB
+	configDir    string
+	frontendDir  string
+	acmeStaging  bool
+	securityCfg  config.SecurityConfig
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
 	return &Manager{
 		client:      client,
 		db:          db,
 		configDir:   configDir,
 		frontendDir: frontendDir,
 		acmeStaging: acmeStaging,
+		securityCfg: securityCfg,
 	}
 }
 
@@ -71,8 +75,11 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		sslProvider = sslProviderSetting.Value
 	}
 
+	// Compute effective security flags (re-read runtime overrides)
+	_, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled := m.computeEffectiveFlags(ctx)
+
 	// Generate Caddy config
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging)
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
@@ -234,4 +241,55 @@ func (m *Manager) Ping(ctx context.Context) error {
 // GetCurrentConfig retrieves the running config from Caddy.
 func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 	return m.client.GetConfig(ctx)
+}
+
+// computeEffectiveFlags reads runtime settings to determine whether Cerberus
+// suite and each sub-component (ACL, WAF, RateLimit, CrowdSec) are effectively enabled.
+func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, aclEnabled bool, wafEnabled bool, rateLimitEnabled bool, crowdsecEnabled bool) {
+	// Base flags from static config
+	cerbEnabled = m.securityCfg.CerberusEnabled
+	wafEnabled = m.securityCfg.WAFMode == "enabled"
+	rateLimitEnabled = m.securityCfg.RateLimitMode == "enabled"
+	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local" || m.securityCfg.CrowdSecMode == "remote" || m.securityCfg.CrowdSecMode == "enabled"
+	aclEnabled = m.securityCfg.ACLMode == "enabled"
+
+	if m.db != nil {
+		var s models.Setting
+		// runtime override for cerberus enabled
+		if err := m.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
+			cerbEnabled = strings.EqualFold(s.Value, "true")
+		}
+
+		// runtime override for ACL enabled
+		if err := m.db.Where("key = ?", "security.acl.enabled").First(&s).Error; err == nil {
+			if strings.EqualFold(s.Value, "true") {
+				aclEnabled = true
+			} else if strings.EqualFold(s.Value, "false") {
+				aclEnabled = false
+			}
+		}
+
+		// runtime override for crowdsec mode (mode value determines whether it's local/remote/enabled)
+		var cm struct{ Value string }
+		if err := m.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&cm).Error; err == nil && cm.Value != "" {
+			// If crowdsec mode is external, we mark it disabled for our plugin
+			if cm.Value == "external" {
+				crowdsecEnabled = false
+			} else if cm.Value == "local" || cm.Value == "remote" || cm.Value == "enabled" {
+				crowdsecEnabled = true
+			} else {
+				crowdsecEnabled = false
+			}
+		}
+	}
+
+	// ACL, WAF, RateLimit and CrowdSec should only be considered enabled if Cerberus is enabled.
+	if !cerbEnabled {
+		aclEnabled = false
+		wafEnabled = false
+		rateLimitEnabled = false
+		crowdsecEnabled = false
+	}
+
+	return cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled
 }

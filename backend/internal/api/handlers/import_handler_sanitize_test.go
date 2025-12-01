@@ -6,25 +6,28 @@ import (
     "net/http/httptest"
     "strings"
     "testing"
+    "os"
+    "path/filepath"
+    "encoding/json"
+    "regexp"
 
     "github.com/Wikid82/charon/backend/internal/logger"
+    "github.com/Wikid82/charon/backend/internal/api/middleware"
     "github.com/gin-gonic/gin"
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm"
-    "encoding/json"
 )
 
 func TestImportUploadSanitizesFilename(t *testing.T) {
     gin.SetMode(gin.TestMode)
     tmpDir := t.TempDir()
     // set up in-memory DB for handler
-    db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-    if err != nil {
-        t.Fatalf("failed to open in-memory db: %v", err)
-    }
-    svc := NewImportHandler(db, "/usr/bin/caddy", tmpDir, "")
+    db := OpenTestDB(t)
+    // Create a fake caddy executable to avoid dependency on system binary
+    fakeCaddy := filepath.Join(tmpDir, "caddy")
+    os.WriteFile(fakeCaddy, []byte("#!/bin/sh\nexit 0"), 0755)
+    svc := NewImportHandler(db, fakeCaddy, tmpDir, "")
 
     router := gin.New()
+    router.Use(middleware.RequestID())
     router.POST("/import/upload", svc.Upload)
 
     buf := &bytes.Buffer{}
@@ -39,10 +42,24 @@ func TestImportUploadSanitizesFilename(t *testing.T) {
     router.ServeHTTP(w, req)
 
     out := buf.String()
-    if strings.Contains(out, "\n") {
-        t.Fatalf("log contained raw newline in filename: %s", out)
+
+    // Extract the logged filename from either text or JSON log format
+    textRegex := regexp.MustCompile(`filename=?"?([^"\s]*)"?`)
+    jsonRegex := regexp.MustCompile(`"filename":"([^"]*)"`)
+    var loggedFilename string
+    if m := textRegex.FindStringSubmatch(out); len(m) == 2 {
+        loggedFilename = m[1]
+    } else if m := jsonRegex.FindStringSubmatch(out); len(m) == 2 {
+        loggedFilename = m[1]
+    } else {
+        // if we can't extract a filename value, fail the test
+        t.Fatalf("could not extract filename from logs: %s", out)
     }
-    if strings.Contains(out, "..") {
-        t.Fatalf("log contained path traversal in filename: %s", out)
+
+    if strings.Contains(loggedFilename, "\n") || strings.Contains(loggedFilename, "\r") {
+        t.Fatalf("log filename contained raw newline: %q", loggedFilename)
+    }
+    if strings.Contains(loggedFilename, "..") {
+        t.Fatalf("log filename contained path traversal: %q", loggedFilename)
     }
 }

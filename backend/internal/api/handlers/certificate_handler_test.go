@@ -23,7 +23,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -58,12 +57,10 @@ func TestCertificateHandler_List(t *testing.T) {
 	// Setup temp dir
 	tmpDir := t.TempDir()
 	caddyDir := filepath.Join(tmpDir, "caddy", "certificates", "acme-v02.api.letsencrypt.org-directory")
-	err := os.MkdirAll(caddyDir, 0755)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(caddyDir, 0755))
 
 	// Setup in-memory DB
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -80,7 +77,7 @@ func TestCertificateHandler_List(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var certs []services.CertificateInfo
-	err = json.Unmarshal(w.Body.Bytes(), &certs)
+	err := json.Unmarshal(w.Body.Bytes(), &certs)
 	assert.NoError(t, err)
 	assert.Empty(t, certs)
 }
@@ -88,8 +85,7 @@ func TestCertificateHandler_List(t *testing.T) {
 func TestCertificateHandler_Upload(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -125,7 +121,7 @@ func TestCertificateHandler_Upload(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 
 	var cert models.SSLCertificate
-	err = json.Unmarshal(w.Body.Bytes(), &cert)
+	err := json.Unmarshal(w.Body.Bytes(), &cert)
 	assert.NoError(t, err)
 	assert.Equal(t, "Test Cert", cert.Name)
 }
@@ -134,8 +130,7 @@ func TestCertificateHandler_Delete(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	// Use WAL mode and busy timeout for better concurrency with race detector
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	// Seed a cert
@@ -143,8 +138,7 @@ func TestCertificateHandler_Delete(t *testing.T) {
 		UUID: "test-uuid",
 		Name: "To Delete",
 	}
-	err = db.Create(&cert).Error
-	require.NoError(t, err)
+	require.NoError(t, db.Create(&cert).Error)
 	require.NotZero(t, cert.ID)
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -165,15 +159,14 @@ func TestCertificateHandler_Delete(t *testing.T) {
 
 	// Verify deletion
 	var deletedCert models.SSLCertificate
-	err = db.First(&deletedCert, cert.ID).Error
+	err := db.First(&deletedCert, cert.ID).Error
 	assert.Error(t, err)
 	assert.Equal(t, gorm.ErrRecordNotFound, err)
 }
 
 func TestCertificateHandler_Upload_Errors(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -208,8 +201,7 @@ func TestCertificateHandler_Upload_Errors(t *testing.T) {
 
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -229,8 +221,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 
 func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -249,8 +240,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 
 func TestCertificateHandler_Upload_InvalidCertificate(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -284,8 +274,7 @@ func TestCertificateHandler_Upload_InvalidCertificate(t *testing.T) {
 
 func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -317,8 +306,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 
 func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 	tmpDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	service := services.NewCertificateService(tmpDir, db)
@@ -354,11 +342,9 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 	tmpDir := t.TempDir()
 	caddyDir := filepath.Join(tmpDir, "caddy", "certificates", "acme-v02.api.letsencrypt.org-directory")
-	err := os.MkdirAll(caddyDir, 0755)
-	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(caddyDir, 0755))
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
+	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
 	// Seed a certificate in DB
@@ -366,8 +352,7 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 		UUID: "test-uuid",
 		Name: "Test Cert",
 	}
-	err = db.Create(&cert).Error
-	require.NoError(t, err)
+	require.NoError(t, db.Create(&cert).Error)
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -383,7 +368,7 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var certs []services.CertificateInfo
-	err = json.Unmarshal(w.Body.Bytes(), &certs)
+	err := json.Unmarshal(w.Body.Bytes(), &certs)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, certs)
 }

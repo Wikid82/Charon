@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -45,7 +46,7 @@ func TestManager_ApplyConfig(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
 	host := models.ProxyHost{
@@ -82,7 +83,7 @@ func TestManager_ApplyConfig_Failure(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
 	host := models.ProxyHost{
@@ -117,7 +118,7 @@ func TestManager_Ping(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, nil, "", "", false)
+	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
 
 	err := manager.Ping(context.Background())
 	assert.NoError(t, err)
@@ -136,7 +137,7 @@ func TestManager_GetCurrentConfig(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, nil, "", "", false)
+	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
 
 	config, err := manager.GetCurrentConfig(context.Background())
 	assert.NoError(t, err)
@@ -161,7 +162,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create 15 dummy config files
 	for i := 0; i < 15; i++ {
@@ -217,7 +218,7 @@ func TestManager_Rollback_Success(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// 1. Apply valid config (creates snapshot)
 	host1 := models.ProxyHost{
@@ -266,7 +267,7 @@ func TestManager_ApplyConfig_DBError(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient("http://localhost")
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
@@ -290,7 +291,7 @@ func TestManager_ApplyConfig_ValidationError(t *testing.T) {
 	os.WriteFile(configDir, []byte("not a dir"), 0644)
 
 	client := NewClient("http://localhost")
-	manager := NewManager(client, db, configDir, "", false)
+	manager := NewManager(client, db, configDir, "", false, config.SecurityConfig{})
 
 	host := models.ProxyHost{
 		DomainNames: "example.com",
@@ -320,7 +321,7 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a dummy snapshot manually so rollback has something to try
 	os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0644)
@@ -329,4 +330,132 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "rollback also failed")
+}
+
+func TestComputeEffectiveFlags_DefaultsNoDB(t *testing.T) {
+	// No DB - rely on SecurityConfig defaults only
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
+	manager := NewManager(nil, nil, "", "", false, secCfg)
+
+	cerb, acl, waf, rl, cs := manager.computeEffectiveFlags(context.Background())
+	require.True(t, cerb)
+	require.True(t, acl)
+	require.True(t, waf)
+	require.True(t, rl)
+	require.True(t, cs)
+
+	// If Cerberus disabled, all subcomponents must be disabled
+	secCfg.CerberusEnabled = false
+	manager = NewManager(nil, nil, "", "", false, secCfg)
+	cerb, acl, waf, rl, cs = manager.computeEffectiveFlags(context.Background())
+	require.False(t, cerb)
+	require.False(t, acl)
+	require.False(t, waf)
+	require.False(t, rl)
+	require.False(t, cs)
+
+	// CrowdSec external mode should disable CrowdSec in computed flags
+	secCfg = config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "external"}
+	manager = NewManager(nil, nil, "", "", false, secCfg)
+	cerb, acl, waf, rl, cs = manager.computeEffectiveFlags(context.Background())
+	require.True(t, cerb)
+	require.True(t, acl)
+	require.True(t, waf)
+	require.True(t, rl)
+	require.False(t, cs)
+}
+
+// Removed combined DB overrides test - replaced by smaller, focused DB tests
+
+func TestComputeEffectiveFlags_DB_CerberusDisabled(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	// Set runtime override to disable cerberus
+	res := db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "false"})
+	require.NoError(t, res.Error)
+
+	cerb, acl, waf, rl, cs := manager.computeEffectiveFlags(context.Background())
+	require.False(t, cerb)
+	require.False(t, acl)
+	require.False(t, waf)
+	require.False(t, rl)
+	require.False(t, cs)
+}
+
+// TestComputeEffectiveFlags_DB_ACLDisables: replaced by TestComputeEffectiveFlags_DB_ACLTrueAndFalse
+// TestComputeEffectiveFlags_DB_ACLDisables: Replaced by focused tests TestComputeEffectiveFlags_DB_ACLTrueAndFalse
+
+func TestComputeEffectiveFlags_DB_CrowdSecExternal(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "external"})
+	require.NoError(t, res.Error)
+
+	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
+	require.False(t, cs)
+}
+
+func TestComputeEffectiveFlags_DB_CrowdSecUnknown(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"})
+	require.NoError(t, res.Error)
+	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
+	require.False(t, cs)
+}
+
+func TestComputeEffectiveFlags_DB_CrowdSecLocal(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"})
+	require.NoError(t, res.Error)
+	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
+	require.True(t, cs)
+}
+
+func TestComputeEffectiveFlags_DB_ACLTrueAndFalse(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	// Set acl true
+	res := db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"})
+	require.NoError(t, res.Error)
+	_, acl, _, _, _ := manager.computeEffectiveFlags(context.Background())
+	require.True(t, acl)
+
+	// Set acl false
+	db.Where("key = ?", "security.acl.enabled").Delete(&models.Setting{})
+	res = db.Create(&models.Setting{Key: "security.acl.enabled", Value: "false"})
+	require.NoError(t, res.Error)
+	_, acl, _, _, _ = manager.computeEffectiveFlags(context.Background())
+	require.False(t, acl)
 }

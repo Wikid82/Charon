@@ -8,17 +8,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 func setupFlagsDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open in-memory sqlite: %v", err)
-	}
+	db := OpenTestDB(t)
 	if err := db.AutoMigrate(&models.Setting{}); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}

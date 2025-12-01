@@ -13,7 +13,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -199,13 +199,37 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
-		// Add Access Control List (ACL) handler if configured
-		if host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
+		// Build security pre-handlers for this host, in pipeline order.
+		securityHandlers := make([]Handler, 0)
+
+		// CrowdSec handler (placeholder) — first in pipeline
+		if crowdsecEnabled {
+			if csH, err := buildCrowdSecHandler(&host); err == nil && csH != nil {
+				securityHandlers = append(securityHandlers, csH)
+			}
+		}
+
+		// WAF handler (placeholder)
+		if wafEnabled {
+			if wafH, err := buildWAFHandler(&host); err == nil && wafH != nil {
+				securityHandlers = append(securityHandlers, wafH)
+			}
+		}
+
+		// Rate Limit handler (placeholder)
+		if rateLimitEnabled {
+			if rlH, err := buildRateLimitHandler(&host); err == nil && rlH != nil {
+				securityHandlers = append(securityHandlers, rlH)
+			}
+		}
+
+		// Add Access Control List (ACL) handler if configured and global ACL is enabled
+		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			aclHandler, err := buildACLHandler(host.AccessList)
 			if err != nil {
 				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
 			} else if aclHandler != nil {
-				handlers = append(handlers, aclHandler)
+				securityHandlers = append(securityHandlers, aclHandler)
 			}
 		}
 
@@ -228,6 +252,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
+			// For each location, we want the same security pre-handlers before proxy
+			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -235,9 +262,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						Path: []string{loc.Path, loc.Path + "/*"},
 					},
 				},
-				Handle: []Handler{
-					ReverseProxyHandler(dial, host.WebsocketSupport, host.Application),
-				},
+				Handle: locHandlers,
 				Terminal: true,
 			}
 			routes = append(routes, locRoute)
@@ -276,7 +301,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 				}
 			}
 		}
-		mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
+		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 
 		route := &Route{
 			Match: []Match{
@@ -582,4 +609,26 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 	}
 
 	return nil, nil
+}
+
+// buildCrowdSecHandler returns a placeholder CrowdSec handler. In a future
+// implementation this can be replaced with a proper Caddy plugin integration
+// to call into a local CrowdSec agent.
+func buildCrowdSecHandler(host *models.ProxyHost) (Handler, error) {
+	// Placeholder handler to represent CrowdSec in the Caddy pipeline
+	return Handler{"handler": "crowdsec"}, nil
+}
+
+// buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
+// This is a stub; integration with a Coraza caddy plugin would be required
+// for real runtime enforcement.
+func buildWAFHandler(host *models.ProxyHost) (Handler, error) {
+	return Handler{"handler": "coraza"}, nil
+}
+
+// buildRateLimitHandler returns a placeholder for a rate-limit handler.
+// Real implementation should use the relevant Caddy module/plugin when available.
+func buildRateLimitHandler(host *models.ProxyHost) (Handler, error) {
+	// If host has custom rate limit metadata we could parse and construct it.
+	return Handler{"handler": "rate_limit"}, nil
 }

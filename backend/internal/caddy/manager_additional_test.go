@@ -2,15 +2,19 @@ package caddy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -20,14 +24,14 @@ func TestManager_ListSnapshots_ReadDirError(t *testing.T) {
 	// Use a path that does not exist
 	tmp := t.TempDir()
 	// create manager with a non-existent subdir
-	manager := NewManager(nil, nil, filepath.Join(tmp, "nope"), "", false)
+	manager := NewManager(nil, nil, filepath.Join(tmp, "nope"), "", false, config.SecurityConfig{})
 	_, err := manager.listSnapshots()
 	assert.Error(t, err)
 }
 
 func TestManager_RotateSnapshots_NoOp(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// No snapshots exist; should be no error
 	err := manager.rotateSnapshots(10)
 	assert.NoError(t, err)
@@ -35,7 +39,7 @@ func TestManager_RotateSnapshots_NoOp(t *testing.T) {
 
 func TestManager_Rollback_NoSnapshots(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no snapshots available")
@@ -46,7 +50,7 @@ func TestManager_Rollback_UnmarshalError(t *testing.T) {
 	// Write a non-JSON file with .json extension
 	p := filepath.Join(tmp, "config-123.json")
 	os.WriteFile(p, []byte("not json"), 0644)
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Reader error should happen before client.Load
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
@@ -70,7 +74,7 @@ func TestManager_Rollback_LoadSnapshotFail(t *testing.T) {
 	defer server.Close()
 
 	badClient := NewClient(server.URL)
-	manager := NewManager(badClient, nil, tmp, "", false)
+	manager := NewManager(badClient, nil, tmp, "", false, config.SecurityConfig{})
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "load snapshot")
@@ -81,7 +85,7 @@ func TestManager_SaveSnapshot_WriteError(t *testing.T) {
 	tmp := t.TempDir()
 	notDir := filepath.Join(tmp, "file-not-dir")
 	os.WriteFile(notDir, []byte("data"), 0644)
-	manager := NewManager(nil, nil, notDir, "", false)
+	manager := NewManager(nil, nil, notDir, "", false, config.SecurityConfig{})
 	_, err := manager.saveSnapshot(&Config{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "write snapshot")
@@ -104,7 +108,7 @@ func TestBackupCaddyfile_MkdirAllFailure(t *testing.T) {
 
 func TestManager_SaveSnapshot_Success(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	path, err := manager.saveSnapshot(&Config{})
 	assert.NoError(t, err)
 	assert.FileExists(t, path)
@@ -139,7 +143,7 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
 	host := models.ProxyHost{
@@ -149,7 +153,6 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 	}
 	db.Create(&host)
 
-	// Apply Config
 	err = manager.ApplyConfig(context.Background())
 	assert.NoError(t, err)
 
@@ -164,7 +167,7 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 // dependent. We cover rotateSnapshots failure separately below.
 
 func TestManager_RotateSnapshots_ListDirError(t *testing.T) {
-	manager := NewManager(nil, nil, filepath.Join(t.TempDir(), "nope"), "", false)
+	manager := NewManager(nil, nil, filepath.Join(t.TempDir(), "nope"), "", false, config.SecurityConfig{})
 	err := manager.rotateSnapshots(10)
 	assert.Error(t, err)
 }
@@ -180,7 +183,7 @@ func TestManager_RotateSnapshots_DeletesOld(t *testing.T) {
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
 
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Keep last 2 snapshots
 	err := manager.rotateSnapshots(2)
 	assert.NoError(t, err)
@@ -243,7 +246,7 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 	}
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	// ApplyConfig should succeed even if rotateSnapshots later returns an error
 	err = manager.ApplyConfig(context.Background())
@@ -278,7 +281,7 @@ func TestManager_ApplyConfig_LoadFailsAndRollbackFails(t *testing.T) {
 
 	tmp := t.TempDir()
 	client := NewClient(server.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -317,7 +320,7 @@ func TestManager_ApplyConfig_SaveSnapshotFails(t *testing.T) {
 	os.WriteFile(filePath, []byte("data"), 0644)
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, filePath, "", false)
+	manager := NewManager(client, db, filePath, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -357,7 +360,7 @@ func TestManager_ApplyConfig_LoadFailsThenRollbackSucceeds(t *testing.T) {
 
 	tmp := t.TempDir()
 	client := NewClient(server.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -366,7 +369,7 @@ func TestManager_ApplyConfig_LoadFailsThenRollbackSucceeds(t *testing.T) {
 
 func TestManager_SaveSnapshot_MarshalError(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Stub jsonMarshallFunc to return error
 	orig := jsonMarshalFunc
 	jsonMarshalFunc = func(v interface{}, prefix, indent string) ([]byte, error) {
@@ -387,7 +390,7 @@ func TestManager_RotateSnapshots_DeleteError(t *testing.T) {
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
 
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Stub removeFileFunc to return error for specific path
 	origRemove := removeFileFunc
 	removeFileFunc = func(p string) error {
@@ -416,12 +419,12 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 
 	// stub generateConfigFunc to always return error
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool) (*Config, error) {
 		return nil, fmt.Errorf("generate fail")
 	}
 	defer func() { generateConfigFunc = orig }()
 
-	manager := NewManager(nil, db, tmp, "", false)
+	manager := NewManager(nil, db, tmp, "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "generate config")
@@ -461,7 +464,7 @@ func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -470,7 +473,7 @@ func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
 
 func TestManager_Rollback_ReadFileError(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Create snapshot entries via write
 	p := filepath.Join(tmp, "config-123.json")
 	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0644)
@@ -514,8 +517,164 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning_Stderr(t *testing.T) {
 	defer func() { readDirFunc = origReadDir }()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, t.TempDir(), "", false)
+	manager := NewManager(client, db, t.TempDir(), "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	// Should succeed despite rotation warning (non-fatal)
 	assert.NoError(t, err)
+}
+
+func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
+	// Capture /load payloads
+	loadCh := make(chan []byte, 10)
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			loadCh <- body
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.AccessList{}))
+
+	// Create an AccessList attached to host
+	acl := models.AccessList{UUID: "acl-1", Name: "test-acl", Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`, Enabled: true}
+	assert.NoError(t, db.Create(&acl).Error)
+
+	host := models.ProxyHost{DomainNames: "flag.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	assert.NoError(t, db.Create(&host).Error)
+	// Update with access list FK
+	assert.NoError(t, db.Model(&host).Update("access_list_id", acl.ID).Error)
+
+	// Ensure DB setting is not present so ACL disabled by default
+	// Manager default SecurityConfig has ACLMode disabled
+	tmpDir := t.TempDir()
+	client := NewClient(caddyServer.URL)
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "disabled", WAFMode: "disabled", RateLimitMode: "disabled", CrowdSecMode: "disabled"}
+	manager := NewManager(client, db, tmpDir, "", false, secCfg)
+
+	// First ApplyConfig - ACL disabled, we expect no ACL-related static_response
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body1 []byte
+	select {
+	case body1 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 1")
+	}
+	var cfg1 Config
+	assert.NoError(t, json.Unmarshal(body1, &cfg1))
+	// Ensure not present — find the host route and check handles
+	found := false
+	for _, r := range cfg1.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
+							if routes, ok := handle["routes"].([]interface{}); ok {
+								for _, rt := range routes {
+									if rtMap, ok := rt.(map[string]interface{}); ok {
+										if inner, ok := rtMap["handle"].([]interface{}); ok {
+											for _, itm := range inner {
+												if itmMap, ok := itm.(map[string]interface{}); ok {
+													if body, ok := itmMap["body"].(string); ok {
+														if strings.Contains(body, "Access denied") {
+															found = true
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.False(t, found, "ACL handler must not be present when ACL disabled")
+
+	// Enable ACL via DB runtime setting
+	assert.NoError(t, db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error)
+	// Next ApplyConfig - ACL enabled
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body2 []byte
+	select {
+	case body2 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 2")
+	}
+	var cfg2 Config
+	assert.NoError(t, json.Unmarshal(body2, &cfg2))
+	found = false
+	for _, r := range cfg2.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
+							if routes, ok := handle["routes"].([]interface{}); ok {
+								for _, rt := range routes {
+									if rtMap, ok := rt.(map[string]interface{}); ok {
+										if inner, ok := rtMap["handle"].([]interface{}); ok {
+											for _, itm := range inner {
+												if itmMap, ok := itm.(map[string]interface{}); ok {
+													if body, ok := itmMap["body"].(string); ok {
+														if strings.Contains(body, "Access denied") {
+															found = true
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Logf("body2: %s", string(body2))
+	}
+	assert.True(t, found, "ACL handler must be present when ACL enabled via DB")
+
+	// Enable CrowdSec via DB runtime setting (switch from disabled to local)
+	assert.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error)
+	// Next ApplyConfig - CrowdSec enabled
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body3 []byte
+	select {
+	case body3 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 3")
+	}
+	var cfg3 Config
+	assert.NoError(t, json.Unmarshal(body3, &cfg3))
+	// For crowdsec handler we inserted a simple Handler{"handler":"crowdsec"}
+	hasCrowdsec := false
+	for _, r := range cfg3.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "crowdsec" {
+							hasCrowdsec = true
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, hasCrowdsec, "CrowdSec handler should be present when enabled via DB")
 }
