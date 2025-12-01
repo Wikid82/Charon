@@ -14,6 +14,7 @@ Every session should improve the codebase, not just add to it. Activly refactore
 - **No Python**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements.
 
 ## Big Picture
+- Charon is a self-hosted web app for managing reverse proxy host configurations with the novice user in mind. Everything should prioritize simplicit, usability, reliability, and security, all rolled into one simple binary + static assets deployment. No external dependencies. If a caddy plugin or third-party package is needed, prefer embedding it directly into Charon over requiring users to install/configure anything extra. Users should feel like they have enterprise level security and features with zero effort.
 - `backend/cmd/api` loads config, opens SQLite, then hands off to `internal/server` where routes from `internal/api/routes` are registered.
 - `internal/config` respects `CHARON_ENV`, `CHARON_HTTP_PORT`, `CHARON_DB_PATH`, `CHARON_FRONTEND_DIR` (CHARON_ preferred; CPM_ still supported) and creates the `data/` directory; lean on these instead of hard-coded paths.
 - All HTTP endpoints live under `/api/v1/*`; keep new handlers inside `internal/api/handlers` and register them via `routes.Register` so `db.AutoMigrate` runs for their models.
