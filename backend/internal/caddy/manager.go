@@ -275,7 +275,8 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, aclEnabled bool, wafEnabled bool, rateLimitEnabled bool, crowdsecEnabled bool) {
 	// Base flags from static config
 	cerbEnabled = m.securityCfg.CerberusEnabled
-	wafEnabled = m.securityCfg.WAFMode == "enabled"
+	// WAF is enabled if explicitly set and not 'disabled' (supports 'monitor'/'block')
+	wafEnabled = m.securityCfg.WAFMode != "" && m.securityCfg.WAFMode != "disabled"
 	rateLimitEnabled = m.securityCfg.RateLimitMode == "enabled"
 	// CrowdSec only supports 'local' mode; treat other values as disabled
 	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local"

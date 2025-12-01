@@ -256,11 +256,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 			securityHandlers = append(securityHandlers, csH)
 		}
 
-		// WAF handler (placeholder)
-		if wafEnabled {
-			if wafH, err := buildWAFHandler(&host, rulesets, secCfg); err == nil && wafH != nil {
-				securityHandlers = append(securityHandlers, wafH)
-			}
+		// WAF handler (placeholder) — add according to runtime flag
+		if wafH, err := buildWAFHandler(&host, rulesets, secCfg, wafEnabled); err == nil && wafH != nil {
+			securityHandlers = append(securityHandlers, wafH)
 		}
 
 		// Rate Limit handler (placeholder)
@@ -703,7 +701,7 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 // buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
 // This is a stub; integration with a Coraza caddy plugin would be required
 // for real runtime enforcement.
-func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, secCfg *models.SecurityConfig) (Handler, error) {
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
 	// Find a ruleset to associate with WAF; prefer name match by host.Application or default 'owasp-crs'
 	var selected *models.SecurityRuleSet
 	for i, r := range rulesets {
@@ -713,6 +711,9 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		}
 	}
 
+	if !wafEnabled {
+		return nil, nil
+	}
 	h := Handler{"handler": "coraza"}
 	if selected != nil {
 		h["ruleset_name"] = selected.Name

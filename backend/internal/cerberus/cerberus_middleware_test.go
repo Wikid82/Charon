@@ -26,7 +26,7 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func TestMiddleware_WAFBlocksPayload(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{WAFMode: "enabled"}
+    cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, db)
 
 	// Setup gin context
@@ -110,7 +110,7 @@ func TestMiddleware_NotEnabledSkips(t *testing.T) {
 
 func TestMiddleware_WAFPassesWithNoPayload(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{WAFMode: "enabled"}
+    cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, db)
 
 	w := httptest.NewRecorder()

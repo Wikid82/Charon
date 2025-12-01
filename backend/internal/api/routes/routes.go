@@ -221,6 +221,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/security/decisions", securityHandler.CreateDecision)
 		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
 		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
+		protected.DELETE("/security/rulesets/:id", securityHandler.DeleteRuleSet)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)

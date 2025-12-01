@@ -6,6 +6,7 @@ import (
     "net/http/httptest"
     "strings"
     "testing"
+    "strconv"
 
     "github.com/gin-gonic/gin"
     "github.com/stretchr/testify/assert"
@@ -42,7 +43,9 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
     req.Header.Set("Content-Type", "application/json")
     resp := httptest.NewRecorder()
     r.ServeHTTP(resp, req)
-    assert.Equal(t, http.StatusOK, resp.Code)
+    if resp.Code != http.StatusOK {
+        t.Fatalf("Create decision expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
+    }
 
     var decisionResp map[string]interface{}
     require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &decisionResp))
@@ -74,4 +77,16 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
     var listRsResp map[string][]map[string]interface{}
     require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &listRsResp))
     require.GreaterOrEqual(t, len(listRsResp["rulesets"]), 1)
+
+    // Delete the ruleset we just created
+    idFloat, ok := listRsResp["rulesets"][0]["id"].(float64)
+    require.True(t, ok)
+    id := int(idFloat)
+    req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(id), nil)
+    resp = httptest.NewRecorder()
+    r.ServeHTTP(resp, req)
+    assert.Equal(t, http.StatusOK, resp.Code)
+    var delResp map[string]interface{}
+    require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &delResp))
+    require.Equal(t, true, delResp["deleted"].(bool))
 }

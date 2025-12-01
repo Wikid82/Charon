@@ -39,7 +39,7 @@ func (c *Cerberus) IsEnabled() bool {
 	if c.cfg.CrowdSecMode == "local" {
 		return true
 	}
-	if c.cfg.WAFMode == "enabled" || c.cfg.RateLimitMode == "enabled" || c.cfg.ACLMode == "enabled" {
+	if (c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled") || c.cfg.RateLimitMode == "enabled" || c.cfg.ACLMode == "enabled" {
 		return true
 	}
 
@@ -63,7 +63,7 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 		}
 
 		// WAF: naive example check - block requests containing <script> in URL
-		if c.cfg.WAFMode == "enabled" {
+		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
 			if strings.Contains(ctx.Request.RequestURI, "<script>") {
 				ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
 				return
