@@ -13,7 +13,7 @@ import (
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -225,7 +225,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
-			aclHandler, err := buildACLHandler(host.AccessList)
+			aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
 			if err != nil {
 				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
 			} else if aclHandler != nil {
@@ -262,7 +262,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						Path: []string{loc.Path, loc.Path + "/*"},
 					},
 				},
-				Handle: locHandlers,
+				Handle:   locHandlers,
 				Terminal: true,
 			}
 			routes = append(routes, locRoute)
@@ -426,7 +426,7 @@ func NormalizeAdvancedConfig(parsed interface{}) interface{} {
 }
 
 // buildACLHandler creates access control handlers based on the AccessList configuration
-func buildACLHandler(acl *models.AccessList) (Handler, error) {
+func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
 
@@ -554,6 +554,17 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 	if acl.Type == "whitelist" {
 		// Allow only these IPs (block everything else)
+		// Merge adminWhitelist into allowed cidrs so that admins always bypass whitelist checks
+		if adminWhitelist != "" {
+			adminParts := strings.Split(adminWhitelist, ",")
+			for _, p := range adminParts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				cidrs = append(cidrs, p)
+			}
+		}
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
@@ -584,17 +595,33 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else)
+		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
+		var adminExclusion interface{}
+		if adminWhitelist != "" {
+			adminParts := strings.Split(adminWhitelist, ",")
+			trims := make([]string, 0)
+			for _, p := range adminParts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				trims = append(trims, p)
+			}
+			if len(trims) > 0 {
+				adminExclusion = map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}}
+			}
+		}
+		// Build matcher parts
+		matchParts := []map[string]interface{}{}
+		matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": cidrs}})
+		if adminExclusion != nil {
+			matchParts = append(matchParts, adminExclusion.(map[string]interface{}))
+		}
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
 				{
-					"match": []map[string]interface{}{
-						{
-							"remote_ip": map[string]interface{}{
-								"ranges": cidrs,
-							},
-						},
-					},
+					"match": matchParts,
 					"handle": []map[string]interface{}{
 						{
 							"handler":     "static_response",

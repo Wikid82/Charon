@@ -71,3 +71,29 @@ func TestFeatureFlags_GetAndUpdate(t *testing.T) {
 		t.Fatalf("expected stored value 'true' got '%s'", s.Value)
 	}
 }
+
+func TestFeatureFlags_EnvFallback(t *testing.T) {
+	// Ensure env fallback is used when DB not present
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+
+	db := OpenTestDB(t)
+	// Do not write any settings so DB lookup fails and env is used
+	h := NewFeatureFlagsHandler(db)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v1/feature-flags", h.GetFlags)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d body=%s", w.Code, w.Body.String())
+	}
+	var flags map[string]bool
+	if err := json.Unmarshal(w.Body.Bytes(), &flags); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if !flags["feature.cerberus.enabled"] {
+		t.Fatalf("expected feature.cerberus.enabled to be true via env fallback")
+	}
+}

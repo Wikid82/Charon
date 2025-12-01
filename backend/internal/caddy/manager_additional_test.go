@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -419,7 +419,7 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 
 	// stub generateConfigFunc to always return error
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
 		return nil, fmt.Errorf("generate fail")
 	}
 	defer func() { generateConfigFunc = orig }()
@@ -428,6 +428,29 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "generate config")
+}
+
+func TestManager_ApplyConfig_RejectsWhenCerberusEnabledWithoutAdminWhitelist(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cerberus")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}))
+
+	// create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "test.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert SecurityConfig with enabled=true but no whitelist
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: ""}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create manager and call ApplyConfig - expecting error due to safety check
+	client := NewClient("http://localhost:9999")
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to apply config: Cerberus is enabled but admin_whitelist is empty")
 }
 
 func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
@@ -521,6 +544,54 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning_Stderr(t *testing.T) {
 	err = manager.ApplyConfig(context.Background())
 	// Should succeed despite rotation warning (non-fatal)
 	assert.NoError(t, err)
+}
+
+func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) {
+	tmp := t.TempDir()
+	// Setup DB - minimal
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"adminwl")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}))
+
+	// Create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "test.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert SecurityConfig with enabled=true and an admin whitelist
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Setup a client server that accepts loads
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+	client := NewClient(caddyServer.URL)
+
+	// Stub generateConfigFunc to capture adminWhitelist
+	var capturedAdmin string
+	orig := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string) (*Config, error) {
+		capturedAdmin = adminWhitelist
+		// return minimal config
+		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
+	}
+	defer func() { generateConfigFunc = orig }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, "10.0.0.1/32", capturedAdmin)
 }
 
 func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {

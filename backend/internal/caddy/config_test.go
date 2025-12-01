@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestGenerateConfig_Empty(t *testing.T) {
-	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true)
+	config, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -31,7 +32,7 @@ func TestGenerateConfig_SingleHost(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Apps.HTTP)
@@ -71,7 +72,7 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
 	require.NoError(t, err)
 	require.Len(t, config.Apps.HTTP.Servers["charon_server"].Routes, 2)
 }
@@ -87,8 +88,7 @@ func TestGenerateConfig_WebSocketEnabled(t *testing.T) {
 			Enabled:          true,
 		},
 	}
-
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "")
 	require.NoError(t, err)
 
 	route := config.Apps.HTTP.Servers["charon_server"].Routes[0]
@@ -109,7 +109,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
 	require.NoError(t, err)
 	// Should produce empty routes (or just catch-all if frontendDir was set, but it's empty here)
 	require.Empty(t, config.Apps.HTTP.Servers["charon_server"].Routes)
@@ -117,7 +117,7 @@ func TestGenerateConfig_EmptyDomain(t *testing.T) {
 
 func TestGenerateConfig_Logging(t *testing.T) {
 	hosts := []models.ProxyHost{}
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
 	require.NoError(t, err)
 
 	// Verify logging configuration
@@ -155,7 +155,7 @@ func TestGenerateConfig_Advanced(t *testing.T) {
 		},
 	}
 
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "")
 	require.NoError(t, err)
 	require.NotNil(t, config)
 
@@ -202,7 +202,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	}
 
 	// Test with staging enabled
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true, false, false, false, true)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", true, false, false, false, true, "")
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)
@@ -217,7 +217,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	require.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", acmeIssuer["ca"])
 
 	// Test with staging disabled (production)
-	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false, false, false, false, false)
+	config, err = GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "letsencrypt", false, false, false, false, false, "")
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.TLS)
 	require.NotNil(t, config.Apps.TLS.Automation)
@@ -232,4 +232,72 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	_, hasCA := acmeIssuer["ca"]
 	require.False(t, hasCA, "Production mode should not set ca field (uses default)")
 	// We can't easily check the map content without casting, but we know it's there.
+}
+
+func TestBuildACLHandler_WhitelistAndBlacklistAdminMerge(t *testing.T) {
+	// Whitelist case: ensure adminWhitelist gets merged into allowed ranges
+	acl := &models.AccessList{Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`}
+	handler, err := buildACLHandler(acl, "10.0.0.1/32")
+	require.NoError(t, err)
+	// handler should include both ranges in the remote_ip ranges
+	b, _ := json.Marshal(handler)
+	s := string(b)
+	require.Contains(t, s, "127.0.0.1/32")
+	require.Contains(t, s, "10.0.0.1/32")
+
+	// Blacklist case: ensure adminWhitelist excluded from match
+	acl2 := &models.AccessList{Type: "blacklist", IPRules: `[{"cidr":"1.2.3.0/24"}]`}
+	handler2, err := buildACLHandler(acl2, "192.168.0.1/32")
+	require.NoError(t, err)
+	b2, _ := json.Marshal(handler2)
+	s2 := string(b2)
+	require.Contains(t, s2, "1.2.3.0/24")
+	require.Contains(t, s2, "192.168.0.1/32")
+}
+
+func TestBuildACLHandler_GeoAndLocalNetwork(t *testing.T) {
+	// Geo whitelist
+	acl := &models.AccessList{Type: "geo_whitelist", CountryCodes: "US,CA"}
+	h, err := buildACLHandler(acl, "")
+	require.NoError(t, err)
+	b, _ := json.Marshal(h)
+	s := string(b)
+	require.Contains(t, s, "geoip2.country_code")
+
+	// Geo blacklist
+	acl2 := &models.AccessList{Type: "geo_blacklist", CountryCodes: "RU"}
+	h2, err := buildACLHandler(acl2, "")
+	require.NoError(t, err)
+	b2, _ := json.Marshal(h2)
+	s2 := string(b2)
+	require.Contains(t, s2, "geoip2.country_code")
+
+	// Local network only
+	acl3 := &models.AccessList{Type: "whitelist", LocalNetworkOnly: true}
+	h3, err := buildACLHandler(acl3, "")
+	require.NoError(t, err)
+	b3, _ := json.Marshal(h3)
+	s3 := string(b3)
+	require.Contains(t, s3, "10.0.0.0/8")
+}
+
+func TestBuildACLHandler_AdminWhitelistParsing(t *testing.T) {
+	// Whitelist should trim and include multiple values, skip empties
+	acl := &models.AccessList{Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`}
+	handler, err := buildACLHandler(acl, " , 10.0.0.1/32, , 192.168.1.5/32 ")
+	require.NoError(t, err)
+	b, _ := json.Marshal(handler)
+	s := string(b)
+	require.Contains(t, s, "127.0.0.1/32")
+	require.Contains(t, s, "10.0.0.1/32")
+	require.Contains(t, s, "192.168.1.5/32")
+
+	// Blacklist parsing too
+	acl2 := &models.AccessList{Type: "blacklist", IPRules: `[{"cidr":"1.2.3.0/24"}]`}
+	handler2, err := buildACLHandler(acl2, " , 192.168.0.1/32, ")
+	require.NoError(t, err)
+	b2, _ := json.Marshal(handler2)
+	s2 := string(b2)
+	require.Contains(t, s2, "1.2.3.0/24")
+	require.Contains(t, s2, "192.168.0.1/32")
 }
