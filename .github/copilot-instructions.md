@@ -1,5 +1,13 @@
 # Charon Copilot Instructions
 
+## Code Quality Guidelines
+Every session should improve the codebase, not just add to it. Activly refactore code you encounter, even outside of your immediate task scope.
+
+-**DRY**. Consolidate duplicate patterns into reusanble functions, types, or components after the second occurence.
+-**CLEAN**. Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
+-**LEVEVAGE**. Use battle-tested packages over custom implementations.
+-**Readable**. Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
+
 ## 🚨 CRITICAL ARCHITECTURE RULES 🚨
 - **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
 - **Single Backend Source**: All backend code MUST reside in `backend/`.
