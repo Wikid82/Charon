@@ -413,24 +413,43 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 		var expression string
 		if acl.Type == "geo_whitelist" {
-			// Allow only these countries
+			// Allow only these countries, so block when not in the whitelist
 			expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
-		} else {
-			// geo_blacklist: Block these countries
-			expression = fmt.Sprintf("{geoip2.country_code} not_in [%s]", strings.Join(trimmedCodes, ", "))
+			// For whitelist, block when NOT in the list
+			return Handler{
+				"handler": "subroute",
+				"routes": []map[string]interface{}{
+					{
+						"match": []map[string]interface{}{
+							{
+								"not": []map[string]interface{}{
+									{
+										"expression": expression,
+									},
+								},
+							},
+						},
+						"handle": []map[string]interface{}{
+							{
+								"handler":     "static_response",
+								"status_code": 403,
+								"body":        "Access denied: Geographic restriction",
+							},
+						},
+						"terminal": true,
+					},
+				},
+			}, nil
 		}
-
+		// geo_blacklist: Block these countries directly
+		expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
 				{
 					"match": []map[string]interface{}{
 						{
-							"not": []map[string]interface{}{
-								{
-									"expression": expression,
-								},
-							},
+							"expression": expression,
 						},
 					},
 					"handle": []map[string]interface{}{
