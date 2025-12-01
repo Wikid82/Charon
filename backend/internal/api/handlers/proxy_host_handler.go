@@ -14,6 +14,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
@@ -110,10 +111,10 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		h.notificationService.SendExternal(c.Request.Context(),
 			"proxy_host",
 			"Proxy Host Created",
-			fmt.Sprintf("Proxy Host %s (%s) created", host.Name, host.DomainNames),
+			fmt.Sprintf("Proxy Host %s (%s) created", util.SanitizeForLog(host.Name), util.SanitizeForLog(host.DomainNames)),
 			map[string]interface{}{
-				"Name":    host.Name,
-				"Domains": host.DomainNames,
+				"Name":    util.SanitizeForLog(host.Name),
+				"Domains": util.SanitizeForLog(host.DomainNames),
 				"Action":  "created",
 			},
 		)

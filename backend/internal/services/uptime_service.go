@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -289,10 +290,10 @@ func (s *UptimeService) ensureUptimeHost(host, defaultName string) string {
 			Status: "pending",
 		}
 		if err := s.DB.Create(&uptimeHost).Error; err != nil {
-			logger.Log().WithError(err).WithField("host", host).Error("Failed to create UptimeHost")
+			logger.Log().WithError(err).WithField("host", util.SanitizeForLog(host)).Error("Failed to create UptimeHost")
 			return ""
 		}
-		logger.Log().WithField("host", host).Info("Created UptimeHost")
+		logger.Log().WithField("host_id", uptimeHost.ID).WithField("host", util.SanitizeForLog(uptimeHost.Host)).Info("Created UptimeHost")
 	}
 
 	return uptimeHost.ID
@@ -667,7 +668,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 	if pending, exists := s.pendingNotifications[hostID]; exists {
 		// Add to existing batch
 		pending.downMonitors = append(pending.downMonitors, info)
-		logger.Log().WithField("monitor", monitor.Name).WithField("host", hostName).WithField("count", len(pending.downMonitors)).Info("Added to pending notification batch")
+		logger.Log().WithField("monitor", util.SanitizeForLog(monitor.Name)).WithField("host", util.SanitizeForLog(hostName)).WithField("count", len(pending.downMonitors)).Info("Added to pending notification batch")
 	} else {
 		// Create new batch with timer
 		pending := &pendingHostNotification{
@@ -682,7 +683,7 @@ func (s *UptimeService) queueDownNotification(monitor models.UptimeMonitor, reas
 		})
 
 		s.pendingNotifications[hostID] = pending
-		logger.Log().WithField("host", hostName).WithField("monitor", monitor.Name).Info("Created pending notification batch")
+		logger.Log().WithField("host", util.SanitizeForLog(hostName)).WithField("monitor", util.SanitizeForLog(monitor.Name)).Info("Created pending notification batch")
 	}
 }
 
@@ -754,7 +755,7 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 	}
 	s.NotificationService.SendExternal(context.Background(), "uptime", title, sb.String(), data)
 
-	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", pending.hostName).Info("Sent batched DOWN notification")
+	logger.Log().WithField("count", len(pending.downMonitors)).WithField("host", util.SanitizeForLog(pending.hostName)).Info("Sent batched DOWN notification")
 }
 
 // sendRecoveryNotification sends a notification when a service recovers
