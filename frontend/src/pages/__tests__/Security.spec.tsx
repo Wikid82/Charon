@@ -76,6 +76,23 @@ describe('Security page', () => {
     expect(screen.queryByTestId('enable-all-btn')).toBeNull()
   })
 
+  it('calls updateSetting when toggling ACL', async () => {
+    const status: SecurityStatus = {
+      cerberus: { enabled: true },
+      crowdsec: { enabled: false, mode: 'disabled' as const, api_url: '' },
+      waf: { enabled: false, mode: 'disabled' as const },
+      rate_limit: { enabled: false },
+      acl: { enabled: false },
+    }
+    vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
+    const updateSpy = vi.mocked(settingsApi.updateSetting)
+    renderWithProviders(<Security />)
+    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    const aclToggle = screen.getByTestId('toggle-acl')
+    await userEvent.click(aclToggle)
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith('security.acl.enabled', 'true', 'security', 'bool'))
+  })
+
   it('calls export endpoint when clicking Export', async () => {
     const status: SecurityStatus = {
       cerberus: { enabled: true },

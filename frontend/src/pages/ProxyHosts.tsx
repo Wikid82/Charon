@@ -510,6 +510,11 @@ export default function ProxyHosts() {
                                   WS
                                 </span>
                               )}
+                              {host.access_list_id && (
+                                <span className="px-2 py-1 text-xs bg-purple-900/30 text-purple-400 rounded">
+                                  ACL
+                                </span>
+                              )}
                             </div>
                             {host.certificate && host.certificate.provider === 'custom' && (
                               <div className="text-xs text-gray-400">
@@ -608,6 +613,9 @@ export default function ProxyHosts() {
             <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
               <p className="text-sm text-gray-400">
                 Applying to <span className="text-blue-400 font-medium">{selectedHosts.size}</span> selected host(s)
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Note: Each proxy host can have a single Access Control List applied. Selecting multiple lists will apply them sequentially and the last applied list will be the effective one for each host.
               </p>
 
               {/* Action Toggle */}
