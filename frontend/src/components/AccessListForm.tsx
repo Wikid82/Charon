@@ -408,6 +408,9 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
 
             {!formData.local_network_only && (
               <>
+                <div className="mb-2 text-xs text-gray-500">
+                  Note: IP-based blocklists (botnets, cloud scanners, VPN ranges) are better handled by CrowdSec, WAF, or rate limiting. Use IP-based ACLs sparingly for static or known ranges.
+                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</label>
