@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -143,9 +144,17 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 	filename := fmt.Sprintf("crowdsec-config-%s.tar.gz", time.Now().Format("20060102-150405"))
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	gw := gzip.NewWriter(c.Writer)
-	defer gw.Close()
+	defer func() {
+		if err := gw.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close gzip writer")
+		}
+	}()
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() {
+		if err := tw.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close tar writer")
+		}
+	}()
 
 	// Walk the DataDir and add files to the archive
 	err := filepath.Walk(h.DataDir, func(path string, info os.FileInfo, err error) error {
