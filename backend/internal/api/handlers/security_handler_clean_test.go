@@ -52,6 +52,7 @@ func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
+	// response body intentionally not printed in clean test
 	assert.NotNil(t, response["cerberus"])
 }
 
@@ -89,8 +90,18 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	if err := db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
+	// Confirm the DB write succeeded
+	var s models.Setting
+	if err := db.Where("key = ?", "security.acl.enabled").First(&s).Error; err != nil {
+		t.Fatalf("setting not found in DB: %v", err)
+	}
+	if s.Value != "true" {
+		t.Fatalf("unexpected value in DB for security.acl.enabled: %s", s.Value)
+	}
+	// DB write succeeded; no additional dump needed
 
-	cfg := config.SecurityConfig{ACLMode: "disabled"}
+	// Ensure Cerberus is enabled so ACL can be active
+	cfg := config.SecurityConfig{ACLMode: "disabled", CerberusEnabled: true}
 	handler := NewSecurityHandler(cfg, db)
 	router := gin.New()
 	router.GET("/security/status", handler.GetStatus)
@@ -105,6 +116,38 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	assert.NoError(t, err)
 	acl := response["acl"].(map[string]interface{})
 	assert.Equal(t, true, acl["enabled"].(bool))
+}
+
+func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db := setupTestDB(t)
+	// set DB to enable ACL but disable Cerberus
+	if err := db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error; err != nil {
+		t.Fatalf("failed to insert setting: %v", err)
+	}
+	if err := db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "false"}).Error; err != nil {
+		t.Fatalf("failed to insert setting: %v", err)
+	}
+
+	cfg := config.SecurityConfig{ACLMode: "enabled", CerberusEnabled: true}
+	handler := NewSecurityHandler(cfg, db)
+	router := gin.New()
+	router.GET("/security/status", handler.GetStatus)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/security/status", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	cerb := response["cerberus"].(map[string]interface{})
+	assert.Equal(t, false, cerb["enabled"].(bool))
+	acl := response["acl"].(map[string]interface{})
+	// ACL must be false because Cerberus is disabled
+	assert.Equal(t, false, acl["enabled"].(bool))
 }
 
 func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
