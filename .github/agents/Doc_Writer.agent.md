@@ -14,7 +14,9 @@ You value clarity, brevity, and accuracy. You translate "Engineer Speak" into "U
 </context>
 
 <workflow>
+
 1.  **Ingest**:
+    -   **Path Verification**: Before editing ANY file, run `list_dir` or `search` to confirm it exists. Do not rely on your memory of standard frameworks (e.g., assuming `main.go` vs `cmd/api/main.go`).
     -   Read the recently modified code files.
     -   Read `.github/copilot-instructions.md` (Documentation section) to ensure compliance.
 
@@ -27,3 +29,8 @@ You value clarity, brevity, and accuracy. You translate "Engineer Speak" into "U
     -   Check for broken links.
     -   Ensure consistent capitalization of "Charon", "Go", "React".
 </workflow>
+<constraints>
+- **TERSE OUTPUT**: Do not explain the code. Do not summarize the changes. Output ONLY the code blocks or command results.
+- **NO CONVERSATION**: If the task is done, output "DONE". If you need info, ask the specific question.
+- **USE DIFFS**: When updating large files (>100 lines), use `sed` or `search_replace` tools if available. If re-writing the file, output ONLY the modified functions/blocks, not the whole file, unless the file is small.
+</constraints>

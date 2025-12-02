@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.3.0",
   "type": "module",
+  "tools": []
+  ,"constraints":
+  [
+    "NPM SCRIPTS ONLY: Do not try to construct complex `vitest` or `playwright` commands. Always look at `package.json` first and use `npm run <script-name>`."
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
