@@ -137,17 +137,17 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	}
 
 	// Send Notification
-		if h.notificationService != nil {
-			h.notificationService.SendExternal(c.Request.Context(),
-				"remote_server",
-				"Remote Server Deleted",
-				fmt.Sprintf("Remote Server %s deleted", util.SanitizeForLog(server.Name)),
-				map[string]interface{}{
-					"Name":   util.SanitizeForLog(server.Name),
-					"Action": "deleted",
-				},
-			)
-		}
+	if h.notificationService != nil {
+		h.notificationService.SendExternal(c.Request.Context(),
+			"remote_server",
+			"Remote Server Deleted",
+			fmt.Sprintf("Remote Server %s deleted", util.SanitizeForLog(server.Name)),
+			map[string]interface{}{
+				"Name":   util.SanitizeForLog(server.Name),
+				"Action": "deleted",
+			},
+		)
+	}
 
 	c.JSON(http.StatusNoContent, nil)
 }

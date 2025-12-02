@@ -1,12 +1,12 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"time"
-	"encoding/json"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 

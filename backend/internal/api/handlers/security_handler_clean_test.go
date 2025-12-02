@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus } from '../api/security'
-import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
+import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken, useRuleSets } from '../hooks/useSecurity'
 import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
 import { Switch } from '../components/ui/Switch'
@@ -18,6 +18,7 @@ export default function Security() {
     queryFn: getSecurityStatus,
   })
   const { data: securityConfig } = useSecurityConfig()
+  const { data: ruleSetsData } = useRuleSets()
   const [adminWhitelist, setAdminWhitelist] = useState<string>('')
   useEffect(() => {
     if (securityConfig && securityConfig.config) {
@@ -290,8 +291,47 @@ export default function Security() {
               {status.waf.enabled ? 'Active' : 'Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              OWASP Core Rule Set
+              {status.waf.enabled
+                ? `Mode: ${securityConfig?.config?.waf_mode === 'monitor' ? 'Monitor (log only)' : 'Block'}`
+                : 'Web Application Firewall'}
             </p>
+            {status.waf.enabled && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">WAF Mode</label>
+                  <select
+                    value={securityConfig?.config?.waf_mode || 'block'}
+                    onChange={(e) => updateSecurityConfigMutation.mutate({ name: 'default', waf_mode: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+                    data-testid="waf-mode-select"
+                  >
+                    <option value="block">Block (deny malicious requests)</option>
+                    <option value="monitor">Monitor (log only, don't block)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Active Rule Set</label>
+                  <select
+                    value={securityConfig?.config?.waf_rules_source || ''}
+                    onChange={(e) => updateSecurityConfigMutation.mutate({ name: 'default', waf_rules_source: e.target.value || undefined })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+                    data-testid="waf-ruleset-select"
+                  >
+                    <option value="">None (all rule sets)</option>
+                    {ruleSetsData?.rulesets?.map((rs) => (
+                      <option key={rs.id} value={rs.name}>
+                        {rs.name} ({rs.mode === 'blocking' ? 'blocking' : 'detection'})
+                      </option>
+                    ))}
+                  </select>
+                  {(!ruleSetsData?.rulesets || ruleSetsData.rulesets.length === 0) && (
+                    <p className="text-xs text-yellow-500 mt-1">
+                      No rule sets configured. Add one below.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="mt-4">
               <Button
                 variant="secondary"
@@ -299,7 +339,7 @@ export default function Security() {
                 className="w-full"
                 onClick={() => navigate('/security/waf')}
               >
-                Configure
+                {status.waf.enabled ? 'Manage Rule Sets' : 'Configure'}
               </Button>
             </div>
           </div>

@@ -148,9 +148,9 @@ func (s *UptimeService) SyncMonitors() error {
 				Enabled:      true,
 				Status:       "pending",
 			}
-				if err := s.DB.Create(&monitor).Error; err != nil {
-					logger.Log().WithError(err).WithField("host_id", host.ID).Error("Failed to create monitor")
-				}
+			if err := s.DB.Create(&monitor).Error; err != nil {
+				logger.Log().WithError(err).WithField("host_id", host.ID).Error("Failed to create monitor")
+			}
 		case nil:
 			// Always sync the name from proxy host
 			newName := host.Name
@@ -178,18 +178,18 @@ func (s *UptimeService) SyncMonitors() error {
 			}
 
 			// Update existing monitor if it looks like it's using the old default (TCP to internal upstream)
-				if monitor.Type == "tcp" && monitor.URL == internalURL {
+			if monitor.Type == "tcp" && monitor.URL == internalURL {
 				monitor.Type = "http"
 				monitor.URL = publicURL
 				needsSave = true
-					logger.Log().WithField("host_id", host.ID).Infof("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
+				logger.Log().WithField("host_id", host.ID).Infof("Migrated monitor for host %d to check public URL: %s", host.ID, publicURL)
 			}
 
 			// Upgrade to HTTPS if SSL is forced and we are currently checking HTTP
-				if host.SSLForced && strings.HasPrefix(monitor.URL, "http://") {
+			if host.SSLForced && strings.HasPrefix(monitor.URL, "http://") {
 				monitor.URL = strings.Replace(monitor.URL, "http://", "https://", 1)
 				needsSave = true
-					logger.Log().WithField("host_id", host.ID).Infof("Upgraded monitor for host %d to HTTPS: %s", host.ID, monitor.URL)
+				logger.Log().WithField("host_id", host.ID).Infof("Upgraded monitor for host %d to HTTPS: %s", host.ID, monitor.URL)
 			}
 
 			if needsSave {
@@ -400,16 +400,16 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 	host.LastCheck = time.Now()
 	host.Latency = latency
 
-		if statusChanged {
-			host.LastStatusChange = time.Now()
-			logger.Log().WithFields(map[string]interface{}{
-				"host_name": host.Name,
-				"host_ip":   host.Host,
-				"old":       oldStatus,
-				"new":       newStatus,
-				"message":   msg,
-			}).Info("Host status changed")
-		}
+	if statusChanged {
+		host.LastStatusChange = time.Now()
+		logger.Log().WithFields(map[string]interface{}{
+			"host_name": host.Name,
+			"host_ip":   host.Host,
+			"old":       oldStatus,
+			"new":       newStatus,
+			"message":   msg,
+		}).Info("Host status changed")
+	}
 
 	s.DB.Save(host)
 }

@@ -2,23 +2,23 @@ package services
 
 import (
 	"bytes"
-	"fmt"
 	"context"
+	"encoding/json"
+	"fmt"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/trace"
 	"net"
-	neturl "net/url"
-	"strings"
 	"net/http"
+	neturl "net/url"
 	"regexp"
+	"strings"
 	"text/template"
-	"encoding/json"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/containrrr/shoutrrr"
 	"gorm.io/gorm"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 type NotificationService struct {
@@ -120,7 +120,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		}
 
 		go func(p models.NotificationProvider) {
-					if p.Type == "webhook" {
+			if p.Type == "webhook" {
 				if err := s.sendCustomWebhook(ctx, p, data); err != nil {
 					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
 				}
@@ -135,7 +135,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 				}
 				// Use newline for better formatting in chat apps
 				msg := fmt.Sprintf("%s\n\n%s", title, message)
-					if err := shoutrrr.Send(url, msg); err != nil {
+				if err := shoutrrr.Send(url, msg); err != nil {
 					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send notification")
 				}
 			}

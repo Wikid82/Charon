@@ -12,7 +12,12 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "pretest:coverage": "npm ci --silent && node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\"",
-    "test:coverage": "vitest --coverage --coverage.provider=istanbul --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.reporter=text"
+    "test:coverage": "vitest --coverage --coverage.provider=istanbul --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.reporter=text",
+    "e2e:install": "npx playwright install --with-deps",
+    "e2e:test": "playwright test",
+    "e2e:up:block": "docker compose -f ../docker-compose.local.yml down && CHARON_SECURITY_WAF_MODE=block docker compose -f ../docker-compose.local.yml up -d",
+    "e2e:up:monitor": "docker compose -f ../docker-compose.local.yml down && CHARON_SECURITY_WAF_MODE=monitor docker compose -f ../docker-compose.local.yml up -d",
+    "e2e:down": "docker compose -f ../docker-compose.local.yml down"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.11",
@@ -29,6 +34,7 @@
     "tldts": "^7.0.19"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4.1.17",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -38,9 +44,8 @@
     "@typescript-eslint/eslint-plugin": "^8.48.0",
     "@typescript-eslint/parser": "^8.48.0",
     "@vitejs/plugin-react": "^5.1.1",
-    "@vitest/coverage-v8": "^4.0.14",
     "@vitest/coverage-istanbul": "^4.0.14",
-
+    "@vitest/coverage-v8": "^4.0.14",
     "@vitest/ui": "^4.0.14",
     "autoprefixer": "^10.4.22",
     "eslint": "^9.39.1",

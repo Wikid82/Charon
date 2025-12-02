@@ -71,14 +71,14 @@ func (s *CertificateService) SyncFromDisk() error {
 	// If the cert root does not exist, skip scanning but still return DB entries below
 	if _, err := os.Stat(certRoot); err == nil {
 		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
+			if err != nil {
 				logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: walk error")
 				return nil
 			}
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
 				certData, err := os.ReadFile(path)
-					if err != nil {
+				if err != nil {
 					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to read cert file")
 					return nil
 				}
@@ -90,7 +90,7 @@ func (s *CertificateService) SyncFromDisk() error {
 				}
 
 				cert, err := x509.ParseCertificate(block.Bytes)
-					if err != nil {
+				if err != nil {
 					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to parse cert")
 					return nil
 				}
@@ -169,12 +169,12 @@ func (s *CertificateService) SyncFromDisk() error {
 					}
 					if updated {
 						existing.UpdatedAt = time.Now()
-							if err := s.db.Save(&existing).Error; err != nil {
+						if err := s.db.Save(&existing).Error; err != nil {
 							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update DB cert")
 						}
 					} else {
 						// still update ExpiresAt if needed
-							if err := s.db.Model(&existing).Update("expires_at", &expiresAt).Error; err != nil {
+						if err := s.db.Model(&existing).Update("expires_at", &expiresAt).Error; err != nil {
 							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update expiry")
 						}
 					}
@@ -196,7 +196,7 @@ func (s *CertificateService) SyncFromDisk() error {
 		for _, c := range acmeCerts {
 			if _, ok := foundDomains[c.Domains]; !ok {
 				// remove stale record
-					if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
+				if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
 					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).WithError(err).Error("CertificateService: failed to delete stale cert")
 				} else {
 					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).Info("CertificateService: removed stale DB cert")

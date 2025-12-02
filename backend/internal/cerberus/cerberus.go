@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -64,9 +66,29 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 
 		// WAF: naive example check - block requests containing <script> in URL
 		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
+			metrics.IncWAFRequest()
 			if strings.Contains(ctx.Request.RequestURI, "<script>") {
+				logger.Log().WithFields(map[string]interface{}{
+					"source":   "waf",
+					"decision": "block",
+					"mode":     c.cfg.WAFMode,
+					"path":     ctx.Request.URL.Path,
+					"query":    ctx.Request.URL.RawQuery,
+				}).Warn("WAF blocked request")
+				metrics.IncWAFBlocked()
 				ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
 				return
+			}
+			// Monitoring mode logs but does not block
+			if c.cfg.WAFMode == "monitor" {
+				logger.Log().WithFields(map[string]interface{}{
+					"source":   "waf",
+					"decision": "monitor",
+					"mode":     c.cfg.WAFMode,
+					"path":     ctx.Request.URL.Path,
+					"query":    ctx.Request.URL.RawQuery,
+				}).Info("WAF monitored request")
+				metrics.IncWAFMonitored()
 			}
 		}
 
