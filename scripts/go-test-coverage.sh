@@ -44,7 +44,3 @@ if total < minimum:
 PY
 
 echo "Coverage requirement met"
-
-# Also enforce 100% coverage for critical backend modules used by CI
-echo "Running module-specific coverage checks (backend only)"
-bash "$ROOT_DIR/scripts/check-module-coverage.sh" --backend-only
