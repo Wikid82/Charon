@@ -20,7 +20,7 @@ import (
 func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
 	db := handlers.OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
 	service := services.NewNotificationService(db)
 	handler := handlers.NewNotificationProviderHandler(service)

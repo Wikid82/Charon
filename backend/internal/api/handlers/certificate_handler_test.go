@@ -61,7 +61,7 @@ func TestCertificateHandler_List(t *testing.T) {
 
 	// Setup in-memory DB
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -86,7 +86,7 @@ func TestCertificateHandler_Upload(t *testing.T) {
 	// Setup
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -131,7 +131,7 @@ func TestCertificateHandler_Delete(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Use WAL mode and busy timeout for better concurrency with race detector
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	// Seed a cert
 	cert := models.SSLCertificate{
@@ -167,7 +167,7 @@ func TestCertificateHandler_Delete(t *testing.T) {
 func TestCertificateHandler_Upload_Errors(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -202,7 +202,7 @@ func TestCertificateHandler_Upload_Errors(t *testing.T) {
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.NotificationProvider{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -222,7 +222,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -241,7 +241,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 func TestCertificateHandler_Upload_InvalidCertificate(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -275,7 +275,7 @@ func TestCertificateHandler_Upload_InvalidCertificate(t *testing.T) {
 func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -307,7 +307,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 	tmpDir := t.TempDir()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	service := services.NewCertificateService(tmpDir, db)
 	ns := services.NewNotificationService(db)
@@ -345,7 +345,7 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 	require.NoError(t, os.MkdirAll(caddyDir, 0755))
 
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	// Seed a certificate in DB
 	cert := models.SSLCertificate{

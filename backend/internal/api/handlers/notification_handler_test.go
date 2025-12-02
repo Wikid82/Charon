@@ -25,7 +25,7 @@ func setupNotificationTestDB() *gorm.DB {
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Notification{})
+	db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
 	return db
 }
 

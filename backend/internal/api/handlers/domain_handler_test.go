@@ -22,7 +22,7 @@ func setupDomainTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Domain{}))
+	require.NoError(t, db.AutoMigrate(&models.Domain{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	ns := services.NewNotificationService(db)
 	h := NewDomainHandler(db, ns)
