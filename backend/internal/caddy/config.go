@@ -327,6 +327,19 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 					// Append as a handler
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
+						// Capture ruleset_name if present, remove it from advanced_config,
+						// and convert it to rules_files if this is a waf handler.
+						if rn, has := v["ruleset_name"]; has {
+							if rnStr, ok := rn.(string); ok && rnStr != "" {
+								// Only add rules_files if we map the name to a path
+								if rulesetPaths != nil {
+									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
+										v["rules_file"] = p
+									}
+								}
+							}
+							delete(v, "ruleset_name")
+						}
 						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
@@ -335,6 +348,16 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 				case []interface{}:
 					for _, it := range v {
 						if m, ok := it.(map[string]interface{}); ok {
+							if rn, has := m["ruleset_name"]; has {
+								if rnStr, ok := rn.(string); ok && rnStr != "" {
+									if rulesetPaths != nil {
+										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
+											m["rules_file"] = p
+										}
+									}
+								}
+								delete(m, "ruleset_name")
+							}
 							normalizeHandlerHeaders(m)
 							if _, ok2 := m["handler"]; ok2 {
 								handlers = append(handlers, Handler(m))
@@ -702,10 +725,23 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 // This is a stub; integration with a Coraza caddy plugin would be required
 // for real runtime enforcement.
 func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
-	// Find a ruleset to associate with WAF; prefer name match by host.Application or default 'owasp-crs'
+	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
+	var hostRulesetName string
+	if host != nil && host.AdvancedConfig != "" {
+		var ac map[string]interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &ac); err == nil {
+			if rn, ok := ac["ruleset_name"]; ok {
+				if rnStr, ok2 := rn.(string); ok2 && rnStr != "" {
+					hostRulesetName = rnStr
+				}
+			}
+		}
+	}
+
+	// Find a ruleset to associate with WAF; prefer name match by host.Application, host.AdvancedConfig ruleset_name or default 'owasp-crs'
 	var selected *models.SecurityRuleSet
 	for i, r := range rulesets {
-		if r.Name == "owasp-crs" || r.Name == host.Application || (secCfg != nil && r.Name == secCfg.WAFRulesSource) {
+		if r.Name == "owasp-crs" || (host != nil && r.Name == host.Application) || (hostRulesetName != "" && r.Name == hostRulesetName) || (secCfg != nil && r.Name == secCfg.WAFRulesSource) {
 			selected = &rulesets[i]
 			break
 		}
@@ -714,28 +750,25 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	if !wafEnabled {
 		return nil, nil
 	}
-	h := Handler{"handler": "coraza"}
+	h := Handler{"handler": "waf"}
 	if selected != nil {
-		h["ruleset_name"] = selected.Name
-		h["ruleset_content"] = selected.Content
 		if rulesetPaths != nil {
-			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
-				h["ruleset_path"] = p
+				if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
+					h["rules_file"] = p
 			}
 		}
 	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
-		// If there was a requested ruleset name but nothing matched, include it as a reference
-		h["ruleset_name"] = secCfg.WAFRulesSource
+		// If there was a requested ruleset name but nothing matched, include a rules_files entry if path known
+		if rulesetPaths != nil {
+				if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
+					h["rules_file"] = p
+			}
+		}
 	}
-	// Learning mode flag
-	if secCfg != nil && secCfg.WAFLearning {
-		h["mode"] = "monitor"
-	} else if secCfg != nil && secCfg.WAFMode == "disabled" {
+	// WAF enablement is handled by the caller. Don't add a 'mode' field
+	// here because the module expects a specific configuration schema.
+	if secCfg != nil && secCfg.WAFMode == "disabled" {
 		return nil, nil
-	} else if secCfg != nil {
-		h["mode"] = secCfg.WAFMode
-	} else {
-		h["mode"] = "disabled"
 	}
 	return h, nil
 }
