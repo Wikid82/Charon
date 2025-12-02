@@ -24,7 +24,7 @@
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.67.0",
     "react-hot-toast": "^2.6.0",
-    "react-router-dom": "^7.9.6",
+    "react-router-dom": "^7.10.0",
     "tailwind-merge": "^3.4.0",
     "tldts": "^7.0.19"
   },
@@ -38,10 +38,10 @@
     "@typescript-eslint/eslint-plugin": "^8.48.1",
     "@typescript-eslint/parser": "^8.48.1",
     "@vitejs/plugin-react": "^5.1.1",
-    "@vitest/coverage-v8": "^4.0.14",
-    "@vitest/coverage-istanbul": "^4.0.14",
+    "@vitest/coverage-v8": "^4.0.15",
+    "@vitest/coverage-istanbul": "^4.0.15",
 
-    "@vitest/ui": "^4.0.14",
+    "@vitest/ui": "^4.0.15",
     "autoprefixer": "^10.4.22",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -53,6 +53,6 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1",
     "vite": "^7.2.6",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.15"
   }
 }
