@@ -1,6 +1,22 @@
 {
 	"version": "2.0.0",
 	"tasks": [
+				{
+					"label": "Coraza: Run Integration Script",
+					"type": "shell",
+					"command": "bash",
+					"args": ["./scripts/coraza_integration.sh"],
+					"group": "test",
+					"problemMatcher": []
+				},
+				{
+					"label": "Coraza: Run Integration Go Test",
+					"type": "shell",
+					"command": "sh",
+					"args": ["-c", "cd backend && go test -tags=integration ./integration -run TestCorazaIntegration -v"],
+					"group": "test",
+					"problemMatcher": []
+				},
 		{
 			"label": "Git Remove Cached",
 			"type": "shell",

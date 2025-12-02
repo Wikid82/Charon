@@ -646,7 +646,7 @@ func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
 	assert.Equal(t, "owasp-crs", capturedRules[0].Name)
 }
 
-func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
+func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 	tmp := t.TempDir()
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-coraza")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -710,30 +710,25 @@ func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(body, &cfg))
 	t.Logf("generated config: %s", string(body))
 
-	// Find the route for our host and assert coraza handler exists
+	// Find the route for our host and assert waf handler exists
 	found := false
 	for _, r := range cfg.Apps.HTTP.Servers["charon_server"].Routes {
 		for _, m := range r.Match {
 			for _, h := range m.Host {
 				if h == "ruleset.example.com" {
 					for _, handle := range r.Handle {
-						if handlerName, ok := handle["handler"].(string); ok && handlerName == "coraza" {
-							// Validate ruleset fields
-							if rsName, ok := handle["ruleset_name"].(string); ok && rsName == "owasp-crs" {
-								// check for inlined content
-								if rsContent, ok := handle["ruleset_content"].(string); ok && rsContent == "test-rule-content" {
-									if mode, ok := handle["mode"].(string); ok && mode == "block" {
-										found = true
-									}
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
+							// Validate rules_file or inline ruleset_content presence
+							if rf, ok := handle["rules_file"].(string); ok && rf != "" {
+								// Ensure file exists and contains our content
+								b, err := os.ReadFile(rf)
+								if err == nil && string(b) == "test-rule-content" {
+									found = true
 								}
-								// check for written ruleset_path file, if present validate file content
-								if rsPath, ok := handle["ruleset_path"].(string); ok && rsPath != "" {
-									// Ensure file exists and contains our content
-									b, err := os.ReadFile(rsPath)
-									if err == nil && string(b) == "test-rule-content" {
-										found = true
-									}
-								}
+							}
+							// Inline content may also exist as a fallback
+							if rsContent, ok := handle["ruleset_content"].(string); ok && rsContent == "test-rule-content" {
+								found = true
 							}
 						}
 					}
@@ -741,7 +736,7 @@ func TestManager_ApplyConfig_IncludesCorazaHandlerWithRuleset(t *testing.T) {
 			}
 		}
 	}
-	assert.True(t, found, "coraza handler with inlined ruleset should be present in generated config")
+	assert.True(t, found, "waf handler with inlined ruleset should be present in generated config")
 }
 
 func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {

@@ -235,10 +235,10 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 		}
 	}
 
-	// Expected pipeline: crowdsec -> coraza -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
+	// Expected pipeline: crowdsec -> waf -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
 	require.GreaterOrEqual(t, len(names), 4)
 	require.Equal(t, "crowdsec", names[0])
-	require.Equal(t, "coraza", names[1])
+	require.Equal(t, "waf", names[1])
 	require.Equal(t, "rate_limit", names[2])
 	// ACL is subroute
 	require.Equal(t, "subroute", names[3])

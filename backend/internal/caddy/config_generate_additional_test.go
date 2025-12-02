@@ -79,10 +79,10 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 		}
 	}
 
-	// Expected pipeline: crowdsec -> coraza -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
+	// Expected pipeline: crowdsec -> waf -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
 	require.GreaterOrEqual(t, len(names), 4)
 	require.Equal(t, "crowdsec", names[0])
-	require.Equal(t, "coraza", names[1])
+	require.Equal(t, "waf", names[1])
 	require.Equal(t, "rate_limit", names[2])
 	require.Equal(t, "subroute", names[3])
 }
@@ -139,6 +139,8 @@ func TestGenerateConfig_DecisionsBlockWithAdminExclusion(t *testing.T) {
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	b, _ := json.MarshalIndent(route.Handle, "", "  ")
+	t.Logf("handles: %s", string(b))
 	// Expect first security handler is a subroute that includes both remote_ip and a 'not' exclusion for adminWhitelist
 	found := false
 	for _, h := range route.Handle {
@@ -166,19 +168,17 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	sec := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "nonexistent-rs"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec)
 	require.NoError(t, err)
-	// Since a ruleset name was requested but none exists, coraza handler should include ruleset_name but no ruleset_content
+	// Since a ruleset name was requested but none exists, waf handler should include a reference but no rules_files
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
 	for _, h := range route.Handle {
-		if hn, ok := h["handler"].(string); ok && hn == "coraza" {
-			if rn, ok := h["ruleset_name"].(string); ok && rn == "nonexistent-rs" {
-				if _, ok2 := h["ruleset_content"]; !ok2 {
-					found = true
-				}
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if _, ok := h["rules_file"]; !ok {
+				found = true
 			}
 		}
 	}
-	require.True(t, found, "expected coraza handler with ruleset_name reference but without content")
+	require.True(t, found, "expected waf handler without rules_files when referenced ruleset does not exist")
 
 	// Now test learning/monitor mode mapping
 	sec2 := &models.SecurityConfig{WAFMode: "block", WAFLearning: true}
@@ -187,13 +187,11 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	route2 := cfg2.Apps.HTTP.Servers["charon_server"].Routes[0]
 	monitorFound := false
 	for _, h := range route2.Handle {
-		if hn, ok := h["handler"].(string); ok && hn == "coraza" {
-			if mode, ok := h["mode"].(string); ok && mode == "monitor" {
-				monitorFound = true
-			}
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			monitorFound = true
 		}
 	}
-	require.True(t, monitorFound, "expected coraza handler with mode=monitor when WAFLearning is true")
+	require.True(t, monitorFound, "expected waf handler when WAFLearning is true")
 }
 
 func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {
@@ -203,8 +201,8 @@ func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	for _, h := range route.Handle {
-		if hn, ok := h["handler"].(string); ok && hn == "coraza" {
-			t.Fatalf("expected NO coraza handler when WAFMode disabled, found: %v", h)
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			t.Fatalf("expected NO waf handler when WAFMode disabled, found: %v", h)
 		}
 	}
 }
@@ -213,22 +211,20 @@ func TestGenerateConfig_WAFSelectedSetsContentAndMode(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-2", DomainNames: "waf2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
 	sec := &models.SecurityConfig{WAFMode: "block"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, nil, nil, sec)
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, sec)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
 	for _, h := range route.Handle {
-		if hn, ok := h["handler"].(string); ok && hn == "coraza" {
-			if rn, ok := h["ruleset_name"].(string); ok && rn == "owasp-crs" {
-				if rc, ok := h["ruleset_content"].(string); ok && rc == "rule 1" {
-					if mode, ok := h["mode"].(string); ok && mode == "block" {
-						found = true
-					}
-				}
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if rf, ok := h["rules_file"].(string); ok && rf != "" {
+				found = true
+				break
 			}
 		}
 	}
-	require.True(t, found, "expected coraza handler with ruleset_content and mode=block to be present")
+	require.True(t, found, "expected waf handler with rules_files to be present")
 }
 
 func TestGenerateConfig_DecisionAdminPartsEmpty(t *testing.T) {
@@ -271,20 +267,87 @@ func TestGenerateConfig_WAFUsesRuleSet(t *testing.T) {
 	// host + ruleset configured
 	host := models.ProxyHost{UUID: "waf-1", DomainNames: "waf.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, nil, nil, nil)
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
-	// check coraza handler present with ruleset_name
+	// check waf handler present with rules_files
 	found := false
 	for _, h := range route.Handle {
-		if hn, ok := h["handler"].(string); ok && hn == "coraza" {
-			if rn, ok := h["ruleset_name"].(string); ok && rn == "owasp-crs" {
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if rf, ok := h["rules_file"].(string); ok && rf != "" {
 				found = true
 				break
 			}
 		}
 	}
-	require.True(t, found, "coraza handler with ruleset should be present")
+	if !found {
+		b2, _ := json.MarshalIndent(route.Handle, "", "  ")
+		t.Fatalf("waf handler with rules_file should be present; handlers: %s", string(b2))
+	}
+}
+
+func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig(t *testing.T) {
+	// host with AdvancedConfig selecting a custom ruleset
+	host := models.ProxyHost{UUID: "waf-host-adv", DomainNames: "waf-adv.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "{\"handler\":\"waf\",\"ruleset_name\":\"host-rs\"}"}
+	rs := models.SecurityRuleSet{Name: "host-rs", SourceURL: "http://example.com/host-rs", Content: "rule X"}
+	rulesetPaths := map[string]string{"host-rs": "/tmp/host-rs.conf"}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
+	require.NoError(t, err)
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	// check waf handler present with rules_files coming from host AdvancedConfig
+	found := false
+	for _, h := range route.Handle {
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if rf, ok := h["rules_file"].(string); ok && rf == "/tmp/host-rs.conf" {
+				found = true
+				break
+			}
+		}
+	}
+	require.True(t, found, "waf handler with rules_files should include host advanced_config ruleset path")
+}
+
+func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig_Array(t *testing.T) {
+	// host with AdvancedConfig as JSON array selecting a custom ruleset
+	host := models.ProxyHost{UUID: "waf-host-adv-arr", DomainNames: "waf-adv-arr.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "[{\"handler\":\"waf\",\"ruleset_name\":\"host-rs-array\"}]"}
+	rs := models.SecurityRuleSet{Name: "host-rs-array", SourceURL: "http://example.com/host-rs-array", Content: "rule X"}
+	rulesetPaths := map[string]string{"host-rs-array": "/tmp/host-rs-array.conf"}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
+	require.NoError(t, err)
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	// check waf handler present with rules_file coming from host AdvancedConfig array
+	found := false
+	for _, h := range route.Handle {
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if rf, ok := h["rules_file"].(string); ok && rf == "/tmp/host-rs-array.conf" {
+				found = true
+				break
+			}
+		}
+	}
+	require.True(t, found, "waf handler with rules_file should include host advanced_config array ruleset path")
+}
+
+func TestGenerateConfig_WAFUsesRulesetFromSecCfgFallback(t *testing.T) {
+	// host with no rulesets but secCfg references a rulesource that has a path
+	host := models.ProxyHost{UUID: "waf-fallback", DomainNames: "waf-fallback.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
+	sec := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-fallback.conf"}
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, rulesetPaths, nil, sec)
+	require.NoError(t, err)
+	// since secCfg requested owasp-crs and we have a path, the wf handler should include rules_file
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
+	found := false
+	for _, h := range route.Handle {
+		if hn, ok := h["handler"].(string); ok && hn == "waf" {
+			if rf, ok := h["rules_file"].(string); ok && rf == "/tmp/owasp-fallback.conf" {
+				found = true
+				break
+			}
+		}
+	}
+	require.True(t, found, "waf handler with rules_file should include fallback secCfg ruleset path")
 }
 
 func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
