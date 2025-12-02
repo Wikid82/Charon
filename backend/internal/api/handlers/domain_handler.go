@@ -6,9 +6,9 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 type DomainHandler struct {

@@ -1,9 +1,9 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"context"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -136,11 +136,11 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	defer ts.Close()
 
 	provider := models.NotificationProvider{
-		Name:   "Test Webhook",
-		Type:   "webhook",
-		URL:    ts.URL,
+		Name:     "Test Webhook",
+		Type:     "webhook",
+		URL:      ts.URL,
 		Template: "minimal",
-		Config: `{"Header": "{{.Title}}"}`,
+		Config:   `{"Header": "{{.Title}}"}`,
 	}
 
 	err := svc.TestProvider(provider)
@@ -192,12 +192,12 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsMin.Close()
 
 	providerMin := models.NotificationProvider{
-		Name:    "Minimal",
-		Type:    "webhook",
-		URL:     tsMin.URL,
-		Enabled: true,
+		Name:         "Minimal",
+		Type:         "webhook",
+		URL:          tsMin.URL,
+		Enabled:      true,
 		NotifyUptime: true,
-		Template: "minimal",
+		Template:     "minimal",
 	}
 	svc.CreateProvider(&providerMin)
 
@@ -227,12 +227,12 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsDet.Close()
 
 	providerDet := models.NotificationProvider{
-		Name:    "Detailed",
-		Type:    "webhook",
-		URL:     tsDet.URL,
-		Enabled: true,
+		Name:         "Detailed",
+		Type:         "webhook",
+		URL:          tsDet.URL,
+		Enabled:      true,
 		NotifyUptime: true,
-		Template: "detailed",
+		Template:     "detailed",
 	}
 	svc.CreateProvider(&providerDet)
 
@@ -432,8 +432,8 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			var body map[string]interface{}
 			json.NewDecoder(r.Body).Decode(&body)
 			if title, ok := body["title"]; ok {
-					receivedContent = title.(string)
-				}
+				receivedContent = title.(string)
+			}
 			w.WriteHeader(http.StatusOK)
 			close(received)
 		}))
@@ -718,11 +718,11 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 
 	t.Run("invalid custom template on create", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name:   "Bad Custom",
-			Type:   "webhook",
-			URL:    "http://example.com",
+			Name:     "Bad Custom",
+			Type:     "webhook",
+			URL:      "http://example.com",
 			Template: "custom",
-			Config: `{"bad": "{{.Title"}`,
+			Config:   `{"bad": "{{.Title"}`,
 		}
 		err := svc.CreateProvider(&provider)
 		assert.Error(t, err)
@@ -730,9 +730,9 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 
 	t.Run("invalid custom template on update", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name:   "Valid",
-			Type:   "webhook",
-			URL:    "http://example.com",
+			Name:     "Valid",
+			Type:     "webhook",
+			URL:      "http://example.com",
 			Template: "minimal",
 		}
 		err := svc.CreateProvider(&provider)

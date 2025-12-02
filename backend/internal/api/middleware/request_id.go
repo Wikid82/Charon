@@ -1,39 +1,39 @@
 package middleware
 
 import (
-    "context"
-    "github.com/Wikid82/charon/backend/internal/logger"
-    "github.com/Wikid82/charon/backend/internal/trace"
-    "github.com/gin-gonic/gin"
-    "github.com/google/uuid"
-    "github.com/sirupsen/logrus"
+	"context"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/trace"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 const RequestIDHeader = "X-Request-ID"
 
 // RequestID generates a uuid per request and places it in context and header.
 func RequestID() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        rid := uuid.New().String()
-        c.Set(string(trace.RequestIDKey), rid)
-        c.Writer.Header().Set(RequestIDHeader, rid)
-        // Add to logger fields for this request
-        entry := logger.WithFields(map[string]interface{}{"request_id": rid})
-        c.Set("logger", entry)
-        // Propagate into the request context so it can be used by services
-        ctx := context.WithValue(c.Request.Context(), trace.RequestIDKey, rid)
-        c.Request = c.Request.WithContext(ctx)
-        c.Next()
-    }
+	return func(c *gin.Context) {
+		rid := uuid.New().String()
+		c.Set(string(trace.RequestIDKey), rid)
+		c.Writer.Header().Set(RequestIDHeader, rid)
+		// Add to logger fields for this request
+		entry := logger.WithFields(map[string]interface{}{"request_id": rid})
+		c.Set("logger", entry)
+		// Propagate into the request context so it can be used by services
+		ctx := context.WithValue(c.Request.Context(), trace.RequestIDKey, rid)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
 // GetRequestLogger retrieves the request-scoped logger from context or the global logger
 func GetRequestLogger(c *gin.Context) *logrus.Entry {
-    if v, ok := c.Get("logger"); ok {
-        if entry, ok := v.(*logrus.Entry); ok {
-            return entry
-        }
-    }
-    // fallback
-    return logger.Log()
+	if v, ok := c.Get("logger"); ok {
+		if entry, ok := v.(*logrus.Entry); ok {
+			return entry
+		}
+	}
+	// fallback
+	return logger.Log()
 }

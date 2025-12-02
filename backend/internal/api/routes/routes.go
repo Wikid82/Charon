@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
@@ -13,9 +15,10 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
-	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // Register wires up API routes and performs automatic migrations.
@@ -63,6 +66,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	}
 
 	router.GET("/api/v1/health", handlers.HealthHandler)
+
+	// Metrics endpoint (Prometheus)
+	reg := prometheus.NewRegistry()
+	metrics.Register(reg)
+	router.GET("/metrics", func(c *gin.Context) {
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
+	})
 
 	api := router.Group("/api/v1")
 

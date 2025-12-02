@@ -3,13 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
-	"encoding/json"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"

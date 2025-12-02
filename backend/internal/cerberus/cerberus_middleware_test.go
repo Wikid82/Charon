@@ -26,7 +26,7 @@ func setupDB(t *testing.T) *gorm.DB {
 
 func TestMiddleware_WAFBlocksPayload(t *testing.T) {
 	db := setupDB(t)
-    cfg := config.SecurityConfig{WAFMode: "block"}
+	cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, db)
 
 	// Setup gin context
@@ -110,11 +110,28 @@ func TestMiddleware_NotEnabledSkips(t *testing.T) {
 
 func TestMiddleware_WAFPassesWithNoPayload(t *testing.T) {
 	db := setupDB(t)
-    cfg := config.SecurityConfig{WAFMode: "block"}
+	cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, db)
 
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
+	req.RequestURI = "/?q=safe"
+	ctx.Request = req
+
+	mw := c.Middleware()
+	mw(ctx)
+	require.False(t, ctx.IsAborted())
+}
+
+func TestMiddleware_WAFMonitorLogsButDoesNotBlock(t *testing.T) {
+	db := setupDB(t)
+	cfg := config.SecurityConfig{WAFMode: "monitor"}
+	c := cerberus.New(cfg, db)
+
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	// Safe query should not be blocked; in monitor mode we still pass through
 	req := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
 	req.RequestURI = "/?q=safe"
 	ctx.Request = req

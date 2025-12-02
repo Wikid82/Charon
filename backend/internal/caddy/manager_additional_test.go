@@ -245,7 +245,7 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 		os.Chtimes(p, tmo, tmo)
 	}
 
-	    client := NewClient(caddyServer.URL)
+	client := NewClient(caddyServer.URL)
 
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 
@@ -718,15 +718,15 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 				if h == "ruleset.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
-								// Validate include array (coraza-caddy schema) or inline ruleset_content presence
-								if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
-									if rf, ok := incl[0].(string); ok && rf != "" {
-										// Ensure file exists and contains our content
-										// Note: manager prepends SecRuleEngine On directives, so we check Contains
-										b, err := os.ReadFile(rf)
-										if err == nil && strings.Contains(string(b), "test-rule-content") {
-											found = true
-										}
+							// Validate include array (coraza-caddy schema) or inline ruleset_content presence
+							if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
+								if rf, ok := incl[0].(string); ok && rf != "" {
+									// Ensure file exists and contains our content
+									// Note: manager prepends SecRuleEngine On directives, so we check Contains
+									b, err := os.ReadFile(rf)
+									if err == nil && strings.Contains(string(b), "test-rule-content") {
+										found = true
+									}
 								}
 							}
 							// Inline content may also exist as a fallback

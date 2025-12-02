@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
-	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
-	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/server"
 	"github.com/Wikid82/charon/backend/internal/version"
