@@ -718,12 +718,15 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 				if h == "ruleset.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
-							// Validate rules_file or inline ruleset_content presence
-							if rf, ok := handle["rules_file"].(string); ok && rf != "" {
-								// Ensure file exists and contains our content
-								b, err := os.ReadFile(rf)
-								if err == nil && string(b) == "test-rule-content" {
-									found = true
+								// Validate include array (coraza-caddy schema) or inline ruleset_content presence
+								if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
+									if rf, ok := incl[0].(string); ok && rf != "" {
+										// Ensure file exists and contains our content
+										// Note: manager prepends SecRuleEngine On directives, so we check Contains
+										b, err := os.ReadFile(rf)
+										if err == nil && strings.Contains(string(b), "test-rule-content") {
+											found = true
+										}
 								}
 							}
 							// Inline content may also exist as a fallback
@@ -989,4 +992,159 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 		}
 	}
 	assert.True(t, hasCrowdsec, "CrowdSec handler should be present when enabled via DB")
+}
+
+func TestManager_ApplyConfig_PrependsSecRuleEngineDirectives(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"secruleengine")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset without SecRuleEngine directive
+	h := models.ProxyHost{DomainNames: "prepend.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content without SecRuleEngine - should be prepended
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "test-xss", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-xss"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "test-xss") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine On was prepended
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should be prepended")
+	assert.True(t, strings.Contains(content, "SecRequestBodyAccess On"), "SecRequestBodyAccess On should be prepended")
+	// Verify original content is still present
+	assert.True(t, strings.Contains(content, ruleContent), "Original rule content should be preserved")
+	// Verify order: directives should come before the original rule
+	assert.True(t, strings.Index(content, "SecRuleEngine On") < strings.Index(content, "SecRule REQUEST_BODY"), "SecRuleEngine should appear before SecRule")
+}
+
+func TestManager_ApplyConfig_DoesNotPrependIfSecRuleEngineExists(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"secruleengine-exists")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset that already has SecRuleEngine
+	h := models.ProxyHost{DomainNames: "noprepend.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content already contains SecRuleEngine
+	ruleContent := `SecRuleEngine DetectionOnly
+SecRequestBodyAccess On
+SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "test-existing", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-existing"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "test-existing") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify content is written exactly as provided (no extra prepending)
+	content := string(writtenContent)
+	// Count occurrences of SecRuleEngine - should be exactly 1
+	assert.Equal(t, 1, strings.Count(strings.ToLower(content), "secruleengine"), "SecRuleEngine should appear exactly once (not prepended)")
+	// Verify the original content is preserved exactly
+	assert.Equal(t, ruleContent, content, "Content should be exactly as provided when SecRuleEngine exists")
+}
+
+func TestManager_ApplyConfig_DebugMarshalFailure(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"debugmarshal")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a simple host
+	h := models.ProxyHost{DomainNames: "marshal.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32"}
+	db.Create(&sec)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub jsonMarshalDebugFunc to return an error (exercises the else branch in debug logging)
+	origMarshalDebug := jsonMarshalDebugFunc
+	jsonMarshalDebugFunc = func(v interface{}) ([]byte, error) {
+		return nil, fmt.Errorf("simulated marshal error")
+	}
+	defer func() { jsonMarshalDebugFunc = origMarshalDebug }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true})
+	// ApplyConfig should still succeed even if debug logging fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
 }
