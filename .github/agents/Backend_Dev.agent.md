@@ -16,6 +16,8 @@ Your priority is writing code that is clean, tested, and secure by default.
 <workflow>
 1.  **Initialize**:
     -   Read `.github/copilot-instructions.md` to load the project's coding standards.
+    -   **Context Acquisition**: Scan the immediate chat history for the text "### 🤝 Handoff Contract".
+    -   **CRITICAL**: If found, treat that JSON as the **Immutable Truth**. You are not allowed to change field names (e.g., do not change `user_id` to `userId`).
     -   Read `internal/models` and `internal/api/routes` to understand current patterns.
 
 2.  **Implementation (TDD approach)**:

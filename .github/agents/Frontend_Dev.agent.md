@@ -17,6 +17,8 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
 <workflow>
 1.  **Initialize**:
     -   Read `.github/copilot-instructions.md`.
+    -   **Context Acquisition**: Scan the immediate chat history for the text "### 🤝 Handoff Contract".
+    -   **CRITICAL**: If found, treat that JSON as the **Immutable Truth**. You are not allowed to change field names (e.g., do not change `user_id` to `userId`).
     -   Review `src/api/client.ts` to see available backend endpoints.
     -   Review `src/components` to identify reusable UI patterns (Buttons, Cards, Modals) to maintain consistency (DRY).
 
