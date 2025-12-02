@@ -75,12 +75,40 @@ export const createDecision = async (payload: any) => {
   return response.data
 }
 
-export const getRuleSets = async () => {
-  const response = await client.get('/security/rulesets')
+// WAF Ruleset types
+export interface SecurityRuleSet {
+  id: number
+  uuid: string
+  name: string
+  source_url: string
+  mode: string
+  last_updated: string
+  content: string
+}
+
+export interface RuleSetsResponse {
+  rulesets: SecurityRuleSet[]
+}
+
+export interface UpsertRuleSetPayload {
+  id?: number
+  name: string
+  content?: string
+  source_url?: string
+  mode?: 'blocking' | 'detection'
+}
+
+export const getRuleSets = async (): Promise<RuleSetsResponse> => {
+  const response = await client.get<RuleSetsResponse>('/security/rulesets')
   return response.data
 }
 
-export const upsertRuleSet = async (payload: any) => {
+export const upsertRuleSet = async (payload: UpsertRuleSetPayload) => {
   const response = await client.post('/security/rulesets', payload)
+  return response.data
+}
+
+export const deleteRuleSet = async (id: number) => {
+  const response = await client.delete(`/security/rulesets/${id}`)
   return response.data
 }
