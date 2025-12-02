@@ -1148,3 +1148,316 @@ func TestManager_ApplyConfig_DebugMarshalFailure(t *testing.T) {
 	// ApplyConfig should still succeed even if debug logging fails
 	assert.NoError(t, manager.ApplyConfig(context.Background()))
 }
+
+func TestManager_ApplyConfig_WAFModeMonitorUsesDetectionOnly(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"wafmonitor")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "monitor.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content without SecRuleEngine
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "monitor-test", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	// WAFMode = "monitor" should result in DetectionOnly
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "monitor", WAFRulesSource: "monitor-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "monitor-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "monitor"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine DetectionOnly was prepended (not On)
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine DetectionOnly"), "SecRuleEngine DetectionOnly should be prepended in monitor mode")
+	assert.False(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should NOT be present in monitor mode")
+	assert.True(t, strings.Contains(content, "SecRequestBodyAccess On"), "SecRequestBodyAccess On should be prepended")
+}
+
+func TestManager_ApplyConfig_PerRulesetModeOverride(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesetmode")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset with per-ruleset mode set to "detection"
+	h := models.ProxyHost{DomainNames: "rulesetmode.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	// Ruleset has Mode="detection" which should override global "block" mode
+	rs := models.SecurityRuleSet{Name: "override-test", Content: ruleContent, Mode: "detection"}
+	assert.NoError(t, db.Create(&rs).Error)
+	// Global WAFMode is "block" but ruleset Mode should take precedence
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "override-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "override-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify per-ruleset mode takes precedence: should be DetectionOnly even though global is "block"
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine DetectionOnly"), "Per-ruleset mode 'detection' should result in DetectionOnly")
+	assert.False(t, strings.Contains(content, "SecRuleEngine On"), "Per-ruleset mode should override global 'block' mode")
+}
+
+func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesetcleanup")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create initial ruleset
+	h := models.ProxyHost{DomainNames: "cleanup.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "active-ruleset", Content: "SecRule REQUEST_BODY \"test\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "active-ruleset"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create a stale file in the coraza rulesets dir
+	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
+	os.MkdirAll(corazaDir, 0755)
+	staleFile := filepath.Join(corazaDir, "stale-ruleset.conf")
+	os.WriteFile(staleFile, []byte("old content"), 0644)
+
+	// Create a subdirectory that should be skipped during cleanup (not deleted)
+	subDir := filepath.Join(corazaDir, "subdir")
+	os.MkdirAll(subDir, 0755)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify stale file was removed
+	_, err = os.Stat(staleFile)
+	assert.True(t, os.IsNotExist(err), "Stale ruleset file should be deleted")
+
+	// Verify subdirectory was NOT deleted (directories should be skipped)
+	info, err := os.Stat(subDir)
+	assert.NoError(t, err, "Subdirectory should not be deleted")
+	assert.True(t, info.IsDir(), "Subdirectory should still be a directory")
+
+	// Verify active ruleset file exists
+	activeFile := filepath.Join(corazaDir, "active-ruleset.conf")
+	_, err = os.Stat(activeFile)
+	assert.NoError(t, err, "Active ruleset file should exist")
+}
+
+func TestManager_ApplyConfig_RulesetCleanupReadDirError(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cleanupreaddirfail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "readdirerr.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "test-ruleset", Content: "SecRule REQUEST_BODY \"x\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-ruleset"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub readDirFunc to return error
+	origReadDir := readDirFunc
+	readDirFunc = func(name string) ([]os.DirEntry, error) {
+		if strings.Contains(name, "coraza") {
+			return nil, fmt.Errorf("simulated readdir error")
+		}
+		return origReadDir(name)
+	}
+	defer func() { readDirFunc = origReadDir }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// ApplyConfig should still succeed even if cleanup read fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_RulesetCleanupRemoveError(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cleanupremovefail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "removeerr.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "keep-this", Content: "SecRule REQUEST_BODY \"x\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "keep-this"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create stale file
+	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
+	os.MkdirAll(corazaDir, 0755)
+	staleFile := filepath.Join(corazaDir, "stale.conf")
+	os.WriteFile(staleFile, []byte("old"), 0644)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub removeFileFunc to return error for stale files
+	origRemove := removeFileFunc
+	removeFileFunc = func(name string) error {
+		if strings.Contains(name, "stale") {
+			return fmt.Errorf("simulated remove error")
+		}
+		return origRemove(name)
+	}
+	defer func() { removeFileFunc = origRemove }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// ApplyConfig should still succeed even if cleanup remove fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_WAFModeBlockExplicit(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"wafblock")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "block.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "block-test", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "block-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "block-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine On was prepended in block mode
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should be prepended in block mode")
+	assert.False(t, strings.Contains(content, "DetectionOnly"), "DetectionOnly should NOT be present in block mode")
+}

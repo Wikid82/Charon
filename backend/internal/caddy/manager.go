@@ -121,11 +121,21 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			filePath := filepath.Join(corazaDir, safeName+".conf")
 			// Prepend required Coraza directives if not already present.
 			// These are essential for the WAF to actually enforce rules:
-			// - SecRuleEngine On: enables blocking mode (default is DetectionOnly)
+			// - SecRuleEngine On: enables blocking mode (blocks malicious requests)
+			// - SecRuleEngine DetectionOnly: monitor mode (logs but doesn't block)
 			// - SecRequestBodyAccess On: allows inspecting POST body content
 			content := rs.Content
 			if !strings.Contains(strings.ToLower(content), "secruleengine") {
-				content = "SecRuleEngine On\nSecRequestBodyAccess On\n\n" + content
+				// Determine WAF engine mode: per-ruleset mode takes precedence,
+				// then global WAFMode, defaulting to blocking if neither is set
+				engineMode := "On" // default to blocking
+				if rs.Mode == "detection" || rs.Mode == "monitor" {
+					engineMode = "DetectionOnly"
+				} else if rs.Mode == "" && secCfg.WAFMode == "monitor" {
+					// No per-ruleset mode set, use global WAFMode
+					engineMode = "DetectionOnly"
+				}
+				content = fmt.Sprintf("SecRuleEngine %s\nSecRequestBodyAccess On\n\n", engineMode) + content
 			}
 			// Write ruleset file with world-readable permissions so the Caddy
 			// process (which may run as an unprivileged user) can read it.
@@ -136,6 +146,34 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 				rulesetPaths[rs.Name] = filePath
 				logger.Log().WithField("ruleset", rs.Name).WithField("path", filePath).Info("wrote coraza ruleset file")
 			}
+		}
+
+		// Cleanup stale ruleset files that are no longer in the database
+		if entries, err := readDirFunc(corazaDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				fileName := entry.Name()
+				filePath := filepath.Join(corazaDir, fileName)
+				// Check if this file is in the current rulesetPaths
+				isActive := false
+				for _, activePath := range rulesetPaths {
+					if activePath == filePath {
+						isActive = true
+						break
+					}
+				}
+				if !isActive {
+					if err := removeFileFunc(filePath); err != nil {
+						logger.Log().WithError(err).WithField("path", filePath).Warn("failed to remove stale ruleset file")
+					} else {
+						logger.Log().WithField("path", filePath).Info("removed stale ruleset file")
+					}
+				}
+			}
+		} else {
+			logger.Log().WithError(err).Warn("failed to read coraza rulesets dir for cleanup")
 		}
 	}
 
