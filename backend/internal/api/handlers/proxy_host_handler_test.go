@@ -27,7 +27,12 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.ProxyHost{},
+		&models.Location{},
+		&models.Notification{},
+		&models.NotificationProvider{},
+	))
 
 	ns := services.NewNotificationService(db)
 	h := NewProxyHostHandler(db, nil, ns, nil)
