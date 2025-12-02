@@ -33,9 +33,10 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
               -   Verify tests pass with `npm run test`.
 
 3.  **Verification (Definition of Done)**:
-    -   Run `npm run lint`.
+    -   Run `npm run lint` and fix warnings and errors (so they don't become warnings).
     -   Run `npm run test` (Ensure no regressions).
-    -   **MANDATORY**: Run `Frontend Test Coverage` as well as '`Frontend Type Check` tasks and fix any issues immediately and make sure coverage goals are met or exceeded.
+    -  Run `npm run type-check`
+    -   **MANDATORY**: Run `scripts/frontend-test-coverage.sh` as well as and fix any issues immediately and make sure coverage goals are met or exceeded.
 </workflow>
 
 <constraints>
