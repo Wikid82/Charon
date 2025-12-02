@@ -114,13 +114,39 @@ docker logs charon-debug | tail -n 200 || true
 
 RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
 if [ "$RESPONSE" = "403" ]; then
-  echo "Coraza WAF blocked payload as expected (HTTP 403)"
+  echo "✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode"
 else
-  echo "Unexpected response code: $RESPONSE (expected 403)"
+  echo "✗ Unexpected response code: $RESPONSE (expected 403) in BLOCK mode"
   exit 1
 fi
 
-echo "Coraza integration test complete. Cleaning up..."
+echo ""
+echo "=== Testing MONITOR mode (DetectionOnly) ==="
+echo "Switching WAF to monitor mode..."
+SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rules_source":"integration-xss","admin_whitelist":"0.0.0.0/0"}'
+curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
+
+echo "Wait for Caddy to apply monitor mode config..."
+sleep 2
+
+echo "Inspecting ruleset file (should now have DetectionOnly)..."
+docker exec charon-debug cat /app/data/caddy/coraza/rulesets/integration-xss.conf | head -5 || true
+
+RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
+if [ "$RESPONSE_MONITOR" = "200" ]; then
+  echo "✓ Coraza WAF in MONITOR mode allowed payload through (HTTP 200) as expected"
+else
+  echo "✗ Unexpected response code: $RESPONSE_MONITOR (expected 200) in MONITOR mode"
+  echo "  Note: Monitor mode should log but not block"
+  exit 1
+fi
+
+echo ""
+echo "=== All Coraza integration tests passed ==="
+
+echo ""
+echo "=== All Coraza integration tests passed ==="
+echo "Cleaning up..."
 docker rm -f coraza-backend || true
 if [ "$CREATED_NETWORK" -eq 1 ]; then
   docker network rm containers_default || true
