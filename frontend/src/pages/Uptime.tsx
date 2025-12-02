@@ -1,7 +1,7 @@
 import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, UptimeMonitor } from '../api/uptime';
-import { Activity, ArrowUp, ArrowDown, Settings, X, Pause } from 'lucide-react';
+import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, UptimeMonitor } from '../api/uptime';
+import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns';
 
@@ -39,6 +39,23 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
     }
   })
 
+  const checkMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await checkMonitor(id)
+    },
+    onSuccess: () => {
+      toast.success('Health check triggered')
+      // Refetch monitor and history after a short delay to get updated results
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['monitors'] })
+        queryClient.invalidateQueries({ queryKey: ['uptimeHistory', monitor.id] })
+      }, 2000)
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to trigger check')
+    }
+  })
+
   const [showMenu, setShowMenu] = useState(false)
 
   // Determine current status from most recent heartbeat when available
@@ -65,6 +82,20 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
             {isPaused ? <Pause className="w-4 h-4 mr-1" /> : isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
             {isPaused ? 'PAUSED' : monitor.status.toUpperCase()}
           </div>
+          <button
+            onClick={async () => {
+              try {
+                await checkMutation.mutateAsync(monitor.id)
+              } catch {
+                // handled in onError
+              }
+            }}
+            disabled={checkMutation.isPending}
+            className="p-1 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
+            title="Trigger immediate health check"
+          >
+            <RefreshCw size={16} className={checkMutation.isPending ? 'animate-spin' : ''} />
+          </button>
           <div className="relative">
             <button
               onClick={() => setShowMenu(prev => !prev)}

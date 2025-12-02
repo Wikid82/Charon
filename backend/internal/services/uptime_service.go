@@ -528,6 +528,11 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 	logger.Log().WithField("host_name", host.Name).WithField("service_count", len(downMonitors)).Info("Sent consolidated DOWN notification")
 }
 
+// CheckMonitor is the exported version for on-demand checks
+func (s *UptimeService) CheckMonitor(monitor models.UptimeMonitor) {
+	s.checkMonitor(monitor)
+}
+
 func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	start := time.Now()
 	success := false
@@ -807,6 +812,14 @@ func (s *UptimeService) ListMonitors() ([]models.UptimeMonitor, error) {
 	var monitors []models.UptimeMonitor
 	result := s.DB.Order("name ASC").Find(&monitors)
 	return monitors, result.Error
+}
+
+func (s *UptimeService) GetMonitorByID(id string) (*models.UptimeMonitor, error) {
+	var monitor models.UptimeMonitor
+	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &monitor, nil
 }
 
 func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.UptimeHeartbeat, error) {
