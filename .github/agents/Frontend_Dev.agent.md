@@ -38,7 +38,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
     -   Run `npm run lint` and fix warnings and errors (so they don't become warnings).
     -   Run `npm run test` (Ensure no regressions).
     -   Run `npm run type-check`
-    -   **MANDATORY**: Run `scripts/frontend-test-coverage.sh` as well as and fix any issues immediately and make sure coverage goals are met or exceeded.
+    -   **MANDATORY**: Run `/projects/Charon/scripts/frontend-test-coverage.sh` as well as and fix any issues immediately and make sure coverage goals are met or exceeded.
 </workflow>
 
 <constraints>
