@@ -64,31 +64,34 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// WAF: naive example check - block requests containing <script> in URL
+		// WAF: naive example check - evaluate requests containing <script> in URL
 		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
 			metrics.IncWAFRequest()
-			if strings.Contains(ctx.Request.RequestURI, "<script>") {
-				logger.Log().WithFields(map[string]interface{}{
-					"source":   "waf",
-					"decision": "block",
-					"mode":     c.cfg.WAFMode,
-					"path":     ctx.Request.URL.Path,
-					"query":    ctx.Request.URL.RawQuery,
-				}).Warn("WAF blocked request")
-				metrics.IncWAFBlocked()
-				ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
-				return
-			}
-			// Monitoring mode logs but does not block
-			if c.cfg.WAFMode == "monitor" {
-				logger.Log().WithFields(map[string]interface{}{
-					"source":   "waf",
-					"decision": "monitor",
-					"mode":     c.cfg.WAFMode,
-					"path":     ctx.Request.URL.Path,
-					"query":    ctx.Request.URL.RawQuery,
-				}).Info("WAF monitored request")
-				metrics.IncWAFMonitored()
+			suspicious := strings.Contains(ctx.Request.RequestURI, "<script>")
+			if suspicious {
+				if c.cfg.WAFMode == "block" {
+					logger.Log().WithFields(map[string]interface{}{
+						"source":   "waf",
+						"decision": "block",
+						"mode":     c.cfg.WAFMode,
+						"path":     ctx.Request.URL.Path,
+						"query":    ctx.Request.URL.RawQuery,
+					}).Warn("WAF blocked request")
+					metrics.IncWAFBlocked()
+					ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
+					return
+				}
+				// Monitor mode: log only, never block
+				if c.cfg.WAFMode == "monitor" {
+					logger.Log().WithFields(map[string]interface{}{
+						"source":   "waf",
+						"decision": "monitor",
+						"mode":     c.cfg.WAFMode,
+						"path":     ctx.Request.URL.Path,
+						"query":    ctx.Request.URL.RawQuery,
+					}).Info("WAF monitored request")
+					metrics.IncWAFMonitored()
+				}
 			}
 		}
 

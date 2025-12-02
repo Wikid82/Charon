@@ -129,16 +129,27 @@ func TestMiddleware_WAFMonitorLogsButDoesNotBlock(t *testing.T) {
 	cfg := config.SecurityConfig{WAFMode: "monitor"}
 	c := cerberus.New(cfg, db)
 
+	// Test 1: suspicious payload in monitor mode should NOT block
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	// Safe query should not be blocked; in monitor mode we still pass through
-	req := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
-	req.RequestURI = "/?q=safe"
+	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", nil)
+	req.RequestURI = "/?q=<script>"
 	ctx.Request = req
 
 	mw := c.Middleware()
 	mw(ctx)
-	require.False(t, ctx.IsAborted())
+	require.False(t, ctx.IsAborted(), "monitor mode should not block suspicious payload")
+
+	// Test 2: safe query in monitor mode should also pass
+	w2 := httptest.NewRecorder()
+	ctx2, _ := gin.CreateTestContext(w2)
+	req2 := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
+	req2.RequestURI = "/?q=safe"
+	ctx2.Request = req2
+
+	mw2 := c.Middleware()
+	mw2(ctx2)
+	require.False(t, ctx2.IsAborted(), "monitor mode should not block safe payload")
 }
 
 func TestMiddleware_ACLDisabledDoesNotBlock(t *testing.T) {
