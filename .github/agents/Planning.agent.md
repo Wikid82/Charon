@@ -13,6 +13,7 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 1.  **Context Loading (CRITICAL)**:
     -   Read `.github/copilot-instructions.md`.
     -   Read `internal/models` and `src/api` to understand current data structures.
+    -   **Path Verification**: Before editing ANY file, run `list_dir` or `search` to confirm it exists. Do not rely on your memory of standard frameworks (e.g., assuming `main.go` vs `cmd/api/main.go`).
 
 2.  **UX-First Gap Analysis**:
     -   **Step 1**: Visualize the user interaction. What data does the user need to see? What actions do they take?
@@ -59,3 +60,9 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
     "status": "pending" // enums: pending, active, error
   }
 }
+
+<constraints>
+- **TERSE OUTPUT**: Do not explain the code. Do not summarize the changes. Output ONLY the code blocks or command results.
+- **NO CONVERSATION**: If the task is done, output "DONE". If you need info, ask the specific question.
+- **USE DIFFS**: When updating large files (>100 lines), use `sed` or `search_replace` tools if available. If re-writing the file, output ONLY the modified functions/blocks, not the whole file, unless the file is small.
+</constraints>
