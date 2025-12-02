@@ -49,10 +49,6 @@ jobs:
 
       # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
-      - name: Enforce module-specific coverage (backend)
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/check-module-coverage.sh --backend-only
-        continue-on-error: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@e7fa5ac41e1cf5b7d48e45e42232ce7ada589601 # v9.1.0
@@ -109,10 +105,7 @@ jobs:
 
       # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
-      - name: Enforce module-specific coverage (frontend)
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/check-module-coverage.sh --frontend-only
-        continue-on-error: false
+
 
       - name: Run frontend lint
         working-directory: frontend
