@@ -20,7 +20,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}, &models.Notification{}, &models.NotificationProvider{}))
 
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
