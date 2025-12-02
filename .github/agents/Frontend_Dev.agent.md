@@ -35,7 +35,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
 3.  **Verification (Definition of Done)**:
     -   Run `npm run lint`.
     -   Run `npm run test` (Ensure no regressions).
-    -   **MANDATORY**: Run `pre-commit run --all-files` and fix any issues immediately and make sure coverage goals are met or exceeded.
+    -   **MANDATORY**: Run `Frontend Test Coverage` as well as '`Frontend Type Check` tasks and fix any issues immediately and make sure coverage goals are met or exceeded.
 </workflow>
 
 <constraints>
