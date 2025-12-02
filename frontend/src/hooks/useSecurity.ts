@@ -1,5 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSecurityStatus, getSecurityConfig, updateSecurityConfig, generateBreakGlassToken, enableCerberus, disableCerberus, getDecisions, createDecision, getRuleSets, upsertRuleSet } from '../api/security'
+import {
+  getSecurityStatus,
+  getSecurityConfig,
+  updateSecurityConfig,
+  generateBreakGlassToken,
+  enableCerberus,
+  disableCerberus,
+  getDecisions,
+  createDecision,
+  getRuleSets,
+  upsertRuleSet,
+  deleteRuleSet,
+  type UpsertRuleSetPayload,
+} from '../api/security'
 import toast from 'react-hot-toast'
 
 export function useSecurityStatus() {
@@ -48,8 +61,28 @@ export function useRuleSets() {
 export function useUpsertRuleSet() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: any) => upsertRuleSet(payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['securityRulesets'] }),
+    mutationFn: (payload: UpsertRuleSetPayload) => upsertRuleSet(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['securityRulesets'] })
+      toast.success('Rule set saved successfully')
+    },
+    onError: (err: Error) => {
+      toast.error(`Failed to save rule set: ${err.message}`)
+    },
+  })
+}
+
+export function useDeleteRuleSet() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => deleteRuleSet(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['securityRulesets'] })
+      toast.success('Rule set deleted')
+    },
+    onError: (err: Error) => {
+      toast.error(`Failed to delete rule set: ${err.message}`)
+    },
   })
 }
 

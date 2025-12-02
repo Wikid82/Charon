@@ -292,6 +292,16 @@ export default function Security() {
             <p className="text-xs text-gray-500 dark:text-gray-400">
               OWASP Core Rule Set
             </p>
+            <div className="mt-4">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full"
+                onClick={() => navigate('/security/waf')}
+              >
+                Configure
+              </Button>
+            </div>
           </div>
         </Card>
 

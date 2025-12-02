@@ -25,6 +25,7 @@ const Logs = lazy(() => import('./pages/Logs'))
 const Domains = lazy(() => import('./pages/Domains'))
 const Security = lazy(() => import('./pages/Security'))
 const AccessLists = lazy(() => import('./pages/AccessLists'))
+const WafConfig = lazy(() => import('./pages/WafConfig'))
 const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const Login = lazy(() => import('./pages/Login'))
@@ -56,7 +57,7 @@ export default function App() {
               <Route path="security/access-lists" element={<AccessLists />} />
               <Route path="security/crowdsec" element={<CrowdSecConfig />} />
               <Route path="security/rate-limiting" element={<SystemSettings />} />
-              <Route path="security/waf" element={<div className="p-6">WAF has no configuration at this time.</div>} />
+              <Route path="security/waf" element={<WafConfig />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
