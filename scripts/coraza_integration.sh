@@ -147,9 +147,19 @@ echo "=== All Coraza integration tests passed ==="
 echo ""
 echo "=== All Coraza integration tests passed ==="
 echo "Cleaning up..."
+
+# Delete the integration test proxy host from DB before stopping container
+echo "Removing integration test proxy host from database..."
+INTEGRATION_UUID=$(curl -s http://localhost:8080/api/v1/proxy-hosts | grep -o '"uuid":"[^"]*"[^}]*"domain_names":"integration.local"' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+if [ -n "$INTEGRATION_UUID" ]; then
+  curl -s -X DELETE -b ${TMP_COOKIE} "http://localhost:8080/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
+  echo "✓ Deleted integration proxy host ${INTEGRATION_UUID}"
+fi
+
 docker rm -f coraza-backend || true
 if [ "$CREATED_NETWORK" -eq 1 ]; then
   docker network rm containers_default || true
 fi
 docker rm -f charon-debug || true
+rm -f ${TMP_COOKIE}
 echo "Done"
