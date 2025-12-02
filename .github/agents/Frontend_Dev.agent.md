@@ -36,12 +36,15 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
         -   **UX Testing Rule**: Do not test implementation details (e.g., "state is true"). Test what the user sees (e.g., "screen.getByText('Loading...') is visible").
         -   Verify tests pass with `npm run test:ci`.
 
-3.  **Verification (Definition of Done)**:
-    -   Run `npm run lint` and fix all errors.
-    -   Run `npm run type-check`.
-    -   **Test Execution**: Run `npm run test:ci`.
-        -   *Note*: This runs tests in non-interactive mode. If tests fail, analyze the output and fix them.
-    -   **Coverage**: Run `npm run check-coverage`.
+3.  **Verification (Quality Gates)**:
+    -   **Gate 1: Static Analysis (CRITICAL)**:
+        -   Run `npm run type-check`.
+        -   Run `npm run lint`.
+        -   **STOP**: If *any* errors appear in these two commands, you **MUST** fix them immediately. Do not say "I'll leave this for later." **Fix the type errors, then re-run the check.**
+    -   **Gate 2: Logic**:
+        -   Run `npm run test:ci`.
+    -   **Gate 3: Coverage**:
+        -   Run `npm run check-coverage`.
         -   Ensure the script executes successfully and coverage goals are met.
 </workflow>
 
