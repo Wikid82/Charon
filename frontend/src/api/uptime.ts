@@ -49,3 +49,8 @@ export async function syncMonitors(body?: { interval?: number; max_retries?: num
   const res = await client.post('/uptime/sync', body || {});
   return res.data;
 }
+
+export const checkMonitor = async (id: string) => {
+  const response = await client.post<{ message: string }>(`/uptime/monitors/${id}/check`);
+  return response.data;
+};

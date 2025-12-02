@@ -180,6 +180,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
 		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
+		protected.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
 		protected.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
