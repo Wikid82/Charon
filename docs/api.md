@@ -51,6 +51,23 @@ Authorization: Bearer <token>
 
 ## Endpoints
 
+### Metrics (Prometheus)
+
+Expose internal counters for scraping.
+
+```http
+GET /metrics
+```
+
+No authentication required. Primary WAF metrics:
+```text
+charon_waf_requests_total
+charon_waf_blocked_total
+charon_waf_monitored_total
+```
+
+---
+
 ### Health Check
 
 Check API health status.
@@ -65,6 +82,108 @@ GET /health
   "status": "ok"
 }
 ```
+
+---
+
+### Security Suite (Cerberus)
+
+#### Status
+```http
+GET /security/status
+```
+Returns enabled flag plus modes for each module.
+
+#### Get Global Security Config
+```http
+GET /security/config
+```
+Response 200 (no config yet): `{ "config": null }`
+
+#### Upsert Global Security Config
+```http
+POST /security/config
+Content-Type: application/json
+```
+Request Body (example):
+```json
+{
+  "name": "default",
+  "enabled": true,
+  "admin_whitelist": "198.51.100.10,203.0.113.0/24",
+  "crowdsec_mode": "local",
+  "waf_mode": "monitor",
+  "waf_rules_source": "owasp-crs-local"
+}
+```
+Response 200: `{ "config": { ... } }`
+
+#### Enable Cerberus
+```http
+POST /security/enable
+```
+Payload (optional break-glass token):
+```json
+{ "break_glass_token": "abcd1234" }
+```
+
+#### Disable Cerberus
+```http
+POST /security/disable
+```
+Payload (required if not localhost):
+```json
+{ "break_glass_token": "abcd1234" }
+```
+
+#### Generate Break-Glass Token
+```http
+POST /security/breakglass/generate
+```
+Response 200: `{ "token": "plaintext-token-once" }`
+
+#### List Security Decisions
+```http
+GET /security/decisions?limit=50
+```
+Response 200: `{ "decisions": [ ... ] }`
+
+#### Create Manual Decision
+```http
+POST /security/decisions
+Content-Type: application/json
+```
+Payload:
+```json
+{ "ip": "203.0.113.5", "action": "block", "details": "manual temporary block" }
+```
+
+#### List Rulesets
+```http
+GET /security/rulesets
+```
+Response 200: `{ "rulesets": [ ... ] }`
+
+#### Upsert Ruleset
+```http
+POST /security/rulesets
+Content-Type: application/json
+```
+Payload:
+```json
+{
+  "name": "owasp-crs-quick",
+  "source_url": "https://example.com/owasp-crs.txt",
+  "mode": "owasp",
+  "content": "# raw rules"
+}
+```
+Response 200: `{ "ruleset": { ... } }`
+
+#### Delete Ruleset
+```http
+DELETE /security/rulesets/:id
+```
+Response 200: `{ "deleted": true }`
 
 ---
 
