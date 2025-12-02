@@ -138,59 +138,152 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 
 // Update updates an existing proxy host.
 func (h *ProxyHostHandler) Update(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	host, err := h.service.GetByUUID(uuid)
+	host, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
 	}
 
-	var incoming models.ProxyHost
-	if err := c.ShouldBindJSON(&incoming); err != nil {
+	// Perform a partial update: only mutate fields present in payload
+	var payload map[string]interface{}
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Validate and normalize advanced config if present and changed
-	if incoming.AdvancedConfig != "" && incoming.AdvancedConfig != host.AdvancedConfig {
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(incoming.AdvancedConfig), &parsed); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
-			return
+
+	// Handle simple scalar fields by json tag names (snake_case)
+	if v, ok := payload["name"].(string); ok {
+		host.Name = v
+	}
+	if v, ok := payload["domain_names"].(string); ok {
+		host.DomainNames = v
+	}
+	if v, ok := payload["forward_scheme"].(string); ok {
+		host.ForwardScheme = v
+	}
+	if v, ok := payload["forward_host"].(string); ok {
+		host.ForwardHost = v
+	}
+	if v, ok := payload["forward_port"]; ok {
+		switch t := v.(type) {
+		case float64:
+			host.ForwardPort = int(t)
+		case int:
+			host.ForwardPort = t
+		case string:
+			if p, err := strconv.Atoi(t); err == nil {
+				host.ForwardPort = p
+			}
 		}
-		parsed = caddy.NormalizeAdvancedConfig(parsed)
-		if norm, err := json.Marshal(parsed); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
-			return
+	}
+	if v, ok := payload["ssl_forced"].(bool); ok {
+		host.SSLForced = v
+	}
+	if v, ok := payload["http2_support"].(bool); ok {
+		host.HTTP2Support = v
+	}
+	if v, ok := payload["hsts_enabled"].(bool); ok {
+		host.HSTSEnabled = v
+	}
+	if v, ok := payload["hsts_subdomains"].(bool); ok {
+		host.HSTSSubdomains = v
+	}
+	if v, ok := payload["block_exploits"].(bool); ok {
+		host.BlockExploits = v
+	}
+	if v, ok := payload["websocket_support"].(bool); ok {
+		host.WebsocketSupport = v
+	}
+	if v, ok := payload["application"].(string); ok {
+		host.Application = v
+	}
+	if v, ok := payload["enabled"].(bool); ok {
+		host.Enabled = v
+	}
+
+	// Nullable foreign keys
+	if v, ok := payload["certificate_id"]; ok {
+		if v == nil {
+			host.CertificateID = nil
 		} else {
-			incoming.AdvancedConfig = string(norm)
+			switch t := v.(type) {
+			case float64:
+				id := uint(t)
+				host.CertificateID = &id
+			case int:
+				id := uint(t)
+				host.CertificateID = &id
+			case string:
+				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+					id := uint(n)
+					host.CertificateID = &id
+				}
+			}
+		}
+	}
+	if v, ok := payload["access_list_id"]; ok {
+		if v == nil {
+			host.AccessListID = nil
+		} else {
+			switch t := v.(type) {
+			case float64:
+				id := uint(t)
+				host.AccessListID = &id
+			case int:
+				id := uint(t)
+				host.AccessListID = &id
+			case string:
+				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+					id := uint(n)
+					host.AccessListID = &id
+				}
+			}
 		}
 	}
 
-	// Backup advanced config if changed
-	if incoming.AdvancedConfig != host.AdvancedConfig {
-		incoming.AdvancedConfigBackup = host.AdvancedConfig
+	// Locations: replace only if provided
+	if v, ok := payload["locations"].([]interface{}); ok {
+		// Rebind to []models.Location
+		b, _ := json.Marshal(v)
+		var locs []models.Location
+		if err := json.Unmarshal(b, &locs); err == nil {
+			// Ensure UUIDs exist for any new location entries
+			for i := range locs {
+				if locs[i].UUID == "" {
+					locs[i].UUID = uuid.New().String()
+				}
+			}
+			host.Locations = locs
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid locations payload"})
+			return
+		}
 	}
 
-	// Copy incoming fields into host
-	host.Name = incoming.Name
-	host.DomainNames = incoming.DomainNames
-	host.ForwardScheme = incoming.ForwardScheme
-	host.ForwardHost = incoming.ForwardHost
-	host.ForwardPort = incoming.ForwardPort
-	host.SSLForced = incoming.SSLForced
-	host.HTTP2Support = incoming.HTTP2Support
-	host.HSTSEnabled = incoming.HSTSEnabled
-	host.HSTSSubdomains = incoming.HSTSSubdomains
-	host.BlockExploits = incoming.BlockExploits
-	host.WebsocketSupport = incoming.WebsocketSupport
-	host.Application = incoming.Application
-	host.Enabled = incoming.Enabled
-	host.CertificateID = incoming.CertificateID
-	host.AccessListID = incoming.AccessListID
-	host.Locations = incoming.Locations
-	host.AdvancedConfig = incoming.AdvancedConfig
-	host.AdvancedConfigBackup = incoming.AdvancedConfigBackup
+	// Advanced config: normalize if provided and changed
+	if v, ok := payload["advanced_config"].(string); ok {
+		if v != "" && v != host.AdvancedConfig {
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
+				return
+			}
+			parsed = caddy.NormalizeAdvancedConfig(parsed)
+			if norm, err := json.Marshal(parsed); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
+				return
+			} else {
+				// Backup previous
+				host.AdvancedConfigBackup = host.AdvancedConfig
+				host.AdvancedConfig = string(norm)
+			}
+		} else if v == "" { // allow clearing advanced config
+			host.AdvancedConfigBackup = host.AdvancedConfig
+			host.AdvancedConfig = ""
+		}
+	}
 
 	if err := h.service.Update(host); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
