@@ -29,7 +29,7 @@ Your priority is writing code that is clean, tested, and secure by default.
     -   Run `go mod tidy`.
     -   Run `go fmt ./...`.
     -   Run `go test ./...` to ensure no regressions.
-    -   **MANDATORY**: Run `pre-commit run --all-files` and fix any issues immediately.
+    -   **MANDATORY**: Run `pre-commit run --all-files` and fix any issues immediately and make sure coverage goals are met or exceeded.
 </workflow>
 
 <constraints>
