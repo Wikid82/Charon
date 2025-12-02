@@ -38,21 +38,21 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 
     // Block mode should reject suspicious payload on an API route covered by middleware
     rBlock, _ := newServer("block")
-    req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates?test=<script>", nil)
+    req := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", nil)
     w := httptest.NewRecorder()
     rBlock.ServeHTTP(w, req)
     if w.Code == http.StatusOK {
         t.Fatalf("expected block in block mode, got 200: body=%s", w.Body.String())
     }
 
-    // Monitor mode should allow request but still evaluate (prototype may still block)
+    // Monitor mode should allow request but still evaluate (log-only)
     rMon, _ := newServer("monitor")
-    req2 := httptest.NewRequest(http.MethodGet, "/api/v1/certificates?test=<script>", nil)
+    req2 := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", nil)
     w2 := httptest.NewRecorder()
     rMon.ServeHTTP(w2, req2)
-    if w2.Code != http.StatusOK && w2.Code != http.StatusBadRequest && w2.Code != http.StatusForbidden {
-        t.Fatalf("unexpected status in monitor mode: %d", w2.Code)
-    }
+        if w2.Code != http.StatusOK {
+            t.Fatalf("unexpected status in monitor mode: %d", w2.Code)
+        }
 
     // Metrics should be exposed
     reqM := httptest.NewRequest(http.MethodGet, "/metrics", nil)
