@@ -20,12 +20,13 @@ import (
 
 // Test hooks to allow overriding OS and JSON functions
 var (
-	writeFileFunc   = os.WriteFile
-	readFileFunc    = os.ReadFile
-	removeFileFunc  = os.Remove
-	readDirFunc     = os.ReadDir
-	statFunc        = os.Stat
-	jsonMarshalFunc = json.MarshalIndent
+	writeFileFunc        = os.WriteFile
+	readFileFunc         = os.ReadFile
+	removeFileFunc       = os.Remove
+	readDirFunc          = os.ReadDir
+	statFunc             = os.Stat
+	jsonMarshalFunc      = json.MarshalIndent
+	jsonMarshalDebugFunc = json.Marshal // For debug logging, separate hook for testing
 	// Test hooks for bandaging validation/generation flows
 	generateConfigFunc = GenerateConfig
 	validateConfigFunc = Validate
@@ -118,10 +119,22 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
 			filePath := filepath.Join(corazaDir, safeName+".conf")
-			if err := writeFileFunc(filePath, []byte(rs.Content), 0600); err != nil {
+			// Prepend required Coraza directives if not already present.
+			// These are essential for the WAF to actually enforce rules:
+			// - SecRuleEngine On: enables blocking mode (default is DetectionOnly)
+			// - SecRequestBodyAccess On: allows inspecting POST body content
+			content := rs.Content
+			if !strings.Contains(strings.ToLower(content), "secruleengine") {
+				content = "SecRuleEngine On\nSecRequestBodyAccess On\n\n" + content
+			}
+			// Write ruleset file with world-readable permissions so the Caddy
+			// process (which may run as an unprivileged user) can read it.
+			if err := writeFileFunc(filePath, []byte(content), 0644); err != nil {
 				logger.Log().WithError(err).WithField("ruleset", rs.Name).Warn("failed to write coraza ruleset file")
 			} else {
+				// Log a short fingerprint for debugging and confirm path
 				rulesetPaths[rs.Name] = filePath
+				logger.Log().WithField("ruleset", rs.Name).WithField("path", filePath).Info("wrote coraza ruleset file")
 			}
 		}
 	}
@@ -129,6 +142,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
+	}
+
+	// Log generated config size and a compact JSON snippet for debugging when in debug mode
+	if cfgJSON, jerr := jsonMarshalDebugFunc(config); jerr == nil {
+		logger.Log().WithField("config_json_len", len(cfgJSON)).Debug("generated Caddy config JSON")
+	} else {
+		logger.Log().WithError(jerr).Warn("failed to marshal generated config for debug logging")
 	}
 
 	// Validate before applying
