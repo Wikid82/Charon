@@ -328,13 +328,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
 						// Capture ruleset_name if present, remove it from advanced_config,
-						// and set up 'include' array for coraza-caddy plugin.
+						// and set up 'directives' with Include statement for coraza-caddy plugin.
 						if rn, has := v["ruleset_name"]; has {
 							if rnStr, ok := rn.(string); ok && rnStr != "" {
-								// Set 'include' array with the ruleset file path for coraza-caddy
+								// Set 'directives' with Include statement for coraza-caddy
 								if rulesetPaths != nil {
 									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-										v["include"] = []string{p}
+										v["directives"] = fmt.Sprintf("Include %s", p)
 									}
 								}
 							}
@@ -352,7 +352,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 								if rnStr, ok := rn.(string); ok && rnStr != "" {
 									if rulesetPaths != nil {
 										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-											m["include"] = []string{p}
+											m["directives"] = fmt.Sprintf("Include %s", p)
 										}
 									}
 								}

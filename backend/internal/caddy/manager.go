@@ -119,11 +119,6 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
 
-			// Calculate hash of the content to ensure filename changes when content changes
-			// This forces Caddy to reload the file instead of using a cached version
-			hash := sha256.Sum256([]byte(rs.Content))
-			shortHash := fmt.Sprintf("%x", hash)[:8]
-			filePath := filepath.Join(corazaDir, fmt.Sprintf("%s-%s.conf", safeName, shortHash))
 			// Prepend required Coraza directives if not already present.
 			// These are essential for the WAF to actually enforce rules:
 			// - SecRuleEngine On: enables blocking mode (blocks malicious requests)
@@ -142,6 +137,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 				}
 				content = fmt.Sprintf("SecRuleEngine %s\nSecRequestBodyAccess On\n\n", engineMode) + content
 			}
+
+			// Calculate hash of the FINAL content (after prepending mode directives)
+			// to ensure filename changes when mode changes, forcing Caddy to reload
+			hash := sha256.Sum256([]byte(content))
+			shortHash := fmt.Sprintf("%x", hash)[:8]
+			filePath := filepath.Join(corazaDir, fmt.Sprintf("%s-%s.conf", safeName, shortHash))
+
 			// Write ruleset file with world-readable permissions so the Caddy
 			// process (which may run as an unprivileged user) can read it.
 			if err := writeFileFunc(filePath, []byte(content), 0644); err != nil {
