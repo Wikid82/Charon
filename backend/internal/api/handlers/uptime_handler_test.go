@@ -215,3 +215,50 @@ func TestUptimeHandler_DeleteAndSync(t *testing.T) {
 		assert.False(t, result.Enabled)
 	})
 }
+
+func TestUptimeHandler_Sync_Success(t *testing.T) {
+	r, _ := setupUptimeHandlerTest(t)
+
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/sync", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var result map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "Sync started", result["message"])
+}
+
+func TestUptimeHandler_Delete_Error(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	db.Exec("DROP TABLE IF EXISTS uptime_monitors")
+
+	req, _ := http.NewRequest("DELETE", "/api/v1/uptime/nonexistent", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUptimeHandler_List_Error(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	db.Exec("DROP TABLE IF EXISTS uptime_monitors")
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUptimeHandler_GetHistory_Error(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+	db.Exec("DROP TABLE IF EXISTS uptime_heartbeats")
+
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/monitor-1/history", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}

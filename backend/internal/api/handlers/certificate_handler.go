@@ -11,14 +11,25 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
+// BackupServiceInterface defines the contract for backup service operations
+type BackupServiceInterface interface {
+	CreateBackup() (string, error)
+	ListBackups() ([]services.BackupFile, error)
+	DeleteBackup(filename string) error
+	GetBackupPath(filename string) (string, error)
+	RestoreBackup(filename string) error
+}
+
 type CertificateHandler struct {
 	service             *services.CertificateService
+	backupService       BackupServiceInterface
 	notificationService *services.NotificationService
 }
 
-func NewCertificateHandler(service *services.CertificateService, ns *services.NotificationService) *CertificateHandler {
+func NewCertificateHandler(service *services.CertificateService, backupService BackupServiceInterface, ns *services.NotificationService) *CertificateHandler {
 	return &CertificateHandler{
 		service:             service,
+		backupService:       backupService,
 		notificationService: ns,
 	}
 }
@@ -116,7 +127,31 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// Check if certificate is in use before proceeding
+	inUse, err := h.service.IsCertificateInUse(uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check certificate usage"})
+		return
+	}
+	if inUse {
+		c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
+		return
+	}
+
+	// Create backup before deletion
+	if h.backupService != nil {
+		if _, err := h.backupService.CreateBackup(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
+			return
+		}
+	}
+
+	// Proceed with deletion
 	if err := h.service.DeleteCertificate(uint(id)); err != nil {
+		if err == services.ErrCertInUse {
+			c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

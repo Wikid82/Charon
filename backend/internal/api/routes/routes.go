@@ -276,7 +276,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	caddyDataDir := cfg.CaddyConfigDir + "/data"
 	logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
 	certService := services.NewCertificateService(caddyDataDir, db)
-	certHandler := handlers.NewCertificateHandler(certService, notificationService)
+	certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
 	api.GET("/certificates", certHandler.List)
 	api.POST("/certificates", certHandler.Upload)
 	api.DELETE("/certificates/:id", certHandler.Delete)
