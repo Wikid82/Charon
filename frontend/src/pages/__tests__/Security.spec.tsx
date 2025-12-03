@@ -42,7 +42,7 @@ const mockRuleSets: RuleSetsResponse = {
     { id: 2, uuid: 'uuid-2', name: 'Custom Rules', source_url: '', mode: 'detection', last_updated: '', content: '' },
   ],
 }
-
+    // Types already imported at top-level; avoid duplicate declarations
 describe('Security page', () => {
   beforeEach(() => {
     vi.resetAllMocks()

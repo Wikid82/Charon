@@ -490,11 +490,9 @@ describe('ProxyHosts - Coverage enhancements', () => {
     const stagingBadge = screen.getByText(/SSL \(Staging\)/)
     expect(stagingBadge).toBeTruthy()
 
-    // Let's Encrypt check has 'Let's Encrypt ✓' and Auto
-    expect(screen.getByText('Lets')).toBeTruthy()
-    expect(screen.getByText("Let's Encrypt ✓")).toBeTruthy()
-    expect(screen.getByText('Auto')).toBeTruthy()
-    expect(screen.getByText("Let's Encrypt (Auto)")).toBeTruthy()
+    // SSL badges are shown (Let's Encrypt text removed for better spacing)
+    const sslBadges = screen.getAllByText('SSL')
+    expect(sslBadges.length).toBeGreaterThan(0)
   })
 
   it('renders multiple domains and websocket label', async () => {
