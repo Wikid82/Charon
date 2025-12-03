@@ -26,15 +26,15 @@ jobs:
         run: |
           if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
             echo "Using CHARON_TOKEN" >&2
-            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+            echo "CHARON_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using CPMP_TOKEN fallback" >&2
-            echo "GITHUB_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+            echo "CHARON_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
           fi
       - name: Prune renovate branches
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
-          github-token: ${{ env.GITHUB_TOKEN }}
+          github-token: ${{ env.CHARON_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
