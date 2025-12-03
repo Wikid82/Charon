@@ -131,7 +131,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 				engineMode := "On" // default to blocking
 				if rs.Mode == "detection" || rs.Mode == "monitor" {
 					engineMode = "DetectionOnly"
-				} else if rs.Mode == "" && secCfg.WAFMode == "monitor" {
+				} else if rs.Mode == "" && strings.EqualFold(secCfg.WAFMode, "monitor") {
 					// No per-ruleset mode set, use global WAFMode
 					engineMode = "DetectionOnly"
 				}
@@ -384,6 +384,14 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, 
 				crowdsecEnabled = true
 			} else {
 				crowdsecEnabled = false
+			}
+		}
+
+		// runtime override for WAF mode
+		var sc models.SecurityConfig
+		if err := m.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			if sc.WAFMode != "" {
+				wafEnabled = !strings.EqualFold(sc.WAFMode, "disabled")
 			}
 		}
 	}
