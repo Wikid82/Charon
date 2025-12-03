@@ -30,6 +30,7 @@ backend/*.cover
 backend/coverage/
 backend/coverage.*.out
 backend/coverage_*.out
+backend/charon
 
 # Databases
 *.db
