@@ -27,7 +27,7 @@ export function useUpdateSecurityConfig() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: any) => updateSecurityConfig(payload),
-    onSuccess: () => {
+    onSuccess: () => { // Specify a more accurate type for payload
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
       qc.invalidateQueries({ queryKey: ['securityStatus'] })
       toast.success('Security configuration updated')

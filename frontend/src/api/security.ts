@@ -56,12 +56,12 @@ export const generateBreakGlassToken = async () => {
 }
 
 export const enableCerberus = async (payload?: any) => {
-  const response = await client.post('/security/enable', payload || {})
+  const response = await client.post('/security/enable', payload || {} as unknown) // Specify a more accurate type
   return response.data
 }
 
 export const disableCerberus = async (payload?: any) => {
-  const response = await client.post('/security/disable', payload || {})
+  const response = await client.post('/security/disable', payload || {} as unknown) // Specify a more accurate type
   return response.data
 }
 

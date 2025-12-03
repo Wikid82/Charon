@@ -112,7 +112,7 @@ describe('ProxyHosts page extra tests', () => {
     confirmMock.mockRestore()
   })
 
-  it("renders Let's Encrypt ✓ and Let's Encrypt (Auto) for SSL info", async () => {
+  it('renders SSL badges for SSL-enabled hosts', async () => {
     const hostValid = sampleHost({ uuid: 'v1', name: 'ValidHost', domain_names: 'valid.example.com', ssl_forced: true })
     const hostAuto = sampleHost({ uuid: 'a1', name: 'AutoHost', domain_names: 'auto.example.com', ssl_forced: true })
 
@@ -125,8 +125,9 @@ describe('ProxyHosts page extra tests', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('ValidHost')).toBeInTheDocument())
-    expect(screen.getByText("Let's Encrypt ✓")).toBeInTheDocument()
-    expect(screen.getByText("Let's Encrypt (Auto)")).toBeInTheDocument()
+    // Check that SSL badges are rendered (text removed for better spacing)
+    const sslBadges = screen.getAllByText('SSL')
+    expect(sslBadges.length).toBeGreaterThan(0)
   })
 
   it('shows error banner when hook returns an error', async () => {

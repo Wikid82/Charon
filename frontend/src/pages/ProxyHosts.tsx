@@ -488,11 +488,11 @@ export default function ProxyHosts() {
                         const certInfo = certStatusByDomain[primaryDomain]
                         const isUntrusted = certInfo?.status === 'untrusted'
                         const isStaging = certInfo?.provider?.includes('staging')
-                        const hasCertInfo = !!certInfo
 
                         return (
                           <div className="flex flex-col gap-2">
-                            <div className="flex gap-2">
+                            {/* Row 1: Proxy Badges */}
+                            <div className="flex flex-wrap justify-center gap-2">
                               {host.ssl_forced && (
                                 isUntrusted || isStaging ? (
                                   <span className="px-2 py-1 text-xs bg-orange-900/30 text-orange-400 rounded flex items-center gap-1">
@@ -510,46 +510,35 @@ export default function ProxyHosts() {
                                   WS
                                 </span>
                               )}
-                              {host.access_list_id && (
+                            </div>
+                            {/* Row 2: Security Badges */}
+                            {host.access_list_id && (
+                              <div className="flex flex-wrap justify-center gap-2">
                                 <span className="px-2 py-1 text-xs bg-purple-900/30 text-purple-400 rounded">
                                   ACL
                                 </span>
-                              )}
-                            </div>
+                              </div>
+                            )}
+                            {/* Certificate info below badges */}
                             {host.certificate && host.certificate.provider === 'custom' && (
                               <div className="text-xs text-gray-400">
                                 {host.certificate.name} (Custom)
                               </div>
                             )}
-                            {host.ssl_forced && !host.certificate && (
-                              isUntrusted || isStaging ? (
-                                <div className="text-xs text-orange-400">
-                                  ⚠️ Staging cert - browsers won't trust
-                                </div>
-                              ) : hasCertInfo ? (
-                                <div className="text-xs text-green-400">
-                                  Let's Encrypt ✓
-                                </div>
-                              ) : (
-                                <div className="text-xs text-blue-400">
-                                  Let's Encrypt (Auto)
-                                </div>
-                              )
+                            {host.ssl_forced && !host.certificate && (isUntrusted || isStaging) && (
+                              <div className="text-xs text-orange-400">
+                                ⚠️ Staging cert - browsers won't trust
+                              </div>
                             )}
                           </div>
                         )
                       })()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={host.enabled}
-                          onCheckedChange={(checked) => updateHost(host.uuid, { enabled: checked })}
-                        />
-                        <span className={`text-sm ${host.enabled ? 'text-green-400' : 'text-gray-400'}`}>
-                          {host.enabled ? 'Enabled' : 'Disabled'}
-                        </span>
-                      </div>
+                      <Switch
+                        checked={host.enabled}
+                        onCheckedChange={(checked) => updateHost(host.uuid, { enabled: checked })}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
