@@ -33,7 +33,7 @@
     "lucide-react": "^0.555.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "react-hook-form": "^7.67.0",
+    "react-hook-form": "^7.68.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.10.0",
     "tailwind-merge": "^3.4.0",
