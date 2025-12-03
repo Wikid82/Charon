@@ -30,9 +30,9 @@ repos:
         name: Go Test Coverage
         entry: scripts/go-test-coverage.sh
         language: script
-        files: '\.go$'
         pass_filenames: false
         verbose: true
+        always_run: true
       - id: go-vet
         name: Go Vet
         entry: bash -c 'cd backend && go vet ./...'
