@@ -2,14 +2,18 @@ package caddy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
@@ -20,14 +24,14 @@ func TestManager_ListSnapshots_ReadDirError(t *testing.T) {
 	// Use a path that does not exist
 	tmp := t.TempDir()
 	// create manager with a non-existent subdir
-	manager := NewManager(nil, nil, filepath.Join(tmp, "nope"), "", false)
+	manager := NewManager(nil, nil, filepath.Join(tmp, "nope"), "", false, config.SecurityConfig{})
 	_, err := manager.listSnapshots()
 	assert.Error(t, err)
 }
 
 func TestManager_RotateSnapshots_NoOp(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// No snapshots exist; should be no error
 	err := manager.rotateSnapshots(10)
 	assert.NoError(t, err)
@@ -35,7 +39,7 @@ func TestManager_RotateSnapshots_NoOp(t *testing.T) {
 
 func TestManager_Rollback_NoSnapshots(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no snapshots available")
@@ -46,7 +50,7 @@ func TestManager_Rollback_UnmarshalError(t *testing.T) {
 	// Write a non-JSON file with .json extension
 	p := filepath.Join(tmp, "config-123.json")
 	os.WriteFile(p, []byte("not json"), 0644)
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Reader error should happen before client.Load
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
@@ -70,7 +74,7 @@ func TestManager_Rollback_LoadSnapshotFail(t *testing.T) {
 	defer server.Close()
 
 	badClient := NewClient(server.URL)
-	manager := NewManager(badClient, nil, tmp, "", false)
+	manager := NewManager(badClient, nil, tmp, "", false, config.SecurityConfig{})
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "load snapshot")
@@ -81,7 +85,7 @@ func TestManager_SaveSnapshot_WriteError(t *testing.T) {
 	tmp := t.TempDir()
 	notDir := filepath.Join(tmp, "file-not-dir")
 	os.WriteFile(notDir, []byte("data"), 0644)
-	manager := NewManager(nil, nil, notDir, "", false)
+	manager := NewManager(nil, nil, notDir, "", false, config.SecurityConfig{})
 	_, err := manager.saveSnapshot(&Config{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "write snapshot")
@@ -104,7 +108,7 @@ func TestBackupCaddyfile_MkdirAllFailure(t *testing.T) {
 
 func TestManager_SaveSnapshot_Success(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	path, err := manager.saveSnapshot(&Config{})
 	assert.NoError(t, err)
 	assert.FileExists(t, path)
@@ -139,7 +143,7 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmpDir, "", false)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
 	host := models.ProxyHost{
@@ -149,7 +153,6 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 	}
 	db.Create(&host)
 
-	// Apply Config
 	err = manager.ApplyConfig(context.Background())
 	assert.NoError(t, err)
 
@@ -164,7 +167,7 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 // dependent. We cover rotateSnapshots failure separately below.
 
 func TestManager_RotateSnapshots_ListDirError(t *testing.T) {
-	manager := NewManager(nil, nil, filepath.Join(t.TempDir(), "nope"), "", false)
+	manager := NewManager(nil, nil, filepath.Join(t.TempDir(), "nope"), "", false, config.SecurityConfig{})
 	err := manager.rotateSnapshots(10)
 	assert.Error(t, err)
 }
@@ -180,7 +183,7 @@ func TestManager_RotateSnapshots_DeletesOld(t *testing.T) {
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
 
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Keep last 2 snapshots
 	err := manager.rotateSnapshots(2)
 	assert.NoError(t, err)
@@ -243,7 +246,8 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 	}
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmp, "", false)
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 
 	// ApplyConfig should succeed even if rotateSnapshots later returns an error
 	err = manager.ApplyConfig(context.Background())
@@ -278,7 +282,7 @@ func TestManager_ApplyConfig_LoadFailsAndRollbackFails(t *testing.T) {
 
 	tmp := t.TempDir()
 	client := NewClient(server.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -317,7 +321,7 @@ func TestManager_ApplyConfig_SaveSnapshotFails(t *testing.T) {
 	os.WriteFile(filePath, []byte("data"), 0644)
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, filePath, "", false)
+	manager := NewManager(client, db, filePath, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -357,7 +361,7 @@ func TestManager_ApplyConfig_LoadFailsThenRollbackSucceeds(t *testing.T) {
 
 	tmp := t.TempDir()
 	client := NewClient(server.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -366,7 +370,7 @@ func TestManager_ApplyConfig_LoadFailsThenRollbackSucceeds(t *testing.T) {
 
 func TestManager_SaveSnapshot_MarshalError(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Stub jsonMarshallFunc to return error
 	orig := jsonMarshalFunc
 	jsonMarshalFunc = func(v interface{}, prefix, indent string) ([]byte, error) {
@@ -387,7 +391,7 @@ func TestManager_RotateSnapshots_DeleteError(t *testing.T) {
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
 
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Stub removeFileFunc to return error for specific path
 	origRemove := removeFileFunc
 	removeFileFunc = func(p string) error {
@@ -416,15 +420,38 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 
 	// stub generateConfigFunc to always return error
 	orig := generateConfigFunc
-	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 		return nil, fmt.Errorf("generate fail")
 	}
 	defer func() { generateConfigFunc = orig }()
 
-	manager := NewManager(nil, db, tmp, "", false)
+	manager := NewManager(nil, db, tmp, "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "generate config")
+}
+
+func TestManager_ApplyConfig_RejectsWhenCerberusEnabledWithoutAdminWhitelist(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cerberus")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}))
+
+	// create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "test.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert SecurityConfig with enabled=true but no whitelist
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: ""}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create manager and call ApplyConfig - expecting error due to safety check
+	client := NewClient("http://localhost:9999")
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "refusing to apply config: Cerberus is enabled but admin_whitelist is empty")
 }
 
 func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
@@ -461,7 +488,7 @@ func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
 	defer caddyServer.Close()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, tmp, "", false)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -470,7 +497,7 @@ func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
 
 func TestManager_Rollback_ReadFileError(t *testing.T) {
 	tmp := t.TempDir()
-	manager := NewManager(nil, nil, tmp, "", false)
+	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Create snapshot entries via write
 	p := filepath.Join(tmp, "config-123.json")
 	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0644)
@@ -514,8 +541,923 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning_Stderr(t *testing.T) {
 	defer func() { readDirFunc = origReadDir }()
 
 	client := NewClient(caddyServer.URL)
-	manager := NewManager(client, db, t.TempDir(), "", false)
+	manager := NewManager(client, db, t.TempDir(), "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	// Should succeed despite rotation warning (non-fatal)
 	assert.NoError(t, err)
+}
+
+func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) {
+	tmp := t.TempDir()
+	// Setup DB - minimal
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"adminwl")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}))
+
+	// Create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "test.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert SecurityConfig with enabled=true and an admin whitelist
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Setup a client server that accepts loads
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+	client := NewClient(caddyServer.URL)
+
+	// Stub generateConfigFunc to capture adminWhitelist
+	var capturedAdmin string
+	orig := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedAdmin = adminWhitelist
+		// return minimal config
+		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
+	}
+	defer func() { generateConfigFunc = orig }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, "10.0.0.1/32", capturedAdmin)
+}
+
+func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a host so ApplyConfig would try to generate config
+	h := models.ProxyHost{DomainNames: "ruleset.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert ruleset
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "rules"}
+	assert.NoError(t, db.Create(&rs).Error)
+
+	// Insert SecurityConfig with WAF enabled and rulesource set
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Setup caddy server stub
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	var capturedRules []models.SecurityRuleSet
+	orig := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedRules = rulesets
+		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
+	}
+	defer func() { generateConfigFunc = orig }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, len(capturedRules), 1)
+	assert.Equal(t, "owasp-crs", capturedRules[0].Name)
+}
+
+func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-coraza")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a host
+	h := models.ProxyHost{DomainNames: "ruleset.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Insert ruleset
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+
+	// Insert SecurityConfig with WAF enabled and rulesource set
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	loadCh := make(chan []byte, 1)
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			loadCh <- body
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture wafEnabled and rulesets passed into GenerateConfig
+	var capturedWafEnabled bool
+	var capturedRulesets []models.SecurityRuleSet
+	origGen := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedWafEnabled = wafEnabled
+		capturedRulesets = rulesets
+		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, secCfg)
+	}
+	defer func() { generateConfigFunc = origGen }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	assert.True(t, capturedWafEnabled, "wafEnabled expected to be true when Cerberus and WAF enabled")
+	assert.GreaterOrEqual(t, len(capturedRulesets), 1)
+
+	var body []byte
+	select {
+	case body = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request")
+	}
+	var cfg Config
+	assert.NoError(t, json.Unmarshal(body, &cfg))
+	t.Logf("generated config: %s", string(body))
+
+	// Find the route for our host and assert waf handler exists
+	found := false
+	for _, r := range cfg.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "ruleset.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
+							// Validate include array (coraza-caddy schema) or inline ruleset_content presence
+							if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
+								if rf, ok := incl[0].(string); ok && rf != "" {
+									// Ensure file exists and contains our content
+									// Note: manager prepends SecRuleEngine On directives, so we check Contains
+									b, err := os.ReadFile(rf)
+									if err == nil && strings.Contains(string(b), "test-rule-content") {
+										found = true
+									}
+								}
+							}
+							// Inline content may also exist as a fallback
+							if rsContent, ok := handle["ruleset_content"].(string); ok && rsContent == "test-rule-content" {
+								found = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, found, "waf handler with inlined ruleset should be present in generated config")
+}
+
+func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-failwrite")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "rulesetw.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub writeFileFunc to return an error for coraza ruleset files only to exercise the warn branch
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, string(filepath.Separator)+"coraza"+string(filepath.Separator)+"rulesets") {
+			return fmt.Errorf("cannot write")
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	// Capture rulesetPaths from GenerateConfig
+	var capturedPaths map[string]string
+	origGen := generateConfigFunc
+	generateConfigFunc = func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+		capturedPaths = rulesetPaths
+		return origGen(hosts, storageDir, acmeEmail, frontendDir, sslProvider, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, secCfg)
+	}
+	defer func() { generateConfigFunc = origGen }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	// writeFile failed, capturedPaths should not contain our ruleset entry
+	assert.NotContains(t, capturedPaths, "owasp-crs")
+}
+
+func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
+	tmp := t.TempDir()
+	// Create a file at tmp/coraza to cause MkdirAll on tmp/coraza/rulesets to fail
+	corazaFile := filepath.Join(tmp, "coraza")
+	os.WriteFile(corazaFile, []byte("not a dir"), 0644)
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-mkdirfail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "rulesetm.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	// Use tmp as configDir and we already have a file at tmp/coraza which should make MkdirAll to create rulesets fail
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// This should not error (failures to create coraza dir are warned only)
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
+	// Capture /load payloads
+	loadCh := make(chan []byte, 10)
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			loadCh <- body
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.AccessList{}))
+
+	// Create an AccessList attached to host
+	acl := models.AccessList{UUID: "acl-1", Name: "test-acl", Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`, Enabled: true}
+	assert.NoError(t, db.Create(&acl).Error)
+
+	host := models.ProxyHost{DomainNames: "flag.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	assert.NoError(t, db.Create(&host).Error)
+	// Update with access list FK
+	assert.NoError(t, db.Model(&host).Update("access_list_id", acl.ID).Error)
+
+	// Ensure DB setting is not present so ACL disabled by default
+	// Manager default SecurityConfig has ACLMode disabled
+	tmpDir := t.TempDir()
+	client := NewClient(caddyServer.URL)
+	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "disabled", WAFMode: "disabled", RateLimitMode: "disabled", CrowdSecMode: "disabled"}
+	manager := NewManager(client, db, tmpDir, "", false, secCfg)
+
+	// First ApplyConfig - ACL disabled, we expect no ACL-related static_response
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body1 []byte
+	select {
+	case body1 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 1")
+	}
+	var cfg1 Config
+	assert.NoError(t, json.Unmarshal(body1, &cfg1))
+	// Ensure not present — find the host route and check handles
+	found := false
+	for _, r := range cfg1.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
+							if routes, ok := handle["routes"].([]interface{}); ok {
+								for _, rt := range routes {
+									if rtMap, ok := rt.(map[string]interface{}); ok {
+										if inner, ok := rtMap["handle"].([]interface{}); ok {
+											for _, itm := range inner {
+												if itmMap, ok := itm.(map[string]interface{}); ok {
+													if body, ok := itmMap["body"].(string); ok {
+														if strings.Contains(body, "Access denied") {
+															found = true
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.False(t, found, "ACL handler must not be present when ACL disabled")
+
+	// Enable ACL via DB runtime setting
+	assert.NoError(t, db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error)
+	// Next ApplyConfig - ACL enabled
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body2 []byte
+	select {
+	case body2 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 2")
+	}
+	var cfg2 Config
+	assert.NoError(t, json.Unmarshal(body2, &cfg2))
+	found = false
+	for _, r := range cfg2.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
+							if routes, ok := handle["routes"].([]interface{}); ok {
+								for _, rt := range routes {
+									if rtMap, ok := rt.(map[string]interface{}); ok {
+										if inner, ok := rtMap["handle"].([]interface{}); ok {
+											for _, itm := range inner {
+												if itmMap, ok := itm.(map[string]interface{}); ok {
+													if body, ok := itmMap["body"].(string); ok {
+														if strings.Contains(body, "Access denied") {
+															found = true
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Logf("body2: %s", string(body2))
+	}
+	assert.True(t, found, "ACL handler must be present when ACL enabled via DB")
+
+	// Enable CrowdSec via DB runtime setting (switch from disabled to local)
+	assert.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error)
+	// Next ApplyConfig - CrowdSec enabled
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+	var body3 []byte
+	select {
+	case body3 = <-loadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for /load request 3")
+	}
+	var cfg3 Config
+	assert.NoError(t, json.Unmarshal(body3, &cfg3))
+	// For crowdsec handler we inserted a simple Handler{"handler":"crowdsec"}
+	hasCrowdsec := false
+	for _, r := range cfg3.Apps.HTTP.Servers["charon_server"].Routes {
+		for _, m := range r.Match {
+			for _, h := range m.Host {
+				if h == "flag.example.com" {
+					for _, handle := range r.Handle {
+						if handlerName, ok := handle["handler"].(string); ok && handlerName == "crowdsec" {
+							hasCrowdsec = true
+						}
+					}
+				}
+			}
+		}
+	}
+	assert.True(t, hasCrowdsec, "CrowdSec handler should be present when enabled via DB")
+}
+
+func TestManager_ApplyConfig_PrependsSecRuleEngineDirectives(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"secruleengine")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset without SecRuleEngine directive
+	h := models.ProxyHost{DomainNames: "prepend.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content without SecRuleEngine - should be prepended
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "test-xss", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-xss"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "test-xss") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine On was prepended
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should be prepended")
+	assert.True(t, strings.Contains(content, "SecRequestBodyAccess On"), "SecRequestBodyAccess On should be prepended")
+	// Verify original content is still present
+	assert.True(t, strings.Contains(content, ruleContent), "Original rule content should be preserved")
+	// Verify order: directives should come before the original rule
+	assert.True(t, strings.Index(content, "SecRuleEngine On") < strings.Index(content, "SecRule REQUEST_BODY"), "SecRuleEngine should appear before SecRule")
+}
+
+func TestManager_ApplyConfig_DoesNotPrependIfSecRuleEngineExists(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"secruleengine-exists")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset that already has SecRuleEngine
+	h := models.ProxyHost{DomainNames: "noprepend.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content already contains SecRuleEngine
+	ruleContent := `SecRuleEngine DetectionOnly
+SecRequestBodyAccess On
+SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "test-existing", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-existing"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "test-existing") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify content is written exactly as provided (no extra prepending)
+	content := string(writtenContent)
+	// Count occurrences of SecRuleEngine - should be exactly 1
+	assert.Equal(t, 1, strings.Count(strings.ToLower(content), "secruleengine"), "SecRuleEngine should appear exactly once (not prepended)")
+	// Verify the original content is preserved exactly
+	assert.Equal(t, ruleContent, content, "Content should be exactly as provided when SecRuleEngine exists")
+}
+
+func TestManager_ApplyConfig_DebugMarshalFailure(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"debugmarshal")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create a simple host
+	h := models.ProxyHost{DomainNames: "marshal.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32"}
+	db.Create(&sec)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub jsonMarshalDebugFunc to return an error (exercises the else branch in debug logging)
+	origMarshalDebug := jsonMarshalDebugFunc
+	jsonMarshalDebugFunc = func(v interface{}) ([]byte, error) {
+		return nil, fmt.Errorf("simulated marshal error")
+	}
+	defer func() { jsonMarshalDebugFunc = origMarshalDebug }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true})
+	// ApplyConfig should still succeed even if debug logging fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_WAFModeMonitorUsesDetectionOnly(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"wafmonitor")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset
+	h := models.ProxyHost{DomainNames: "monitor.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	// Ruleset content without SecRuleEngine
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "monitor-test", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	// WAFMode = "monitor" should result in DetectionOnly
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "monitor", WAFRulesSource: "monitor-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "monitor-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "monitor"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine DetectionOnly was prepended (not On)
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine DetectionOnly"), "SecRuleEngine DetectionOnly should be prepended in monitor mode")
+	assert.False(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should NOT be present in monitor mode")
+	assert.True(t, strings.Contains(content, "SecRequestBodyAccess On"), "SecRequestBodyAccess On should be prepended")
+}
+
+func TestManager_ApplyConfig_PerRulesetModeOverride(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesetmode")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host and ruleset with per-ruleset mode set to "detection"
+	h := models.ProxyHost{DomainNames: "rulesetmode.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	// Ruleset has Mode="detection" which should override global "block" mode
+	rs := models.SecurityRuleSet{Name: "override-test", Content: ruleContent, Mode: "detection"}
+	assert.NoError(t, db.Create(&rs).Error)
+	// Global WAFMode is "block" but ruleset Mode should take precedence
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "override-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Capture written file content
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "override-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify per-ruleset mode takes precedence: should be DetectionOnly even though global is "block"
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine DetectionOnly"), "Per-ruleset mode 'detection' should result in DetectionOnly")
+	assert.False(t, strings.Contains(content, "SecRuleEngine On"), "Per-ruleset mode should override global 'block' mode")
+}
+
+func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesetcleanup")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create initial ruleset
+	h := models.ProxyHost{DomainNames: "cleanup.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "active-ruleset", Content: "SecRule REQUEST_BODY \"test\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "active-ruleset"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create a stale file in the coraza rulesets dir
+	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
+	os.MkdirAll(corazaDir, 0755)
+	staleFile := filepath.Join(corazaDir, "stale-ruleset.conf")
+	os.WriteFile(staleFile, []byte("old content"), 0644)
+
+	// Create a subdirectory that should be skipped during cleanup (not deleted)
+	subDir := filepath.Join(corazaDir, "subdir")
+	os.MkdirAll(subDir, 0755)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify stale file was removed
+	_, err = os.Stat(staleFile)
+	assert.True(t, os.IsNotExist(err), "Stale ruleset file should be deleted")
+
+	// Verify subdirectory was NOT deleted (directories should be skipped)
+	info, err := os.Stat(subDir)
+	assert.NoError(t, err, "Subdirectory should not be deleted")
+	assert.True(t, info.IsDir(), "Subdirectory should still be a directory")
+
+	// Verify active ruleset file exists
+	activeFile := filepath.Join(corazaDir, "active-ruleset.conf")
+	_, err = os.Stat(activeFile)
+	assert.NoError(t, err, "Active ruleset file should exist")
+}
+
+func TestManager_ApplyConfig_RulesetCleanupReadDirError(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cleanupreaddirfail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "readdirerr.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "test-ruleset", Content: "SecRule REQUEST_BODY \"x\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "test-ruleset"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub readDirFunc to return error
+	origReadDir := readDirFunc
+	readDirFunc = func(name string) ([]os.DirEntry, error) {
+		if strings.Contains(name, "coraza") {
+			return nil, fmt.Errorf("simulated readdir error")
+		}
+		return origReadDir(name)
+	}
+	defer func() { readDirFunc = origReadDir }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// ApplyConfig should still succeed even if cleanup read fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_RulesetCleanupRemoveError(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cleanupremovefail")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "removeerr.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	rs := models.SecurityRuleSet{Name: "keep-this", Content: "SecRule REQUEST_BODY \"x\" \"id:1,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "keep-this"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	// Create stale file
+	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
+	os.MkdirAll(corazaDir, 0755)
+	staleFile := filepath.Join(corazaDir, "stale.conf")
+	os.WriteFile(staleFile, []byte("old"), 0644)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Stub removeFileFunc to return error for stale files
+	origRemove := removeFileFunc
+	removeFileFunc = func(name string) error {
+		if strings.Contains(name, "stale") {
+			return fmt.Errorf("simulated remove error")
+		}
+		return origRemove(name)
+	}
+	defer func() { removeFileFunc = origRemove }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	// ApplyConfig should still succeed even if cleanup remove fails
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+}
+
+func TestManager_ApplyConfig_WAFModeBlockExplicit(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"wafblock")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	h := models.ProxyHost{DomainNames: "block.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+	ruleContent := `SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS blocked'"`
+	rs := models.SecurityRuleSet{Name: "block-test", Content: ruleContent}
+	assert.NoError(t, db.Create(&rs).Error)
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "block-test"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	var writtenContent []byte
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "block-test") {
+			writtenContent = b
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify SecRuleEngine On was prepended in block mode
+	content := string(writtenContent)
+	assert.True(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should be prepended in block mode")
+	assert.False(t, strings.Contains(content, "DetectionOnly"), "DetectionOnly should NOT be present in block mode")
 }

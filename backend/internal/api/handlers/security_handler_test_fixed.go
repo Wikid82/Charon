@@ -85,7 +85,7 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := NewSecurityHandler(tt.cfg, nil)
+			handler := NewSecurityHandler(tt.cfg, nil, nil)
 			router := gin.New()
 			router.GET("/security/status", handler.GetStatus)
 

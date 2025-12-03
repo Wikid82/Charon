@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // RemoteServerHandler handles HTTP requests for remote server management.
@@ -68,13 +69,13 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"remote_server",
 			"Remote Server Added",
-			fmt.Sprintf("Remote Server %s (%s:%d) added", server.Name, server.Host, server.Port),
+			fmt.Sprintf("Remote Server %s (%s:%d) added", util.SanitizeForLog(server.Name), util.SanitizeForLog(server.Host), server.Port),
 			map[string]interface{}{
-				"Name":   server.Name,
-				"Host":   server.Host,
+				"Name":   util.SanitizeForLog(server.Name),
+				"Host":   util.SanitizeForLog(server.Host),
 				"Port":   server.Port,
 				"Action": "created",
 			},
@@ -137,12 +138,12 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"remote_server",
 			"Remote Server Deleted",
-			fmt.Sprintf("Remote Server %s deleted", server.Name),
+			fmt.Sprintf("Remote Server %s deleted", util.SanitizeForLog(server.Name)),
 			map[string]interface{}{
-				"Name":   server.Name,
+				"Name":   util.SanitizeForLog(server.Name),
 				"Action": "deleted",
 			},
 		)

@@ -1,51 +1,63 @@
 # Charon Copilot Instructions
 
+## Code Quality Guidelines
+Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
+
+- **DRY**: Consolidate duplicate patterns into reusable functions, types, or components after the second occurrence.
+- **CLEAN**: Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
+- **LEVERAGE**: Use battle-tested packages over custom implementations.
+- **READABLE**: Maintain comments and clear naming for complex logic. Favor clarity over cleverness.
+- **CONVENTIONAL COMMITS**: Write commit messages using `feat:`, `fix:`, `chore:`, `refactor:`, or `docs:` prefixes.
+
 ## 🚨 CRITICAL ARCHITECTURE RULES 🚨
 - **Single Frontend Source**: All frontend code MUST reside in `frontend/`. NEVER create `backend/frontend/` or any other nested frontend directory.
 - **Single Backend Source**: All backend code MUST reside in `backend/`.
 - **No Python**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements.
 
 ## Big Picture
-- `backend/cmd/api` loads config, opens SQLite, then hands off to `internal/server` where routes from `internal/api/routes` are registered.
-- `internal/config` respects `CHARON_ENV`, `CHARON_HTTP_PORT`, `CHARON_DB_PATH`, `CHARON_FRONTEND_DIR` (CHARON_ preferred; CPM_ still supported) and creates the `data/` directory; lean on these instead of hard-coded paths.
-- All HTTP endpoints live under `/api/v1/*`; keep new handlers inside `internal/api/handlers` and register them via `routes.Register` so `db.AutoMigrate` runs for their models.
-- `internal/server` also mounts the built React app (via `attachFrontend`) whenever `frontend/dist` exists, falling back to JSON `{"error": ...}` for any `/api/*` misses.
-- Persistent types live in `internal/models`; GORM auto-migrates them each boot, so evolve schemas there before touching handlers or the frontend.
+- Charon is a self-hosted web app for managing reverse proxy host configurations with the novice user in mind. Everything should prioritize simplicity, usability, reliability, and security, all rolled into one simple binary + static assets deployment. No external dependencies.
+- Users should feel like they have enterprise-level security and features with zero effort.
+- `backend/cmd/api` loads config, opens SQLite, then hands off to `internal/server`.
+- `internal/config` respects `CHARON_ENV`, `CHARON_HTTP_PORT`, `CHARON_DB_PATH` and creates the `data/` directory.
+- `internal/server` mounts the built React app (via `attachFrontend`) whenever `frontend/dist` exists.
+- Persistent types live in `internal/models`; GORM auto-migrates them.
 
 ## Backend Workflow
-- Run locally with `cd backend && go run ./cmd/api`; run tests with `go test ./...` (see `proxy_host_handler_test.go` for the in-memory SQLite/Gin harness pattern).
-- Handlers return structured errors using `gin.H{"error": "message"}` and standard HTTP codes—mirror the `ProxyHostHandler` lifecycle for new CRUD endpoints.
-- UUIDs (`github.com/google/uuid`) are generated server-side and exposed as `uuid` fields; clients never send numeric IDs.
-- Query lists sorted by `updated_at desc` (see `.Order("updated_at desc")` in `List`); match that ordering for user-visible collections.
-- Long-running work must respect the graceful shutdown flow in `server.Run(ctx)`—avoid background goroutines that ignore the context.
+- **Run**: `cd backend && go run ./cmd/api`.
+- **Test**: `go test ./...`.
+- **API Response**: Handlers return structured errors using `gin.H{"error": "message"}`.
+- **JSON Tags**: All struct fields exposed to the frontend MUST have explicit `json:"snake_case"` tags.
+- **IDs**: UUIDs (`github.com/google/uuid`) are generated server-side; clients never send numeric IDs.
+- **Security**: Sanitize all file paths using `filepath.Clean`. Use `fmt.Errorf("context: %w", err)` for error wrapping.
+- **Graceful Shutdown**: Long-running work must respect `server.Run(ctx)`.
 
 ## Frontend Workflow
 - **Location**: Always work within `frontend/`.
 - **Stack**: React 18 + Vite + TypeScript + TanStack Query (React Query).
-- **State Management**: Use `src/hooks/use*.ts` wrapping React Query. Do not use raw `useEffect` for data fetching.
+- **State Management**: Use `src/hooks/use*.ts` wrapping React Query.
 - **API Layer**: Create typed API clients in `src/api/*.ts` that wrap `client.ts`.
-- **Development**: Run `cd frontend && npm run dev`. Vite proxies `/api` to `http://localhost:8080`.
-- **Components**: Screens live in `src/pages`. Reusable UI in `src/components`.
-- **Forms**: Use local `useState` for form fields, submit via `useMutation` from custom hooks, then `invalidateQueries` on success.
+- **Forms**: Use local `useState` for form fields, submit via `useMutation`, then `invalidateQueries` on success.
 
 ## Cross-Cutting Notes
-- Run the backend before the frontend; React Query expects the exact JSON produced by GORM tags (snake_case), so keep API and UI field names aligned.
-- When adding models, update both `internal/models` and the `AutoMigrate` call inside `internal/api/routes/routes.go`; register new Gin routes right after migrations for clarity.
-- Tests belong beside handlers (`*_test.go`); reuse the `setupTestRouter` helper structure (in-memory SQLite, Gin router, httptest requests) for fast feedback.
-- **Testing Requirement**: All new code (features, bug fixes, refactors) MUST include accompanying unit tests. Ensure tests cover happy paths and error conditions.
-- **Ignore Files**: When creating new file types, directories, or build artifacts, ALWAYS check and update `.gitignore`, `.dockerignore`, and `.codecov.yml` to ensure they are properly excluded or included as required.
-- The root `Dockerfile` builds the Go binary and the React static assets (multi-stage build).
-- Branch from `feature/**` and target `development`.
+- **VS Code Integration**: If you introduce new repetitive CLI actions (e.g., scans, builds, scripts), register them in .vscode/tasks.json to allow for easy manual verification.
+- **Sync**: React Query expects the exact JSON produced by GORM tags (snake_case). Keep API and UI field names aligned.
+- **Migrations**: When adding models, update `internal/models` AND `internal/api/routes/routes.go` (AutoMigrate).
+- **Testing**: All new code MUST include accompanying unit tests.
+- **Ignore Files**: Always check `.gitignore`, `.dockerignore`, and `.codecov.yml` when adding new file or folders.
 
 ## Documentation
-- **Feature Documentation**: When adding new features, update `docs/features.md` to include the new capability. This is the canonical list of all features shown to users.
-- **README**: The main `README.md` is a marketing/welcome page. Keep it brief with top features, quick start, and links to docs. All detailed documentation belongs in `docs/`.
-- **Link Format**: Use GitHub Pages URLs for documentation links, not relative paths:
-  - Docs: `https://wikid82.github.io/charon/` (index) or `https://wikid82.github.io/charon/features` (specific page, no `.md`)
-  - Repo files (CONTRIBUTING, LICENSE): `https://github.com/Wikid82/charon/blob/main/CONTRIBUTING.md`
-  - Issues/Discussions: `https://github.com/Wikid82/charon/issues` or `https://github.com/Wikid82/charon/discussions`
+- **Features**: Update `docs/features.md` when adding capabilities.
+- **Links**: Use GitHub Pages URLs (`https://wikid82.github.io/charon/`) for docs and GitHub blob links for repo files.
 
 ## CI/CD & Commit Conventions
-- **Docker Builds**: The `docker-publish` workflow skips builds for commits starting with `chore:`.
-- **Triggering Builds**: To ensure a new Docker image is built (e.g., for testing on VPS), use `feat:`, `fix:`, or `perf:` prefixes.
-- **Beta Branch**: The `feature/beta-release` branch is configured to ALWAYS build, overriding the skip logic.
+- **Triggers**: Use `feat:`, `fix:`, or `perf:` to trigger Docker builds. `chore:` skips builds.
+- **Beta**: `feature/beta-release` always builds.
+
+## ✅ Task Completion Protocol (Definition of Done)
+Before marking an implementation task as complete, perform the following:
+1.  **Pre-Commit Triage**: Run `pre-commit run --all-files`.
+    -   If errors occur, **fix them immediately**.
+    -   If logic errors occur, analyze and propose a fix.
+    -   Do not output code that violates pre-commit standards.
+2.  **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
+3.  **Clean Up**: Ensure no debug print statements or commented-out blocks remain.

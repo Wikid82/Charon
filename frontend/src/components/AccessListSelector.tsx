@@ -58,12 +58,12 @@ export default function AccessListSelector({ value, onChange }: AccessListSelect
 
       <p className="text-xs text-gray-500 mt-1">
         Restrict access based on IP address, CIDR ranges, or geographic location.{' '}
-        <a href="/access-lists" className="text-blue-400 hover:underline">
+        <a href="/security/access-lists" className="text-blue-400 hover:underline">
           Manage lists
         </a>
         {' • '}
         <a
-          href="https://wikid82.github.io/charon/docs/security.html#acl-best-practices-by-service-type"
+          href="https://wikid82.github.io/charon/security#acl-best-practices-by-service-type"
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-400 hover:underline inline-flex items-center gap-1"

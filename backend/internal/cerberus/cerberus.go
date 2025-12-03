@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -36,10 +38,10 @@ func (c *Cerberus) IsEnabled() bool {
 
 	// If any of the security modes are explicitly enabled, consider Cerberus enabled.
 	// Treat empty values as disabled to avoid treating zero-values ("") as enabled.
-	if c.cfg.CrowdSecMode == "local" || c.cfg.CrowdSecMode == "remote" || c.cfg.CrowdSecMode == "enabled" {
+	if c.cfg.CrowdSecMode == "local" {
 		return true
 	}
-	if c.cfg.WAFMode == "enabled" || c.cfg.RateLimitMode == "enabled" || c.cfg.ACLMode == "enabled" {
+	if (c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled") || c.cfg.RateLimitMode == "enabled" || c.cfg.ACLMode == "enabled" {
 		return true
 	}
 
@@ -62,11 +64,34 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// WAF: naive example check - block requests containing <script> in URL
-		if c.cfg.WAFMode == "enabled" {
-			if strings.Contains(ctx.Request.RequestURI, "<script>") {
-				ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
-				return
+		// WAF: naive example check - evaluate requests containing <script> in URL
+		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
+			metrics.IncWAFRequest()
+			suspicious := strings.Contains(ctx.Request.RequestURI, "<script>")
+			if suspicious {
+				if c.cfg.WAFMode == "block" {
+					logger.Log().WithFields(map[string]interface{}{
+						"source":   "waf",
+						"decision": "block",
+						"mode":     c.cfg.WAFMode,
+						"path":     ctx.Request.URL.Path,
+						"query":    ctx.Request.URL.RawQuery,
+					}).Warn("WAF blocked request")
+					metrics.IncWAFBlocked()
+					ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
+					return
+				}
+				// Monitor mode: log only, never block
+				if c.cfg.WAFMode == "monitor" {
+					logger.Log().WithFields(map[string]interface{}{
+						"source":   "waf",
+						"decision": "monitor",
+						"mode":     c.cfg.WAFMode,
+						"path":     ctx.Request.URL.Path,
+						"query":    ctx.Request.URL.RawQuery,
+					}).Info("WAF monitored request")
+					metrics.IncWAFMonitored()
+				}
 			}
 		}
 

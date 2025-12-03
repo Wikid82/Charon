@@ -1,12 +1,15 @@
 import { useState } from 'react'
+import { createBackup } from '../api/backups'
 import { useImport } from '../hooks/useImport'
 import ImportBanner from '../components/ImportBanner'
 import ImportReviewTable from '../components/ImportReviewTable'
+import ImportSitesModal from '../components/ImportSitesModal'
 
 export default function ImportCaddy() {
   const { session, preview, loading, error, upload, commit, cancel } = useImport()
   const [content, setContent] = useState('')
   const [showReview, setShowReview] = useState(false)
+  const [showMultiModal, setShowMultiModal] = useState(false)
 
   const handleUpload = async () => {
     if (!content.trim()) {
@@ -32,6 +35,8 @@ export default function ImportCaddy() {
 
   const handleCommit = async (resolutions: Record<string, string>, names: Record<string, string>) => {
     try {
+      // Create a backup before committing import to allow rollback
+      await createBackup()
       await commit(resolutions, names)
       setContent('')
       setShowReview(false)
@@ -138,6 +143,12 @@ api.example.com {
             >
               {loading ? 'Processing...' : 'Parse and Review'}
             </button>
+            <button
+              onClick={() => setShowMultiModal(true)}
+              className="ml-4 px-4 py-2 bg-gray-800 text-white rounded-lg"
+            >
+              Multi-site Import
+            </button>
           </div>
         </div>
       )}
@@ -153,6 +164,12 @@ api.example.com {
           onCancel={() => setShowReview(false)}
         />
       )}
+
+      <ImportSitesModal
+        visible={showMultiModal}
+        onClose={() => setShowMultiModal(false)}
+        onUploaded={() => setShowReview(true)}
+      />
     </div>
   )
 }

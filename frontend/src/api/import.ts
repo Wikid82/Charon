@@ -40,6 +40,11 @@ export const uploadCaddyfile = async (content: string): Promise<ImportPreview> =
   return data;
 };
 
+export const uploadCaddyfilesMulti = async (contents: string[]): Promise<ImportPreview> => {
+  const { data } = await client.post<ImportPreview>('/import/upload-multi', { contents });
+  return data;
+};
+
 export const getImportPreview = async (): Promise<ImportPreview> => {
   const { data } = await client.get<ImportPreview>('/import/preview');
   return data;

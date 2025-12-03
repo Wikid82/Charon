@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -98,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM --platform=$BUILDPLATFORM golang:alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -152,6 +152,19 @@ RUN mkdir -p /app/data/geoip && \
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
+# Install CrowdSec binary (default version can be overridden at build time)
+ARG CROWDSEC_VERSION=1.6.0
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl tar gzip && \
+    set -eux; \
+    URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-v${CROWDSEC_VERSION}-linux-musl.tar.gz"; \
+    curl -fSL "$URL" -o /tmp/crowdsec.tar.gz && \
+    mkdir -p /tmp/crowdsec && tar -xzf /tmp/crowdsec.tar.gz -C /tmp/crowdsec --strip-components=1 || true; \
+    if [ -f /tmp/crowdsec/crowdsec ]; then \
+        mv /tmp/crowdsec/crowdsec /usr/local/bin/crowdsec && chmod +x /usr/local/bin/crowdsec; \
+    fi && \
+    rm -rf /tmp/crowdsec /tmp/crowdsec.tar.gz || true
+
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
@@ -182,7 +195,7 @@ ENV CHARON_ENV=production \
     CPM_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb
 
 # Create necessary directories
-RUN mkdir -p /app/data /app/data/caddy /config
+RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
 # Re-declare build args for LABEL usage
 ARG VERSION=dev
