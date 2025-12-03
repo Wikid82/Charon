@@ -329,6 +329,12 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable Cerberus"})
 		return
 	}
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": true})
 }
 
@@ -348,6 +354,9 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 			cfg.Enabled = false
 		}
 		_ = h.svc.Upsert(cfg)
+		if h.caddyManager != nil {
+			_ = h.caddyManager.ApplyConfig(c.Request.Context())
+		}
 		c.JSON(http.StatusOK, gin.H{"enabled": false})
 		return
 	}
@@ -367,5 +376,8 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	}
 	cfg.Enabled = false
 	_ = h.svc.Upsert(cfg)
+	if h.caddyManager != nil {
+		_ = h.caddyManager.ApplyConfig(c.Request.Context())
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
 }

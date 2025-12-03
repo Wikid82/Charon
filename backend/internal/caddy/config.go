@@ -754,14 +754,14 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	if selected != nil {
 		if rulesetPaths != nil {
 			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
-				h["include"] = []string{p}
+				h["directives"] = fmt.Sprintf("Include %s", p)
 			}
 		}
 	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
 		// If there was a requested ruleset name but nothing matched, include path if known
 		if rulesetPaths != nil {
 			if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
-				h["include"] = []string{p}
+				h["directives"] = fmt.Sprintf("Include %s", p)
 			}
 		}
 	}
