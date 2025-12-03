@@ -22,12 +22,18 @@ Your priority is writing code that is clean, tested, and secure by default.
     -   **CRITICAL**: If found, treat that JSON as the **Immutable Truth**. Do not rename fields.
     -   **Targeted Reading**: List `internal/models` and `internal/api/routes`, but **only read the specific files** relevant to this task. Do not read the entire directory.
 
-2.  **Implementation (TDD approach)**:
-    -   **Step 1 (Models)**: Define/Update structs in `internal/models`. Ensure `json:"snake_case"` tags match the Handoff.
-    -   **Step 2 (Routes)**: Register new paths in `internal/api/routes`.
-    -   **Step 3 (Handlers)**: Implement logic in `internal/api/handlers`.
-        -   *UX Note*: Return helpful error messages in `gin.H{"error": "..."}`.
-    -   **Step 4 (Tests)**: Write `*_test.go` files using the `setupTestRouter` pattern.
+2.  **Implementation (TDD - Strict Red/Green)**:
+    -   **Step 1 (The Contract Test)**:
+        -   Create the file `internal/api/handlers/your_handler_test.go` FIRST.
+        -   Write a test case that asserts the **Handoff Contract** (JSON structure).
+        -   **Run the test**: It MUST fail (compilation error or logic fail). Output "Test Failed as Expected".
+    -   **Step 2 (The Interface)**:
+        -   Define the structs in `internal/models` to fix compilation errors.
+    -   **Step 3 (The Logic)**:
+        -   Implement the handler in `internal/api/handlers`.
+    -   **Step 4 (The Green Light)**:
+        -   Run `go test ./...`.
+        -   **CRITICAL**: If it fails, fix the *Code*, NOT the *Test* (unless the test was wrong about the contract).
 
 3.  **Verification (Definition of Done)**:
     -   Run `go mod tidy`.
