@@ -1,11 +1,20 @@
 package handlers
 
 import (
+	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
@@ -353,4 +362,89 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
 	}
+}
+
+// Test Upload handler success path using a mock CertificateService
+func TestCertificateHandler_Upload_Success(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	// Create a mock CertificateService that returns a created certificate
+	// Create a temporary services.CertificateService with a temp dir and DB
+	tmpDir := t.TempDir()
+	svc := services.NewCertificateService(tmpDir, db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
+
+	// Prepare multipart form data
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("name", "uploaded-cert")
+	certPEM, keyPEM, err := generateSelfSignedCertPEM()
+	if err != nil {
+		t.Fatalf("failed to generate cert: %v", err)
+	}
+	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
+	part.Write([]byte(certPEM))
+	part2, _ := writer.CreateFormFile("key_file", "key.pem")
+	part2.Write([]byte(keyPEM))
+	writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func generateSelfSignedCertPEM() (string, string, error) {
+	// generate RSA key
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", err
+	}
+	// create a simple self-signed cert
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test Org"},
+		},
+		NotBefore: time.Now().Add(-time.Hour),
+		NotAfter:  time.Now().Add(24 * time.Hour),
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return "", "", err
+	}
+	certPEM := new(bytes.Buffer)
+	pem.Encode(certPEM, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyPEM := new(bytes.Buffer)
+	pem.Encode(keyPEM, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	return certPEM.String(), keyPEM.String(), nil
+}
+
+// mockCertificateService implements minimal interface for Upload handler tests
+type mockCertificateService struct {
+	uploadFunc func(name, cert, key string) (*models.SSLCertificate, error)
+}
+
+func (m *mockCertificateService) UploadCertificate(name, cert, key string) (*models.SSLCertificate, error) {
+	if m.uploadFunc != nil {
+		return m.uploadFunc(name, cert, key)
+	}
+	return nil, fmt.Errorf("not implemented")
 }

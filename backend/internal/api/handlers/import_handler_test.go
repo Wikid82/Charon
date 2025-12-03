@@ -771,6 +771,21 @@ func TestImportHandler_DetectImports(t *testing.T) {
 	}
 }
 
+func TestImportHandler_DetectImports_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/detect-imports", handler.DetectImports)
+
+	// Invalid JSON
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/detect-imports", strings.NewReader("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestImportHandler_UploadMulti(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupImportTestDB(t)
