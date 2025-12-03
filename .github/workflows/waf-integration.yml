@@ -1,0 +1,74 @@
+name: WAF Integration Tests
+
+on:
+  push:
+    branches: [ main, development, 'feature/**' ]
+    paths:
+      - 'backend/internal/caddy/**'
+      - 'backend/internal/models/security*.go'
+      - 'scripts/coraza_integration.sh'
+      - 'Dockerfile'
+      - '.github/workflows/waf-integration.yml'
+  pull_request:
+    branches: [ main, development ]
+    paths:
+      - 'backend/internal/caddy/**'
+      - 'backend/internal/models/security*.go'
+      - 'scripts/coraza_integration.sh'
+      - 'Dockerfile'
+      - '.github/workflows/waf-integration.yml'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  waf-integration:
+    name: Coraza WAF Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --build-arg VCS_REF=${{ github.sha }} \
+            -t charon:local .
+
+      - name: Run WAF integration tests
+        id: waf-test
+        run: |
+          chmod +x scripts/coraza_integration.sh
+          scripts/coraza_integration.sh 2>&1 | tee waf-test-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: WAF Integration Summary
+        if: always()
+        run: |
+          echo "## 🛡️ WAF Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.waf-test.outcome }}" == "success" ]; then
+            echo "✅ **All WAF tests passed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^✓|^===|^Coraza" waf-test-output.txt || echo "See logs for details"
+            grep -E "^✓|^===|^Coraza" waf-test-output.txt >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **WAF tests failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Failure Details:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E "^✗|Unexpected|Error|failed" waf-test-output.txt | head -20 >> $GITHUB_STEP_SUMMARY || echo "See logs for details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f charon-debug || true
+          docker rm -f coraza-backend || true
+          docker network rm containers_default || true

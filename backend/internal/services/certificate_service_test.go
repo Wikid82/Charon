@@ -145,7 +145,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	cs := newTestCertificateService(tmpDir, db)
 
@@ -199,7 +199,7 @@ func TestCertificateService_Persistence(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	cs := newTestCertificateService(tmpDir, db)
 
@@ -274,7 +274,7 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	cs := newTestCertificateService(tmpDir, db)
 
@@ -430,11 +430,12 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	cs := newTestCertificateService(tmpDir, db)
 
 	t.Run("delete non-existent certificate", func(t *testing.T) {
+		// IsCertificateInUse will succeed (not in use), then First will fail
 		err := cs.DeleteCertificate(99999)
 		assert.Error(t, err)
 		assert.Equal(t, gorm.ErrRecordNotFound, err)

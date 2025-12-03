@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/server"
 	"github.com/Wikid82/charon/backend/internal/version"
@@ -46,6 +48,8 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, rotator)
 	log.SetOutput(mw)
 	gin.DefaultWriter = mw
+	// Initialize a basic logger so CLI and early code can log.
+	logger.Init(false, mw)
 
 	// Handle CLI commands
 	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
@@ -82,11 +86,11 @@ func main() {
 			log.Fatalf("failed to save user: %v", err)
 		}
 
-		log.Printf("Password updated successfully for user %s", email)
+		logger.Log().Infof("Password updated successfully for user %s", email)
 		return
 	}
 
-	log.Printf("starting %s backend on version %s", version.Name, version.Full())
+	logger.Log().Infof("starting %s backend on version %s", version.Name, version.Full())
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -99,6 +103,14 @@ func main() {
 	}
 
 	router := server.NewRouter(cfg.FrontendDir)
+	// Initialize structured logger with same writer as stdlib log so both capture logs
+	logger.Init(cfg.Debug, mw)
+	// Request ID middleware must run before recovery so the recover logs include the request id
+	router.Use(middleware.RequestID())
+	// Log requests with request-scoped logger
+	router.Use(middleware.RequestLogger())
+	// Attach a recovery middleware that logs stack traces when debug is enabled
+	router.Use(middleware.Recovery(cfg.Debug))
 
 	// Pass config to routes for auth service and certificate service
 	if err := routes.Register(router, db, cfg); err != nil {
@@ -110,11 +122,11 @@ func main() {
 
 	// Check for mounted Caddyfile on startup
 	if err := handlers.CheckMountedImport(db, cfg.ImportCaddyfile, cfg.CaddyBinary, cfg.ImportDir); err != nil {
-		log.Printf("WARNING: failed to process mounted Caddyfile: %v", err)
+		logger.Log().WithError(err).Warn("WARNING: failed to process mounted Caddyfile")
 	}
 
 	addr := fmt.Sprintf(":%s", cfg.HTTPPort)
-	log.Printf("starting %s backend on %s", version.Name, addr)
+	logger.Log().Infof("starting %s backend on %s", version.Name, addr)
 
 	if err := router.Run(addr); err != nil {
 		log.Fatalf("server error: %v", err)

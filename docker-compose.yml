@@ -41,6 +41,7 @@ services:
       - cpm_data:/app/data # existing data (legacy name); charon will also use this path by default for backward compatibility
       - caddy_data:/data
       - caddy_config:/config
+      - crowdsec_data:/app/data/crowdsec
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       # Mount your existing Caddyfile for automatic import (optional)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
@@ -58,4 +59,6 @@ volumes:
   caddy_data:
     driver: local
   caddy_config:
+    driver: local
+  crowdsec_data:
     driver: local

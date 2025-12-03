@@ -10,8 +10,7 @@ Charon includes the optional Cerberus security suite — a collection of high-va
 **Modes:**
 *   **Local**: Installs the CrowdSec agent *inside* the Charon container. Useful for single-container setups.
     *   *Note*: Increases container startup time and resource usage.
-*   **External**: Connects to an existing CrowdSec agent running elsewhere (e.g., on the host or another container).
-    *   *Recommended* for production or multi-server setups.
+*   **External**: (Deprecated) connections to external CrowdSec agents are no longer supported.
 
 ### 2. WAF (Web Application Firewall)
 Uses [Coraza](https://coraza.io/), a Go-native WAF, with the **OWASP Core Rule Set (CRS)** to protect against common web attacks (SQL Injection, XSS, etc.).
@@ -48,9 +47,7 @@ You can enable or disable Cerberus at runtime via the web UI `System Settings` o
 | :--- | :--- | :--- |
 | `CERBERUS_SECURITY_CROWDSEC_MODE` | `disabled` | (Default) CrowdSec is turned off. (CERBERUS_ preferred; CHARON_/CPM_ still supported) |
 | | `local` | Installs and runs CrowdSec agent inside the container. |
-| | `external` | Connects to an external CrowdSec agent. |
-| `CERBERUS_SECURITY_CROWDSEC_API_URL` | URL | (Required for `external`) e.g., `http://crowdsec:8080` |
-| `CERBERUS_SECURITY_CROWDSEC_API_KEY` | String | (Required for `external`) Your CrowdSec bouncer API key. |
+| | `local` | Installs and runs CrowdSec agent inside the container. |
 
 **Example (Local Mode):**
 ```yaml
@@ -68,16 +65,25 @@ environment:
 
 ### WAF Configuration
 
-| Variable | Value | Description |
+| Variable | Values | Description |
 | :--- | :--- | :--- |
 | `CERBERUS_SECURITY_WAF_MODE` | `disabled` | (Default) WAF is turned off. |
-| | `enabled` | Enables Coraza WAF with OWASP CRS. |
+|  | `monitor` | Evaluate requests, emit metrics & structured logs, do not block. |
+|  | `block` | Evaluate & actively block suspicious payloads. |
 
-**Example:**
+**Example (Monitor Mode):**
 ```yaml
 environment:
-  - CERBERUS_SECURITY_WAF_MODE=enabled
+  - CERBERUS_SECURITY_WAF_MODE=monitor
 ```
+
+**Example (Blocking Mode):**
+```yaml
+environment:
+  - CERBERUS_SECURITY_WAF_MODE=block
+```
+
+> Migration Note: Earlier documentation referenced a value `enabled`. Use `block` going forward for enforcement.
 
 ### ACL Configuration
 
@@ -100,6 +106,17 @@ environment:
 | `CERBERUS_SECURITY_RATELIMIT_MODE` | `enabled` / `disabled` | Enable global rate limiting. |
 
 ---
+
+## Self-Lockout Protection
+
+When enabling the Cerberus suite (CrowdSec, WAF, ACLs, Rate Limiting) there is a risk of accidentally locking yourself out of the Admin UI or services you rely on. Charon provides the following safeguards to reduce this risk:
+
+- **Admin Whitelist**: When enabling Cerberus you should enter at least one administrative IP or CIDR range (for example your VPN IP, Tailscale IP, or a trusted office IP). This whitelist is always excluded from blocking decisions.
+- **Break-Glass Token**: You can generate a temporary break-glass token from the Security UI. This one-time token (returned plaintext once) can be used to disable Cerberus if you lose access.
+- **Localhost Bypass**: Requests from `127.0.0.1` or `::1` may be allowed to manage the system locally without a token (helpful for local management access).
+- **Manager Checks**: Config deployment will be refused if Cerberus is enabled and no admin whitelist is configured — this prevents accidental global lockouts when applying new configurations.
+
+Follow a phased approach: deploy in `monitor` (log-only) first, validate findings, add admin whitelist entries, then switch to `block` enforcement.
 
 ## ACL Best Practices by Service Type
 
@@ -138,6 +155,109 @@ environment:
 - Whitelist office IP ranges and VPN server IPs
 - Blocks all other access, even from same country
 - Example: 203.0.113.0/24 (office), 198.51.100.50 (VPN)
+
+---
+
+## Multi-Layer Protection & When to Use ACLs
+
+Charon follows a multi-layered security approach. The recommendation below shows which module is best suited for specific types of threats:
+
+- **CrowdSec**: Best for dynamic, behavior-driven blocking — bots, scanners, credential stuffing, IP reputation. CrowdSec integrates with local or external agents and should be used for most bot and scanner detection/remediation.
+- **WAF (Coraza)**: Best for payload and application-level attacks (XSS, SQLi, file inclusion). Protects against malicious payloads regardless of source IP.
+
+### Coraza runtime integration test
+
+To validate runtime Coraza WAF integration locally using Docker Compose:
+
+1. Build the local Docker image and start services: `docker build -t charon:local . && docker compose -f docker-compose.local.yml up -d`.
+2. Configure a ruleset via the API: POST to `/api/v1/security/rulesets` with a rule that would match an XSS payload.
+3. Send a request that triggers the rule (e.g., POST with `<script>` payload) and verify `403` or similar WAF-blocking response.
+
+There is a lightweight helper script `scripts/coraza_integration.sh` which performs these steps and can be used as a starting point for CI integration tests.
+- **Rate Limiting**: Best for high-volume scanners and brute-force attempts; helps prevent abuse from cloud providers and scrapers.
+- **ACLs (Geo/Page-Level)**: Best for static location-based or private network restrictions, e.g., geo-blocking or restricting access to RFC1918 ranges for internal services.
+
+Because IP-based blocklists are dynamic and often incomplete, we removed the IP-based Access List presets (e.g., botnet, scanner, VPN lists) from the default UI presets. These dynamic IP blocklists are now the recommended responsibility of CrowdSec and rate limiting; they are easier to maintain, update, and automatically mitigate at scale.
+
+Use ACLs primarily for explicit or static restrictions such as geofencing or limiting access to your home/office IP ranges.
+
+---
+
+## Observability & Logging
+
+Charon exposes security observability through Prometheus metrics and structured logs:
+
+### Prometheus Metrics
+| Metric | Description |
+| :--- | :--- |
+| `charon_waf_requests_total` | Total requests evaluated by the WAF. |
+| `charon_waf_blocked_total` | Requests blocked in `block` mode. |
+| `charon_waf_monitored_total` | Requests logged in `monitor` mode. |
+
+Scrape endpoint: `GET /metrics` (no auth). Integrate with Prometheus server or a compatible collector.
+
+### Structured Logs
+WAF decisions emit JSON-like structured fields:
+```
+source: "waf"
+decision: "block" | "monitor"
+mode: "block" | "monitor" | "disabled"
+path: "/api/v1/..."
+query: "raw url query string"
+```
+Use these fields to build dashboards and alerting (e.g., block rate spikes).
+
+### Recommended Dashboards
+- Block Rate (% blocked / evaluated)
+- Monitor to Block Transition (verify stability before enforcing)
+- Top Paths Triggering Blocks
+- Recent Security Decisions (from `/api/v1/security/decisions`)
+
+---
+
+## Security API Summary
+
+| Endpoint | Method | Purpose |
+| :--- | :--- | :--- |
+| `/api/v1/security/status` | GET | Current enabled state & modes. |
+| `/api/v1/security/config` | GET | Retrieve persisted global security config. |
+| `/api/v1/security/config` | POST | Upsert global security config. |
+| `/api/v1/security/enable` | POST | Enable Cerberus (requires whitelist or break-glass token). |
+| `/api/v1/security/disable` | POST | Disable Cerberus (localhost or break-glass token). |
+| `/api/v1/security/breakglass/generate` | POST | Generate one-time break-glass token. |
+| `/api/v1/security/decisions` | GET | List recent decisions (limit query param). |
+| `/api/v1/security/decisions` | POST | Manually log a decision (override). |
+| `/api/v1/security/rulesets` | GET | List uploaded rulesets. |
+| `/api/v1/security/rulesets` | POST | Create/update a ruleset. |
+| `/api/v1/security/rulesets/:id` | DELETE | Remove a ruleset. |
+
+### Sample Security Config Payload
+```json
+{
+  "name": "default",
+  "enabled": true,
+  "admin_whitelist": "198.51.100.10,203.0.113.0/24",
+  "crowdsec_mode": "local",
+  "crowdsec_api_url": "",
+  "waf_mode": "monitor",
+  "waf_rules_source": "owasp-crs-local",
+  "waf_learning": true,
+  "rate_limit_enable": false,
+  "rate_limit_burst": 0,
+  "rate_limit_requests": 0,
+  "rate_limit_window_sec": 0
+}
+```
+
+### Sample Ruleset Upsert Payload
+```json
+{
+  "name": "owasp-crs-quick",
+  "source_url": "https://example.com/owasp-crs.txt",
+  "mode": "owasp",
+  "content": "# raw rules or placeholder"
+}
+```
 
 ---
 

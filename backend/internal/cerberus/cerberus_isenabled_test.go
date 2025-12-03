@@ -28,7 +28,7 @@ func TestIsEnabled_ConfigTrue(t *testing.T) {
 }
 
 func TestIsEnabled_WAFModeEnabled(t *testing.T) {
-	cfg := config.SecurityConfig{WAFMode: "enabled"}
+	cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, nil)
 	require.True(t, c.IsEnabled())
 }

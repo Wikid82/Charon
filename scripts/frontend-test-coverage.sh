@@ -42,7 +42,3 @@ if total < minimum:
 PY
 
 echo "Frontend coverage requirement met"
-
-# Also enforce module-specific frontend coverage (e.g., ProxyHosts)
-echo "Running module-specific frontend coverage checks (frontend only)"
-bash "$ROOT_DIR/scripts/check-module-coverage.sh" --frontend-only

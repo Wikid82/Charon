@@ -4,7 +4,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"log"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,9 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
+
+// ErrCertInUse is returned when a certificate is linked to one or more proxy hosts.
+var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts")
 
 // CertificateInfo represents parsed certificate details.
 type CertificateInfo struct {
@@ -50,7 +54,7 @@ func NewCertificateService(dataDir string, db *gorm.DB) *CertificateService {
 	// Perform initial scan in background
 	go func() {
 		if err := svc.SyncFromDisk(); err != nil {
-			log.Printf("CertificateService: initial sync failed: %v", err)
+			logger.Log().WithError(err).Error("CertificateService: initial sync failed")
 		}
 	}()
 	return svc
@@ -63,7 +67,7 @@ func (s *CertificateService) SyncFromDisk() error {
 	defer s.cacheMu.Unlock()
 
 	certRoot := filepath.Join(s.dataDir, "certificates")
-	log.Printf("CertificateService: scanning cert directory: %s", certRoot)
+	logger.Log().WithField("certRoot", util.SanitizeForLog(certRoot)).Info("CertificateService: scanning cert directory")
 
 	foundDomains := map[string]struct{}{}
 
@@ -71,14 +75,14 @@ func (s *CertificateService) SyncFromDisk() error {
 	if _, err := os.Stat(certRoot); err == nil {
 		_ = filepath.Walk(certRoot, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
-				log.Printf("CertificateService: walk error for %s: %v\n", path, err)
+				logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: walk error")
 				return nil
 			}
 
 			if !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
 				certData, err := os.ReadFile(path)
 				if err != nil {
-					log.Printf("CertificateService: failed to read cert file %s: %v", path, err)
+					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to read cert file")
 					return nil
 				}
 
@@ -90,7 +94,7 @@ func (s *CertificateService) SyncFromDisk() error {
 
 				cert, err := x509.ParseCertificate(block.Bytes)
 				if err != nil {
-					log.Printf("CertificateService: failed to parse cert %s: %v", path, err)
+					logger.Log().WithField("path", util.SanitizeForLog(path)).WithError(err).Error("CertificateService: failed to parse cert")
 					return nil
 				}
 
@@ -134,10 +138,10 @@ func (s *CertificateService) SyncFromDisk() error {
 							UpdatedAt:   now,
 						}
 						if err := s.db.Create(&newCert).Error; err != nil {
-							log.Printf("CertificateService: failed to create DB cert for %s: %v\n", domain, err)
+							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to create DB cert")
 						}
 					} else {
-						log.Printf("CertificateService: db error querying cert %s: %v\n", domain, res.Error)
+						logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(res.Error).Error("CertificateService: db error querying cert")
 					}
 				} else {
 					// Update expiry/certificate content and provider if changed
@@ -169,12 +173,12 @@ func (s *CertificateService) SyncFromDisk() error {
 					if updated {
 						existing.UpdatedAt = time.Now()
 						if err := s.db.Save(&existing).Error; err != nil {
-							log.Printf("CertificateService: failed to update DB cert for %s: %v\n", domain, err)
+							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update DB cert")
 						}
 					} else {
 						// still update ExpiresAt if needed
 						if err := s.db.Model(&existing).Update("expires_at", &expiresAt).Error; err != nil {
-							log.Printf("CertificateService: failed to update expiry for %s: %v\n", domain, err)
+							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update expiry")
 						}
 					}
 				}
@@ -183,9 +187,9 @@ func (s *CertificateService) SyncFromDisk() error {
 		})
 	} else {
 		if os.IsNotExist(err) {
-			log.Printf("CertificateService: cert directory does not exist: %s\n", certRoot)
+			logger.Log().WithField("certRoot", certRoot).Info("CertificateService: cert directory does not exist")
 		} else {
-			log.Printf("CertificateService: failed to stat cert directory: %v\n", err)
+			logger.Log().WithError(err).Error("CertificateService: failed to stat cert directory")
 		}
 	}
 
@@ -196,9 +200,9 @@ func (s *CertificateService) SyncFromDisk() error {
 			if _, ok := foundDomains[c.Domains]; !ok {
 				// remove stale record
 				if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
-					log.Printf("CertificateService: failed to delete stale cert %s: %v\n", c.Domains, err)
+					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).WithError(err).Error("CertificateService: failed to delete stale cert")
 				} else {
-					log.Printf("CertificateService: removed stale DB cert for %s\n", c.Domains)
+					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).Info("CertificateService: removed stale DB cert")
 				}
 			}
 		}
@@ -211,7 +215,7 @@ func (s *CertificateService) SyncFromDisk() error {
 
 	s.lastScan = time.Now()
 	s.initialized = true
-	log.Printf("CertificateService: disk sync complete, %d certificates cached", len(s.cache))
+	logger.Log().WithField("count", len(s.cache)).Info("CertificateService: disk sync complete")
 	return nil
 }
 
@@ -319,7 +323,7 @@ func (s *CertificateService) ListCertificates() ([]CertificateInfo, error) {
 		// Trigger background rescan for stale cache
 		go func() {
 			if err := s.SyncFromDisk(); err != nil {
-				log.Printf("CertificateService: background sync failed: %v", err)
+				logger.Log().WithError(err).Error("CertificateService: background sync failed")
 			}
 		}()
 	}
@@ -382,8 +386,26 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM string) (*m
 	return sslCert, nil
 }
 
+// IsCertificateInUse checks if a certificate is referenced by any proxy host.
+func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
+	var count int64
+	if err := s.db.Model(&models.ProxyHost{}).Where("certificate_id = ?", id).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check certificate linkage: %w", err)
+	}
+	return count > 0, nil
+}
+
 // DeleteCertificate removes a certificate.
 func (s *CertificateService) DeleteCertificate(id uint) error {
+	// Prevent deletion if the certificate is referenced by any proxy host
+	inUse, err := s.IsCertificateInUse(id)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return ErrCertInUse
+	}
+
 	var cert models.SSLCertificate
 	if err := s.db.First(&cert, id).Error; err != nil {
 		return err
@@ -396,9 +418,9 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".crt") {
 				if info.Name() == cert.Domains+".crt" {
 					// Found it
-					log.Printf("CertificateService: deleting ACME cert file %s", path)
+					logger.Log().WithField("path", path).Info("CertificateService: deleting ACME cert file")
 					if err := os.Remove(path); err != nil {
-						log.Printf("CertificateService: failed to delete cert file: %v", err)
+						logger.Log().WithError(err).Error("CertificateService: failed to delete cert file")
 					}
 					// Try to delete key as well
 					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
@@ -416,10 +438,10 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 		})
 	}
 
-	err := s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error
-	if err == nil {
-		// Invalidate cache so the deleted cert disappears immediately
-		s.InvalidateCache()
+	if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error; err != nil {
+		return err
 	}
-	return err
+	// Invalidate cache so the deleted cert disappears immediately
+	s.InvalidateCache()
+	return nil
 }

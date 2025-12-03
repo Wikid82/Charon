@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
+import type { ProxyHost, BulkUpdateACLResponse } from '../../api/proxyHosts'
 import ProxyHosts from '../ProxyHosts'
 import * as proxyHostsApi from '../../api/proxyHosts'
 import * as certificatesApi from '../../api/certificates'
@@ -37,7 +38,7 @@ const renderWithProviders = (ui: React.ReactNode) => {
   )
 }
 
-const baseHost = (overrides: any = {}) => ({
+const baseHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
   uuid: 'host-1',
   name: 'Host',
   domain_names: 'example.com',
@@ -47,7 +48,17 @@ const baseHost = (overrides: any = {}) => ({
   enabled: true,
   ssl_forced: false,
   websocket_support: false,
+  http2_support: false,
+  hsts_enabled: false,
+  hsts_subdomains: false,
+  block_exploits: false,
+  application: 'none',
+  locations: [],
   certificate: null,
+  certificate_id: null,
+  access_list_id: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
   ...overrides,
 })
 
@@ -68,9 +79,11 @@ describe('ProxyHosts progress apply', () => {
     vi.mocked(settingsApi.getSettings).mockResolvedValue({})
 
     // Create controllable promises for bulkUpdateACL invocations
-    const resolvers: Array<(value?: any) => void> = []
-    vi.mocked(proxyHostsApi.bulkUpdateACL).mockImplementation((_hostUUIDs, _aclId) => {
-      return new Promise((resolve) => { resolvers.push(resolve) })
+    const resolvers: Array<(value: BulkUpdateACLResponse) => void> = []
+    vi.mocked(proxyHostsApi.bulkUpdateACL).mockImplementation((...args: unknown[]) => {
+      const [_hostUUIDs, _aclId] = args
+      void _hostUUIDs; void _aclId
+      return new Promise((resolve: (v: BulkUpdateACLResponse) => void) => { resolvers.push(resolve); })
     })
 
     renderWithProviders(<ProxyHosts />)

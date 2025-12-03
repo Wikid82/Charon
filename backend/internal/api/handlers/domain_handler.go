@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -52,12 +53,12 @@ func (h *DomainHandler) Create(c *gin.Context) {
 
 	// Send Notification
 	if h.notificationService != nil {
-		h.notificationService.SendExternal(
+		h.notificationService.SendExternal(c.Request.Context(),
 			"domain",
 			"Domain Added",
-			fmt.Sprintf("Domain %s added", domain.Name),
+			fmt.Sprintf("Domain %s added", util.SanitizeForLog(domain.Name)),
 			map[string]interface{}{
-				"Name":   domain.Name,
+				"Name":   util.SanitizeForLog(domain.Name),
 				"Action": "created",
 			},
 		)
@@ -72,12 +73,12 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	if err := h.DB.Where("uuid = ?", id).First(&domain).Error; err == nil {
 		// Send Notification before delete (or after if we keep the name)
 		if h.notificationService != nil {
-			h.notificationService.SendExternal(
+			h.notificationService.SendExternal(c.Request.Context(),
 				"domain",
 				"Domain Deleted",
-				fmt.Sprintf("Domain %s deleted", domain.Name),
+				fmt.Sprintf("Domain %s deleted", util.SanitizeForLog(domain.Name)),
 				map[string]interface{}{
-					"Name":   domain.Name,
+					"Name":   util.SanitizeForLog(domain.Name),
 					"Action": "deleted",
 				},
 			)

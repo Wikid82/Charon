@@ -14,8 +14,22 @@ Block malicious IPs automatically using community-driven threat intelligence. Cr
 → [Learn more about CrowdSec](https://www.crowdsec.net/)
 
 ### Web Application Firewall (WAF)
-Protect your applications from common web attacks like SQL injection and cross-site scripting using Coraza WAF, an enterprise-grade firewall built into Caddy.
-→ [Learn more about Coraza WAF](https://coraza.io/)
+Protect your applications from common web attacks like SQL injection and cross-site scripting using the integrated (placeholder) Coraza WAF pipeline.
+
+**Global Modes**:
+- `disabled` – WAF not evaluated.
+- `monitor` – Evaluate & log every request (increment Prometheus counters) without blocking.
+- `block` – Enforce rules (suspicious payloads are rejected; counters increment).
+
+**Observability**:
+- Prometheus counters: `charon_waf_requests_total`, `charon_waf_blocked_total`, `charon_waf_monitored_total`.
+- Structured logs: fields `source=waf`, `decision=block|monitor`, `mode`, `path`, `query`.
+
+**Rulesets**:
+- Manage rule sources via the Security UI / API (`/api/v1/security/rulesets`). Each ruleset stores `name`, optional `source_url`, `mode`, and raw `content`.
+- Attach a global rules source using `waf_rules_source` in the security config.
+
+→ [Coraza](https://coraza.io/) · [Cerberus Deep Dive](cerberus.md#waf)
 
 ### Access Control Lists (ACLs)
 Control who can access your services with IP whitelists, blacklists, and geo-blocking. Block entire countries or allow only specific networks.

@@ -64,8 +64,9 @@ export const updateProxyHost = async (uuid: string, host: Partial<ProxyHost>): P
   return data;
 };
 
-export const deleteProxyHost = async (uuid: string): Promise<void> => {
-  await client.delete(`/proxy-hosts/${uuid}`);
+export const deleteProxyHost = async (uuid: string, deleteUptime?: boolean): Promise<void> => {
+  const url = `/proxy-hosts/${uuid}${deleteUptime ? '?delete_uptime=true' : ''}`
+  await client.delete(url);
 };
 
 export const testProxyHostConnection = async (host: string, port: number): Promise<void> => {

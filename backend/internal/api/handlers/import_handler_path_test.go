@@ -7,7 +7,7 @@ import (
 
 func TestIsSafePathUnderBase(t *testing.T) {
 	base := filepath.FromSlash("/tmp/session")
-	cases := []struct{
+	cases := []struct {
 		name string
 		want bool
 	}{

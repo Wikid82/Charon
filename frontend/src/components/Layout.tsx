@@ -13,6 +13,13 @@ interface LayoutProps {
   children: ReactNode
 }
 
+type NavItem = {
+  name: string
+  path?: string
+  icon?: string
+  children?: NavItem[]
+}
+
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -41,16 +48,22 @@ export default function Layout({ children }: LayoutProps) {
     staleTime: 1000 * 60 * 60, // 1 hour
   })
 
-  const navigation = [
+  const navigation: NavItem[] = [
     { name: 'Dashboard', path: '/', icon: '📊' },
     { name: 'Proxy Hosts', path: '/proxy-hosts', icon: '🌐' },
     { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
-    { name: 'Security', path: '/security', icon: '🛡️' },
     { name: 'Uptime', path: '/uptime', icon: '📈' },
+    { name: 'Security', path: '/security', icon: '🛡️', children: [
+      { name: 'Overview', path: '/security', icon: '🛡️' },
+      { name: 'CrowdSec', path: '/security/crowdsec', icon: '🛡️' },
+      { name: 'Access Lists', path: '/security/access-lists', icon: '🔒' },
+      { name: 'Rate Limiting', path: '/security/rate-limiting', icon: '⚡' },
+      { name: 'WAF (Coraza)', path: '/security/waf', icon: '🛡️' },
+    ]},
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
-    { name: 'Import Caddyfile', path: '/import', icon: '📥' },
+    // Import group moved under Tasks
     {
       name: 'Settings',
       path: '/settings',
@@ -65,6 +78,15 @@ export default function Layout({ children }: LayoutProps) {
       path: '/tasks',
       icon: '📋',
       children: [
+        {
+          name: 'Import',
+          path: '/tasks/import',
+          icon: '📥',
+          children: [
+            { name: 'Caddyfile', path: '/tasks/import/caddyfile', icon: '📥' },
+            { name: 'CrowdSec', path: '/tasks/import/crowdsec', icon: '🛡️' },
+          ]
+        },
         { name: 'Backups', path: '/tasks/backups', icon: '💾' },
         { name: 'Logs', path: '/tasks/logs', icon: '📝' },
       ]
@@ -153,7 +175,53 @@ export default function Layout({ children }: LayoutProps) {
 
                     {isExpanded && (
                       <div className="pl-11 space-y-1">
-                        {item.children.map((child) => {
+                        {item.children.map((child: NavItem) => {
+                          // If this child has its own children, render a nested accordion
+                          if (child.children && child.children.length > 0) {
+
+                            const nestedExpandedKey = `${item.name}:${child.name}`
+                            const isNestedOpen = expandedMenus.includes(nestedExpandedKey)
+                            return (
+                              <div key={child.path} className="space-y-1">
+                                <button
+                                  onClick={() => toggleMenu(nestedExpandedKey)}
+                                  className={`w-full flex items-center justify-between py-2 px-3 rounded-md text-sm transition-colors ${
+                                    location.pathname.startsWith(child.path!)
+                                      ? 'text-blue-700 dark:text-blue-400'
+                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">{child.icon}</span>
+                                    <span>{child.name}</span>
+                                  </div>
+                                  {isNestedOpen ? (
+                                    <ChevronDown className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4" />
+                                  )}
+                                </button>
+                                {isNestedOpen && (
+                                  <div className="pl-6 space-y-1">
+                                    {child.children.map((sub: NavItem) => (
+                                      <Link
+                                        key={sub.path}
+                                        to={sub.path!}
+                                        onClick={() => setMobileSidebarOpen(false)}
+                                        className={`block py-2 px-3 rounded-md text-sm transition-colors ${
+                                          location.pathname === sub.path
+                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+                                            : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                        }`}
+                                      >
+                                        {sub.name}
+                                      </Link>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          }
                           const isChildActive = location.pathname === child.path
                           return (
                             <Link
