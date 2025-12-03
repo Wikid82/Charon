@@ -107,7 +107,7 @@ curl -s http://localhost:2019/config | grep -n "waf" || true
 curl -s http://localhost:2019/config | grep -n "integration-xss" || true
 
 echo "Inspecting ruleset file inside container..."
-docker exec charon-debug cat /app/data/caddy/coraza/rulesets/integration-xss.conf || true
+docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || true
 
 echo "Recent caddy logs (may contain plugin errors):"
 docker logs charon-debug | tail -n 200 || true
@@ -127,10 +127,10 @@ SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rule
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
 echo "Wait for Caddy to apply monitor mode config..."
-sleep 2
+sleep 5
 
 echo "Inspecting ruleset file (should now have DetectionOnly)..."
-docker exec charon-debug cat /app/data/caddy/coraza/rulesets/integration-xss.conf | head -5 || true
+docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf | head -5' || true
 
 RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
 if [ "$RESPONSE_MONITOR" = "200" ]; then
