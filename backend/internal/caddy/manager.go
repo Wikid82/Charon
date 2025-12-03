@@ -118,7 +118,12 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			// sanitize name to a safe filename
 			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
-			filePath := filepath.Join(corazaDir, safeName+".conf")
+
+			// Calculate hash of the content to ensure filename changes when content changes
+			// This forces Caddy to reload the file instead of using a cached version
+			hash := sha256.Sum256([]byte(rs.Content))
+			shortHash := fmt.Sprintf("%x", hash)[:8]
+			filePath := filepath.Join(corazaDir, fmt.Sprintf("%s-%s.conf", safeName, shortHash))
 			// Prepend required Coraza directives if not already present.
 			// These are essential for the WAF to actually enforce rules:
 			// - SecRuleEngine On: enables blocking mode (blocks malicious requests)
