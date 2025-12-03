@@ -216,7 +216,7 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
           <label htmlFor="type" className="block text-sm font-medium text-gray-300 mb-2">
             Type *
             <a
-              href="https://wikid82.github.io/charon/docs/security.html#acl-best-practices-by-service-type"
+              href="https://wikid82.github.io/charon/security#acl-best-practices-by-service-type"
               target="_blank"
               rel="noopener noreferrer"
               className="ml-2 text-blue-400 hover:text-blue-300 text-xs"
@@ -408,6 +408,9 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
 
             {!formData.local_network_only && (
               <>
+                <div className="mb-2 text-xs text-gray-500">
+                  Note: IP-based blocklists (botnets, cloud scanners, VPN ranges) are better handled by CrowdSec, WAF, or rate limiting. Use IP-based ACLs sparingly for static or known ranges.
+                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-gray-300">IP Addresses / CIDR Ranges</label>

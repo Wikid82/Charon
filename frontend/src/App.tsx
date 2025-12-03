@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react'
+import { Navigate } from 'react-router-dom'
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
 import Layout from './components/Layout'
 import { ToastContainer } from './components/Toast'
@@ -12,8 +13,10 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
+const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
+const CrowdSecConfig = lazy(() => import('./pages/CrowdSecConfig'))
 const Account = lazy(() => import('./pages/Account'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Backups = lazy(() => import('./pages/Backups'))
@@ -22,6 +25,7 @@ const Logs = lazy(() => import('./pages/Logs'))
 const Domains = lazy(() => import('./pages/Domains'))
 const Security = lazy(() => import('./pages/Security'))
 const AccessLists = lazy(() => import('./pages/AccessLists'))
+const WafConfig = lazy(() => import('./pages/WafConfig'))
 const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const Login = lazy(() => import('./pages/Login'))
@@ -50,15 +54,20 @@ export default function App() {
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
               <Route path="security" element={<Security />} />
+              <Route path="security/access-lists" element={<AccessLists />} />
+              <Route path="security/crowdsec" element={<CrowdSecConfig />} />
+              <Route path="security/rate-limiting" element={<SystemSettings />} />
+              <Route path="security/waf" element={<WafConfig />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
-              <Route path="import" element={<ImportCaddy />} />
+              <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}
               <Route path="settings" element={<Settings />}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
+                <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="account" element={<Account />} />
               </Route>
 
@@ -67,6 +76,10 @@ export default function App() {
                 <Route index element={<Backups />} />
                 <Route path="backups" element={<Backups />} />
                 <Route path="logs" element={<Logs />} />
+                <Route path="import">
+                  <Route path="caddyfile" element={<ImportCaddy />} />
+                  <Route path="crowdsec" element={<ImportCrowdSec />} />
+                </Route>
               </Route>
 
             </Route>

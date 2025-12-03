@@ -17,11 +17,15 @@ import (
 )
 
 func setupNotificationTestDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	// Use openTestDB helper via temporary t trick
+	// Since this function lacks t param, keep calling openTestDB with a dummy testing.T
+	// But to avoid changing many callers, we'll reuse openTestDB by creating a short-lived testing.T wrapper isn't possible.
+	// Instead, set WAL and busy timeout using a simple gorm.Open with shared memory but minimal changes.
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_journal_mode=WAL&_busy_timeout=5000"), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Notification{})
+	db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
 	return db
 }
 

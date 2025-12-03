@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -134,11 +136,11 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	defer ts.Close()
 
 	provider := models.NotificationProvider{
-		Name:   "Test Webhook",
-		Type:   "webhook",
-		URL:    ts.URL,
+		Name:     "Test Webhook",
+		Type:     "webhook",
+		URL:      ts.URL,
 		Template: "minimal",
-		Config: `{"Header": "{{.Title}}"}`,
+		Config:   `{"Header": "{{.Title}}"}`,
 	}
 
 	err := svc.TestProvider(provider)
@@ -165,7 +167,7 @@ func TestNotificationService_SendExternal(t *testing.T) {
 	}
 	svc.CreateProvider(&provider)
 
-	svc.SendExternal("proxy_host", "Title", "Message", nil)
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
 	select {
 	case <-received:
@@ -190,17 +192,17 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsMin.Close()
 
 	providerMin := models.NotificationProvider{
-		Name:    "Minimal",
-		Type:    "webhook",
-		URL:     tsMin.URL,
-		Enabled: true,
+		Name:         "Minimal",
+		Type:         "webhook",
+		URL:          tsMin.URL,
+		Enabled:      true,
 		NotifyUptime: true,
-		Template: "minimal",
+		Template:     "minimal",
 	}
 	svc.CreateProvider(&providerMin)
 
 	data := map[string]interface{}{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
-	svc.SendExternal("uptime", "Min Title", "Min Message", data)
+	svc.SendExternal(context.Background(), "uptime", "Min Title", "Min Message", data)
 
 	select {
 	case body := <-rcvMinimal:
@@ -225,17 +227,17 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	defer tsDet.Close()
 
 	providerDet := models.NotificationProvider{
-		Name:    "Detailed",
-		Type:    "webhook",
-		URL:     tsDet.URL,
-		Enabled: true,
+		Name:         "Detailed",
+		Type:         "webhook",
+		URL:          tsDet.URL,
+		Enabled:      true,
 		NotifyUptime: true,
-		Template: "detailed",
+		Template:     "detailed",
 	}
 	svc.CreateProvider(&providerDet)
 
 	dataDet := map[string]interface{}{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]interface{}{{"Name": "svc1"}}}
-	svc.SendExternal("uptime", "Det Title", "Det Message", dataDet)
+	svc.SendExternal(context.Background(), "uptime", "Det Title", "Det Message", dataDet)
 
 	select {
 	case body := <-rcvDetailed:
@@ -275,7 +277,7 @@ func TestNotificationService_SendExternal_Filtered(t *testing.T) {
 	// Force update to false because GORM default tag might override zero value (false) on Create
 	db.Model(&provider).Update("notify_proxy_hosts", false)
 
-	svc.SendExternal("proxy_host", "Title", "Message", nil)
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
 	select {
 	case <-received:
@@ -299,7 +301,7 @@ func TestNotificationService_SendExternal_Shoutrrr(t *testing.T) {
 	svc.CreateProvider(&provider)
 
 	// This will log an error but should cover the code path
-	svc.SendExternal("proxy_host", "Title", "Message", nil)
+	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
 	// Give it a moment to run goroutine
 	time.Sleep(100 * time.Millisecond)
@@ -356,7 +358,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:  "://invalid-url",
 		}
 		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(provider, data)
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
 		assert.Error(t, err)
 	})
 
@@ -373,7 +375,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		// But for unit test speed, we should probably mock or use a closed port on localhost
 		// Using a closed port on localhost is faster
 		provider.URL = "http://127.0.0.1:54321" // Assuming this port is closed
-		err := svc.sendCustomWebhook(provider, data)
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
 		assert.Error(t, err)
 	})
 
@@ -388,7 +390,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:  ts.URL,
 		}
 		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(provider, data)
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "500")
 	})
@@ -413,7 +415,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Config: `{"custom": "Test: {{.Title}}"}`,
 		}
 		data := map[string]interface{}{"Title": "My Title", "Message": "Test Message"}
-		svc.sendCustomWebhook(provider, data)
+		svc.sendCustomWebhook(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -430,8 +432,8 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			var body map[string]interface{}
 			json.NewDecoder(r.Body).Decode(&body)
 			if title, ok := body["title"]; ok {
-					receivedContent = title.(string)
-				}
+				receivedContent = title.(string)
+			}
 			w.WriteHeader(http.StatusOK)
 			close(received)
 		}))
@@ -443,7 +445,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			// Config is empty, so default template is used: minimal
 		}
 		data := map[string]interface{}{"Title": "Default Title", "Message": "Test Message"}
-		svc.sendCustomWebhook(provider, data)
+		svc.sendCustomWebhook(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -452,6 +454,32 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			t.Fatal("Timeout waiting for webhook")
 		}
 	})
+}
+
+func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	received := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Get("X-Request-ID")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	provider := models.NotificationProvider{Type: "webhook", URL: ts.URL}
+	data := map[string]interface{}{"Title": "Test", "Message": "Test"}
+	// Build context with requestID value
+	ctx := context.WithValue(context.Background(), trace.RequestIDKey, "my-rid")
+	err := svc.sendCustomWebhook(ctx, provider, data)
+	require.NoError(t, err)
+
+	select {
+	case rid := <-received:
+		assert.Equal(t, "my-rid", rid)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Timed out waiting for webhook request")
+	}
 }
 
 func TestNotificationService_TestProvider_Errors(t *testing.T) {
@@ -537,7 +565,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		svc.CreateProvider(&provider)
 
 		// Should complete without error
-		svc.SendExternal("proxy_host", "Title", "Message", nil)
+		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 		time.Sleep(50 * time.Millisecond)
 	})
 
@@ -580,9 +608,9 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		require.False(t, saved.NotifyUptime, "NotifyUptime should be false")
 		require.False(t, saved.NotifyCerts, "NotifyCerts should be false")
 
-		svc.SendExternal("proxy_host", "Title", "Message", nil)
-		svc.SendExternal("uptime", "Title", "Message", nil)
-		svc.SendExternal("cert", "Title", "Message", nil)
+		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
+		svc.SendExternal(context.Background(), "uptime", "Title", "Message", nil)
+		svc.SendExternal(context.Background(), "cert", "Title", "Message", nil)
 		time.Sleep(50 * time.Millisecond)
 	})
 
@@ -615,7 +643,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		customData := map[string]interface{}{
 			"CustomField": "test-value",
 		}
-		svc.SendExternal("proxy_host", "Title", "Message", customData)
+		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", customData)
 		time.Sleep(100 * time.Millisecond)
 
 		assert.Equal(t, "test-value", receivedCustom.Load().(string))
@@ -690,11 +718,11 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 
 	t.Run("invalid custom template on create", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name:   "Bad Custom",
-			Type:   "webhook",
-			URL:    "http://example.com",
+			Name:     "Bad Custom",
+			Type:     "webhook",
+			URL:      "http://example.com",
 			Template: "custom",
-			Config: `{"bad": "{{.Title"}`,
+			Config:   `{"bad": "{{.Title"}`,
 		}
 		err := svc.CreateProvider(&provider)
 		assert.Error(t, err)
@@ -702,9 +730,9 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 
 	t.Run("invalid custom template on update", func(t *testing.T) {
 		provider := models.NotificationProvider{
-			Name:   "Valid",
-			Type:   "webhook",
-			URL:    "http://example.com",
+			Name:     "Valid",
+			Type:     "webhook",
+			URL:      "http://example.com",
 			Template: "minimal",
 		}
 		err := svc.CreateProvider(&provider)

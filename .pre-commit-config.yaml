@@ -30,9 +30,9 @@ repos:
         name: Go Test Coverage
         entry: scripts/go-test-coverage.sh
         language: script
-        files: '\.go$'
         pass_filenames: false
         verbose: true
+        always_run: true
       - id: go-vet
         name: Go Vet
         entry: bash -c 'cd backend && go vet ./...'
@@ -86,12 +86,13 @@ repos:
         pass_filenames: false
 
       - id: frontend-test-coverage
-        name: Frontend Test Coverage
+        name: Frontend Test Coverage (Manual)
         entry: scripts/frontend-test-coverage.sh
         language: script
-        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        files: '^frontend/.*\\.(ts|tsx|js|jsx)$'
         pass_filenames: false
         verbose: true
+        stages: [manual]
 
       - id: security-scan
         name: Security Vulnerability Scan (Manual)

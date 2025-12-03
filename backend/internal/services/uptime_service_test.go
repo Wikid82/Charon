@@ -169,6 +169,39 @@ func TestUptimeService_ListMonitors(t *testing.T) {
 	assert.Equal(t, "Test Monitor", monitors[0].Name)
 }
 
+func TestUptimeService_GetMonitorByID(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := NewUptimeService(db, ns)
+
+	monitor := models.UptimeMonitor{
+		ID:       "monitor-1",
+		Name:     "Test Monitor",
+		Type:     "http",
+		URL:      "https://example.com",
+		Interval: 60,
+		Enabled:  true,
+		Status:   "up",
+	}
+	db.Create(&monitor)
+
+	t.Run("get existing monitor", func(t *testing.T) {
+		result, err := us.GetMonitorByID(monitor.ID)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, monitor.ID, result.ID)
+		assert.Equal(t, monitor.Name, result.Name)
+		assert.Equal(t, monitor.Type, result.Type)
+		assert.Equal(t, monitor.URL, result.URL)
+	})
+
+	t.Run("get non-existent monitor", func(t *testing.T) {
+		result, err := us.GetMonitorByID("non-existent")
+		assert.Error(t, err)
+		assert.Nil(t, result)
+	})
+}
+
 func TestUptimeService_GetMonitorHistory(t *testing.T) {
 	db := setupUptimeTestDB(t)
 	ns := NewNotificationService(db)

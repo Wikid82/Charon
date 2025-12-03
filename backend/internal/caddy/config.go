@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
+
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
-func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool) (*Config, error) {
+func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
 	// Define log file paths
 	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
 	// storageDir is .../data/caddy/data
@@ -111,7 +113,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		for _, cert := range customCerts {
 			// Validate that custom cert has both certificate and key
 			if cert.Certificate == "" || cert.PrivateKey == "" {
-				fmt.Printf("Warning: Custom certificate %s missing certificate or key, skipping\n", cert.Name)
+				logger.Log().WithField("cert", cert.Name).Warn("Custom certificate missing certificate or key, skipping")
 				continue
 			}
 			loadPEM = append(loadPEM, LoadPEMConfig{
@@ -183,7 +185,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 				continue
 			}
 			if processedDomains[d] {
-				fmt.Printf("Warning: Skipping duplicate domain %s for host %s (Ghost Host detection)\n", d, host.UUID)
+				logger.Log().WithField("domain", d).WithField("host", host.UUID).Warn("Skipping duplicate domain for host (Ghost Host detection)")
 				continue
 			}
 			processedDomains[d] = true
@@ -197,13 +199,82 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
-		// Add Access Control List (ACL) handler if configured
-		if host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
-			aclHandler, err := buildACLHandler(host.AccessList)
+		// Build security pre-handlers for this host, in pipeline order.
+		securityHandlers := make([]Handler, 0)
+
+		// Global decisions (e.g. manual block by IP) are applied first; collect IP blocks where action == "block"
+		decisionIPs := make([]string, 0)
+		for _, d := range decisions {
+			if d.Action == "block" && d.IP != "" {
+				decisionIPs = append(decisionIPs, d.IP)
+			}
+		}
+		if len(decisionIPs) > 0 {
+			// Build a subroute to match these remote IPs and serve 403
+			// Admin whitelist exclusion must be applied: exclude adminWhitelist if present
+			// Build matchParts
+			var matchParts []map[string]interface{}
+			matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": decisionIPs}})
+			if adminWhitelist != "" {
+				adminParts := strings.Split(adminWhitelist, ",")
+				trims := make([]string, 0)
+				for _, p := range adminParts {
+					p = strings.TrimSpace(p)
+					if p == "" {
+						continue
+					}
+					trims = append(trims, p)
+				}
+				if len(trims) > 0 {
+					matchParts = append(matchParts, map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}})
+				}
+			}
+			decHandler := Handler{
+				"handler": "subroute",
+				"routes": []map[string]interface{}{
+					{
+						"match": matchParts,
+						"handle": []map[string]interface{}{
+							{
+								"handler":     "static_response",
+								"status_code": 403,
+								"body":        "Access denied: Blocked by security decision",
+							},
+						},
+						"terminal": true,
+					},
+				},
+			}
+			// Prepend at the start of securityHandlers so it's evaluated first
+			securityHandlers = append(securityHandlers, decHandler)
+		}
+
+		// CrowdSec handler (placeholder) — first in pipeline. The handler builder
+		// now consumes the runtime flag so we can rely on the computed value
+		// rather than requiring a persisted SecurityConfig row to be present.
+		if csH, err := buildCrowdSecHandler(&host, secCfg, crowdsecEnabled); err == nil && csH != nil {
+			securityHandlers = append(securityHandlers, csH)
+		}
+
+		// WAF handler (placeholder) — add according to runtime flag
+		if wafH, err := buildWAFHandler(&host, rulesets, rulesetPaths, secCfg, wafEnabled); err == nil && wafH != nil {
+			securityHandlers = append(securityHandlers, wafH)
+		}
+
+		// Rate Limit handler (placeholder)
+		if rateLimitEnabled {
+			if rlH, err := buildRateLimitHandler(&host, secCfg); err == nil && rlH != nil {
+				securityHandlers = append(securityHandlers, rlH)
+			}
+		}
+
+		// Add Access Control List (ACL) handler if configured and global ACL is enabled
+		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
+			aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
 			if err != nil {
-				fmt.Printf("Warning: Failed to build ACL handler for host %s: %v\n", host.UUID, err)
+				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
 			} else if aclHandler != nil {
-				handlers = append(handlers, aclHandler)
+				securityHandlers = append(securityHandlers, aclHandler)
 			}
 		}
 
@@ -226,6 +297,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
+			// For each location, we want the same security pre-handlers before proxy
+			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -233,9 +307,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						Path: []string{loc.Path, loc.Path + "/*"},
 					},
 				},
-				Handle: []Handler{
-					ReverseProxyHandler(dial, host.WebsocketSupport, host.Application),
-				},
+				Handle:   locHandlers,
 				Terminal: true,
 			}
 			routes = append(routes, locRoute)
@@ -248,21 +320,44 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 		if host.AdvancedConfig != "" {
 			var parsed interface{}
 			if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-				fmt.Printf("Warning: Failed to parse advanced_config for host %s: %v\n", host.UUID, err)
+				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to parse advanced_config for host")
 			} else {
 				switch v := parsed.(type) {
 				case map[string]interface{}:
 					// Append as a handler
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
+						// Capture ruleset_name if present, remove it from advanced_config,
+						// and set up 'include' array for coraza-caddy plugin.
+						if rn, has := v["ruleset_name"]; has {
+							if rnStr, ok := rn.(string); ok && rnStr != "" {
+								// Set 'include' array with the ruleset file path for coraza-caddy
+								if rulesetPaths != nil {
+									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
+										v["include"] = []string{p}
+									}
+								}
+							}
+							delete(v, "ruleset_name")
+						}
 						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
-						fmt.Printf("Warning: advanced_config for host %s is not a handler object\n", host.UUID)
+						logger.Log().WithField("host", host.UUID).Warn("advanced_config for host is not a handler object")
 					}
 				case []interface{}:
 					for _, it := range v {
 						if m, ok := it.(map[string]interface{}); ok {
+							if rn, has := m["ruleset_name"]; has {
+								if rnStr, ok := rn.(string); ok && rnStr != "" {
+									if rulesetPaths != nil {
+										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
+											m["include"] = []string{p}
+										}
+									}
+								}
+								delete(m, "ruleset_name")
+							}
 							normalizeHandlerHeaders(m)
 							if _, ok2 := m["handler"]; ok2 {
 								handlers = append(handlers, Handler(m))
@@ -270,11 +365,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 						}
 					}
 				default:
-					fmt.Printf("Warning: advanced_config for host %s has unexpected JSON structure\n", host.UUID)
+					logger.Log().WithField("host", host.UUID).Warn("advanced_config for host has unexpected JSON structure")
 				}
 			}
 		}
-		mainHandlers := append(handlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
+		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
 
 		route := &Route{
 			Match: []Match{
@@ -397,7 +494,7 @@ func NormalizeAdvancedConfig(parsed interface{}) interface{} {
 }
 
 // buildACLHandler creates access control handlers based on the AccessList configuration
-func buildACLHandler(acl *models.AccessList) (Handler, error) {
+func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
 
@@ -411,24 +508,43 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 		var expression string
 		if acl.Type == "geo_whitelist" {
-			// Allow only these countries
+			// Allow only these countries, so block when not in the whitelist
 			expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
-		} else {
-			// geo_blacklist: Block these countries
-			expression = fmt.Sprintf("{geoip2.country_code} not_in [%s]", strings.Join(trimmedCodes, ", "))
+			// For whitelist, block when NOT in the list
+			return Handler{
+				"handler": "subroute",
+				"routes": []map[string]interface{}{
+					{
+						"match": []map[string]interface{}{
+							{
+								"not": []map[string]interface{}{
+									{
+										"expression": expression,
+									},
+								},
+							},
+						},
+						"handle": []map[string]interface{}{
+							{
+								"handler":     "static_response",
+								"status_code": 403,
+								"body":        "Access denied: Geographic restriction",
+							},
+						},
+						"terminal": true,
+					},
+				},
+			}, nil
 		}
-
+		// geo_blacklist: Block these countries directly
+		expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
 				{
 					"match": []map[string]interface{}{
 						{
-							"not": []map[string]interface{}{
-								{
-									"expression": expression,
-								},
-							},
+							"expression": expression,
 						},
 					},
 					"handle": []map[string]interface{}{
@@ -506,6 +622,17 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 	if acl.Type == "whitelist" {
 		// Allow only these IPs (block everything else)
+		// Merge adminWhitelist into allowed cidrs so that admins always bypass whitelist checks
+		if adminWhitelist != "" {
+			adminParts := strings.Split(adminWhitelist, ",")
+			for _, p := range adminParts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				cidrs = append(cidrs, p)
+			}
+		}
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
@@ -536,17 +663,33 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else)
+		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
+		var adminExclusion interface{}
+		if adminWhitelist != "" {
+			adminParts := strings.Split(adminWhitelist, ",")
+			trims := make([]string, 0)
+			for _, p := range adminParts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				trims = append(trims, p)
+			}
+			if len(trims) > 0 {
+				adminExclusion = map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}}
+			}
+		}
+		// Build matcher parts
+		matchParts := []map[string]interface{}{}
+		matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": cidrs}})
+		if adminExclusion != nil {
+			matchParts = append(matchParts, adminExclusion.(map[string]interface{}))
+		}
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]interface{}{
 				{
-					"match": []map[string]interface{}{
-						{
-							"remote_ip": map[string]interface{}{
-								"ranges": cidrs,
-							},
-						},
-					},
+					"match": matchParts,
 					"handle": []map[string]interface{}{
 						{
 							"handler":     "static_response",
@@ -561,4 +704,84 @@ func buildACLHandler(acl *models.AccessList) (Handler, error) {
 	}
 
 	return nil, nil
+}
+
+// buildCrowdSecHandler returns a placeholder CrowdSec handler. In a future
+// implementation this can be replaced with a proper Caddy plugin integration
+// to call into a local CrowdSec agent.
+func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
+	// The computed flag incorporates runtime overrides and global Cerberus enablement.
+	if !crowdsecEnabled {
+		return nil, nil
+	}
+	// For now, the local-only mode is supported; crowdsecEnabled implies 'local'
+	h := Handler{"handler": "crowdsec"}
+	h["mode"] = "local"
+	return h, nil
+}
+
+// buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
+// This is a stub; integration with a Coraza caddy plugin would be required
+// for real runtime enforcement.
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
+	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
+	var hostRulesetName string
+	if host != nil && host.AdvancedConfig != "" {
+		var ac map[string]interface{}
+		if err := json.Unmarshal([]byte(host.AdvancedConfig), &ac); err == nil {
+			if rn, ok := ac["ruleset_name"]; ok {
+				if rnStr, ok2 := rn.(string); ok2 && rnStr != "" {
+					hostRulesetName = rnStr
+				}
+			}
+		}
+	}
+
+	// Find a ruleset to associate with WAF; prefer name match by host.Application, host.AdvancedConfig ruleset_name or default 'owasp-crs'
+	var selected *models.SecurityRuleSet
+	for i, r := range rulesets {
+		if r.Name == "owasp-crs" || (host != nil && r.Name == host.Application) || (hostRulesetName != "" && r.Name == hostRulesetName) || (secCfg != nil && r.Name == secCfg.WAFRulesSource) {
+			selected = &rulesets[i]
+			break
+		}
+	}
+
+	if !wafEnabled {
+		return nil, nil
+	}
+	h := Handler{"handler": "waf"}
+	if selected != nil {
+		if rulesetPaths != nil {
+			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
+				h["include"] = []string{p}
+			}
+		}
+	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
+		// If there was a requested ruleset name but nothing matched, include path if known
+		if rulesetPaths != nil {
+			if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
+				h["include"] = []string{p}
+			}
+		}
+	}
+	// WAF enablement is handled by the caller. Don't add a 'mode' field
+	// here because the module expects a specific configuration schema.
+	if secCfg != nil && secCfg.WAFMode == "disabled" {
+		return nil, nil
+	}
+	return h, nil
+}
+
+// buildRateLimitHandler returns a placeholder for a rate-limit handler.
+// Real implementation should use the relevant Caddy module/plugin when available.
+func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
+	// If host has custom rate limit metadata we could parse and construct it.
+	h := Handler{"handler": "rate_limit"}
+	if secCfg != nil && secCfg.RateLimitRequests > 0 && secCfg.RateLimitWindowSec > 0 {
+		h["requests"] = secCfg.RateLimitRequests
+		h["window_sec"] = secCfg.RateLimitWindowSec
+		h["burst"] = secCfg.RateLimitBurst
+	}
+	return h, nil
 }

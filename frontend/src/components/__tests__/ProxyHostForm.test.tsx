@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProxyHostForm from '../ProxyHostForm'
+import type { ProxyHost } from '../../api/proxyHosts'
 import { mockRemoteServers } from '../../test/mockData'
 
 // Mock the hooks
@@ -445,7 +446,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('auto-populates advanced_config when selecting plex preset and field empty', async () => {
-      renderWithClient(
+      await renderWithClientAct(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -488,7 +489,7 @@ describe('ProxyHostForm', () => {
       }
 
       renderWithClient(
-        <ProxyHostForm host={existingHost as any} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+        <ProxyHostForm host={existingHost as ProxyHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
       // Select Plex preset (should prompt since advanced_config is non-empty)
@@ -531,7 +532,7 @@ describe('ProxyHostForm', () => {
       }
 
       renderWithClient(
-        <ProxyHostForm host={existingHost as any} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+        <ProxyHostForm host={existingHost as ProxyHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
       // The restore button should be visible
@@ -609,7 +610,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('does not show config helper when preset is none', async () => {
-      renderWithClient(
+      await renderWithClientAct(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 

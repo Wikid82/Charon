@@ -34,7 +34,8 @@ export function useProxyHosts() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (uuid: string) => deleteProxyHost(uuid),
+    mutationFn: (opts: { uuid: string; deleteUptime?: boolean } | string) =>
+      typeof opts === 'string' ? deleteProxyHost(opts) : (opts.deleteUptime !== undefined ? deleteProxyHost(opts.uuid, opts.deleteUptime) : deleteProxyHost(opts.uuid)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
@@ -55,7 +56,7 @@ export function useProxyHosts() {
     error: query.error ? (query.error as Error).message : null,
     createHost: createMutation.mutateAsync,
     updateHost: (uuid: string, data: Partial<ProxyHost>) => updateMutation.mutateAsync({ uuid, data }),
-    deleteHost: deleteMutation.mutateAsync,
+    deleteHost: (uuid: string, deleteUptime?: boolean) => deleteMutation.mutateAsync(deleteUptime !== undefined ? { uuid, deleteUptime } : uuid),
     bulkUpdateACL: (hostUUIDs: string[], accessListID: number | null) =>
       bulkUpdateACLMutation.mutateAsync({ hostUUIDs, accessListID }),
     isCreating: createMutation.isPending,
