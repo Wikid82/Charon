@@ -18,7 +18,7 @@ ARG CADDY_VERSION=2.10.2
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
-ARG CADDY_IMAGE=alpine:3.18
+ARG CADDY_IMAGE=alpine:3.22
 
 # ---- Cross-Compilation Helpers ----
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
