@@ -14,7 +14,8 @@ cd "$BACKEND_DIR"
 # exit if certain coverage tooling is unavailable (e.g. covdata) while still
 # producing a usable coverage file. Don't fail immediately — allow the script
 # to continue and check whether the coverage file exists.
-if ! go test -mod=readonly -coverprofile="$COVERAGE_FILE" ./internal/...; then
+# Note: Using -v for verbose output and -race for race detection
+if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
     echo "Warning: go test returned non-zero; checking coverage file presence"
 fi
 

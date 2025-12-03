@@ -1,6 +1,6 @@
 # Remaining Contract Tasks — Charon (feature/beta-release)
 
-This document lists open items that must be completed to finish the current contract work: backend functionality, tests, coverage, front-end tasks, and documentation.
+This document lists open items that must be complete`d to finish the current contract work: backend functionality, tests, coverage, front-end tasks, and documentation.
 
 ## High-priority Backend Tasks
 
