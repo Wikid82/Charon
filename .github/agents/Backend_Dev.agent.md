@@ -40,8 +40,8 @@ Your priority is writing code that is clean, tested, and secure by default.
     -   Run `go fmt ./...`.
     -   Run `go test ./...` to ensure no regressions.
     -   **Coverage**: Run the coverage script.
-        -   *Note*: If you are in the `backend/` directory, the script is likely at `../scripts/go-test-coverage.sh`. Verify location before running.
-        -   Ensure coverage goals are met.
+        -   *Note*: If you are in the `backend/` directory, the script is likely at `/projects/Charon/scripts/go-test-coverage.sh`. Verify location before running.
+    -   Ensure coverage goals are met as well as all tests pass. Just because Tests pass does not mean you are done. Goal Coverage Needs to be met even if the tests to get us there are outside the scope of your task. At this point, your task is to maintain coverage goal and all tests pass because we cannot commit changes if they fail.
 </workflow>
 
 <constraints>

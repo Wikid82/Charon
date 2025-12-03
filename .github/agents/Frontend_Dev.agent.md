@@ -47,6 +47,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
     -   **Gate 3: Coverage**:
         -   Run `npm run check-coverage`.
         -   Ensure the script executes successfully and coverage goals are met.
+        -   Ensure coverage goals are met as well as all tests pass. Just because Tests pass does not mean you are done. Goal Coverage Needs to be met even if the tests to get us there are outside the scope of your task. At this point, your task is to maintain coverage goal and all tests pass because we cannot commit changes if they fail.
 </workflow>
 
 <constraints>
