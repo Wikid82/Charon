@@ -60,21 +60,21 @@ jobs:
           # Export the tag for downstream steps
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
 
       - name: Check for existing GitHub Release
         id: check_release
         run: |
           TAG=${{ steps.create_tag.outputs.tag }}
           echo "Checking for release for tag: ${TAG}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${CHARON_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
           if [ "${STATUS}" = "200" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
 
       - name: Create GitHub Release (tag-only, no workspace changes)
         if: ${{ steps.semver.outputs.changed && steps.check_release.outputs.exists == 'false' }}
@@ -84,4 +84,4 @@ jobs:
           name: Release ${{ steps.create_tag.outputs.tag }}
           body: ${{ steps.semver.outputs.release_notes }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
