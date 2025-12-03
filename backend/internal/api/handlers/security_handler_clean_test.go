@@ -119,6 +119,25 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	assert.Equal(t, true, acl["enabled"].(bool))
 }
 
+func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	router := gin.New()
+	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/security/breakglass/generate", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	token, ok := resp["token"].(string)
+	assert.True(t, ok)
+	assert.NotEmpty(t, token)
+}
+
 func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

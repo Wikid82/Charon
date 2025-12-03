@@ -34,6 +34,7 @@ func setupUptimeHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	uptime.GET(":id/history", handler.GetHistory)
 	uptime.PUT(":id", handler.Update)
 	uptime.DELETE(":id", handler.Delete)
+	uptime.POST(":id/check", handler.CheckMonitor)
 	uptime.POST("/sync", handler.Sync)
 
 	return r, db
@@ -98,6 +99,30 @@ func TestUptimeHandler_GetHistory(t *testing.T) {
 	assert.Len(t, history, 2)
 	// Should be ordered by created_at desc
 	assert.Equal(t, "down", history[0].Status)
+}
+
+func TestUptimeHandler_CheckMonitor(t *testing.T) {
+	r, db := setupUptimeHandlerTest(t)
+
+	// Create monitor
+	monitor := models.UptimeMonitor{ID: "check-mon-1", Name: "Check Monitor", Type: "http", URL: "http://example.com"}
+	db.Create(&monitor)
+
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/check-mon-1/check", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUptimeHandler_CheckMonitor_NotFound(t *testing.T) {
+	r, _ := setupUptimeHandlerTest(t)
+
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/nonexistent/check", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestUptimeHandler_Update(t *testing.T) {
