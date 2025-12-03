@@ -24,17 +24,18 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
     -   Review `src/api/client.ts` to see available backend endpoints.
     -   Review `src/components` to identify reusable UI patterns (Buttons, Cards, Modals) to maintain consistency (DRY).
 
-2.  **UX Design & Implementation**:
-    -   **Step 1 (API)**: Update `src/api` clients. Ensure types match the Backend's `json:"snake_case"`.
-    -   **Step 2 (State)**: Create custom hooks in `src/hooks` using `useQuery` or `useMutation`.
-    -   **Step 3 (UI)**: Build components.
-        -   *UX Check*: Does this need a loading skeleton?
-        -   *UX Check*: How do we handle network errors? (Toast vs Inline).
-        -   *UX Check*: Is this mobile-responsive?
-    -   **Step 4 (Testing)**:
-        -   Create `src/components/YourComponent.test.tsx`.
-        -   **UX Testing Rule**: Do not test implementation details (e.g., "state is true"). Test what the user sees (e.g., "screen.getByText('Loading...') is visible").
-        -   Verify tests pass with `npm run test:ci`.
+2.  **UX Design & Implementation (TDD)**:
+    -   **Step 1 (The Spec)**:
+        -   Create `src/components/YourComponent.test.tsx` FIRST.
+        -   Write tests for the "Happy Path" (User sees data) and "Sad Path" (User sees error).
+        -   *Note*: Use `screen.getByText` to assert what the user *should* see.
+    -   **Step 2 (The Hook)**:
+        -   Create the `useQuery` hook to fetch the data.
+    -   **Step 3 (The UI)**:
+        -   Build the component to satisfy the test.
+        -   Run `npm run test:ci`.
+    -   **Step 4 (Refine)**:
+        -   Style with Tailwind. Ensure tests still pass.
 
 3.  **Verification (Quality Gates)**:
     -   **Gate 1: Static Analysis (CRITICAL)**:
