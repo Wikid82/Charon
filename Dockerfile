@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:1.25.4-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -98,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM --platform=$BUILDPLATFORM golang:1.25.4-alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
