@@ -18,6 +18,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+// ErrCertInUse is returned when a certificate is linked to one or more proxy hosts.
+var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts")
+
 // CertificateInfo represents parsed certificate details.
 type CertificateInfo struct {
 	ID        uint      `json:"id,omitempty"`
@@ -383,8 +386,26 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM string) (*m
 	return sslCert, nil
 }
 
+// IsCertificateInUse checks if a certificate is referenced by any proxy host.
+func (s *CertificateService) IsCertificateInUse(id uint) (bool, error) {
+	var count int64
+	if err := s.db.Model(&models.ProxyHost{}).Where("certificate_id = ?", id).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check certificate linkage: %w", err)
+	}
+	return count > 0, nil
+}
+
 // DeleteCertificate removes a certificate.
 func (s *CertificateService) DeleteCertificate(id uint) error {
+	// Prevent deletion if the certificate is referenced by any proxy host
+	inUse, err := s.IsCertificateInUse(id)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return ErrCertInUse
+	}
+
 	var cert models.SSLCertificate
 	if err := s.db.First(&cert, id).Error; err != nil {
 		return err
@@ -417,10 +438,10 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 		})
 	}
 
-	err := s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error
-	if err == nil {
-		// Invalidate cache so the deleted cert disappears immediately
-		s.InvalidateCache()
+	if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", id).Error; err != nil {
+		return err
 	}
-	return err
+	// Invalidate cache so the deleted cert disappears immediately
+	s.InvalidateCache()
+	return nil
 }

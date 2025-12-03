@@ -146,3 +146,149 @@ func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
 	err = svc.Upsert(cfg)
 	assert.NoError(t, err)
 }
+
+func TestSecurityService_GenerateBreakGlassToken_NewConfig(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Generate token for non-existent config (should create it)
+	token, err := svc.GenerateBreakGlassToken("newconfig")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, token)
+	assert.Greater(t, len(token), 20) // Should be hex-encoded 24 bytes = 48 chars
+
+	// Verify the token works
+	ok, err := svc.VerifyBreakGlassToken("newconfig", token)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	// Verify config was created with hash
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "newconfig").First(&cfg).Error
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cfg.BreakGlassHash)
+}
+
+func TestSecurityService_GenerateBreakGlassToken_UpdateExisting(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create initial config
+	cfg := &models.SecurityConfig{Name: "default", Enabled: true}
+	err := svc.Upsert(cfg)
+	assert.NoError(t, err)
+
+	// Generate first token
+	token1, err := svc.GenerateBreakGlassToken("default")
+	assert.NoError(t, err)
+
+	// Generate second token (should replace first)
+	token2, err := svc.GenerateBreakGlassToken("default")
+	assert.NoError(t, err)
+	assert.NotEqual(t, token1, token2)
+
+	// First token should no longer work
+	ok, err := svc.VerifyBreakGlassToken("default", token1)
+	assert.Error(t, err)
+	assert.False(t, ok)
+
+	// Second token should work
+	ok, err = svc.VerifyBreakGlassToken("default", token2)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+}
+
+func TestSecurityService_VerifyBreakGlassToken_NoConfig(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Verify against non-existent config
+	ok, err := svc.VerifyBreakGlassToken("nonexistent", "anytoken")
+	assert.Error(t, err)
+	assert.Equal(t, ErrSecurityConfigNotFound, err)
+	assert.False(t, ok)
+}
+
+func TestSecurityService_VerifyBreakGlassToken_NoHash(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create config without break-glass hash
+	cfg := &models.SecurityConfig{Name: "default", Enabled: true, BreakGlassHash: ""}
+	err := svc.Upsert(cfg)
+	assert.NoError(t, err)
+
+	// Verify should fail with no hash
+	ok, err := svc.VerifyBreakGlassToken("default", "anytoken")
+	assert.Error(t, err)
+	assert.Equal(t, ErrBreakGlassInvalid, err)
+	assert.False(t, ok)
+}
+
+func TestSecurityService_VerifyBreakGlassToken_WrongToken(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Generate valid token
+	token, err := svc.GenerateBreakGlassToken("default")
+	assert.NoError(t, err)
+
+	// Try various wrong tokens
+	testCases := []string{
+		"",
+		"wrongtoken",
+		"x" + token,
+		token[:len(token)-1],
+		strings.ToUpper(token),
+	}
+
+	for _, wrongToken := range testCases {
+		ok, err := svc.VerifyBreakGlassToken("default", wrongToken)
+		assert.Error(t, err, "Token should fail: %s", wrongToken)
+		assert.Equal(t, ErrBreakGlassInvalid, err)
+		assert.False(t, ok)
+	}
+}
+
+func TestSecurityService_Get_NotFound(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Get from empty database
+	cfg, err := svc.Get()
+	assert.Error(t, err)
+	assert.Equal(t, ErrSecurityConfigNotFound, err)
+	assert.Nil(t, cfg)
+}
+
+func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Generate token
+	token, err := svc.GenerateBreakGlassToken("default")
+	assert.NoError(t, err)
+
+	// Get the hash
+	var cfg models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&cfg).Error
+	assert.NoError(t, err)
+	originalHash := cfg.BreakGlassHash
+
+	// Update other fields
+	cfg.Enabled = true
+	cfg.AdminWhitelist = "10.0.0.0/8"
+	err = svc.Upsert(&cfg)
+	assert.NoError(t, err)
+
+	// Verify hash is preserved
+	var updated models.SecurityConfig
+	err = db.Where("name = ?", "default").First(&updated).Error
+	assert.NoError(t, err)
+	assert.Equal(t, originalHash, updated.BreakGlassHash)
+
+	// Original token should still work
+	ok, err := svc.VerifyBreakGlassToken("default", token)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+}

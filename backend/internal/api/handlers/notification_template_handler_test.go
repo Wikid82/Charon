@@ -81,3 +81,51 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestNotificationTemplateHandler_Create_InvalidJSON(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+	r := gin.New()
+	r.POST("/api/templates", h.Create)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/templates", strings.NewReader(`{invalid}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationTemplateHandler_Update_InvalidJSON(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+	r := gin.New()
+	r.PUT("/api/templates/:id", h.Update)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/templates/test-id", strings.NewReader(`{invalid}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNotificationTemplateHandler_Preview_InvalidJSON(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NotificationTemplate{}))
+	svc := services.NewNotificationService(db)
+	h := NewNotificationTemplateHandler(svc)
+	r := gin.New()
+	r.POST("/api/templates/preview", h.Preview)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/templates/preview", strings.NewReader(`{invalid}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}

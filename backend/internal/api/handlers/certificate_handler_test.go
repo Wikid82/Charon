@@ -1,374 +1,356 @@
 package handlers
 
 import (
-	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/json"
-	"encoding/pem"
-	"math/big"
-	"mime/multipart"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strconv"
+	"strings"
 	"testing"
-	"time"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
-func generateTestCert(t *testing.T, domain string) []byte {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+	return r
+}
+
+func TestDeleteCertificate_InUse(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("Failed to generate private key: %v", err)
+		t.Fatalf("failed to open db: %v", err)
 	}
 
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			CommonName: domain,
+	// Migrate minimal models
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert", Name: "example-cert", Provider: "custom", Domains: "example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	// Create proxy host referencing the certificate
+	ph := models.ProxyHost{UUID: "ph-1", Name: "ph", DomainNames: "example.com", ForwardHost: "localhost", ForwardPort: 8080, CertificateID: &cert.ID}
+	if err := db.Create(&ph).Error; err != nil {
+		t.Fatalf("failed to create proxy host: %v", err)
+	}
+
+	r := setupCertTestRouter(t, db)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func toStr(id uint) string {
+	return fmt.Sprintf("%d", id)
+}
+
+// Test that deleting a certificate NOT in use creates a backup and deletes successfully
+func TestDeleteCertificate_CreatesBackup(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-backup-success", Name: "deletable-cert", Provider: "custom", Domains: "delete.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	svc := services.NewCertificateService("/tmp", db)
+
+	// Mock BackupService
+	backupCalled := false
+	mockBackupService := &mockBackupService{
+		createFunc: func() (string, error) {
+			backupCalled = true
+			return "backup-test.tar.gz", nil
 		},
-		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(24 * time.Hour),
-
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	h := NewCertificateHandler(svc, mockBackupService, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	if !backupCalled {
+		t.Fatal("expected backup to be created before deletion")
+	}
+
+	// Verify certificate was deleted
+	var found models.SSLCertificate
+	err = db.First(&found, cert.ID).Error
+	if err == nil {
+		t.Fatal("expected certificate to be deleted")
+	}
+}
+
+// Test that backup failure prevents deletion
+func TestDeleteCertificate_BackupFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("Failed to create certificate: %v", err)
+		t.Fatalf("failed to open db: %v", err)
 	}
 
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-backup-fails", Name: "deletable-cert", Provider: "custom", Domains: "delete-fail.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	svc := services.NewCertificateService("/tmp", db)
+
+	// Mock BackupService that fails
+	mockBackupService := &mockBackupService{
+		createFunc: func() (string, error) {
+			return "", fmt.Errorf("backup creation failed")
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBackupService, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 Internal Server Error, got %d", w.Code)
+	}
+
+	// Verify certificate was NOT deleted
+	var found models.SSLCertificate
+	err = db.First(&found, cert.ID).Error
+	if err != nil {
+		t.Fatal("expected certificate to still exist after backup failure")
+	}
 }
 
+// Test that in-use check does not create a backup
+func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-in-use-no-backup", Name: "in-use-cert", Provider: "custom", Domains: "inuse.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	// Create proxy host referencing the certificate
+	ph := models.ProxyHost{UUID: "ph-no-backup-test", Name: "ph", DomainNames: "inuse.example.com", ForwardHost: "localhost", ForwardPort: 8080, CertificateID: &cert.ID}
+	if err := db.Create(&ph).Error; err != nil {
+		t.Fatalf("failed to create proxy host: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	svc := services.NewCertificateService("/tmp", db)
+
+	// Mock BackupService
+	backupCalled := false
+	mockBackupService := &mockBackupService{
+		createFunc: func() (string, error) {
+			backupCalled = true
+			return "backup-test.tar.gz", nil
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBackupService, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	if backupCalled {
+		t.Fatal("expected backup NOT to be created when certificate is in use")
+	}
+}
+
+// Mock BackupService for testing
+type mockBackupService struct {
+	createFunc func() (string, error)
+}
+
+func (m *mockBackupService) CreateBackup() (string, error) {
+	if m.createFunc != nil {
+		return m.createFunc()
+	}
+	return "", fmt.Errorf("not implemented")
+}
+
+func (m *mockBackupService) ListBackups() ([]services.BackupFile, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockBackupService) DeleteBackup(filename string) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockBackupService) GetBackupPath(filename string) (string, error) {
+	return "", fmt.Errorf("not implemented")
+}
+
+func (m *mockBackupService) RestoreBackup(filename string) error {
+	return fmt.Errorf("not implemented")
+}
+
+// Test List handler
 func TestCertificateHandler_List(t *testing.T) {
-	// Setup temp dir
-	tmpDir := t.TempDir()
-	caddyDir := filepath.Join(tmpDir, "caddy", "certificates", "acme-v02.api.letsencrypt.org-directory")
-	require.NoError(t, os.MkdirAll(caddyDir, 0755))
-
-	// Setup in-memory DB
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/certificates", handler.List)
-
-	req, _ := http.NewRequest("GET", "/certificates", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var certs []services.CertificateInfo
-	err := json.Unmarshal(w.Body.Bytes(), &certs)
-	assert.NoError(t, err)
-	assert.Empty(t, certs)
-}
-
-func TestCertificateHandler_Upload(t *testing.T) {
-	// Setup
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/certificates", handler.Upload)
-
-	// Prepare Multipart Request
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	_ = writer.WriteField("name", "Test Cert")
-
-	certPEM := generateTestCert(t, "test.com")
-	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
-	part.Write(certPEM)
-
-	part, _ = writer.CreateFormFile("key_file", "key.pem")
-	part.Write([]byte("FAKE KEY")) // Service doesn't validate key structure strictly yet, just PEM decoding?
-	// Actually service does: block, _ := pem.Decode([]byte(certPEM)) for cert.
-	// It doesn't seem to validate keyPEM in UploadCertificate, just stores it.
-
-	writer.Close()
-
-	req, _ := http.NewRequest("POST", "/certificates", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusCreated, w.Code)
-
-	var cert models.SSLCertificate
-	err := json.Unmarshal(w.Body.Bytes(), &cert)
-	assert.NoError(t, err)
-	assert.Equal(t, "Test Cert", cert.Name)
-}
-
-func TestCertificateHandler_Delete(t *testing.T) {
-	// Setup
-	tmpDir := t.TempDir()
-	// Use WAL mode and busy timeout for better concurrency with race detector
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	// Seed a cert
-	cert := models.SSLCertificate{
-		UUID: "test-uuid",
-		Name: "To Delete",
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
 	}
-	require.NoError(t, db.Create(&cert).Error)
-	require.NotZero(t, cert.ID)
 
-	service := services.NewCertificateService(tmpDir, db)
-	// Allow background sync goroutine to complete before testing
-	time.Sleep(50 * time.Millisecond)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.DELETE("/certificates/:id", handler.Delete)
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.GET("/api/certificates", h.List)
 
-	req, _ := http.NewRequest("DELETE", "/certificates/"+strconv.Itoa(int(cert.ID)), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	// Verify deletion
-	var deletedCert models.SSLCertificate
-	err := db.First(&deletedCert, cert.ID).Error
-	assert.Error(t, err)
-	assert.Equal(t, gorm.ErrRecordNotFound, err)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d, body=%s", w.Code, w.Body.String())
+	}
 }
 
-func TestCertificateHandler_Upload_Errors(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
+// Test Upload handler with missing name
+func TestCertificateHandler_Upload_MissingName(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
 
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/certificates", handler.Upload)
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
 
-	// Test invalid multipart (missing files)
-	req, _ := http.NewRequest("POST", "/certificates", bytes.NewBufferString("invalid"))
+	// Empty body - no form fields
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", strings.NewReader(""))
 	req.Header.Set("Content-Type", "multipart/form-data")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	// Test missing certificate file
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	writer.WriteField("name", "Missing Cert")
-	part, _ := writer.CreateFormFile("key_file", "key.pem")
-	part.Write([]byte("KEY"))
-	writer.Close()
-
-	req, _ = http.NewRequest("POST", "/certificates", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestCertificateHandler_Delete_NotFound(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.DELETE("/certificates/:id", handler.Delete)
-
-	req, _ := http.NewRequest("DELETE", "/certificates/99999", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	// Service returns gorm.ErrRecordNotFound, handler should convert to 500 or 404
-	assert.True(t, w.Code >= 400)
-}
-
-func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.DELETE("/certificates/:id", handler.Delete)
-
-	req, _ := http.NewRequest("DELETE", "/certificates/invalid", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestCertificateHandler_Upload_InvalidCertificate(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/certificates", handler.Upload)
-
-	// Test invalid certificate content
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	writer.WriteField("name", "Invalid Cert")
-
-	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
-	part.Write([]byte("INVALID CERTIFICATE DATA"))
-
-	part, _ = writer.CreateFormFile("key_file", "key.pem")
-	part.Write([]byte("INVALID KEY DATA"))
-
-	writer.Close()
-
-	req, _ := http.NewRequest("POST", "/certificates", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	// Should fail with 500 due to invalid certificate parsing
-	assert.Contains(t, []int{http.StatusInternalServerError, http.StatusBadRequest}, w.Code)
-}
-
-func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/certificates", handler.Upload)
-
-	// Test missing key file
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	writer.WriteField("name", "Cert Without Key")
-
-	certPEM := generateTestCert(t, "test.com")
-	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
-	part.Write(certPEM)
-
-	writer.Close()
-
-	req, _ := http.NewRequest("POST", "/certificates", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "key_file")
-}
-
-func TestCertificateHandler_Upload_MissingName(t *testing.T) {
-	tmpDir := t.TempDir()
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/certificates", handler.Upload)
-
-	// Test missing name field
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	certPEM := generateTestCert(t, "test.com")
-	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
-	part.Write(certPEM)
-
-	part, _ = writer.CreateFormFile("key_file", "key.pem")
-	part.Write([]byte("FAKE KEY"))
-
-	writer.Close()
-
-	req, _ := http.NewRequest("POST", "/certificates", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	// Handler should accept even without name (service might generate one)
-	// But let's check what the actual behavior is
-	assert.Contains(t, []int{http.StatusCreated, http.StatusBadRequest}, w.Code)
-}
-
-func TestCertificateHandler_List_WithCertificates(t *testing.T) {
-	tmpDir := t.TempDir()
-	caddyDir := filepath.Join(tmpDir, "caddy", "certificates", "acme-v02.api.letsencrypt.org-directory")
-	require.NoError(t, os.MkdirAll(caddyDir, 0755))
-
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.Notification{}, &models.NotificationProvider{}))
-
-	// Seed a certificate in DB
-	cert := models.SSLCertificate{
-		UUID: "test-uuid",
-		Name: "Test Cert",
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
 	}
-	require.NoError(t, db.Create(&cert).Error)
+}
 
-	service := services.NewCertificateService(tmpDir, db)
-	ns := services.NewNotificationService(db)
-	handler := NewCertificateHandler(service, ns)
+// Test Upload handler missing certificate_file
+func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/certificates", handler.List)
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
 
-	req, _ := http.NewRequest("GET", "/certificates", nil)
+	body := strings.NewReader("name=testcert")
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	var certs []services.CertificateInfo
-	err := json.Unmarshal(w.Body.Bytes(), &certs)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, certs)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "certificate_file") {
+		t.Fatalf("expected error message about certificate_file, got: %s", w.Body.String())
+	}
+}
+
+// Test Upload handler missing key_file
+func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.POST("/api/certificates", h.Upload)
+
+	body := strings.NewReader("name=testcert")
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
 }

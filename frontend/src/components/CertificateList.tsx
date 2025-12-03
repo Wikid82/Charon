@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import { useCertificates } from '../hooks/useCertificates'
 import { deleteCertificate } from '../api/certificates'
+import { useProxyHosts } from '../hooks/useProxyHosts'
+import { createBackup } from '../api/backups'
 import { LoadingSpinner } from './LoadingStates'
 import { toast } from '../utils/toast'
 
@@ -11,14 +13,20 @@ type SortDirection = 'asc' | 'desc'
 
 export default function CertificateList() {
   const { certificates, isLoading, error } = useCertificates()
+  const { hosts } = useProxyHosts()
   const queryClient = useQueryClient()
   const [sortColumn, setSortColumn] = useState<SortColumn>('name')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
 
   const deleteMutation = useMutation({
-    mutationFn: deleteCertificate,
+    // Perform backup before actual deletion
+    mutationFn: async (id: number) => {
+      await createBackup()
+      await deleteCertificate(id)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
+      queryClient.invalidateQueries({ queryKey: ['proxyHosts'] })
       toast.success('Certificate deleted')
     },
     onError: (error: Error) => {
@@ -125,11 +133,29 @@ export default function CertificateList() {
                     <StatusBadge status={cert.status} />
                   </td>
                   <td className="px-6 py-4">
-                    {cert.id && (cert.provider === 'custom' || cert.issuer?.includes('staging')) && (
+                    {cert.id && (cert.provider === 'custom' || cert.issuer?.toLowerCase().includes('staging')) && (
                       <button
                         onClick={() => {
+                          // Determine if certificate is in use by any proxy host
+                          const inUse = hosts.some(h => {
+                            const cid = h.certificate_id ?? h.certificate?.id
+                            return cid === cert.id
+                          })
+
+                          if (inUse) {
+                            toast.error('Certificate cannot be deleted because it is in use by a proxy host')
+                            return
+                          }
+
+                          // Only allow deletion for non-active statuses
+                          const isDeletableStatus = cert.status !== 'valid' && cert.status !== 'expiring'
+                          if (!isDeletableStatus) {
+                            toast.error('Only expired or deactivated certificates can be deleted')
+                            return
+                          }
+
                           const message = cert.provider === 'custom'
-                            ? 'Are you sure you want to delete this certificate?'
+                            ? 'Are you sure you want to delete this certificate? This will create a backup before deleting.'
                             : 'Delete this staging certificate? It will be regenerated on next request.'
                           if (confirm(message)) {
                             deleteMutation.mutate(cert.id!)
