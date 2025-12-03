@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
@@ -19,18 +18,17 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-func setupTestDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect to test database")
-	}
+func setupTestDB(t *testing.T) *gorm.DB {
+	db := handlers.OpenTestDB(t)
 
-	// Auto migrate
+	// Auto migrate all models that handlers depend on
 	db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
 		&models.RemoteServer{},
 		&models.ImportSession{},
+		&models.Notification{},
+		&models.NotificationProvider{},
 	)
 
 	return db
@@ -38,7 +36,7 @@ func setupTestDB() *gorm.DB {
 
 func TestRemoteServerHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -72,7 +70,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 
 func TestRemoteServerHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)
@@ -105,7 +103,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 
 func TestRemoteServerHandler_TestConnection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -139,7 +137,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 
 func TestRemoteServerHandler_Get(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -172,7 +170,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 
 func TestRemoteServerHandler_Update(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -217,7 +215,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 
 func TestRemoteServerHandler_Delete(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test server
 	server := &models.RemoteServer{
@@ -252,7 +250,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 
 func TestProxyHostHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	// Create test proxy host
 	host := &models.ProxyHost{
@@ -267,7 +265,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 	db.Create(host)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewProxyHostHandler(db, nil, ns)
+	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -287,10 +285,10 @@ func TestProxyHostHandler_List(t *testing.T) {
 
 func TestProxyHostHandler_Create(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
-	handler := handlers.NewProxyHostHandler(db, nil, ns)
+	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
@@ -320,6 +318,63 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	assert.NotEmpty(t, host.UUID)
 }
 
+func TestProxyHostHandler_PartialUpdate_DoesNotWipeFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupTestDB(t)
+
+	// Seed a proxy host
+	original := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Bazarr",
+		DomainNames:   "bazarr.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "10.0.0.20",
+		ForwardPort:   6767,
+		Enabled:       true,
+	}
+	db.Create(original)
+
+	ns := services.NewNotificationService(db)
+	handler := handlers.NewProxyHostHandler(db, nil, ns, nil)
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/v1"))
+
+	// Perform partial update: only toggle enabled=false
+	body := bytes.NewBufferString(`{"enabled": false}`)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/api/v1/proxy-hosts/"+original.UUID, body)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updated models.ProxyHost
+	err := json.Unmarshal(w.Body.Bytes(), &updated)
+	assert.NoError(t, err)
+
+	// Validate that only 'enabled' changed; other fields remain intact
+	assert.Equal(t, false, updated.Enabled)
+	assert.Equal(t, "Bazarr", updated.Name)
+	assert.Equal(t, "bazarr.example.com", updated.DomainNames)
+	assert.Equal(t, "http", updated.ForwardScheme)
+	assert.Equal(t, "10.0.0.20", updated.ForwardHost)
+	assert.Equal(t, 6767, updated.ForwardPort)
+
+	// Fetch via GET to ensure DB persisted state correctly
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/api/v1/proxy-hosts/"+original.UUID, nil)
+	router.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusOK, w2.Code)
+
+	var fetched models.ProxyHost
+	err = json.Unmarshal(w2.Body.Bytes(), &fetched)
+	assert.NoError(t, err)
+	assert.Equal(t, false, fetched.Enabled)
+	assert.Equal(t, "Bazarr", fetched.Name)
+	assert.Equal(t, "bazarr.example.com", fetched.DomainNames)
+	assert.Equal(t, 6767, fetched.ForwardPort)
+}
+
 func TestHealthHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -340,7 +395,7 @@ func TestHealthHandler(t *testing.T) {
 
 func TestRemoteServerHandler_Errors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := setupTestDB()
+	db := setupTestDB(t)
 
 	ns := services.NewNotificationService(db)
 	handler := handlers.NewRemoteServerHandler(services.NewRemoteServerService(db), ns)

@@ -215,13 +215,9 @@ func TestImportHandler_Upload(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/import/upload", bytes.NewBuffer(body))
 	router.ServeHTTP(w, req)
 
-	// The fake caddy script returns empty JSON, so import might fail or succeed with empty result
-	// But Upload calls ImportFile which calls ParseCaddyfile which calls caddy adapt
-	// fake_caddy.sh echoes `{"apps":{}}`
-	// ExtractHosts will return empty result
-	// Upload should succeed
-
-	assert.Equal(t, http.StatusOK, w.Code)
+	// The fake caddy script returns empty JSON, so import may produce zero hosts.
+	// The handler now treats zero-host uploads without imports as a bad request (400).
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestImportHandler_GetPreview_WithContent(t *testing.T) {
@@ -773,6 +769,21 @@ func TestImportHandler_DetectImports(t *testing.T) {
 			assert.Len(t, imports, len(tt.imports))
 		})
 	}
+}
+
+func TestImportHandler_DetectImports_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/detect-imports", handler.DetectImports)
+
+	// Invalid JSON
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/detect-imports", strings.NewReader("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestImportHandler_UploadMulti(t *testing.T) {

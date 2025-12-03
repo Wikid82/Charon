@@ -48,16 +48,10 @@ describe('securityPresets', () => {
       });
     });
 
-    it('blacklist presets have ipRanges', () => {
+    it('no IP-based blacklist presets are included (CrowdSec handles dynamic IP threats)', () => {
       const ipPresets = SECURITY_PRESETS.filter((p) => p.type === 'blacklist');
-      ipPresets.forEach((preset) => {
-        expect(preset.ipRanges).toBeDefined();
-        expect(preset.ipRanges!.length).toBeGreaterThan(0);
-        preset.ipRanges!.forEach((rule) => {
-          expect(rule).toHaveProperty('cidr');
-          expect(rule).toHaveProperty('description');
-        });
-      });
+      // IP-based blacklists are deprecated and should be handled by CrowdSec / WAF / rate limiting
+      expect(ipPresets.length).toBe(0);
     });
   });
 
@@ -84,9 +78,9 @@ describe('securityPresets', () => {
       });
     });
 
-    it('returns advanced category presets', () => {
+    it('returns advanced category presets (may be empty)', () => {
       const advancedPresets = getPresetsByCategory('advanced');
-      expect(advancedPresets.length).toBeGreaterThan(0);
+      expect(Array.isArray(advancedPresets)).toBe(true);
       advancedPresets.forEach((preset) => {
         expect(preset.category).toBe('advanced');
       });

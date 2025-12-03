@@ -357,29 +357,7 @@ func (s *AccessListService) GetTemplates() []map[string]interface{} {
 			"country_codes": "RU,CN,KP,IR,BY,SY,VE,CU,SD,PK,BD,NG,UA,VN,ID",
 			"category":      "security",
 		},
-		{
-			"id":          "known-botnets",
-			"name":        "Block Known Botnet IPs",
-			"description": "Block IPs known to be part of active botnets and malware networks",
-			"type":        "blacklist",
-			"ip_rules":    `[{"cidr":"5.8.10.0/24","description":"Spamhaus DROP"},{"cidr":"5.188.206.0/24","description":"Spamhaus DROP"},{"cidr":"23.94.0.0/15","description":"Bulletproof hosting"},{"cidr":"45.14.224.0/22","description":"Malware hosting"},{"cidr":"91.200.12.0/22","description":"Spamhaus DROP"},{"cidr":"185.234.216.0/22","description":"Botnet infrastructure"}]`,
-			"category":    "security",
-		},
-		{
-			"id":          "cloud-scanners",
-			"name":        "Block Cloud Scanners",
-			"description": "Block IP ranges used by Shodan, Censys, and other scanners",
-			"type":        "blacklist",
-			"ip_rules":    `[{"cidr":"71.6.135.0/24","description":"Shodan"},{"cidr":"71.6.167.0/24","description":"Shodan"},{"cidr":"162.142.125.0/24","description":"Censys"},{"cidr":"167.248.133.0/24","description":"Censys"},{"cidr":"198.108.66.0/24","description":"Shodan"},{"cidr":"198.20.69.0/24","description":"Shodan"}]`,
-			"category":    "advanced",
-		},
-		{
-			"id":          "tor-exit-nodes",
-			"name":        "Block Tor Exit Nodes",
-			"description": "Block known Tor network exit nodes",
-			"type":        "blacklist",
-			"ip_rules":    `[{"cidr":"185.220.100.0/22","description":"Tor exits"},{"cidr":"185.100.84.0/22","description":"Tor exits"},{"cidr":"176.10.99.0/24","description":"Tor exits"},{"cidr":"176.10.104.0/22","description":"Tor exits"}]`,
-			"category":    "advanced",
-		},
+		// IP-based presets removed: IP blocklists and scanner ranges
+		// These are better handled by CrowdSec, WAF, or rate limiting.
 	}
 }

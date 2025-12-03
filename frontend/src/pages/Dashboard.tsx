@@ -63,44 +63,7 @@ export default function Dashboard() {
         <UptimeWidget />
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-dark-card rounded-lg border border-gray-800 p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Link
-            to="/proxy-hosts"
-            className="flex items-center gap-3 p-4 bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <span className="text-2xl">🌐</span>
-            <div>
-              <div className="font-medium text-white">Add Proxy Host</div>
-              <div className="text-xs text-gray-400">Create a new reverse proxy</div>
-            </div>
-          </Link>
-
-          <Link
-            to="/remote-servers"
-            className="flex items-center gap-3 p-4 bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <span className="text-2xl">🖥️</span>
-            <div>
-              <div className="font-medium text-white">Add Remote Server</div>
-              <div className="text-xs text-gray-400">Register a backend server</div>
-            </div>
-          </Link>
-
-          <Link
-            to="/import"
-            className="flex items-center gap-3 p-4 bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <span className="text-2xl">📥</span>
-            <div>
-              <div className="font-medium text-white">Import Caddyfile</div>
-              <div className="text-xs text-gray-400">Bulk import from existing config</div>
-            </div>
-          </Link>
-        </div>
-      </div>
+      {/* Quick Actions removed per UI update; Security quick-look will be added later */}
     </div>
   )
 }

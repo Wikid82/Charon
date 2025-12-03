@@ -1,10 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"io"
 	"os"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -14,9 +15,13 @@ import (
 
 func main() {
 	// Connect to database
+	// Initialize simple logger to stdout
+	mw := io.MultiWriter(os.Stdout)
+	logger.Init(false, mw)
+
 	db, err := gorm.Open(sqlite.Open("./data/charon.db"), &gorm.Config{})
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		logger.Log().WithError(err).Fatal("Failed to connect to database")
 	}
 
 	// Auto migrate
@@ -30,10 +35,10 @@ func main() {
 		&models.Setting{},
 		&models.ImportSession{},
 	); err != nil {
-		log.Fatal("Failed to migrate database:", err)
+		logger.Log().WithError(err).Fatal("Failed to migrate database")
 	}
 
-	fmt.Println("✓ Database migrated successfully")
+	logger.Log().Info("✓ Database migrated successfully")
 
 	// Seed Remote Servers
 	remoteServers := []models.RemoteServer{
@@ -86,11 +91,11 @@ func main() {
 	for _, server := range remoteServers {
 		result := db.Where("host = ? AND port = ?", server.Host, server.Port).FirstOrCreate(&server)
 		if result.Error != nil {
-			log.Printf("Failed to seed remote server %s: %v", server.Name, result.Error)
+			logger.Log().WithField("server", server.Name).WithError(result.Error).Error("Failed to seed remote server")
 		} else if result.RowsAffected > 0 {
-			fmt.Printf("✓ Created remote server: %s (%s:%d)\n", server.Name, server.Host, server.Port)
+			logger.Log().WithField("server", server.Name).Infof("✓ Created remote server: %s (%s:%d)", server.Name, server.Host, server.Port)
 		} else {
-			fmt.Printf("  Remote server already exists: %s\n", server.Name)
+			logger.Log().WithField("server", server.Name).Info("Remote server already exists")
 		}
 	}
 
@@ -140,12 +145,11 @@ func main() {
 	for _, host := range proxyHosts {
 		result := db.Where("domain_names = ?", host.DomainNames).FirstOrCreate(&host)
 		if result.Error != nil {
-			log.Printf("Failed to seed proxy host %s: %v", host.DomainNames, result.Error)
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).WithError(result.Error).Error("Failed to seed proxy host")
 		} else if result.RowsAffected > 0 {
-			fmt.Printf("✓ Created proxy host: %s -> %s://%s:%d\n",
-				host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
 		} else {
-			fmt.Printf("  Proxy host already exists: %s\n", host.DomainNames)
+			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Proxy host already exists")
 		}
 	}
 
@@ -174,11 +178,11 @@ func main() {
 	for _, setting := range settings {
 		result := db.Where("key = ?", setting.Key).FirstOrCreate(&setting)
 		if result.Error != nil {
-			log.Printf("Failed to seed setting %s: %v", setting.Key, result.Error)
+			logger.Log().WithField("setting", setting.Key).WithError(result.Error).Error("Failed to seed setting")
 		} else if result.RowsAffected > 0 {
-			fmt.Printf("✓ Created setting: %s = %s\n", setting.Key, setting.Value)
+			logger.Log().WithField("setting", setting.Key).Infof("✓ Created setting: %s = %s", setting.Key, setting.Value)
 		} else {
-			fmt.Printf("  Setting already exists: %s\n", setting.Key)
+			logger.Log().WithField("setting", setting.Key).Info("Setting already exists")
 		}
 	}
 
@@ -202,7 +206,7 @@ func main() {
 	// If a default password provided, use SetPassword to generate a proper bcrypt hash
 	if defaultAdminPassword != "" {
 		if err := user.SetPassword(defaultAdminPassword); err != nil {
-			log.Printf("Failed to hash default admin password: %v", err)
+			logger.Log().WithError(err).Error("Failed to hash default admin password")
 		}
 	} else {
 		// Keep previous behavior: using example hashed password (not valid)
@@ -215,9 +219,9 @@ func main() {
 		// Not found -> create
 		result := db.Create(&user)
 		if result.Error != nil {
-			log.Printf("Failed to seed user: %v", result.Error)
+			logger.Log().WithError(result.Error).Error("Failed to seed user")
 		} else if result.RowsAffected > 0 {
-			fmt.Printf("✓ Created default user: %s\n", user.Email)
+			logger.Log().WithField("user", user.Email).Infof("✓ Created default user: %s", user.Email)
 		}
 	} else {
 		// Found existing user - optionally update if forced
@@ -229,20 +233,20 @@ func main() {
 			if defaultAdminPassword != "" {
 				if err := existing.SetPassword(defaultAdminPassword); err == nil {
 					db.Save(&existing)
-					fmt.Printf("✓ Updated existing admin user password for: %s\n", existing.Email)
+					logger.Log().WithField("user", existing.Email).Infof("✓ Updated existing admin user password for: %s", existing.Email)
 				} else {
-					log.Printf("Failed to update existing admin password: %v", err)
+					logger.Log().WithError(err).Error("Failed to update existing admin password")
 				}
 			} else {
 				db.Save(&existing)
-				fmt.Printf("  User already exists: %s\n", existing.Email)
+				logger.Log().WithField("user", existing.Email).Info("User already exists")
 			}
 		} else {
-			fmt.Printf("  User already exists: %s\n", existing.Email)
+			logger.Log().WithField("user", existing.Email).Info("User already exists")
 		}
 	}
 	// result handling is done inline above
 
-	fmt.Println("\n✓ Database seeding completed successfully!")
-	fmt.Println("  You can now start the application and see sample data.")
+	logger.Log().Info("\n✓ Database seeding completed successfully!")
+	logger.Log().Info("  You can now start the application and see sample data.")
 }

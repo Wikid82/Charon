@@ -6,7 +6,9 @@ import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
+import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
+// CrowdSec runtime control is now in the Security page
 import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
 
 interface HealthResponse {
@@ -85,6 +87,27 @@ export default function SystemSettings() {
       toast.error(`Failed to save settings: ${error.message}`)
     },
   })
+
+  // Feature Flags
+  const { data: featureFlags, refetch: refetchFlags } = useQuery({
+    queryKey: ['feature-flags'],
+    queryFn: getFeatureFlags,
+  })
+
+  const updateFlagMutation = useMutation({
+    mutationFn: async (payload: Record<string, boolean>) => updateFeatureFlags(payload),
+    onSuccess: () => {
+      refetchFlags()
+      toast.success('Feature flag updated')
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(`Failed to update flag: ${msg}`)
+    },
+  })
+
+  // CrowdSec control
+
 
   return (
     <div className="space-y-6">
@@ -168,6 +191,29 @@ export default function SystemSettings() {
               Save Settings
             </Button>
           </div>
+        </div>
+      </Card>
+
+      {/* Feature Flags */}
+      <Card className="p-6">
+        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Feature Flags</h2>
+        <div className="space-y-4">
+          {featureFlags ? (
+            Object.keys(featureFlags).map((key) => (
+              <div key={key} className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{key}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Toggle feature {key}</p>
+                </div>
+                <Switch
+                  checked={!!featureFlags[key]}
+                  onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
+                />
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-gray-500">Loading feature flags...</p>
+          )}
         </div>
       </Card>
 
@@ -271,6 +317,8 @@ export default function SystemSettings() {
           </Button>
         </div>
       </Card>
+
+
     </div>
   )
 }

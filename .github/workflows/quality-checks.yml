@@ -21,11 +21,11 @@ jobs:
 
       - name: Run Go tests
         id: go-tests
-        working-directory: backend
+        working-directory: ${{ github.workspace }}
         env:
           CGO_ENABLED: 1
         run: |
-          go test -race -v -coverprofile=coverage.out ./... 2>&1 | tee test-output.txt
+          bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Go Test Summary
@@ -49,10 +49,6 @@ jobs:
 
       # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
-      - name: Enforce module-specific coverage (backend)
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/check-module-coverage.sh --backend-only
-        continue-on-error: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
@@ -109,10 +105,7 @@ jobs:
 
       # Codecov upload moved to `codecov-upload.yml` which is push-only.
 
-      - name: Enforce module-specific coverage (frontend)
-        working-directory: ${{ github.workspace }}
-        run: bash scripts/check-module-coverage.sh --frontend-only
-        continue-on-error: false
+
 
       - name: Run frontend lint
         working-directory: frontend

@@ -2,6 +2,7 @@ import client from './client';
 
 export interface UptimeMonitor {
   id: string;
+  upstream_host?: string;
   proxy_host_id?: number;
   remote_server_id?: number;
   name: string;
@@ -10,7 +11,7 @@ export interface UptimeMonitor {
   interval: number;
   enabled: boolean;
   status: string;
-  last_check: string;
+  last_check?: string | null;
   latency: number;
   max_retries: number;
 }
@@ -36,5 +37,20 @@ export const getMonitorHistory = async (id: string, limit: number = 50) => {
 
 export const updateMonitor = async (id: string, data: Partial<UptimeMonitor>) => {
   const response = await client.put<UptimeMonitor>(`/uptime/monitors/${id}`, data);
+  return response.data;
+};
+
+export const deleteMonitor = async (id: string) => {
+  const response = await client.delete<void>(`/uptime/monitors/${id}`);
+  return response.data;
+};
+
+export async function syncMonitors(body?: { interval?: number; max_retries?: number }) {
+  const res = await client.post('/uptime/sync', body || {});
+  return res.data;
+}
+
+export const checkMonitor = async (id: string) => {
+  const response = await client.post<{ message: string }>(`/uptime/monitors/${id}/check`);
   return response.data;
 };

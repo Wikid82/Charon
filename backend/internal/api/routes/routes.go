@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
@@ -13,6 +15,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -38,20 +42,24 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UptimeHost{},
 		&models.UptimeNotificationEvent{},
 		&models.Domain{},
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
 	// Clean up invalid Let's Encrypt certificate associations
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
-	fmt.Println("Cleaning up invalid Let's Encrypt certificate associations...")
+	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	var hostsWithInvalidCerts []models.ProxyHost
 	if err := db.Joins("LEFT JOIN ssl_certificates ON proxy_hosts.certificate_id = ssl_certificates.id").
 		Where("ssl_certificates.provider = ?", "letsencrypt").
 		Find(&hostsWithInvalidCerts).Error; err == nil {
 		if len(hostsWithInvalidCerts) > 0 {
 			for _, host := range hostsWithInvalidCerts {
-				fmt.Printf("Removing invalid Let's Encrypt cert assignment from %s\n", host.DomainNames)
+				logger.Log().WithField("domain", host.DomainNames).Info("Removing invalid Let's Encrypt cert assignment")
 				db.Model(&host).Update("certificate_id", nil)
 			}
 		}
@@ -59,11 +67,21 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	router.GET("/api/v1/health", handlers.HealthHandler)
 
+	// Metrics endpoint (Prometheus)
+	reg := prometheus.NewRegistry()
+	metrics.Register(reg)
+	router.GET("/metrics", func(c *gin.Context) {
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(c.Writer, c.Request)
+	})
+
 	api := router.Group("/api/v1")
 
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 	api.Use(cerb.Middleware())
+
+	// Caddy Manager declaration so it can be used across the entire Register function
+	var caddyManager *caddy.Manager
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
@@ -86,6 +104,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
+
+	// Uptime Service - define early so it can be used during route registration
+	uptimeService := services.NewUptimeService(db, notificationService)
 
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
@@ -110,6 +131,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		settingsHandler := handlers.NewSettingsHandler(db)
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
+
+		// Feature flags (DB-backed with env fallback)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		protected.GET("/feature-flags", featureFlagsHandler.GetFlags)
+		protected.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
 
 		// User Profile & API Key
 		userHandler := handlers.NewUserHandler(db)
@@ -144,7 +170,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
 			dockerHandler.RegisterRoutes(protected)
 		} else {
-			fmt.Printf("Warning: Docker service unavailable: %v\n", err)
+			logger.Log().WithError(err).Warn("Docker service unavailable")
 		}
 
 		// Uptime Service
@@ -153,6 +179,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/uptime/monitors", uptimeHandler.List)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
+		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
+		protected.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
+		protected.POST("/uptime/sync", uptimeHandler.Sync)
 
 		// Notification Providers
 		notificationProviderHandler := handlers.NewNotificationProviderHandler(notificationService)
@@ -178,7 +207,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			time.Sleep(30 * time.Second)
 			// Initial sync
 			if err := uptimeService.SyncMonitors(); err != nil {
-				fmt.Printf("Failed to sync monitors: %v\n", err)
+				logger.Log().WithError(err).Error("Failed to sync monitors")
 			}
 
 			ticker := time.NewTicker(1 * time.Minute)
@@ -193,16 +222,36 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			c.JSON(200, gin.H{"message": "Uptime check started"})
 		})
 
+		// Caddy Manager
+		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
+		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
+
 		// Security Status
-		securityHandler := handlers.NewSecurityHandler(cfg.Security, db)
+		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
 		protected.GET("/security/status", securityHandler.GetStatus)
+		// Security Config management
+		protected.GET("/security/config", securityHandler.GetConfig)
+		protected.POST("/security/config", securityHandler.UpdateConfig)
+		protected.POST("/security/enable", securityHandler.Enable)
+		protected.POST("/security/disable", securityHandler.Disable)
+		protected.POST("/security/breakglass/generate", securityHandler.GenerateBreakGlass)
+		protected.GET("/security/decisions", securityHandler.ListDecisions)
+		protected.POST("/security/decisions", securityHandler.CreateDecision)
+		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
+		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
+		protected.DELETE("/security/rulesets/:id", securityHandler.DeleteRuleSet)
+
+		// CrowdSec process management and import
+		// Data dir for crowdsec (persisted on host via volumes)
+		crowdsecDataDir := "data/crowdsec"
+		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
+		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
+		crowdsecHandler.RegisterRoutes(protected)
 	}
 
-	// Caddy Manager
-	caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
-	caddyManager := caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging)
+	// Caddy Manager already created above
 
-	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService)
+	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
 	proxyHostHandler.RegisterRoutes(api)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
@@ -225,9 +274,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
 	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
 	caddyDataDir := cfg.CaddyConfigDir + "/data"
-	fmt.Printf("Using Caddy data directory for certificates scan: %s\n", caddyDataDir)
+	logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
 	certService := services.NewCertificateService(caddyDataDir, db)
-	certHandler := handlers.NewCertificateHandler(certService, notificationService)
+	certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
 	api.GET("/certificates", certHandler.List)
 	api.POST("/certificates", certHandler.Upload)
 	api.DELETE("/certificates/:id", certHandler.Delete)
@@ -244,7 +293,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		for {
 			select {
 			case <-timeout:
-				fmt.Println("Timeout waiting for Caddy to be ready")
+				logger.Log().Warn("Timeout waiting for Caddy to be ready")
 				return
 			case <-ticker.C:
 				if err := caddyManager.Ping(ctx); err == nil {
@@ -258,9 +307,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		if ready {
 			// Apply config
 			if err := caddyManager.ApplyConfig(ctx); err != nil {
-				fmt.Printf("Failed to apply initial Caddy config: %v\n", err)
+				logger.Log().WithError(err).Error("Failed to apply initial Caddy config")
 			} else {
-				fmt.Printf("Successfully applied initial Caddy config\n")
+				logger.Log().Info("Successfully applied initial Caddy config")
 			}
 		}
 	}()

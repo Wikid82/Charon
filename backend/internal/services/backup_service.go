@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/robfig/cron/v3"
 )
 
@@ -31,7 +32,7 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		fmt.Printf("Failed to create backup directory: %v\n", err)
+		logger.Log().WithError(err).Error("Failed to create backup directory")
 	}
 
 	s := &BackupService{
@@ -44,7 +45,7 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	// Schedule daily backup at 3 AM
 	_, err := s.Cron.AddFunc("0 3 * * *", s.RunScheduledBackup)
 	if err != nil {
-		fmt.Printf("Failed to schedule backup: %v\n", err)
+		logger.Log().WithError(err).Error("Failed to schedule backup")
 	}
 	s.Cron.Start()
 
@@ -52,11 +53,11 @@ func NewBackupService(cfg *config.Config) *BackupService {
 }
 
 func (s *BackupService) RunScheduledBackup() {
-	fmt.Println("Starting scheduled backup...")
+	logger.Log().Info("Starting scheduled backup")
 	if name, err := s.CreateBackup(); err != nil {
-		fmt.Printf("Scheduled backup failed: %v\n", err)
+		logger.Log().WithError(err).Error("Scheduled backup failed")
 	} else {
-		fmt.Printf("Scheduled backup created: %s\n", name)
+		logger.Log().WithField("backup", name).Info("Scheduled backup created")
 	}
 }
 
@@ -123,7 +124,7 @@ func (s *BackupService) CreateBackup() (string, error) {
 	caddyDir := filepath.Join(s.DataDir, "caddy")
 	if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
 		// It's possible caddy dir doesn't exist yet, which is fine
-		fmt.Printf("Warning: could not backup caddy dir: %v\n", err)
+		logger.Log().WithError(err).Warn("Warning: could not backup caddy dir")
 	}
 
 	// Close zip writer and check for errors (important for zip integrity)

@@ -1,6 +1,22 @@
 {
 	"version": "2.0.0",
 	"tasks": [
+				{
+					"label": "Coraza: Run Integration Script",
+					"type": "shell",
+					"command": "bash",
+					"args": ["./scripts/coraza_integration.sh"],
+					"group": "test",
+					"problemMatcher": []
+				},
+				{
+					"label": "Coraza: Run Integration Go Test",
+					"type": "shell",
+					"command": "sh",
+					"args": ["-c", "cd backend && go test -tags=integration ./integration -run TestCorazaIntegration -v"],
+					"group": "test",
+					"problemMatcher": []
+				},
 		{
 			"label": "Git Remove Cached",
 			"type": "shell",
@@ -8,9 +24,9 @@
 			"group": "test"
 		},
 		{
-			"label": "Run Pre-commit (All Files)",
+			"label": "Run Pre-commit (Staged Files)",
 			"type": "shell",
-			"command": "${workspaceFolder}/.venv/bin/pre-commit run --all-files",
+			"command": "${workspaceFolder}/.venv/bin/pre-commit run",
 			"group": "test"
 		},
 		// === MANUAL LINT/SCAN TASKS ===
@@ -133,5 +149,40 @@
 			"isBackground": false,
 			"problemMatcher": []
 		}
+	,
+		{
+			"label": "Frontend: Type Check",
+			"type": "shell",
+			"command": "cd frontend && npm run type-check",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Go Test Coverage",
+			"type": "shell",
+			"command": "bash -c 'scripts/go-test-coverage.sh'",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Frontend: Test Coverage",
+			"type": "shell",
+			"command": "bash -c 'scripts/frontend-test-coverage.sh'",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		}
 	]
+
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
@@ -20,9 +19,8 @@ import (
 
 func setupNotificationProviderTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
+	db := handlers.OpenTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}, &models.Notification{}))
 
 	service := services.NewNotificationService(db)
 	handler := handlers.NewNotificationProviderHandler(service)

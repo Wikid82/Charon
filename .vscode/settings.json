@@ -36,5 +36,8 @@
         "**/pkg/mod/**": true,
         "**/go/pkg/mod/**": true,
         "**/root/go/pkg/mod/**": true
-    }
+    },
+    "githubPullRequests.ignoredPullRequestBranches": [
+        "main"
+    ]
 }
