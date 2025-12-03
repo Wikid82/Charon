@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           fetch-depth: 0
 
@@ -60,28 +60,42 @@ jobs:
           # Export the tag for downstream steps
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+
+      - name: Determine tag
+        id: determine_tag
+        run: |
+          # Prefer created tag output; if empty fallback to semver version
+          TAG="${{ steps.create_tag.outputs.tag }}"
+          if [ -z "$TAG" ]; then
+            # semver.version contains a tag value like 'vX.Y.Z' or fallback 'v0.0.0'
+            VERSION_RAW="${{ steps.semver.outputs.version }}"
+            VERSION_NO_V="${VERSION_RAW#v}"
+            TAG="v${VERSION_NO_V}"
+          fi
+          echo "Determined tag: $TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Check for existing GitHub Release
         id: check_release
         run: |
-          TAG=${{ steps.create_tag.outputs.tag }}
+          TAG=${{ steps.determine_tag.outputs.tag }}
           echo "Checking for release for tag: ${TAG}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${CHARON_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
           if [ "${STATUS}" = "200" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
 
       - name: Create GitHub Release (tag-only, no workspace changes)
         if: ${{ steps.semver.outputs.changed && steps.check_release.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          tag_name: ${{ steps.create_tag.outputs.tag }}
-          name: Release ${{ steps.create_tag.outputs.tag }}
+          tag_name: ${{ steps.determine_tag.outputs.tag }}
+          name: Release ${{ steps.determine_tag.outputs.tag }}
           body: ${{ steps.semver.outputs.release_notes }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}

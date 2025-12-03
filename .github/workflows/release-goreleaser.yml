@@ -13,20 +13,20 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     env:
-      # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
+      # Use the built-in CHARON_TOKEN by default for GitHub API operations.
       # If you need to provide a PAT with elevated permissions, add a CHARON_TOKEN secret
       # at the repo or organization level and update the env here accordingly.
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
-          go-version: '1.25.4'
+          go-version: '1.25.5'
 
       - name: Set up Node.js
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
@@ -47,7 +47,8 @@ jobs:
         with:
           version: 0.13.0
 
-      # GITHUB_TOKEN is set from CHARON_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+      # CHARON_TOKEN is set from CHARON_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6

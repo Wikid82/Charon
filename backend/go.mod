@@ -1,6 +1,6 @@
 module github.com/Wikid82/charon/backend
 
-go 1.25.4
+go 1.25.5
 
 require (
 	github.com/containrrr/shoutrrr v0.8.0
