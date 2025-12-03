@@ -45,6 +45,22 @@
       "automerge": true
     },
     {
+      "description": "actions/checkout",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["actions/checkout"],
+      "automerge": false,
+      "matchUpdateTypes": ["minor", "patch"],
+      "labels": ["dependencies", "github-actions", "manual-review"]
+    },
+    {
+      "description": "Do not auto-upgrade other github-actions majors without review",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "github-actions", "manual-review"],
+      "prPriority": 0
+    },
+    {
       "description": "Docker: keep Caddy within v2 (no automatic jump to v3)",
       "matchManagers": ["dockerfile"],
       "matchPackageNames": ["caddy"],
