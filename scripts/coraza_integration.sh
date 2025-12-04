@@ -105,17 +105,27 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-docker build -t charon:local .
+# Build the image if it doesn't already exist (CI workflow builds it beforehand)
+if ! docker image inspect charon:local >/dev/null 2>&1; then
+  echo "Building charon:local image..."
+  docker build -t charon:local .
+else
+  echo "Using existing charon:local image"
+fi
 # Run charon using docker run to ensure we pass CHARON_SECURITY_WAF_MODE and control network membership for integration
 docker rm -f charon-debug >/dev/null 2>&1 || true
 if ! docker network inspect containers_default >/dev/null 2>&1; then
   docker network create containers_default
 fi
+# NOTE: We intentionally do NOT mount $(pwd)/backend or $(pwd)/frontend/dist here.
+# In CI, frontend/dist does not exist (it's built inside the Docker image).
+# Mounting a non-existent directory would override the built frontend with an empty dir.
+# For local development with hot-reload, use docker-compose.local.yml instead.
 docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 -p 2345:2345 \
   -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e CHARON_SECURITY_WAF_MODE=block \
-  -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro -v "$(pwd)/backend:/app/backend:ro" -v "$(pwd)/frontend/dist:/app/frontend/dist:ro" charon:local
+  -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro charon:local
 
 echo "Waiting for Charon API to be ready..."
 for i in {1..30}; do
