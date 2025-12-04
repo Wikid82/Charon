@@ -51,6 +51,56 @@ This means it protects the management API but does not directly inspect traffic 
 
 ---
 
+## Threat Model & Protection Coverage
+
+### What Cerberus Protects
+
+| Threat Category | CrowdSec | ACL | WAF | Rate Limit |
+|-----------------|----------|-----|-----|------------|
+| Known attackers (IP reputation) | ✅ | ❌ | ❌ | ❌ |
+| Geo-based attacks | ❌ | ✅ | ❌ | ❌ |
+| SQL Injection (SQLi) | ❌ | ❌ | ✅ | ❌ |
+| Cross-Site Scripting (XSS) | ❌ | ❌ | ✅ | ❌ |
+| Remote Code Execution (RCE) | ❌ | ❌ | ✅ | ❌ |
+| **Zero-Day Web Exploits** | ⚠️ | ❌ | ✅ | ❌ |
+| DDoS / Volume attacks | ❌ | ❌ | ❌ | ✅ |
+| Brute-force login attempts | ✅ | ❌ | ❌ | ✅ |
+| Credential stuffing | ✅ | ❌ | ❌ | ✅ |
+
+**Legend:**
+- ✅ Full protection
+- ⚠️ Partial protection (time-delayed)
+- ❌ Not designed for this threat
+
+## Zero-Day Exploit Protection (WAF)
+
+The WAF provides **pattern-based detection** for zero-day exploits:
+
+**How It Works:**
+1. Attacker discovers new vulnerability (e.g., SQLi in your login form)
+2. Attacker crafts exploit: `' OR 1=1--`
+3. WAF inspects request → matches SQL injection pattern → **BLOCKED**
+4. Your application never sees the malicious input
+
+**Limitations:**
+- Only protects HTTP/HTTPS traffic
+- Cannot detect completely novel attack patterns (rare)
+- Does not protect against logic bugs in application code
+
+**Effectiveness:**
+- **~90% of zero-day web exploits** use known patterns (SQLi, XSS, RCE)
+- **~10% are truly novel** and may bypass WAF until rules are updated
+
+## Request Processing Pipeline
+
+```
+1. [CrowdSec]      Check IP reputation → Block if known attacker
+2. [ACL]           Check IP/Geo rules → Block if not allowed
+3. [WAF]           Inspect request payload → Block if malicious pattern
+4. [Rate Limit]    Count requests → Block if too many
+5. [Proxy]         Forward to upstream service
+```
+
 ## Configuration Model
 
 ### Database Schema

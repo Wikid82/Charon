@@ -41,7 +41,28 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 **Why you care:** Protects your apps even if they have bugs.
 
 **What you do:** Turn on "WAF" mode in security settings.
+### Zero-Day Exploit Protection
 
+**What it does:** The WAF (Web Application Firewall) can detect and block many zero-day exploits before they reach your apps.
+
+**Why you care:** Even if a brand-new vulnerability is discovered in your software, the WAF might catch it by recognizing the attack pattern.
+
+**How it works:**
+- Attackers use predictable patterns (SQL syntax, JavaScript tags, command injection)
+- The WAF inspects every request for these patterns
+- If detected, the request is blocked or logged (depending on mode)
+
+**What you do:**
+1. Enable WAF in "Monitor" mode first (logs only, doesn't block)
+2. Review logs for false positives
+3. Switch to "Block" mode when ready
+
+**Limitations:**
+- Only protects web-based exploits (HTTP/HTTPS traffic)
+- Does NOT protect against zero-days in Docker, Linux, or Charon itself
+- Does NOT replace regular security updates
+
+**Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
 ---
 
 ## \ud83d\udc33 Docker Integration
