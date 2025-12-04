@@ -212,8 +212,9 @@ export default function Security() {
 
       <Outlet />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* CrowdSec */}
+        {/* CrowdSec - Layer 1: IP Reputation (first line of defense) */}
         <Card className={status.crowdsec.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+          <div className="text-xs text-gray-400 mb-2">🛡️ Layer 1: IP Reputation</div>
           <div className="flex flex-row items-center justify-between pb-2">
             <h3 className="text-sm font-medium text-white">CrowdSec</h3>
             <div className="flex items-center gap-3">
@@ -221,7 +222,6 @@ export default function Security() {
                 checked={status.crowdsec.enabled}
                 disabled={!status.cerberus?.enabled}
                 onChange={(e) => {
-                  console.log('crowdsec onChange', e.target.checked)
                   toggleServiceMutation.mutate({ key: 'security.crowdsec.enabled', enabled: e.target.checked })
                 }}
                 data-testid="toggle-crowdsec"
@@ -235,7 +235,7 @@ export default function Security() {
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {status.crowdsec.enabled
-                ? `Mode: ${status.crowdsec.mode}`
+                ? `Protects against: Known attackers, botnets, brute-force`
                 : 'Intrusion Prevention System'}
             </p>
             {crowdsecStatus && (
@@ -309,8 +309,51 @@ export default function Security() {
           </div>
         </Card>
 
-        {/* WAF */}
+        {/* ACL - Layer 2: Access Control (IP/Geo filtering) */}
+        <Card className={status.acl.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+          <div className="text-xs text-gray-400 mb-2">🔒 Layer 2: Access Control</div>
+          <div className="flex flex-row items-center justify-between pb-2">
+            <h3 className="text-sm font-medium text-white">Access Control</h3>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={status.acl.enabled}
+                disabled={!status.cerberus?.enabled}
+                onChange={(e) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: e.target.checked })}
+                data-testid="toggle-acl"
+              />
+              <Lock className={`w-4 h-4 ${status.acl.enabled ? 'text-green-500' : 'text-gray-400'}`} />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold mb-1 text-white">
+              {status.acl.enabled ? 'Active' : 'Disabled'}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Protects against: Unauthorized IPs, geo-based attacks, insider threats
+            </p>
+            {status.acl.enabled && (
+              <div className="mt-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => navigate('/security/access-lists')}
+                >
+                  Manage Lists
+                </Button>
+              </div>
+            )}
+            {!status.acl.enabled && (
+              <div className="mt-4">
+                <Button size="sm" variant="secondary" onClick={() => navigate('/security/access-lists')}>Configure</Button>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* WAF - Layer 3: Request Inspection */}
         <Card className={status.waf.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+          <div className="text-xs text-gray-400 mb-2">🛡️ Layer 3: Request Inspection</div>
           <div className="flex flex-row items-center justify-between pb-2">
             <h3 className="text-sm font-medium text-white">WAF (Coraza)</h3>
             <div className="flex items-center gap-3">
@@ -329,7 +372,7 @@ export default function Security() {
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {status.waf.enabled
-                ? `Mode: ${securityConfig?.config?.waf_mode === 'monitor' ? 'Monitor (log only)' : 'Block'}`
+                ? `Protects against: SQL injection, XSS, RCE, zero-day exploits*`
                 : 'Web Application Firewall'}
             </p>
             {status.waf.enabled && (
@@ -382,49 +425,9 @@ export default function Security() {
           </div>
         </Card>
 
-        {/* ACL */}
-        <Card className={status.acl.enabled ? 'border-green-200 dark:border-green-900' : ''}>
-          <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">Access Control</h3>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={status.acl.enabled}
-                disabled={!status.cerberus?.enabled}
-                onChange={(e) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: e.target.checked })}
-                data-testid="toggle-acl"
-              />
-              <Lock className={`w-4 h-4 ${status.acl.enabled ? 'text-green-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.acl.enabled ? 'Active' : 'Disabled'}
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              IP-based Allow/Deny Lists
-            </p>
-            {status.acl.enabled && (
-              <div className="mt-4">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => navigate('/security/access-lists')}
-                >
-                  Manage Lists
-                </Button>
-              </div>
-            )}
-            {!status.acl.enabled && (
-              <div className="mt-4">
-                <Button size="sm" variant="secondary" onClick={() => navigate('/security/access-lists')}>Configure</Button>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Rate Limiting */}
+        {/* Rate Limiting - Layer 4: Volume Control */}
         <Card className={status.rate_limit.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+          <div className="text-xs text-gray-400 mb-2">⚡ Layer 4: Volume Control</div>
           <div className="flex flex-row items-center justify-between pb-2">
             <h3 className="text-sm font-medium text-white">Rate Limiting</h3>
             <div className="flex items-center gap-3">
@@ -442,7 +445,7 @@ export default function Security() {
               {status.rate_limit.enabled ? 'Active' : 'Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              DDoS Protection
+              Protects against: DDoS attacks, credential stuffing, API abuse
             </p>
             {status.rate_limit.enabled && (
               <div className="mt-4">

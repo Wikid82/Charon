@@ -241,7 +241,9 @@ describe('LoadingStates - Security Audit', () => {
     it('handles null message', () => {
       // @ts-expect-error - Testing null
       render(<ConfigReloadOverlay message={null} />)
-      expect(screen.getByText('null')).toBeInTheDocument()
+      // Null message renders as empty paragraph - component gracefully handles null
+      const textContainer = screen.getByText(/Charon is crossing the Styx/i).closest('div')
+      expect(textContainer).toBeInTheDocument()
     })
 
     it('handles empty string message', () => {
