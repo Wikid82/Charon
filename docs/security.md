@@ -246,6 +246,57 @@ No. Use what you need:
 
 ---
 
+## Zero-Day Protection
+
+### What We Protect Against
+
+**Web Application Exploits:**
+- ✅ SQL Injection (SQLi) — even zero-days using SQL syntax
+- ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
+- ✅ Remote Code Execution (RCE) — command injection patterns
+- ✅ Path Traversal — attempts to read system files
+- ⚠️ CrowdSec — protects hours/days after first exploitation (crowd-sourced)
+
+### How It Works
+
+The WAF (Coraza) uses the OWASP Core Rule Set to detect attack patterns. Even if the exploit is brand new, the pattern is usually recognizable.
+
+**Example:** A zero-day SQLi exploit discovered today:
+
+```
+https://yourapp.com/search?q=' OR '1'='1
+```
+
+- **Pattern:** `' OR '1'='1` matches SQL injection signature
+- **Action:** WAF blocks request → attacker never reaches your database
+
+### What We DON'T Protect Against
+
+- ❌ Zero-days in Charon itself (keep Charon updated)
+- ❌ Zero-days in Docker, Linux kernel (keep OS updated)
+- ❌ Logic bugs in your application code (need code reviews)
+- ❌ Insider threats (need access controls + auditing)
+- ❌ Social engineering (need user training)
+
+### Recommendation: Defense in Depth
+
+1. **Enable all Cerberus layers:**
+   - CrowdSec (IP reputation)
+   - ACLs (restrict access by geography/IP)
+   - WAF (request inspection)
+   - Rate Limiting (slow down attacks)
+
+2. **Keep everything updated:**
+   - Charon (watch GitHub releases)
+   - Docker images (rebuild regularly)
+   - Host OS (enable unattended-upgrades)
+
+3. **Monitor security logs:**
+   - Check "Security → Decisions" weekly
+   - Set up alerts for high block rates
+
+---
+
 ## More Technical Details
 
 Want the nitty-gritty? See [Cerberus Technical Docs](cerberus.md).
