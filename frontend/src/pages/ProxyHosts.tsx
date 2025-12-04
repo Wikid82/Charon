@@ -14,6 +14,7 @@ import ProxyHostForm from '../components/ProxyHostForm'
 import { Switch } from '../components/ui/Switch'
 import { toast } from 'react-hot-toast'
 import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 // Helper functions extracted for unit testing and reuse
 // Helpers moved to ../utils/proxyHostsHelpers to keep component files component-only for fast refresh
@@ -22,7 +23,7 @@ type SortColumn = 'name' | 'domain' | 'forward'
 type SortDirection = 'asc' | 'desc'
 
 export default function ProxyHosts() {
-  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, isBulkUpdating } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
   const { certificates } = useCertificates()
   const { data: accessLists } = useAccessLists()
   const [showForm, setShowForm] = useState(false)
@@ -52,6 +53,20 @@ export default function ProxyHosts() {
   })
 
   const linkBehavior = settings?.['ui.domain_link_behavior'] || 'new_tab'
+
+  // Determine if any mutation is in progress
+  const isApplyingConfig = isCreating || isUpdating || isDeleting || isBulkUpdating
+
+  // Determine contextual message based on operation
+  const getMessage = () => {
+    if (isCreating) return { message: 'Ferrying new host...', submessage: 'Charon is crossing the Styx' }
+    if (isUpdating) return { message: 'Guiding changes across...', submessage: 'Configuration in transit' }
+    if (isDeleting) return { message: 'Returning to shore...', submessage: 'Host departure in progress' }
+    if (isBulkUpdating) return { message: `Ferrying ${selectedHosts.size} souls...`, submessage: 'Bulk operation crossing the river' }
+    return { message: 'Ferrying configuration...', submessage: 'Charon is crossing the Styx' }
+  }
+
+  const { message, submessage } = getMessage()
 
   // Create a map of domain -> certificate status for quick lookup
   // Handles both single domains and comma-separated multi-domain certs
@@ -227,8 +242,16 @@ export default function ProxyHosts() {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <>
+      {isApplyingConfig && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="charon"
+        />
+      )}
+      <div className="p-8">
+        <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold text-white">Proxy Hosts</h1>
           {isFetching && !loading && <Loader2 className="animate-spin text-blue-400" size={24} />}
@@ -885,6 +908,7 @@ export default function ProxyHosts() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }

@@ -5,7 +5,7 @@ import { useCertificates } from '../hooks/useCertificates'
 import { deleteCertificate } from '../api/certificates'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { createBackup } from '../api/backups'
-import { LoadingSpinner } from './LoadingStates'
+import { LoadingSpinner, ConfigReloadOverlay } from './LoadingStates'
 import { toast } from '../utils/toast'
 
 type SortColumn = 'name' | 'expires'
@@ -75,7 +75,15 @@ export default function CertificateList() {
   if (error) return <div className="text-red-500">Failed to load certificates</div>
 
   return (
-    <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
+    <>
+      {deleteMutation.isPending && (
+        <ConfigReloadOverlay
+          message="Returning to shore..."
+          submessage="Certificate departure in progress"
+          type="charon"
+        />
+      )}
+      <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-400">
           <thead className="bg-gray-900 text-gray-200 uppercase font-medium">
@@ -174,7 +182,8 @@ export default function CertificateList() {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 

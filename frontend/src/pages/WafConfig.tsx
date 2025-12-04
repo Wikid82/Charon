@@ -4,6 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { useRuleSets, useUpsertRuleSet, useDeleteRuleSet } from '../hooks/useSecurity'
 import type { SecurityRuleSet, UpsertRuleSetPayload } from '../api/security'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 /**
  * Confirmation dialog for destructive actions
@@ -187,6 +188,24 @@ export default function WafConfig() {
   const [editingRuleSet, setEditingRuleSet] = useState<SecurityRuleSet | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<SecurityRuleSet | null>(null)
 
+  // Determine if any security operation is in progress
+  const isApplyingConfig = upsertMutation.isPending || deleteMutation.isPending
+
+  // Determine contextual message based on operation
+  const getMessage = () => {
+    if (upsertMutation.isPending) {
+      return editingRuleSet
+        ? { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
+        : { message: 'Forging new defenses...', submessage: 'Security rules inscribing' }
+    }
+    if (deleteMutation.isPending) {
+      return { message: 'Lowering a barrier...', submessage: 'Defense layer removed' }
+    }
+    return { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
+  }
+
+  const { message, submessage } = getMessage()
+
   const handleCreate = (data: UpsertRuleSetPayload) => {
     upsertMutation.mutate(data, {
       onSuccess: () => setShowCreateForm(false),
@@ -228,7 +247,15 @@ export default function WafConfig() {
   const ruleSetList = ruleSets?.rulesets || []
 
   return (
-    <div className="space-y-6">
+    <>
+      {isApplyingConfig && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="cerberus"
+        />
+      )}
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -430,6 +457,7 @@ export default function WafConfig() {
           </table>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
