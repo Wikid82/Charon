@@ -182,7 +182,37 @@
 				"panel": "shared"
 			},
 			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Run Benchmarks",
+			"type": "shell",
+			"command": "cd backend && go test -bench=. -benchmem -benchtime=1s ./internal/api/handlers/... -run=^$",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": ["$go"]
+		},
+		{
+			"label": "Backend: Run Benchmarks (Quick)",
+			"type": "shell",
+			"command": "cd backend && go test -bench=GetStatus -benchmem -benchtime=500ms ./internal/api/handlers/... -run=^$",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": ["$go"]
+		},
+		{
+			"label": "Backend: Run Perf Asserts",
+			"type": "shell",
+			"command": "cd backend && go test -run TestPerf -v ./internal/api/handlers -count=1",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": ["$go"]
 		}
-	]
-
-}
