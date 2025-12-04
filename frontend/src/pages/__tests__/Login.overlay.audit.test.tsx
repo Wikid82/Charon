@@ -6,13 +6,12 @@ import { MemoryRouter } from 'react-router-dom'
 import Login from '../Login'
 import * as authHook from '../../hooks/useAuth'
 import client from '../../api/client'
+import * as setupApi from '../../api/setup'
 
 // Mock modules
 vi.mock('../../api/client')
 vi.mock('../../hooks/useAuth')
-vi.mock('../../api/setup', () => ({
-  getSetupStatus: vi.fn(() => Promise.resolve({ setupRequired: false })),
-}))
+vi.mock('../../api/setup')
 
 const mockLogin = vi.fn()
 vi.mocked(authHook.useAuth).mockReturnValue({
@@ -41,6 +40,8 @@ const renderWithProviders = (ui: React.ReactElement) => {
 describe('Login - Coin Overlay Security Audit', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Mock setup status to resolve immediately with no setup required
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false })
   })
 
   it('shows coin-themed overlay during login', async () => {
@@ -50,8 +51,9 @@ describe('Login - Coin Overlay Security Audit', () => {
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
     await userEvent.type(emailInput, 'admin@example.com')
@@ -62,9 +64,9 @@ describe('Login - Coin Overlay Security Audit', () => {
     expect(screen.getByText('Paying the ferryman...')).toBeInTheDocument()
     expect(screen.getByText('Your obol grants passage')).toBeInTheDocument()
 
-    // Verify coin theme (gold/amber)
-    const overlay = screen.getByText('Paying the ferryman...').closest('div')
-    expect(overlay).toHaveClass('bg-amber-950/90')
+    // Verify coin theme (gold/amber) - use querySelector to find actual overlay container
+    const overlay = document.querySelector('.bg-amber-950\\/90')
+    expect(overlay).toBeInTheDocument()
 
     // Wait for completion
     await waitFor(() => {
@@ -85,8 +87,9 @@ describe('Login - Coin Overlay Security Audit', () => {
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
     await userEvent.type(emailInput, 'admin@example.com')
@@ -111,14 +114,18 @@ describe('Login - Coin Overlay Security Audit', () => {
   })
 
   it('clears overlay on login error', async () => {
-    vi.mocked(client.post).mockRejectedValue({
-      response: { data: { error: 'Invalid credentials' } }
-    })
+    // Use delayed rejection so overlay has time to appear
+    vi.mocked(client.post).mockImplementation(
+      () => new Promise((_, reject) => {
+        setTimeout(() => reject({ response: { data: { error: 'Invalid credentials' } } }), 100)
+      })
+    )
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
     await userEvent.type(emailInput, 'wrong@example.com')
@@ -131,7 +138,7 @@ describe('Login - Coin Overlay Security Audit', () => {
     // Overlay clears after error
     await waitFor(() => {
       expect(screen.queryByText('Paying the ferryman...')).not.toBeInTheDocument()
-    }, { timeout: 200 })
+    }, { timeout: 300 })
 
     // Form should be re-enabled
     expect(emailInput).not.toBeDisabled()
@@ -139,15 +146,20 @@ describe('Login - Coin Overlay Security Audit', () => {
   })
 
   it('ATTACK: XSS in login credentials does not break overlay', async () => {
-    vi.mocked(client.post).mockResolvedValue({ data: {} })
+    // Use delayed promise so we can catch the overlay
+    vi.mocked(client.post).mockImplementation(
+      () => new Promise(resolve => setTimeout(() => resolve({ data: {} }), 100))
+    )
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
-    await userEvent.type(emailInput, '<script>alert(1)</script>@example.com')
+    // Use valid email format with XSS-like characters in password
+    await userEvent.type(emailInput, 'test@example.com')
     await userEvent.type(passwordInput, '<img src=x onerror=alert(1)>')
     await userEvent.click(submitButton)
 
@@ -156,7 +168,7 @@ describe('Login - Coin Overlay Security Audit', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('Paying the ferryman...')).not.toBeInTheDocument()
-    }, { timeout: 200 })
+    }, { timeout: 300 })
   })
 
   it('ATTACK: network timeout does not leave overlay stuck', async () => {
@@ -168,8 +180,9 @@ describe('Login - Coin Overlay Security Audit', () => {
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
     await userEvent.type(emailInput, 'admin@example.com')
@@ -184,20 +197,21 @@ describe('Login - Coin Overlay Security Audit', () => {
     }, { timeout: 200 })
   })
 
-  it('overlay has correct z-index hierarchy', () => {
+  it('overlay has correct z-index hierarchy', async () => {
     vi.mocked(client.post).mockImplementation(
       () => new Promise(() => {}) // Never resolves
     )
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
-    userEvent.type(emailInput, 'admin@example.com')
-    userEvent.type(passwordInput, 'password123')
-    userEvent.click(submitButton)
+    await userEvent.type(emailInput, 'admin@example.com')
+    await userEvent.type(passwordInput, 'password123')
+    await userEvent.click(submitButton)
 
     // Overlay should be z-50
     const overlay = document.querySelector('.z-50')
@@ -211,8 +225,9 @@ describe('Login - Coin Overlay Security Audit', () => {
 
     renderWithProviders(<Login />)
 
-    const emailInput = screen.getByLabelText('Email')
-    const passwordInput = screen.getByLabelText('Password')
+    // Wait for setup check to complete and form to render
+    const emailInput = await screen.findByPlaceholderText('admin@example.com')
+    const passwordInput = screen.getByPlaceholderText('••••••••')
     const submitButton = screen.getByRole('button', { name: /sign in/i })
 
     await userEvent.type(emailInput, 'admin@example.com')

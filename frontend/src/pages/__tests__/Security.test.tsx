@@ -290,6 +290,48 @@ describe('Security', () => {
     })
   })
 
+  describe('Card Order (Pipeline Sequence)', () => {
+    it('should render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      render(<Security />, { wrapper })
+
+      await waitFor(() => screen.getByText(/Security Dashboard/i))
+
+      // Get all card headings
+      const cards = screen.getAllByRole('heading', { level: 3 })
+      const cardNames = cards.map(card => card.textContent)
+
+      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → WAF (Layer 3) → Rate Limiting (Layer 4)
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting'])
+    })
+
+    it('should display layer indicators on each card', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      render(<Security />, { wrapper })
+
+      await waitFor(() => screen.getByText(/Security Dashboard/i))
+
+      // Verify each layer indicator is present
+      expect(screen.getByText(/Layer 1: IP Reputation/i)).toBeInTheDocument()
+      expect(screen.getByText(/Layer 2: Access Control/i)).toBeInTheDocument()
+      expect(screen.getByText(/Layer 3: Request Inspection/i)).toBeInTheDocument()
+      expect(screen.getByText(/Layer 4: Volume Control/i)).toBeInTheDocument()
+    })
+
+    it('should display threat protection summaries', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      render(<Security />, { wrapper })
+
+      await waitFor(() => screen.getByText(/Security Dashboard/i))
+
+      // Verify threat protection descriptions
+      expect(screen.getByText(/Known attackers, botnets/i)).toBeInTheDocument()
+      expect(screen.getByText(/Unauthorized IPs, geo-based attacks/i)).toBeInTheDocument()
+      expect(screen.getByText(/SQL injection, XSS, RCE/i)).toBeInTheDocument()
+      expect(screen.getByText(/DDoS attacks, credential stuffing/i)).toBeInTheDocument()
+    })
+  })
+
   describe('Loading Overlay', () => {
     it('should show Cerberus overlay when Cerberus is toggling', async () => {
       const user = userEvent.setup()
