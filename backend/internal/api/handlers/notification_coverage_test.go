@@ -147,7 +147,7 @@ func TestNotificationProviderHandler_Create_DBError(t *testing.T) {
 	provider := models.NotificationProvider{
 		Name:     "Test",
 		Type:     "webhook",
-		URL: "https://example.com",
+		URL:      "https://example.com",
 		Template: "minimal",
 	}
 	body, _ := json.Marshal(provider)
@@ -171,7 +171,7 @@ func TestNotificationProviderHandler_Create_InvalidTemplate(t *testing.T) {
 	provider := models.NotificationProvider{
 		Name:     "Test",
 		Type:     "webhook",
-		URL: "https://example.com",
+		URL:      "https://example.com",
 		Template: "custom",
 		Config:   "{{.Invalid", // Invalid template syntax
 	}
@@ -214,7 +214,7 @@ func TestNotificationProviderHandler_Update_InvalidTemplate(t *testing.T) {
 	provider := models.NotificationProvider{
 		Name:     "Test",
 		Type:     "webhook",
-		URL: "https://example.com",
+		URL:      "https://example.com",
 		Template: "minimal",
 	}
 	require.NoError(t, svc.CreateProvider(&provider))
@@ -247,7 +247,7 @@ func TestNotificationProviderHandler_Update_DBError(t *testing.T) {
 	provider := models.NotificationProvider{
 		Name:     "Test",
 		Type:     "webhook",
-		URL: "https://example.com",
+		URL:      "https://example.com",
 		Template: "minimal",
 	}
 	body, _ := json.Marshal(provider)
