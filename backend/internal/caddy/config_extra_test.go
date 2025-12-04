@@ -222,8 +222,11 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 	acl := models.AccessList{ID: 200, Name: "WL", Enabled: true, Type: "whitelist", IPRules: ipRules}
 	host := models.ProxyHost{UUID: "pipeline1", DomainNames: "pipe.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true}
 
+	// Provide rulesets and paths so WAF handler is created with directives
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	secCfg := &models.SecurityConfig{CrowdSecMode: "local"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", nil, nil, nil, secCfg)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 

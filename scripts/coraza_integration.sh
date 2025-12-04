@@ -8,11 +8,97 @@ set -euo pipefail
 # 3. Wait for API to be ready and then configure a ruleset that blocks a simple signature
 # 4. Request a path containing the signature and verify 403 (or WAF block response)
 
-echo "Starting Coraza integration test..."
-
 # Ensure we operate from repo root
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+# Verifies WAF handler is present in Caddy config with correct ruleset
+verify_waf_config() {
+    local expected_ruleset="${1:-integration-xss}"
+    local retries=10
+    local wait=3
+
+    echo "Verifying WAF config (expecting ruleset: ${expected_ruleset})..."
+
+    for i in $(seq 1 $retries); do
+        # Fetch Caddy config via admin API
+        local caddy_config
+        caddy_config=$(curl -s http://localhost:2019/config 2>/dev/null || echo "")
+
+        if [ -z "$caddy_config" ]; then
+            echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
+            sleep $wait
+            continue
+        fi
+
+        # Check for WAF handler
+        if echo "$caddy_config" | grep -q '"handler":"waf"'; then
+            echo "  ✓ WAF handler found in Caddy config"
+
+            # Also verify the directives include our ruleset
+            if echo "$caddy_config" | grep -q "$expected_ruleset"; then
+                echo "  ✓ Ruleset '${expected_ruleset}' found in directives"
+                return 0
+            else
+                echo "  ⚠ WAF handler present but ruleset '${expected_ruleset}' not found in directives"
+            fi
+        else
+            echo "  Attempt $i/$retries: WAF handler not found, waiting..."
+        fi
+
+        sleep $wait
+    done
+
+    echo "  ✗ WAF handler verification failed after $retries attempts"
+    return 1
+}
+
+# Dumps debug information on failure
+on_failure() {
+    local exit_code=$?
+    echo ""
+    echo "=============================================="
+    echo "=== FAILURE DEBUG INFO (exit code: $exit_code) ==="
+    echo "=============================================="
+    echo ""
+
+    echo "=== Charon API Logs (last 150 lines) ==="
+    docker logs charon-debug 2>&1 | tail -150 || echo "Could not retrieve container logs"
+    echo ""
+
+    echo "=== Caddy Admin API Config ==="
+    curl -s http://localhost:2019/config 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    echo ""
+
+    echo "=== Ruleset Files in Container ==="
+    docker exec charon-debug sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null' || echo "No rulesets directory found"
+    echo ""
+
+    echo "=== Ruleset File Contents ==="
+    docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' || echo "No ruleset files found"
+    echo ""
+
+    echo "=== Security Config in API ==="
+    curl -s http://localhost:8080/api/v1/security/config 2>/dev/null || echo "Could not retrieve security config"
+    echo ""
+
+    echo "=== Proxy Hosts ==="
+    curl -s http://localhost:8080/api/v1/proxy-hosts 2>/dev/null | head -50 || echo "Could not retrieve proxy hosts"
+    echo ""
+
+    echo "=============================================="
+    echo "=== END DEBUG INFO ==="
+    echo "=============================================="
+}
+
+# Set up trap to dump debug info on any error
+trap on_failure ERR
+
+echo "Starting Coraza integration test..."
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is not available; aborting"
@@ -99,18 +185,26 @@ echo "Enable WAF globally and set ruleset source to integration-xss..."
 SEC_CFG_PAYLOAD='{"name":"default","enabled":true,"waf_mode":"block","waf_rules_source":"integration-xss","admin_whitelist":"0.0.0.0/0"}'
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
+echo "Waiting for Caddy to apply WAF configuration..."
+sleep 3
+
+# Verify WAF handler is properly configured before proceeding
+if ! verify_waf_config "integration-xss"; then
+    echo "ERROR: WAF configuration verification failed - aborting test"
+    exit 1
+fi
+
 echo "Apply rules and test payload..."
 # create minimal proxy host if needed; omitted here for brevity; test will target local Caddy root
 
-echo "Dumping Caddy config routes to verify waf handler and rules_files..."
-curl -s http://localhost:2019/config | grep -n "waf" || true
-curl -s http://localhost:2019/config | grep -n "integration-xss" || true
+echo "Verifying Caddy config has WAF handler..."
+curl -s http://localhost:2019/config | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
 
 echo "Inspecting ruleset file inside container..."
-docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || true
+docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || echo "WARNING: Could not read ruleset file"
 
-echo "Recent caddy logs (may contain plugin errors):"
-docker logs charon-debug | tail -n 200 || true
+echo ""
+echo "=== Testing BLOCK mode ==="
 
 RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
 if [ "$RESPONSE" = "403" ]; then
@@ -129,6 +223,11 @@ curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b $
 echo "Wait for Caddy to apply monitor mode config..."
 sleep 5
 
+# Verify WAF handler is still present after mode switch
+if ! verify_waf_config "integration-xss"; then
+    echo "WARNING: WAF config verification failed after mode switch, proceeding anyway..."
+fi
+
 echo "Inspecting ruleset file (should now have DetectionOnly)..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf | head -5' || true
 
@@ -140,9 +239,6 @@ else
   echo "  Note: Monitor mode should log but not block"
   exit 1
 fi
-
-echo ""
-echo "=== All Coraza integration tests passed ==="
 
 echo ""
 echo "=== All Coraza integration tests passed ==="
