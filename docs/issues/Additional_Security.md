@@ -38,5 +38,5 @@
 **Enterprise-Level Security Gaps:**
 - **Missing:** Security Incident Response Plan (SIRP)
 - **Missing:** Automated security update notifications
-- **Missing:** Multi-factor authentication (MFA) for admin accounts (Use Authentik via built in. No extra external containers)
+- **Missing:** Multi-factor authentication (MFA) for admin accounts (Use Authentik via built in. No extra external containers. Consider adding SSO as well just for Charon. These are not meant to pass auth to Proxy Hosts. Charon is a reverse proxy, not a secure dashboard.)
 - **Missing:** Audit logging for compliance (GDPR, SOC 2)
