@@ -1,7 +1,7 @@
 <p align="center">
   <img src="frontend/public/banner.png" alt="Charon" width="600">
 </p>
-<a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
+
 <h1 align="center">Charon</h1>
 
 <p align="center"><strong>Your websites, your rules—without the headaches.</strong></p>
@@ -13,7 +13,7 @@ Turn multiple websites and apps into one simple dashboard. Click, save, done. No
 <br>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a><a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
   <a href="https://github.com/Wikid82/charon/actions"><img src="https://img.shields.io/github/actions/workflow/status/Wikid82/charon/docker-publish.yml" alt="Build Status"></a>
 </p>
