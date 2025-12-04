@@ -718,9 +718,12 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 				if h == "ruleset.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
-							// Validate include array (coraza-caddy schema) or inline ruleset_content presence
-							if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
-								if rf, ok := incl[0].(string); ok && rf != "" {
+							// Validate directives field contains Include statement (coraza-caddy schema)
+							if dir, ok := handle["directives"].(string); ok && strings.Contains(dir, "Include") {
+								// Extract the file path from the Include directive
+								parts := strings.Split(dir, " ")
+								if len(parts) >= 2 {
+									rf := parts[len(parts)-1]
 									// Ensure file exists and contains our content
 									// Note: manager prepends SecRuleEngine On directives, so we check Contains
 									b, err := os.ReadFile(rf)
@@ -739,7 +742,7 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 			}
 		}
 	}
-	assert.True(t, found, "waf handler with inlined ruleset should be present in generated config")
+	assert.True(t, found, "waf handler with directives should be present in generated config")
 }
 
 func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
@@ -1310,10 +1313,17 @@ func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
 	assert.NoError(t, err, "Subdirectory should not be deleted")
 	assert.True(t, info.IsDir(), "Subdirectory should still be a directory")
 
-	// Verify active ruleset file exists
-	activeFile := filepath.Join(corazaDir, "active-ruleset.conf")
-	_, err = os.Stat(activeFile)
-	assert.NoError(t, err, "Active ruleset file should exist")
+	// Verify active ruleset file exists (with hash suffix in filename)
+	entries, err := os.ReadDir(corazaDir)
+	assert.NoError(t, err, "Should be able to read corazaDir")
+	foundActive := false
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "active-ruleset-") && strings.HasSuffix(entry.Name(), ".conf") {
+			foundActive = true
+			break
+		}
+	}
+	assert.True(t, foundActive, "Active ruleset file with hash suffix should exist")
 }
 
 func TestManager_ApplyConfig_RulesetCleanupReadDirError(t *testing.T) {
