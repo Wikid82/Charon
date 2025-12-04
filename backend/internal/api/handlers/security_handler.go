@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -134,6 +135,12 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	if err := h.svc.Upsert(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Apply updated config to Caddy so WAF mode changes take effect
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"config": payload})
 }
@@ -329,6 +336,12 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable Cerberus"})
 		return
 	}
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": true})
 }
 
@@ -348,6 +361,9 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 			cfg.Enabled = false
 		}
 		_ = h.svc.Upsert(cfg)
+		if h.caddyManager != nil {
+			_ = h.caddyManager.ApplyConfig(c.Request.Context())
+		}
 		c.JSON(http.StatusOK, gin.H{"enabled": false})
 		return
 	}
@@ -367,5 +383,8 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	}
 	cfg.Enabled = false
 	_ = h.svc.Upsert(cfg)
+	if h.caddyManager != nil {
+		_ = h.caddyManager.ApplyConfig(c.Request.Context())
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
 }

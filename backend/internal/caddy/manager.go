@@ -118,7 +118,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			// sanitize name to a safe filename
 			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
-			filePath := filepath.Join(corazaDir, safeName+".conf")
+
 			// Prepend required Coraza directives if not already present.
 			// These are essential for the WAF to actually enforce rules:
 			// - SecRuleEngine On: enables blocking mode (blocks malicious requests)
@@ -131,12 +131,19 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 				engineMode := "On" // default to blocking
 				if rs.Mode == "detection" || rs.Mode == "monitor" {
 					engineMode = "DetectionOnly"
-				} else if rs.Mode == "" && secCfg.WAFMode == "monitor" {
+				} else if rs.Mode == "" && strings.EqualFold(secCfg.WAFMode, "monitor") {
 					// No per-ruleset mode set, use global WAFMode
 					engineMode = "DetectionOnly"
 				}
 				content = fmt.Sprintf("SecRuleEngine %s\nSecRequestBodyAccess On\n\n", engineMode) + content
 			}
+
+			// Calculate hash of the FINAL content (after prepending mode directives)
+			// to ensure filename changes when mode changes, forcing Caddy to reload
+			hash := sha256.Sum256([]byte(content))
+			shortHash := fmt.Sprintf("%x", hash)[:8]
+			filePath := filepath.Join(corazaDir, fmt.Sprintf("%s-%s.conf", safeName, shortHash))
+
 			// Write ruleset file with world-readable permissions so the Caddy
 			// process (which may run as an unprivileged user) can read it.
 			if err := writeFileFunc(filePath, []byte(content), 0644); err != nil {
@@ -384,6 +391,14 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, 
 				crowdsecEnabled = true
 			} else {
 				crowdsecEnabled = false
+			}
+		}
+
+		// runtime override for WAF mode
+		var sc models.SecurityConfig
+		if err := m.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			if sc.WAFMode != "" {
+				wafEnabled = !strings.EqualFold(sc.WAFMode, "disabled")
 			}
 		}
 	}

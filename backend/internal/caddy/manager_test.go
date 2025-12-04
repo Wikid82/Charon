@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,4 +459,77 @@ func TestComputeEffectiveFlags_DB_ACLTrueAndFalse(t *testing.T) {
 	require.NoError(t, res.Error)
 	_, acl, _, _, _ = manager.computeEffectiveFlags(context.Background())
 	require.False(t, acl)
+}
+
+func TestComputeEffectiveFlags_DB_WAFMonitor(t *testing.T) {
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
+
+	secCfg := config.SecurityConfig{CerberusEnabled: true, WAFMode: "enabled"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
+
+	// Set WAF mode to monitor
+	res := db.Create(&models.SecurityConfig{Name: "default", Enabled: true, WAFMode: "monitor"})
+	require.NoError(t, res.Error)
+
+	_, _, waf, _, _ := manager.computeEffectiveFlags(context.Background())
+	require.True(t, waf) // Should still be true (enabled)
+}
+
+func TestManager_ApplyConfig_WAFMonitor(t *testing.T) {
+	// Mock Caddy Admin API
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == "POST" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	// Setup DB
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}, &models.SecurityDecision{}))
+
+	// Set WAF mode to monitor
+	db.Create(&models.SecurityConfig{Name: "default", Enabled: true, WAFMode: "monitor", AdminWhitelist: "127.0.0.1"})
+
+	// Create a ruleset
+	db.Create(&models.SecurityRuleSet{Name: "owasp-crs", Content: "SecRule REQUEST_URI \"@rx ^/admin\" \"id:101,phase:1,deny,status:403\""})
+
+	// Setup Manager
+	tmpDir := t.TempDir()
+	client := NewClient(caddyServer.URL)
+	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "enabled"})
+
+	// Capture file writes to verify WAF mode injection
+	var writtenContent string
+	originalWriteFile := writeFileFunc
+	defer func() { writeFileFunc = originalWriteFile }()
+	writeFileFunc = func(filename string, data []byte, perm os.FileMode) error {
+		if strings.Contains(filename, "owasp-crs") && strings.HasSuffix(filename, ".conf") {
+			writtenContent = string(data)
+		}
+		return originalWriteFile(filename, data, perm)
+	}
+
+	// Create a host
+	host := models.ProxyHost{
+		DomainNames: "example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	db.Create(&host)
+
+	// Apply Config
+	err = manager.ApplyConfig(context.Background())
+	assert.NoError(t, err)
+
+	// Verify that DetectionOnly was injected into the ruleset file
+	assert.Contains(t, writtenContent, "SecRuleEngine DetectionOnly")
+	assert.Contains(t, writtenContent, "SecRequestBodyAccess On")
 }

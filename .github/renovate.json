@@ -45,10 +45,9 @@
       "automerge": true
     },
     {
-      "description": "Limit actions/checkout to stable v4.x updates and block auto-upgrade to v5/v6",
+      "description": "actions/checkout",
       "matchManagers": ["github-actions"],
       "matchPackageNames": ["actions/checkout"],
-      "allowedVersions": "<5.0.0",
       "automerge": false,
       "matchUpdateTypes": ["minor", "patch"],
       "labels": ["dependencies", "github-actions", "manual-review"]
