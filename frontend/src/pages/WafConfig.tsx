@@ -1,10 +1,44 @@
 import { useState } from 'react'
-import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2 } from 'lucide-react'
+import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { useRuleSets, useUpsertRuleSet, useDeleteRuleSet } from '../hooks/useSecurity'
 import type { SecurityRuleSet, UpsertRuleSetPayload } from '../api/security'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+
+/**
+ * WAF Rule Presets for common security configurations
+ */
+const WAF_PRESETS = [
+  {
+    name: 'OWASP Core Rule Set',
+    url: 'https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.5.tar.gz',
+    content: '',
+    description: 'Industry standard protection against OWASP Top 10 vulnerabilities.',
+  },
+  {
+    name: 'Basic SQL Injection Protection',
+    url: '',
+    content: `SecRule ARGS "@detectSQLi" "id:1001,phase:1,deny,status:403,msg:'SQLi Detected'"
+SecRule REQUEST_BODY "@detectSQLi" "id:1002,phase:2,deny,status:403,msg:'SQLi in Body'"
+SecRule REQUEST_COOKIES "@detectSQLi" "id:1003,phase:1,deny,status:403,msg:'SQLi in Cookies'"`,
+    description: 'Simple rules to block common SQL injection patterns.',
+  },
+  {
+    name: 'Basic XSS Protection',
+    url: '',
+    content: `SecRule ARGS "@detectXSS" "id:2001,phase:1,deny,status:403,msg:'XSS Detected'"
+SecRule REQUEST_BODY "@detectXSS" "id:2002,phase:2,deny,status:403,msg:'XSS in Body'"`,
+    description: 'Rules to block common Cross-Site Scripting (XSS) attacks.',
+  },
+  {
+    name: 'Common Bad Bots',
+    url: '',
+    content: `SecRule REQUEST_HEADERS:User-Agent "@rx (?i)(curl|wget|python|scrapy|httpclient|libwww|nikto|sqlmap)" "id:3001,phase:1,deny,status:403,msg:'Bad Bot Detected'"
+SecRule REQUEST_HEADERS:User-Agent "@streq -" "id:3002,phase:1,deny,status:403,msg:'Empty User-Agent'"`,
+    description: 'Block known malicious bots and scanners.',
+  },
+] as const
 
 /**
  * Confirmation dialog for destructive actions
@@ -78,6 +112,19 @@ function RuleSetForm({
   const [mode, setMode] = useState<'blocking' | 'detection'>(
     initialData?.mode === 'detection' ? 'detection' : 'blocking'
   )
+  const [selectedPreset, setSelectedPreset] = useState('')
+
+  const handlePresetChange = (presetName: string) => {
+    setSelectedPreset(presetName)
+    if (presetName === '') return
+
+    const preset = WAF_PRESETS.find((p) => p.name === presetName)
+    if (preset) {
+      setName(preset.name)
+      setSourceUrl(preset.url)
+      setContent(preset.content)
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -94,6 +141,34 @@ function RuleSetForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Presets Dropdown - only show when creating new */}
+      {!initialData && (
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1.5">
+            <Sparkles className="inline h-4 w-4 mr-1 text-yellow-400" />
+            Quick Start with Preset
+          </label>
+          <select
+            value={selectedPreset}
+            onChange={(e) => handlePresetChange(e.target.value)}
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            data-testid="preset-select"
+          >
+            <option value="">Choose a preset...</option>
+            {WAF_PRESETS.map((preset) => (
+              <option key={preset.name} value={preset.name}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+          {selectedPreset && (
+            <p className="mt-1 text-xs text-gray-500">
+              {WAF_PRESETS.find((p) => p.name === selectedPreset)?.description}
+            </p>
+          )}
+        </div>
+      )}
+
       <Input
         label="Rule Set Name"
         value={name}
