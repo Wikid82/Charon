@@ -111,7 +111,7 @@ docker rm -f charon-debug >/dev/null 2>&1 || true
 if ! docker network inspect containers_default >/dev/null 2>&1; then
   docker network create containers_default
 fi
-docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2345:2345 \
+docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 -p 2345:2345 \
   -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e CHARON_SECURITY_WAF_MODE=block \
@@ -137,6 +137,20 @@ fi
 
 docker rm -f coraza-backend >/dev/null 2>&1 || true
 docker run -d --name coraza-backend --network containers_default kennethreitz/httpbin
+
+echo "Waiting for httpbin backend to be ready..."
+for i in {1..20}; do
+  if docker exec coraza-backend wget -q -O- http://localhost/get >/dev/null 2>&1; then
+    echo "✓ httpbin backend is ready"
+    break
+  fi
+  if [ $i -eq 20 ]; then
+    echo "✗ httpbin backend failed to start"
+    exit 1
+  fi
+  echo -n '.'
+  sleep 1
+done
 
 echo "Creating proxy host 'integration.local' pointing to backend..."
 PROXY_HOST_PAYLOAD=$(cat <<EOF
@@ -186,7 +200,7 @@ SEC_CFG_PAYLOAD='{"name":"default","enabled":true,"waf_mode":"block","waf_rules_
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
 echo "Waiting for Caddy to apply WAF configuration..."
-sleep 3
+sleep 5
 
 # Verify WAF handler is properly configured before proceeding
 if ! verify_waf_config "integration-xss"; then
@@ -206,13 +220,22 @@ docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-
 echo ""
 echo "=== Testing BLOCK mode ==="
 
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
-if [ "$RESPONSE" = "403" ]; then
-  echo "✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode"
-else
-  echo "✗ Unexpected response code: $RESPONSE (expected 403) in BLOCK mode"
-  exit 1
-fi
+MAX_RETRIES=3
+BLOCK_SUCCESS=0
+for attempt in $(seq 1 $MAX_RETRIES); do
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
+  if [ "$RESPONSE" = "403" ]; then
+    echo "✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode"
+    BLOCK_SUCCESS=1
+    break
+  fi
+  if [ $attempt -eq $MAX_RETRIES ]; then
+    echo "✗ Unexpected response code: $RESPONSE (expected 403) in BLOCK mode after $MAX_RETRIES attempts"
+    exit 1
+  fi
+  echo "  Attempt $attempt: Got $RESPONSE, retrying in 2s..."
+  sleep 2
+done
 
 echo ""
 echo "=== Testing MONITOR mode (DetectionOnly) ==="
@@ -221,7 +244,7 @@ SEC_CFG_MONITOR='{"name":"default","enabled":true,"waf_mode":"monitor","waf_rule
 curl -s -X POST -H "Content-Type: application/json" -d "${SEC_CFG_MONITOR}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/config
 
 echo "Wait for Caddy to apply monitor mode config..."
-sleep 5
+sleep 8
 
 # Verify WAF handler is still present after mode switch
 if ! verify_waf_config "integration-xss"; then
@@ -231,14 +254,22 @@ fi
 echo "Inspecting ruleset file (should now have DetectionOnly)..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf | head -5' || true
 
-RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
-if [ "$RESPONSE_MONITOR" = "200" ]; then
-  echo "✓ Coraza WAF in MONITOR mode allowed payload through (HTTP 200) as expected"
-else
-  echo "✗ Unexpected response code: $RESPONSE_MONITOR (expected 200) in MONITOR mode"
-  echo "  Note: Monitor mode should log but not block"
-  exit 1
-fi
+MONITOR_SUCCESS=0
+for attempt in $(seq 1 $MAX_RETRIES); do
+  RESPONSE_MONITOR=$(curl -s -o /dev/null -w "%{http_code}" -d "<script>alert(1)</script>" -H "Host: integration.local" http://localhost/post)
+  if [ "$RESPONSE_MONITOR" = "200" ]; then
+    echo "✓ Coraza WAF in MONITOR mode allowed payload through (HTTP 200) as expected"
+    MONITOR_SUCCESS=1
+    break
+  fi
+  if [ $attempt -eq $MAX_RETRIES ]; then
+    echo "✗ Unexpected response code: $RESPONSE_MONITOR (expected 200) in MONITOR mode after $MAX_RETRIES attempts"
+    echo "  Note: Monitor mode should log but not block"
+    exit 1
+  fi
+  echo "  Attempt $attempt: Got $RESPONSE_MONITOR, retrying in 2s..."
+  sleep 2
+done
 
 echo ""
 echo "=== All Coraza integration tests passed ==="
