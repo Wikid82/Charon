@@ -12,28 +12,28 @@ import (
 // TestBuildWAFHandler_PathTraversalAttack tests path traversal attempts in ruleset names
 func TestBuildWAFHandler_PathTraversalAttack(t *testing.T) {
 	tests := []struct {
-		name         string
-		rulesetName  string
-		shouldMatch  bool // Whether the ruleset should be found
-		description  string
+		name        string
+		rulesetName string
+		shouldMatch bool // Whether the ruleset should be found
+		description string
 	}{
 		{
-			name:         "Path traversal in ruleset name",
-			rulesetName:  "../../../etc/passwd",
-			shouldMatch:  false,
-			description:  "Ruleset with path traversal should not match any legitimate path",
+			name:        "Path traversal in ruleset name",
+			rulesetName: "../../../etc/passwd",
+			shouldMatch: false,
+			description: "Ruleset with path traversal should not match any legitimate path",
 		},
 		{
-			name:         "Null byte injection",
-			rulesetName:  "rules\x00.conf",
-			shouldMatch:  false,
-			description:  "Ruleset with null bytes should not match",
+			name:        "Null byte injection",
+			rulesetName: "rules\x00.conf",
+			shouldMatch: false,
+			description: "Ruleset with null bytes should not match",
 		},
 		{
-			name:         "URL encoded traversal",
-			rulesetName:  "..%2F..%2Fetc%2Fpasswd",
-			shouldMatch:  false,
-			description:  "URL encoded path traversal should not match",
+			name:        "URL encoded traversal",
+			rulesetName: "..%2F..%2Fetc%2Fpasswd",
+			shouldMatch: false,
+			description: "URL encoded path traversal should not match",
 		},
 	}
 
