@@ -120,11 +120,11 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			safeName = strings.ReplaceAll(safeName, " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
 			safeName = strings.ReplaceAll(safeName, "\\", "-")
-			safeName = strings.ReplaceAll(safeName, "..", "")         // Strip path traversal sequences
-			safeName = strings.ReplaceAll(safeName, "\x00", "")       // Strip null bytes
-			safeName = strings.ReplaceAll(safeName, "%2f", "-")       // URL-encoded slash
-			safeName = strings.ReplaceAll(safeName, "%2e", "")        // URL-encoded dot
-			safeName = strings.Trim(safeName, ".-")                   // Trim leading/trailing dots and dashes
+			safeName = strings.ReplaceAll(safeName, "..", "")   // Strip path traversal sequences
+			safeName = strings.ReplaceAll(safeName, "\x00", "") // Strip null bytes
+			safeName = strings.ReplaceAll(safeName, "%2f", "-") // URL-encoded slash
+			safeName = strings.ReplaceAll(safeName, "%2e", "")  // URL-encoded dot
+			safeName = strings.Trim(safeName, ".-")             // Trim leading/trailing dots and dashes
 			if safeName == "" {
 				safeName = "unnamed-ruleset"
 			}
