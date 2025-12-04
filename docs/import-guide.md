@@ -1,383 +1,113 @@
-# Caddyfile Import Guide
+# Import Your Old Caddy Setup
 
-This guide explains how to import existing Caddyfiles into Charon, handle conflicts, and troubleshoot common issues.
+Already using Caddy? You can bring your existing configuration into Charon instead of starting from scratch.
 
-## Table of Contents
+---
 
-- [Overview](#overview)
-- [Import Methods](#import-methods)
-- [Import Workflow](#import-workflow)
-- [Conflict Resolution](#conflict-resolution)
-- [Supported Caddyfile Syntax](#supported-caddyfile-syntax)
-- [Limitations](#limitations)
-- [Troubleshooting](#troubleshooting)
-- [Examples](#examples)
+## What Gets Imported?
 
-## Overview
+Charon reads your Caddyfile and creates proxy hosts for you automatically. It understands:
 
-Charon can import existing Caddyfiles and convert them into managed proxy host configurations. This is useful when:
+- ✅ Domain names
+- ✅ Reverse proxy addresses
+- ✅ SSL settings
+- ✅ Multiple domains per site
 
-- Migrating from standalone Caddy to Charon
-- Importing configurations from other systems
-- Bulk importing multiple proxy hosts
-- Sharing configurations between environments
+---
 
-## Import Methods
+## How to Import
 
-### Method 1: File Upload
+### Step 1: Go to the Import Page
 
-1. Navigate to **Import Caddyfile** page
-2. Click **Choose File** button
-3. Select your Caddyfile (any text file)
-4. Click **Upload**
+Click **"Import Caddy Config"** in the sidebar.
 
-### Method 2: Paste Content
+### Step 2: Choose Your Method
 
-1. Navigate to **Import Caddyfile** page
-2. Click **Paste Caddyfile** tab
-3. Paste your Caddyfile content into the textarea
-4. Click **Preview Import**
+**Option A: Upload a File**
 
-## Import Workflow
+- Click "Choose File"
+- Select your Caddyfile
+- Click "Upload"
 
-The import process follows these steps:
+**Option B: Paste Text**
 
-### 1. Upload/Paste
+- Click the "Paste" tab
+- Copy your Caddyfile contents
+- Paste them into the box
+- Click "Parse"
 
-Upload your Caddyfile or paste the content directly.
+### Step 3: Review What Was Found
+
+Charon shows you a preview:
+
+```
+Found 3 sites:
+✅ example.com → localhost:3000
+✅ api.example.com → localhost:8080
+⚠️  files.example.com → (file server - not supported)
+```
+
+Green checkmarks = will import
+Yellow warnings = can't import (but tells you why)
+
+### Step 4: Handle Conflicts
+
+If you already have a proxy for `example.com`, Charon asks what to do:
+
+- **Keep Existing** — Don't import this one, keep what you have
+- **Overwrite** — Replace your current config with the imported one
+- **Skip** — Same as "Keep Existing"
+
+Choose what makes sense for each conflict.
+
+### Step 5: Click "Import"
+
+Charon creates proxy hosts for everything you selected. Done!
+
+---
+
+## Example: Simple Caddyfile
+
+**Your Caddyfile:**
 
 ```caddyfile
-# Example Caddyfile
-example.com {
-    reverse_proxy localhost:8080
-}
-
-api.example.com {
-    reverse_proxy https://backend:9000
-}
-```
-
-### 2. Parsing
-
-The system parses your Caddyfile and extracts:
-- Domain names
-- Reverse proxy directives
-- TLS settings
-- Headers and other directives
-
-**Parsing States:**
-- ✅ **Success** - All hosts parsed correctly
-- ⚠️ **Partial** - Some hosts parsed, others failed
-- ❌ **Failed** - Critical parsing error
-
-### 3. Preview
-
-Review the parsed configurations:
-
-| Domain | Forward Host | Forward Port | SSL | Status |
-|--------|--------------|--------------|-----|--------|
-| example.com | localhost | 8080 | No | New |
-| api.example.com | backend | 9000 | Yes | New |
-
-### 4. Conflict Detection
-
-The system checks if any imported domains already exist:
-
-- **No Conflicts** - All domains are new, safe to import
-- **Conflicts Found** - One or more domains already exist
-
-### 5. Conflict Resolution
-
-For each conflict, choose an action:
-
-| Domain | Existing Config | New Config | Action |
-|--------|-----------------|------------|--------|
-| example.com | localhost:3000 | localhost:8080 | [Keep Existing ▼] |
-
-**Resolution Options:**
-- **Keep Existing** - Don't import this host, keep current configuration
-- **Overwrite** - Replace existing configuration with imported one
-- **Skip** - Don't import this host, keep existing unchanged
-- **Create New** - Import as a new host with modified domain name
-
-### 6. Commit
-
-Once all conflicts are resolved, click **Commit Import** to finalize.
-
-**Post-Import:**
-- Imported hosts appear in Proxy Hosts list
-- Configurations are saved to database
-- Caddy configs are generated automatically
-
-## Conflict Resolution
-
-### Strategy: Keep Existing
-
-Use when you want to preserve your current configuration and ignore the imported one.
-
-```
-Current:  example.com → localhost:3000
-Imported: example.com → localhost:8080
-Result:   example.com → localhost:3000 (unchanged)
-```
-
-### Strategy: Overwrite
-
-Use when the imported configuration is newer or more correct.
-
-```
-Current:  example.com → localhost:3000
-Imported: example.com → localhost:8080
-Result:   example.com → localhost:8080 (replaced)
-```
-
-### Strategy: Skip
-
-Same as "Keep Existing" - imports everything except conflicting hosts.
-
-### Strategy: Create New (Future)
-
-Renames the imported host to avoid conflicts (e.g., `example.com` → `example-2.com`).
-
-## Supported Caddyfile Syntax
-
-### Basic Reverse Proxy
-
-```caddyfile
-example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-**Parsed as:**
-- Domain: `example.com`
-- Forward Host: `localhost`
-- Forward Port: `8080`
-- Forward Scheme: `http`
-
-### HTTPS Upstream
-
-```caddyfile
-secure.example.com {
-    reverse_proxy https://backend:9000
-}
-```
-
-**Parsed as:**
-- Domain: `secure.example.com`
-- Forward Host: `backend`
-- Forward Port: `9000`
-- Forward Scheme: `https`
-
-### Multiple Domains
-
-```caddyfile
-example.com, www.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-**Parsed as:**
-- Domain: `example.com, www.example.com`
-- Forward Host: `localhost`
-- Forward Port: `8080`
-
-### TLS Configuration
-
-```caddyfile
-example.com {
-    tls internal
-    reverse_proxy localhost:8080
-}
-```
-
-**Parsed as:**
-- SSL Forced: `true`
-- TLS provider: `internal` (self-signed)
-
-### Headers and Directives
-
-```caddyfile
-example.com {
-    header {
-        X-Custom-Header "value"
-    }
-    reverse_proxy localhost:8080 {
-        header_up Host {host}
-    }
-}
-```
-
-**Note:** Custom headers and advanced directives are stored in the raw CaddyConfig but may not be editable in the UI initially.
-
-## Limitations
-
-### Current Limitations
-
-1. **Path-based routing** - Not yet supported
-   ```caddyfile
-   example.com {
-       route /api/* {
-           reverse_proxy localhost:8080
-       }
-       route /static/* {
-           file_server
-       }
-   }
-   ```
-
-2. **File server blocks** - Only reverse_proxy supported
-   ```caddyfile
-   static.example.com {
-       file_server
-       root * /var/www/html
-   }
-   ```
-
-3. **Advanced matchers** - Basic domain matching only
-   ```caddyfile
-   @api {
-       path /api/*
-       header X-API-Key *
-   }
-   reverse_proxy @api localhost:8080
-   ```
-
-4. **Import statements** - Must be resolved before import
-   ```caddyfile
-   import snippets/common.caddy
-   ```
-
-5. **Environment variables** - Must be hardcoded
-   ```caddyfile
-   {$DOMAIN} {
-       reverse_proxy {$BACKEND_HOST}
-   }
-   ```
-
-### Workarounds
-
-- **Path routing**: Create multiple proxy hosts per path
-- **File server**: Use separate Caddy instance or static host tool
-- **Matchers**: Manually configure in Caddy after import
-- **Imports**: Flatten your Caddyfile before importing
-- **Variables**: Replace with actual values before import
-
-## Troubleshooting
-
-### Error: "Failed to parse Caddyfile"
-
-**Cause:** Invalid Caddyfile syntax
-
-**Solution:**
-1. Validate your Caddyfile with `caddy validate --config Caddyfile`
-2. Check for missing braces `{}`
-3. Ensure reverse_proxy directives are properly formatted
-
-### Error: "No hosts found in Caddyfile"
-
-**Cause:** Only contains directives without reverse_proxy blocks
-
-**Solution:**
-- Ensure you have at least one `reverse_proxy` directive
-- Remove file_server-only blocks
-- Add domain blocks with reverse_proxy
-
-### Warning: "Some hosts could not be imported"
-
-**Cause:** Partial import with unsupported features
-
-**Solution:**
-- Review the preview to see which hosts failed
-- Simplify complex directives
-- Import compatible hosts, add others manually
-
-### Conflict Resolution Stuck
-
-**Cause:** Not all conflicts have resolution selected
-
-**Solution:**
-- Ensure every conflicting host has a resolution dropdown selection
-- The "Commit Import" button enables only when all conflicts are resolved
-
-## Examples
-
-### Example 1: Simple Migration
-
-**Original Caddyfile:**
-```caddyfile
-app.example.com {
+blog.example.com {
     reverse_proxy localhost:3000
 }
 
-api.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-**Import Result:**
-- 2 hosts imported successfully
-- No conflicts
-- Ready to use immediately
-
-### Example 2: HTTPS Upstream
-
-**Original Caddyfile:**
-```caddyfile
-secure.example.com {
-    reverse_proxy https://internal.corp:9000 {
-        transport http {
-            tls_insecure_skip_verify
-        }
-    }
-}
-```
-
-**Import Result:**
-- Domain: `secure.example.com`
-- Forward: `https://internal.corp:9000`
-- Note: `tls_insecure_skip_verify` stored in raw config
-
-### Example 3: Multi-domain with Conflict
-
-**Original Caddyfile:**
-```caddyfile
-example.com, www.example.com {
-    reverse_proxy localhost:8080
-}
-```
-
-**Existing Configuration:**
-- `example.com` already points to `localhost:3000`
-
-**Resolution:**
-1. System detects conflict on `example.com`
-2. Choose **Overwrite** to use new config
-3. Commit import
-4. Result: `example.com, www.example.com → localhost:8080`
-
-### Example 4: Complex Setup (Partial Import)
-
-**Original Caddyfile:**
-```caddyfile
-# Supported
-app.example.com {
-    reverse_proxy localhost:3000
-}
-
-# Supported
 api.example.com {
     reverse_proxy https://backend:8080
 }
+```
 
-# NOT supported (file server)
+**What Charon creates:**
+
+- Proxy host: `blog.example.com` → `http://localhost:3000`
+- Proxy host: `api.example.com` → `https://backend:8080`
+
+---
+
+## What Doesn't Work (Yet)
+
+Some Caddy features can't be imported:
+
+### File Servers
+
+```caddyfile
 static.example.com {
     file_server
     root * /var/www
 }
+```
 
-# NOT supported (path routing)
-multi.example.com {
+**Why:** Charon only handles reverse proxies, not static files.
+
+**Solution:** Keep this in a separate Caddyfile or use a different tool for static hosting.
+
+### Path-Based Routing
+
+```caddyfile
+example.com {
     route /api/* {
         reverse_proxy localhost:8080
     }
@@ -387,43 +117,104 @@ multi.example.com {
 }
 ```
 
-**Import Result:**
-- ✅ `app.example.com` imported
-- ✅ `api.example.com` imported
-- ❌ `static.example.com` skipped (file_server not supported)
-- ❌ `multi.example.com` skipped (path routing not supported)
-- **Action:** Add unsupported hosts manually through UI or keep separate Caddyfile
+**Why:** Charon treats each domain as one proxy, not multiple paths.
 
-## Best Practices
+**Solution:** Create separate subdomains instead:
+- `api.example.com` → localhost:8080
+- `web.example.com` → localhost:3000
 
-1. **Validate First** - Run `caddy validate` before importing
-2. **Backup** - Keep a backup of your original Caddyfile
-3. **Simplify** - Remove unsupported directives before import
-4. **Test Small** - Import a few hosts first to verify
-5. **Review Preview** - Always check the preview before committing
-6. **Resolve Conflicts Carefully** - Understand impact before overwriting
-7. **Document Custom Config** - Note any advanced directives that can't be edited in UI
+### Environment Variables
 
-## Getting Help
+```caddyfile
+{$DOMAIN} {
+    reverse_proxy {$BACKEND}
+}
+```
 
-If you encounter issues:
+**Why:** Charon doesn't know what your environment variables are.
 
-1. Check this guide's [Troubleshooting](#troubleshooting) section
-2. Review [Supported Syntax](#supported-caddyfile-syntax)
-3. Open an issue on GitHub with:
-   - Your Caddyfile (sanitized)
-   - Error messages
-   - Expected vs actual behavior
+**Solution:** Replace them with actual values before importing.
 
-## Future Enhancements
+### Import Statements
 
-Planned improvements to import functionality:
+```caddyfile
+import snippets/common.caddy
+```
 
-- [ ] Path-based routing support
-- [ ] Custom header import/export
-- [ ] Environment variable resolution
-- [ ] Import from URL
-- [ ] Export to Caddyfile
-- [ ] Diff view for conflicts
-- [ ] Batch import from multiple files
-- [ ] Import validation before upload
+**Why:** Charon needs the full config in one file.
+
+**Solution:** Combine all files into one before importing.
+
+---
+
+## Tips for Successful Imports
+
+### 1. Simplify First
+
+Remove unsupported directives before importing. Focus on just the reverse_proxy parts.
+
+### 2. Test with One Site
+
+Import a single site first to make sure it works. Then import the rest.
+
+### 3. Keep a Backup
+
+Don't delete your original Caddyfile. Keep it as a backup just in case.
+
+### 4. Review Before Committing
+
+Always check the preview carefully. Make sure addresses and ports are correct.
+
+---
+
+## Troubleshooting
+
+### "No hosts found"
+
+**Problem:** Your Caddyfile only has file servers or other unsupported features.
+
+**Solution:** Add at least one `reverse_proxy` directive or add sites manually through the UI.
+
+### "Parse error"
+
+**Problem:** Your Caddyfile has syntax errors.
+
+**Solution:**
+1. Run `caddy validate --config Caddyfile` on your server
+2. Fix any errors it reports
+3. Try importing again
+
+### "Some hosts failed to import"
+
+**Problem:** Some sites have unsupported features.
+
+**Solution:** Import what works, add the rest manually through the UI.
+
+---
+
+## After Importing
+
+Once imported, you can:
+
+- Edit any proxy host through the UI
+- Add SSL certificates (automatic with Let's Encrypt)
+- Add security features
+- Delete ones you don't need
+
+Everything is now managed by Charon!
+
+---
+
+## What About Nginx Proxy Manager?
+
+NPM import is planned for a future update. For now:
+
+1. Export your NPM config (if possible)
+2. Look at which domains point where
+3. Add them manually through Charon's UI (it's pretty quick)
+
+---
+
+## Need Help?
+
+**[Ask on GitHub Discussions](https://github.com/Wikid82/charon/discussions)** — Bring your Caddyfile and we'll help you figure out how to import it.

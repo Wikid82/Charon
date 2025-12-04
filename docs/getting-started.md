@@ -1,277 +1,157 @@
-# 🏠 Getting Started with Charon
+# Getting Started with Charon
 
-**Welcome!** This guide will walk you through setting up your first proxy. Don't worry if you're new to this - we'll explain everything step by step!
-
----
-
-## 🤔 What Is This App?
-
-Think of this app as a **traffic controller** for your websites and apps.
-
-**Here's a simple analogy:**
-Imagine you have several houses (websites/apps) on different streets (servers). Instead of giving people complicated directions to each house, you have one main address (your domain) where a helpful guide (the proxy) sends visitors to the right house automatically.
-
-**What you can do:**
-- ✅ Make multiple websites accessible through one domain
-- ✅ Route traffic from example.com to different servers
-- ✅ Manage SSL certificates (the lock icon in browsers)
-- ✅ Control who can access what
+**Welcome!** Let's get your first website up and running. No experience needed.
 
 ---
 
-## 📋 Before You Start
+## What Is This?
 
-You'll need:
-1. **A computer** (Windows, Mac, or Linux)
-2. **Docker installed** (it's like a magic box that runs apps)
-   - Don't have it? [Get Docker here](https://docs.docker.com/get-docker/)
-3. **5 minutes** of your time
+Imagine you have several apps running on your computer. Maybe a blog, a file storage app, and a chat server.
 
-That's it! No programming needed.
+**The problem:** Each app is stuck on a weird address like `192.168.1.50:3000`. Nobody wants to type that.
+
+**Charon's solution:** You tell Charon "when someone visits myblog.com, send them to that app." Charon handles everything else—including the green lock icon (HTTPS) that makes browsers happy.
 
 ---
 
-### Step 1: Get the App Running
+## Step 1: Install Charon
 
-### The Easy Way (Recommended)
+### Option A: Docker Compose (Easiest)
 
-Open your **terminal** (or Command Prompt on Windows) and paste this:
+Create a file called `docker-compose.yml`:
+
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - ./charon-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CHARON_ENV=production
+```
+
+Then run:
+
+```bash
+docker-compose up -d
+```
+
+### Option B: Docker Run (One Command)
 
 ```bash
 docker run -d \
-   -p 8080:8080 \
-   -v caddy_data:/app/data \
-   --name charon \
-   ghcr.io/wikid82/charon:latest
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  ghcr.io/wikid82/charon:latest
 ```
 
-**What does this do?** It downloads and starts the app. You don't need to understand the details - just copy and paste!
+### What Just Happened?
 
-### Check If It's Working
+- **Port 80** and **443**: Where your websites will be accessible (like mysite.com)
+- **Port 8080**: The control panel where you manage everything
+- **Docker socket**: Lets Charon see your other Docker containers
 
-1. Open your web browser
-2. Go to: `http://localhost:8080`
-3. You should see the app! 🎉
-
-> **Didn't work?** Check if Docker is running. On Windows/Mac, look for the Docker icon in your taskbar.
+**Open http://localhost:8080** in your browser!
 
 ---
 
-## 🎯 Step 2: Create Your First Proxy Host
+## Step 2: Add Your First Website
 
-Let's set up your first proxy! We'll create a simple example.
+Let's say you have an app running at `192.168.1.100:3000` and you want it available at `myapp.example.com`.
 
-### What's a Proxy Host?
-
-A **Proxy Host** is like a forwarding address. When someone visits `mysite.com`, it secretly sends them to `192.168.1.100:3000` without them knowing.
-
-### Let's Create One!
-
-1. **Click "Proxy Hosts"** in the left sidebar
-2. **Click "+ Add Proxy Host"** button (top right)
+1. **Click "Proxy Hosts"** in the sidebar
+2. **Click the "+ Add" button**
 3. **Fill in the form:**
-
-   📝 **Domain Name:** (What people type in their browser)
-   ```
-   myapp.local
-   ```
-   > This is like your house's street address
-
-   📍 **Forward To:** (Where the traffic goes)
-   ```
-   192.168.1.100
-   ```
-   > This is where your actual app is running
-
-   🔢 **Port:** (Which door to use)
-   ```
-   3000
-   ```
-   > Apps listen on specific "doors" (ports) - 3000 is common for web apps
-
-   🌐 **Scheme:** (How to talk to it)
-   ```
-   http
-   ```
-   > Choose `http` for most apps, `https` if your app already has SSL
-
+   - **Domain:** `myapp.example.com`
+   - **Forward To:** `192.168.1.100`
+   - **Port:** `3000`
+   - **Scheme:** `http` (or `https` if your app already has SSL)
 4. **Click "Save"**
 
-**Congratulations!** 🎉 You just created your first proxy! Now when you visit `http://myapp.local`, it will show your app from `192.168.1.100:3000`.
+**Done!** When someone visits `myapp.example.com`, they'll see your app.
 
 ---
 
-## 🌍 Step 3: Set Up a Remote Server (Optional)
+## Step 3: Get HTTPS (The Green Lock)
 
-Sometimes your apps are on different computers (servers). Let's add one!
+For this to work, you need:
 
-### What's a Remote Server?
+1. **A real domain name** (like example.com) pointed at your server
+2. **Ports 80 and 443 open** in your firewall
 
-Think of it as **telling the app about other computers** you have. Once added, you can easily send traffic to them.
+If you have both, Charon will automatically:
 
-### Adding a Remote Server
+- Request a free SSL certificate from Let's Encrypt
+- Install it
+- Renew it before it expires
 
-1. **Click "Remote Servers"** in the left sidebar
-2. **Click "+ Add Server"** button
-3. **Fill in the details:**
+**You don't do anything.** It just works.
 
-   🏷️ **Name:** (A friendly name)
-   ```
-   My Home Server
-   ```
-
-   🌐 **Hostname:** (The address of your server)
-   ```
-   192.168.1.50
-   ```
-
-   📝 **Description:** (Optional - helps you remember)
-   ```
-   The server in my office running Docker
-   ```
-
-4. **Click "Test Connection"** - this checks if the app can reach your server
-5. **Click "Save"**
-
-Now when creating proxy hosts, you can pick this server from a dropdown instead of typing the address every time!
+**Testing without a domain?** See [Testing SSL Certificates](acme-staging.md) for a practice mode.
 
 ---
 
-## 📥 Step 4: Import Existing Caddy Files (If You Have Them)
+## Common Questions
 
-Already using Caddy and have configuration files? You can bring them in!
+### "Where do I get a domain name?"
 
-### What's a Caddyfile?
+You buy one from places like:
 
-It's a **text file that tells Caddy how to route traffic**. If you're not sure if you have one, you probably don't need this step.
+- Namecheap
+- Google Domains
+- Cloudflare
 
-### How to Import
+Cost: Usually $10-15/year.
 
-1. **Click "Import Caddy Config"** in the left sidebar
-2. **Choose your method:**
-   - **Drag & Drop:** Just drag your `Caddyfile` into the box
-   - **Paste:** Copy the contents and paste them in the text area
-3. **Click "Parse Config"** - the app reads your file
-4. **Review the results:**
-   - ✅ Green items = imported successfully
-   - ⚠️ Yellow items = need your attention (conflicts)
-   - ❌ Red items = couldn't import (will show why)
-5. **Resolve any conflicts** (the app will guide you)
-6. **Click "Import Selected"**
+### "How do I point my domain at my server?"
 
-Done! Your existing setup is now in the app.
+In your domain provider's control panel:
 
-> **Need more help?** Check the detailed [Import Guide](import-guide.md)
+1. Find "DNS Settings" or "Domain Management"
+2. Create an "A Record"
+3. Set it to your server's IP address
 
----
+Wait 5-10 minutes for it to update.
 
-## 💡 Tips for New Users
+### "Can I use this for apps on different computers?"
 
-### 1. Start Small
-Don't try to import everything at once. Start with one proxy host, make sure it works, then add more.
+Yes! Just use the other computer's IP address in the "Forward To" field.
 
-### 2. Use Test Connection
-When adding remote servers, always click "Test Connection" to make sure the app can reach them.
+If you're using Tailscale or another VPN, use the VPN IP.
 
-### 3. Check Your Ports
-Make sure the ports you use aren't already taken by other apps. Common ports:
-- `80` - Web traffic (HTTP)
-- `443` - Secure web traffic (HTTPS)
-- `3000-3999` - Apps often use these
-- `8080-8090` - Alternative web ports
+### "Will this work with Docker containers?"
 
-### 4. Local Testing First
-Test everything with local addresses (like `localhost` or `192.168.x.x`) before using real domain names.
+Absolutely. Charon can even detect them automatically:
 
-### 5. Save Backups
-The app stores everything in a database. The Docker command above saves it in `caddy_data` - don't delete this!
+1. Click "Proxy Hosts"
+2. Click "Docker" tab
+3. You'll see all your running containers
+4. Click one to auto-fill the form
 
 ---
 
-## ⚙️ Environment Variables (Advanced)
+## What's Next?
 
-Want to customize how the app runs? You can set these options:
+Now that you have the basics:
 
-### Common Options
-
-| Variable | Default | What It Does |
-|----------|---------|--------------|
-| `CHARON_ENV` | `development` | Set to `production` for live use (CHARON_ preferred; CPM_ still supported) |
-| `CHARON_HTTP_PORT` | `8080` | Change the web interface port |
-| `CHARON_ACME_STAGING` | `false` | Use Let's Encrypt staging (see below) |
-
-### 🧪 Development Mode: ACME Staging
-
-**Problem:** Testing SSL certificates repeatedly can hit Let's Encrypt rate limits (50 certs/week)
-
-**Solution:** Use staging mode for development!
-
-```bash
-docker run -d \
-  -p 8080:8080 \
-   -e CHARON_ACME_STAGING=true \
-  -v caddy_data:/app/data \
-  --name caddy-proxy-manager \
-   ghcr.io/wikid82/charon:latest
-```
-
-**What happens:**
-- ✅ No rate limits
-- ⚠️ Certificates are "fake" (untrusted by browsers)
-- Perfect for testing
-
-**For production:** Remove `CHARON_ACME_STAGING` or set to `false` (CPM_ vars still supported)
-
-📖 **Learn more:** [ACME Staging Guide](acme-staging.md)
+- **[See All Features](features.md)** — Discover what else Charon can do
+- **[Import Your Old Config](import-guide.md)** — Bring your existing Caddy setup
+- **[Turn On Security](security.md)** — Block attackers (optional but recommended)
 
 ---
 
-## 🐛 Something Not Working?
+## Stuck?
 
-### App Won't Start
-- **Check if Docker is running** - look for the Docker icon
-- **Check if port 8080 is free** - another app might be using it
-- **Try:** `docker ps` to see if it's running
-
-### Can't Access the Website
-- **Check your spelling** - domain names are picky
-- **Check the port** - make sure the app is actually running on that port
-- **Check the firewall** - might be blocking connections
-
-### Import Failed
-- **Check your Caddyfile syntax** - paste it at [Caddy Validate](https://caddyserver.com/docs/caddyfile)
-- **Look at the error message** - it usually tells you what's wrong
-- **Start with a simple file** - test with just one site first
-
-### Hit Let's Encrypt Rate Limit
-- **Use staging mode** - set `CHARON_ACME_STAGING=true` (see above; CHARON_ preferred; CPM_ still supported)
-- **Wait a week** - limits reset weekly
-- **Check current limits** - visit [Let's Encrypt Status](https://letsencrypt.status.io/)
-
----
-
-## 📚 What's Next?
-
-You now know the basics! Here's what to explore:
-
-- 🔐 **Add SSL Certificates** - get the green lock icon
-- 🚦 **Set Up Access Lists** - control who can visit your sites
-- ⚙️ **Configure Settings** - customize the app
-- 🔌 **Try the API** - control everything with code
-
----
-
-## 🆘 Still Need Help?
-
-We're here for you!
-
-- 💬 [Ask on GitHub Discussions](https://github.com/Wikid82/charon/discussions)
-- 🐛 [Report a Bug](https://github.com/Wikid82/charon/issues)
-- 📖 [Read the Full Documentation](index.md)
-
----
-
-<p align="center">
-  <strong>You're doing great! 🌟</strong><br>
-  <em>Remember: Everyone was a beginner once. Take your time and have fun!</em>
-</p>
+**[Ask for help](https://github.com/Wikid82/charon/discussions)** — The community is friendly!

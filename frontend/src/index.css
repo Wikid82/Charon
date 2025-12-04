@@ -16,6 +16,60 @@
   .animate-slide-in {
     animation: slide-in 0.3s ease-out;
   }
+
+  @keyframes bob-boat {
+    0%, 100% {
+      transform: translateY(-3px);
+    }
+    50% {
+      transform: translateY(3px);
+    }
+  }
+
+  .animate-bob-boat {
+    animation: bob-boat 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 0.6;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.05);
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes rotate-head {
+    0%, 100% {
+      transform: rotate(-10deg);
+    }
+    50% {
+      transform: rotate(10deg);
+    }
+  }
+
+  .animate-rotate-head {
+    animation: rotate-head 3s ease-in-out infinite;
+  }
+
+  @keyframes spin-y {
+    0% {
+      transform: rotateY(0deg);
+    }
+    100% {
+      transform: rotateY(360deg);
+    }
+  }
+
+  .animate-spin-y {
+    animation: spin-y 2s linear infinite;
+  }
 }
 
 :root {

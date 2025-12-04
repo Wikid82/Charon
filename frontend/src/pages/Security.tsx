@@ -10,6 +10,7 @@ import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function Security() {
   const navigate = useNavigate()
@@ -103,6 +104,34 @@ export default function Security() {
   const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
   const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
 
+  // Determine if any security operation is in progress
+  const isApplyingConfig =
+    toggleCerberusMutation.isPending ||
+    toggleServiceMutation.isPending ||
+    updateSecurityConfigMutation.isPending ||
+    generateBreakGlassMutation.isPending ||
+    startMutation.isPending ||
+    stopMutation.isPending
+
+  // Determine contextual message
+  const getMessage = () => {
+    if (toggleCerberusMutation.isPending) {
+      return { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
+    }
+    if (toggleServiceMutation.isPending) {
+      return { message: 'Three heads turn...', submessage: 'Security configuration updating' }
+    }
+    if (startMutation.isPending) {
+      return { message: 'Summoning the guardian...', submessage: 'Intrusion prevention rising' }
+    }
+    if (stopMutation.isPending) {
+      return { message: 'Guardian rests...', submessage: 'Intrusion prevention pausing' }
+    }
+    return { message: 'Strengthening the guard...', submessage: 'Protective wards activating' }
+  }
+
+  const { message, submessage } = getMessage()
+
   if (isLoading) {
     return <div className="p-8 text-center">Loading security status...</div>
   }
@@ -138,9 +167,17 @@ export default function Security() {
 
 
   return (
-    <div className="space-y-6">
-      {headerBanner}
-      <div className="flex items-center justify-between">
+    <>
+      {isApplyingConfig && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="cerberus"
+        />
+      )}
+      <div className="space-y-6">
+        {headerBanner}
+        <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <ShieldCheck className="w-8 h-8 text-green-500" />
           Security Dashboard
@@ -422,6 +459,7 @@ export default function Security() {
           </div>
         </Card>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
