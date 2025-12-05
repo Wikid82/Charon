@@ -63,6 +63,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: 'WAF (Coraza)', path: '/security/waf', icon: '🛡️' },
     ]},
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
+    { name: 'Users', path: '/users', icon: '👥' },
     // Import group moved under Tasks
     {
       name: 'Settings',
@@ -70,6 +71,7 @@ export default function Layout({ children }: LayoutProps) {
       icon: '⚙️',
       children: [
         { name: 'System', path: '/settings/system', icon: '⚙️' },
+        { name: 'Email (SMTP)', path: '/settings/smtp', icon: '📧' },
         { name: 'Account', path: '/settings/account', icon: '🛡️' },
       ]
     },

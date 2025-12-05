@@ -16,6 +16,7 @@ const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
+const SMTPSettings = lazy(() => import('./pages/SMTPSettings'))
 const CrowdSecConfig = lazy(() => import('./pages/CrowdSecConfig'))
 const Account = lazy(() => import('./pages/Account'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -29,8 +30,10 @@ const WafConfig = lazy(() => import('./pages/WafConfig'))
 const RateLimiting = lazy(() => import('./pages/RateLimiting'))
 const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
+const UsersPage = lazy(() => import('./pages/UsersPage'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
+const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
 
 export default function App() {
   return (
@@ -40,6 +43,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/setup" element={<Setup />} />
+            <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/" element={
               <SetupGuard>
                 <RequireAuth>
@@ -62,12 +66,14 @@ export default function App() {
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="users" element={<UsersPage />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}
               <Route path="settings" element={<Settings />}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
+                <Route path="smtp" element={<SMTPSettings />} />
                 <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="account" element={<Account />} />
               </Route>

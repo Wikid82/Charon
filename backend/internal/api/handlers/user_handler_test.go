@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/gin-gonic/gin"
@@ -385,4 +387,1037 @@ func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// ============= User Management Tests (Admin functions) =============
+
+func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
+	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
+	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
+	require.NoError(t, err)
+	db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
+	return NewUserHandler(db), db
+}
+
+func TestUserHandler_ListUsers_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.GET("/users", handler.ListUsers)
+
+	req := httptest.NewRequest("GET", "/users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_ListUsers_Admin(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create users with unique API keys
+	user1 := &models.User{UUID: uuid.NewString(), Email: "user1@example.com", Name: "User 1", APIKey: uuid.NewString()}
+	user2 := &models.User{UUID: uuid.NewString(), Email: "user2@example.com", Name: "User 2", APIKey: uuid.NewString()}
+	db.Create(user1)
+	db.Create(user2)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.GET("/users", handler.ListUsers)
+
+	req := httptest.NewRequest("GET", "/users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var users []map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &users)
+	assert.Len(t, users, 2)
+}
+
+func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	body := map[string]interface{}{
+		"email":    "new@example.com",
+		"name":     "New User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_CreateUser_Admin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	body := map[string]interface{}{
+		"email":    "newuser@example.com",
+		"name":     "New User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestUserHandler_CreateUser_InvalidJSON(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	req := httptest.NewRequest("POST", "/users", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_CreateUser_DuplicateEmail(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	existing := &models.User{UUID: uuid.NewString(), Email: "existing@example.com", Name: "Existing"}
+	db.Create(existing)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	body := map[string]interface{}{
+		"email":    "existing@example.com",
+		"name":     "New User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestUserHandler_CreateUser_WithPermittedHosts(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	host := &models.ProxyHost{Name: "Host 1", DomainNames: "host1.example.com", Enabled: true}
+	db.Create(host)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	body := map[string]interface{}{
+		"email":           "withhosts@example.com",
+		"name":            "User With Hosts",
+		"password":        "password123",
+		"permission_mode": "deny_all",
+		"permitted_hosts": []uint{host.ID},
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestUserHandler_GetUser_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.GET("/users/:id", handler.GetUser)
+
+	req := httptest.NewRequest("GET", "/users/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_GetUser_InvalidID(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.GET("/users/:id", handler.GetUser)
+
+	req := httptest.NewRequest("GET", "/users/invalid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_GetUser_NotFound(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.GET("/users/:id", handler.GetUser)
+
+	req := httptest.NewRequest("GET", "/users/999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_GetUser_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "getuser@example.com", Name: "Get User"}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.GET("/users/:id", handler.GetUser)
+
+	req := httptest.NewRequest("GET", "/users/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUserHandler_UpdateUser_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]interface{}{"name": "Updated"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_UpdateUser_InvalidID(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]interface{}{"name": "Updated"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/invalid", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_UpdateUser_InvalidJSON(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create user first
+	user := &models.User{UUID: uuid.NewString(), Email: "toupdate@example.com", Name: "To Update", APIKey: uuid.NewString()}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_UpdateUser_NotFound(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]interface{}{"name": "Updated"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/999", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_UpdateUser_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "update@example.com", Name: "Original", Role: "user"}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	body := map[string]interface{}{
+		"name":    "Updated Name",
+		"enabled": true,
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.DELETE("/users/:id", handler.DeleteUser)
+
+	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_DeleteUser_InvalidID(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.DELETE("/users/:id", handler.DeleteUser)
+
+	req := httptest.NewRequest("DELETE", "/users/invalid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_DeleteUser_NotFound(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1)) // Current user ID (different from target)
+		c.Next()
+	})
+	r.DELETE("/users/:id", handler.DeleteUser)
+
+	req := httptest.NewRequest("DELETE", "/users/999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_DeleteUser_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "delete@example.com", Name: "Delete Me"}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(999)) // Different user
+		c.Next()
+	})
+	r.DELETE("/users/:id", handler.DeleteUser)
+
+	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	user := &models.User{UUID: uuid.NewString(), Email: "self@example.com", Name: "Self"}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", user.ID) // Same user
+		c.Next()
+	})
+	r.DELETE("/users/:id", handler.DeleteUser)
+
+	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_UpdateUserPermissions_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
+
+	body := map[string]interface{}{"permission_mode": "allow_all"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1/permissions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_UpdateUserPermissions_InvalidID(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
+
+	body := map[string]interface{}{"permission_mode": "allow_all"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/invalid/permissions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_UpdateUserPermissions_InvalidJSON(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create a user first
+	user := &models.User{
+		UUID:    uuid.NewString(),
+		APIKey:  uuid.NewString(),
+		Email:   "perms-invalid@example.com",
+		Name:    "Perms Invalid Test",
+		Role:    "user",
+		Enabled: true,
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
+
+	req := httptest.NewRequest("PUT", "/users/"+strconv.FormatUint(uint64(user.ID), 10)+"/permissions", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_UpdateUserPermissions_NotFound(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
+
+	body := map[string]interface{}{"permission_mode": "allow_all"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/999/permissions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_UpdateUserPermissions_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	host := &models.ProxyHost{Name: "Host 1", DomainNames: "host1.example.com", Enabled: true}
+	db.Create(host)
+
+	user := &models.User{
+		UUID:           uuid.NewString(),
+		Email:          "perms@example.com",
+		Name:           "Perms User",
+		PermissionMode: models.PermissionModeAllowAll,
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
+
+	body := map[string]interface{}{
+		"permission_mode": "deny_all",
+		"permitted_hosts": []uint{host.ID},
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1/permissions", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUserHandler_ValidateInvite_MissingToken(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/invite/validate", handler.ValidateInvite)
+
+	req := httptest.NewRequest("GET", "/invite/validate", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_ValidateInvite_InvalidToken(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/invite/validate", handler.ValidateInvite)
+
+	req := httptest.NewRequest("GET", "/invite/validate?token=invalidtoken", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_ValidateInvite_ExpiredToken(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	expiredTime := time.Now().Add(-24 * time.Hour) // Expired yesterday
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		Email:         "expired@example.com",
+		Name:          "Expired Invite",
+		InviteToken:   "expiredtoken123",
+		InviteExpires: &expiredTime,
+		InviteStatus:  "pending",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/invite/validate", handler.ValidateInvite)
+
+	req := httptest.NewRequest("GET", "/invite/validate?token=expiredtoken123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestUserHandler_ValidateInvite_AlreadyAccepted(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		Email:         "accepted@example.com",
+		Name:          "Accepted Invite",
+		InviteToken:   "acceptedtoken123",
+		InviteExpires: &expiresAt,
+		InviteStatus:  "accepted",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/invite/validate", handler.ValidateInvite)
+
+	req := httptest.NewRequest("GET", "/invite/validate?token=acceptedtoken123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestUserHandler_ValidateInvite_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		Email:         "valid@example.com",
+		Name:          "Valid Invite",
+		InviteToken:   "validtoken123",
+		InviteExpires: &expiresAt,
+		InviteStatus:  "pending",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/invite/validate", handler.ValidateInvite)
+
+	req := httptest.NewRequest("GET", "/invite/validate?token=validtoken123", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "valid@example.com", resp["email"])
+}
+
+func TestUserHandler_AcceptInvite_InvalidJSON(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/invite/accept", handler.AcceptInvite)
+
+	req := httptest.NewRequest("POST", "/invite/accept", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_AcceptInvite_InvalidToken(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/invite/accept", handler.AcceptInvite)
+
+	body := map[string]string{
+		"token":    "invalidtoken",
+		"name":     "Test User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/invite/accept", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUserHandler_AcceptInvite_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		Email:         "accept@example.com",
+		Name:          "Accept User",
+		InviteToken:   "accepttoken123",
+		InviteExpires: &expiresAt,
+		InviteStatus:  "pending",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/invite/accept", handler.AcceptInvite)
+
+	body := map[string]string{
+		"token":    "accepttoken123",
+		"password": "newpassword123",
+		"name":     "Accepted User",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/invite/accept", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Verify user was updated
+	var updated models.User
+	db.First(&updated, user.ID)
+	assert.Equal(t, "accepted", updated.InviteStatus)
+	assert.True(t, updated.Enabled)
+}
+
+func TestGenerateSecureToken(t *testing.T) {
+	token, err := generateSecureToken(32)
+	assert.NoError(t, err)
+	assert.Len(t, token, 64) // 32 bytes = 64 hex chars
+	assert.Regexp(t, "^[a-f0-9]+$", token)
+
+	// Ensure uniqueness
+	token2, err := generateSecureToken(32)
+	assert.NoError(t, err)
+	assert.NotEqual(t, token, token2)
+}
+
+func TestUserHandler_InviteUser_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]string{"email": "invitee@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUserHandler_InviteUser_InvalidJSON(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_InviteUser_DuplicateEmail(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create existing user
+	existingUser := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "existing@example.com",
+	}
+	db.Create(existingUser)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", uint(1))
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]string{"email": "existing@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestUserHandler_InviteUser_Success(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]interface{}{
+		"email": "newinvite@example.com",
+		"role":  "user",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
+	// email_sent is false because no SMTP is configured
+	assert.Equal(t, false, resp["email_sent"].(bool))
+
+	// Verify user was created
+	var user models.User
+	db.Where("email = ?", "newinvite@example.com").First(&user)
+	assert.Equal(t, "pending", user.InviteStatus)
+	assert.False(t, user.Enabled)
+}
+
+func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-perm@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	// Create proxy host
+	host := &models.ProxyHost{
+		UUID:        uuid.NewString(),
+		Name:        "Test Host",
+		DomainNames: "test.example.com",
+	}
+	db.Create(host)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]interface{}{
+		"email":           "invitee-perms@example.com",
+		"permission_mode": "deny_all",
+		"permitted_hosts": []uint{host.ID},
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user has permitted hosts
+	var user models.User
+	db.Preload("PermittedHosts").Where("email = ?", "invitee-perms@example.com").First(&user)
+	assert.Len(t, user.PermittedHosts, 1)
+	assert.Equal(t, models.PermissionModeDenyAll, user.PermissionMode)
+}
+
+func TestGetBaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Test with X-Forwarded-Proto header
+	r := gin.New()
+	r.GET("/test", func(c *gin.Context) {
+		url := getBaseURL(c)
+		c.String(200, url)
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Host = "example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, "https://example.com", w.Body.String())
+}
+
+func TestGetAppName(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:appname?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	db.AutoMigrate(&models.Setting{})
+
+	// Test default
+	name := getAppName(db)
+	assert.Equal(t, "Charon", name)
+
+	// Test with custom setting
+	db.Create(&models.Setting{Key: "app_name", Value: "CustomApp"})
+	name = getAppName(db)
+	assert.Equal(t, "CustomApp", name)
+}
+
+func TestUserHandler_AcceptInvite_ExpiredToken(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create user with expired invite
+	expired := time.Now().Add(-24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		APIKey:        uuid.NewString(),
+		Email:         "expired-invite@example.com",
+		InviteToken:   "expiredtoken123",
+		InviteExpires: &expired,
+		InviteStatus:  "pending",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/invite/accept", handler.AcceptInvite)
+
+	body := map[string]string{
+		"token":    "expiredtoken123",
+		"name":     "Expired User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/invite/accept", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestUserHandler_AcceptInvite_AlreadyAccepted(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	expires := time.Now().Add(24 * time.Hour)
+	user := &models.User{
+		UUID:          uuid.NewString(),
+		APIKey:        uuid.NewString(),
+		Email:         "accepted-already@example.com",
+		InviteToken:   "acceptedtoken123",
+		InviteExpires: &expires,
+		InviteStatus:  "accepted",
+	}
+	db.Create(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/invite/accept", handler.AcceptInvite)
+
+	body := map[string]string{
+		"token":    "acceptedtoken123",
+		"name":     "Already Accepted",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/invite/accept", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
 }
