@@ -461,4 +461,81 @@ SecRule ARGS "@contains test3" "id:3,phase:1,deny"`,
 
     expect(screen.getByText('3 rule(s)')).toBeInTheDocument()
   })
+
+  it('shows preset dropdown when creating new ruleset', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    expect(screen.getByTestId('preset-select')).toBeInTheDocument()
+    expect(screen.getByText('Choose a preset...')).toBeInTheDocument()
+  })
+
+  it('auto-fills form when preset is selected', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    // Select OWASP CRS preset
+    const presetSelect = screen.getByTestId('preset-select')
+    await userEvent.selectOptions(presetSelect, 'OWASP Core Rule Set')
+
+    // Verify form is auto-filled
+    expect(screen.getByTestId('ruleset-name-input')).toHaveValue('OWASP Core Rule Set')
+    expect(screen.getByTestId('ruleset-url-input')).toHaveValue(
+      'https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.5.tar.gz'
+    )
+  })
+
+  it('auto-fills content for inline preset', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    // Select SQL Injection preset (has inline content)
+    const presetSelect = screen.getByTestId('preset-select')
+    await userEvent.selectOptions(presetSelect, 'Basic SQL Injection Protection')
+
+    // Verify content is auto-filled
+    const contentInput = screen.getByTestId('ruleset-content-input') as HTMLTextAreaElement
+    expect(contentInput.value).toContain('SecRule')
+    expect(contentInput.value).toContain('SQLi')
+  })
+
+  it('does not show preset dropdown when editing', async () => {
+    const response: RuleSetsResponse = { rulesets: [mockRuleSet] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rulesets-table')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('edit-ruleset-1'))
+
+    // Preset dropdown should not be visible when editing
+    expect(screen.queryByTestId('preset-select')).not.toBeInTheDocument()
+  })
 })

@@ -58,6 +58,18 @@ jobs:
           args: --timeout=5m
         continue-on-error: true
 
+      - name: Run Perf Asserts
+        working-directory: backend
+        env:
+          # Conservative defaults to avoid flakiness on CI; tune as necessary
+          PERF_MAX_MS_GETSTATUS_P95: 500ms
+          PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
+          PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+        run: |
+          echo "## 🔍 Running performance assertions (TestPerf)" >> $GITHUB_STEP_SUMMARY
+          go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
+          exit ${PIPESTATUS[0]}
+
   frontend-quality:
     name: Frontend (React)
     runs-on: ubuntu-latest

@@ -462,20 +462,20 @@ func TestComputeEffectiveFlags_DB_ACLTrueAndFalse(t *testing.T) {
 }
 
 func TestComputeEffectiveFlags_DB_WAFMonitor(t *testing.T) {
-dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-require.NoError(t, err)
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
 
-secCfg := config.SecurityConfig{CerberusEnabled: true, WAFMode: "enabled"}
-manager := NewManager(nil, db, "", "", false, secCfg)
+	secCfg := config.SecurityConfig{CerberusEnabled: true, WAFMode: "enabled"}
+	manager := NewManager(nil, db, "", "", false, secCfg)
 
-// Set WAF mode to monitor
+	// Set WAF mode to monitor
 	res := db.Create(&models.SecurityConfig{Name: "default", Enabled: true, WAFMode: "monitor"})
 	require.NoError(t, res.Error)
 
-_, _, waf, _, _ := manager.computeEffectiveFlags(context.Background())
-require.True(t, waf) // Should still be true (enabled)
+	_, _, waf, _, _ := manager.computeEffectiveFlags(context.Background())
+	require.True(t, waf) // Should still be true (enabled)
 }
 
 func TestManager_ApplyConfig_WAFMonitor(t *testing.T) {
@@ -511,7 +511,7 @@ func TestManager_ApplyConfig_WAFMonitor(t *testing.T) {
 	originalWriteFile := writeFileFunc
 	defer func() { writeFileFunc = originalWriteFile }()
 	writeFileFunc = func(filename string, data []byte, perm os.FileMode) error {
-		if strings.Contains(filename, "owasp-crs.conf") {
+		if strings.Contains(filename, "owasp-crs") && strings.HasSuffix(filename, ".conf") {
 			writtenContent = string(data)
 		}
 		return originalWriteFile(filename, data, perm)

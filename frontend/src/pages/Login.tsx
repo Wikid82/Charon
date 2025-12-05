@@ -8,6 +8,7 @@ import { toast } from '../utils/toast'
 import client from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import { getSetupStatus } from '../api/setup'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -57,59 +58,71 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-4">
-        <div className="flex items-center justify-center">
-        <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
+    <>
+      {loading && (
+        <ConfigReloadOverlay
+          message="Paying the ferryman..."
+          submessage="Your obol grants passage"
+          type="coin"
+        />
+      )}
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
+        <div className="w-full max-w-md space-y-4">
+          <div className="flex items-center justify-center">
+          <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
 
 
-        </div>
-        <Card className="w-full" title="Login">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            placeholder="admin@example.com"
-          />
-          <div className="space-y-1">
-            <Input
-              label="Password"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              placeholder="••••••••"
-            />
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowResetInfo(!showResetInfo)}
-                className="text-sm text-blue-400 hover:text-blue-300"
-              >
-                Forgot Password?
-              </button>
-            </div>
           </div>
-
-          {showResetInfo && (
-            <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 text-sm text-blue-200">
-              <p className="mb-2 font-medium">To reset your password:</p>
-              <p className="mb-2">Run this command on your server:</p>
-              <code className="block bg-black/50 p-2 rounded font-mono text-xs break-all select-all">
-                docker exec -it caddy-proxy-manager /app/backend reset-password &lt;email&gt; &lt;new-password&gt;
-              </code>
+          <Card className="w-full" title="Login">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <Input
+              label="Email"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              placeholder="admin@example.com"
+              disabled={loading}
+            />
+            <div className="space-y-1">
+              <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                placeholder="••••••••"
+                disabled={loading}
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowResetInfo(!showResetInfo)}
+                  className="text-sm text-blue-400 hover:text-blue-300"
+                  disabled={loading}
+                >
+                  Forgot Password?
+                </button>
+              </div>
             </div>
-          )}
 
-          <Button type="submit" className="w-full" isLoading={loading}>
-            Sign In
-          </Button>
-        </form>
-      </Card>
+            {showResetInfo && (
+              <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 text-sm text-blue-200">
+                <p className="mb-2 font-medium">To reset your password:</p>
+                <p className="mb-2">Run this command on your server:</p>
+                <code className="block bg-black/50 p-2 rounded font-mono text-xs break-all select-all">
+                  docker exec -it caddy-proxy-manager /app/backend reset-password &lt;email&gt; &lt;new-password&gt;
+                </code>
+              </div>
+            )}
+
+            <Button type="submit" className="w-full" isLoading={loading}>
+              Sign In
+            </Button>
+          </form>
+        </Card>
+        </div>
       </div>
-    </div>
+    </>
   )
 }

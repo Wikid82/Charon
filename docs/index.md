@@ -1,55 +1,37 @@
-# 📚 Documentation
+# Welcome to Charon!
 
-Welcome to the Charon documentation!
-
----
-
-## 📖 Start Here
-
-| Guide | Description |
-|-------|-------------|
-| [✨ Features](features.md) | See everything Charon can do |
-| [🚀 Getting Started](getting-started.md) | Your first proxy in 5 minutes |
-| [📥 Import Guide](import-guide.md) | Migrate from Caddy or NPM |
+**You're in the right place.** These guides explain everything in plain English, no technical jargon.
 
 ---
 
-## 🔒 Security
+## 🎯 Start Here
 
-| Guide | Description |
-|-------|-------------|
-| [Security Features](security.md) | CrowdSec, WAF, ACLs, and rate limiting |
-| [ACME Staging](acme-staging.md) | Test SSL certificates without rate limits |
-
----
-
-## 🔧 Reference
-
-| Guide | Description |
-|-------|-------------|
-| [API Documentation](api.md) | REST API endpoints and examples |
-| [Database Schema](database-schema.md) | How data is stored |
+**[🚀 Getting Started](getting-started.md)** — Get your first website running in 5 minutes
+**[✨ What Can It Do?](features.md)** — See everything Charon can do for you
+**[📥 Import Your Old Setup](import-guide.md)** — Bring your existing Caddy configs
 
 ---
 
-## 🛠️ Development
+## �️ Security (Optional)
 
-| Guide | Description |
-|-------|-------------|
-| [Contributing](https://github.com/Wikid82/charon/blob/main/CONTRIBUTING.md) | How to help improve Charon |
-| [Debugging Guide](debugging-local-container.md) | Troubleshooting containers |
-| [GitHub Setup](github-setup.md) | CI/CD and deployment |
+**[Security Features](security.md)** — Block bad guys, bad countries, or bad behavior
+**[Testing SSL Certificates](acme-staging.md)** — Practice without hitting limits
 
 ---
 
-## 🆘 Getting Help
+## � For Developers
 
-- **💬 Questions?** [Start a Discussion](https://github.com/Wikid82/charon/discussions)
-- **🐛 Found a Bug?** [Open an Issue](https://github.com/Wikid82/charon/issues)
-- **📋 Roadmap** [Project Board](https://github.com/users/Wikid82/projects/7)
+**[API Reference](api.md)** — Control Charon with code
+**[Database Schema](database-schema.md)** — How everything is stored
 
 ---
 
-<p align="center">
-  <strong>Made with ❤️ for the community</strong>
-</p>
+## ❓ Need Help?
+
+**[💬 Ask a Question](https://github.com/Wikid82/charon/discussions)** — No question is too basic
+**[🐛 Report a Bug](https://github.com/Wikid82/charon/issues)** — Something not working?
+**[📋 Roadmap](https://github.com/users/Wikid82/projects/7)** — See what's coming next
+
+---
+
+<p align="center"><em>Everything here is written for humans, not robots.</em></p>

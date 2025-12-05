@@ -4,11 +4,20 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
-MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-78}}"
+MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
 
 # trap 'rm -f "$COVERAGE_FILE"' EXIT
 
 cd "$BACKEND_DIR"
+
+# Packages to exclude from coverage (main packages and infrastructure code)
+# These are entrypoints and initialization code that don't benefit from unit tests
+EXCLUDE_PACKAGES=(
+    "github.com/Wikid82/charon/backend/cmd/api"
+    "github.com/Wikid82/charon/backend/cmd/seed"
+    "github.com/Wikid82/charon/backend/internal/logger"
+    "github.com/Wikid82/charon/backend/internal/metrics"
+)
 
 # Try to run tests to produce coverage file; some toolchains may return a non-zero
 # exit if certain coverage tooling is unavailable (e.g. covdata) while still
@@ -17,6 +26,16 @@ cd "$BACKEND_DIR"
 # Note: Using -v for verbose output and -race for race detection
 if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
     echo "Warning: go test returned non-zero; checking coverage file presence"
+fi
+
+# Filter out excluded packages from coverage file
+if [ -f "$COVERAGE_FILE" ]; then
+    FILTERED_COVERAGE="${COVERAGE_FILE}.filtered"
+    cp "$COVERAGE_FILE" "$FILTERED_COVERAGE"
+    for pkg in "${EXCLUDE_PACKAGES[@]}"; do
+        sed -i "\|^${pkg}|d" "$FILTERED_COVERAGE"
+    done
+    mv "$FILTERED_COVERAGE" "$COVERAGE_FILE"
 fi
 
 if [ ! -f "$COVERAGE_FILE" ]; then

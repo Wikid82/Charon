@@ -718,9 +718,12 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 				if h == "ruleset.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "waf" {
-							// Validate include array (coraza-caddy schema) or inline ruleset_content presence
-							if incl, ok := handle["include"].([]interface{}); ok && len(incl) > 0 {
-								if rf, ok := incl[0].(string); ok && rf != "" {
+							// Validate directives field contains Include statement (coraza-caddy schema)
+							if dir, ok := handle["directives"].(string); ok && strings.Contains(dir, "Include") {
+								// Extract the file path from the Include directive
+								parts := strings.Split(dir, " ")
+								if len(parts) >= 2 {
+									rf := parts[len(parts)-1]
 									// Ensure file exists and contains our content
 									// Note: manager prepends SecRuleEngine On directives, so we check Contains
 									b, err := os.ReadFile(rf)
@@ -739,7 +742,7 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 			}
 		}
 	}
-	assert.True(t, found, "waf handler with inlined ruleset should be present in generated config")
+	assert.True(t, found, "waf handler with directives should be present in generated config")
 }
 
 func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
@@ -1310,10 +1313,17 @@ func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
 	assert.NoError(t, err, "Subdirectory should not be deleted")
 	assert.True(t, info.IsDir(), "Subdirectory should still be a directory")
 
-	// Verify active ruleset file exists
-	activeFile := filepath.Join(corazaDir, "active-ruleset.conf")
-	_, err = os.Stat(activeFile)
-	assert.NoError(t, err, "Active ruleset file should exist")
+	// Verify active ruleset file exists (with hash suffix in filename)
+	entries, err := os.ReadDir(corazaDir)
+	assert.NoError(t, err, "Should be able to read corazaDir")
+	foundActive := false
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "active-ruleset-") && strings.HasSuffix(entry.Name(), ".conf") {
+			foundActive = true
+			break
+		}
+	}
+	assert.True(t, foundActive, "Active ruleset file with hash suffix should exist")
 }
 
 func TestManager_ApplyConfig_RulesetCleanupReadDirError(t *testing.T) {
@@ -1460,4 +1470,72 @@ func TestManager_ApplyConfig_WAFModeBlockExplicit(t *testing.T) {
 	content := string(writtenContent)
 	assert.True(t, strings.Contains(content, "SecRuleEngine On"), "SecRuleEngine On should be prepended in block mode")
 	assert.False(t, strings.Contains(content, "DetectionOnly"), "DetectionOnly should NOT be present in block mode")
+}
+
+// TestManager_ApplyConfig_RulesetNamePathTraversal tests that path traversal attempts
+// in ruleset names are sanitized and do not escape the rulesets directory
+func TestManager_ApplyConfig_RulesetNamePathTraversal(t *testing.T) {
+	tmp := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-pathtraversal")
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	assert.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}, &models.SecurityConfig{}, &models.SecurityRuleSet{}))
+
+	// Create host
+	h := models.ProxyHost{DomainNames: "traversal.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
+	db.Create(&h)
+
+	// Create ruleset with path traversal attempt in name
+	rs := models.SecurityRuleSet{Name: "../../../etc/passwd", Content: "SecRule REQUEST_BODY \"<script>\" \"id:99999,phase:2,deny\""}
+	assert.NoError(t, db.Create(&rs).Error)
+
+	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "../../../etc/passwd"}
+	assert.NoError(t, db.Create(&sec).Error)
+
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("{" + "\"apps\":{\"http\":{}}}"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	client := NewClient(caddyServer.URL)
+
+	// Track where files are written
+	var writtenPath string
+	origWrite := writeFileFunc
+	writeFileFunc = func(path string, b []byte, perm os.FileMode) error {
+		if strings.Contains(path, "coraza") {
+			writtenPath = path
+		}
+		return origWrite(path, b, perm)
+	}
+	defer func() { writeFileFunc = origWrite }()
+
+	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
+	assert.NoError(t, manager.ApplyConfig(context.Background()))
+
+	// Verify the file was written inside the expected coraza/rulesets directory
+	expectedDir := filepath.Join(tmp, "coraza", "rulesets")
+	assert.True(t, strings.HasPrefix(writtenPath, expectedDir), "Ruleset file should be inside coraza/rulesets directory")
+
+	// Verify the sanitized filename does not contain path traversal sequences
+	filename := filepath.Base(writtenPath)
+	assert.NotContains(t, filename, "..", "Path traversal sequence should be stripped")
+	assert.NotContains(t, filename, "/", "Forward slash should be stripped")
+	assert.NotContains(t, filename, "\\", "Backslash should be stripped")
+
+	// The filename should be sanitized and end with .conf
+	assert.True(t, strings.HasSuffix(filename, ".conf"), "Ruleset file should have .conf extension")
+
+	// Verify the directory is strictly inside the expected location
+	dir := filepath.Dir(writtenPath)
+	assert.Equal(t, expectedDir, dir, "Ruleset must be written only to the coraza/rulesets directory")
 }
