@@ -50,8 +50,11 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 	acl := models.AccessList{ID: 201, Name: "WL2", Enabled: true, Type: "whitelist", IPRules: ipRules}
 	host := models.ProxyHost{UUID: "pipeline2", DomainNames: "pipe-loc.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true, Locations: []models.Location{{Path: "/loc", ForwardHost: "app", ForwardPort: 9000}}}
 
+	// Provide rulesets and paths so WAF handler is created with directives
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	sec := &models.SecurityConfig{CrowdSecMode: "local"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", nil, nil, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec)
 	require.NoError(t, err)
 
 	server := cfg.Apps.HTTP.Servers["charon_server"]
@@ -168,21 +171,20 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	sec := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "nonexistent-rs"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec)
 	require.NoError(t, err)
-	// Since a ruleset name was requested but none exists, waf handler should include a reference but no directives
+	// Since a ruleset name was requested but none exists, NO waf handler should be created
+	// (Bug fix: don't create a no-op WAF handler without directives)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
-	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
-			if _, ok := h["directives"]; !ok {
-				found = true
-			}
+			t.Fatalf("expected NO waf handler when referenced ruleset does not exist, but found: %v", h)
 		}
 	}
-	require.True(t, found, "expected waf handler without directives when referenced ruleset does not exist")
 
-	// Now test learning/monitor mode mapping
+	// Now test with valid ruleset - WAF handler should be created
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	sec2 := &models.SecurityConfig{WAFMode: "block", WAFLearning: true}
-	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec2)
+	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, sec2)
 	require.NoError(t, err)
 	route2 := cfg2.Apps.HTTP.Servers["charon_server"].Routes[0]
 	monitorFound := false
@@ -191,7 +193,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 			monitorFound = true
 		}
 	}
-	require.True(t, monitorFound, "expected waf handler when WAFLearning is true")
+	require.True(t, monitorFound, "expected waf handler when WAFLearning is true and ruleset exists")
 }
 
 func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {

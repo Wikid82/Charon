@@ -1,286 +1,302 @@
-# Security Services
+# Security Features
 
-Charon includes the optional Cerberus security suite — a collection of high-value integrations (WAF, CrowdSec, ACL, Rate Limiting) designed to protect your services. These features are disabled by default to keep the application lightweight but can be easily enabled via environment variables (CHARON_ preferred; CPM_ still supported).
+Charon includes **Cerberus**, a security system that protects your websites. It's **turned off by default** so it doesn't get in your way while you're learning.
 
-## Available Services
-
-### 1. CrowdSec (Intrusion Prevention)
-[CrowdSec](https://www.crowdsec.net/) is a collaborative security automation tool that analyzes logs to detect and block malicious behavior.
-
-**Modes:**
-*   **Local**: Installs the CrowdSec agent *inside* the Charon container. Useful for single-container setups.
-    *   *Note*: Increases container startup time and resource usage.
-*   **External**: (Deprecated) connections to external CrowdSec agents are no longer supported.
-
-### 2. WAF (Web Application Firewall)
-Uses [Coraza](https://coraza.io/), a Go-native WAF, with the **OWASP Core Rule Set (CRS)** to protect against common web attacks (SQL Injection, XSS, etc.).
-
-### 3. Access Control Lists (ACL)
-Restrict access to your services based on IP addresses, CIDR ranges, or geographic location using MaxMind GeoIP2.
-
-**Features:**
-- **IP Whitelist**: Allow only specific IPs/ranges (blocks all others)
-- **IP Blacklist**: Block specific IPs/ranges (allows all others)
-- **Geo Whitelist**: Allow only specific countries (blocks all others)
-- **Geo Blacklist**: Block specific countries (allows all others)
-- **Local Network Only**: Restrict to RFC1918 private networks (10.x, 192.168.x, 172.16-31.x)
-
-Each ACL can be assigned to individual proxy hosts, allowing per-service access control.
-
-### 4. Rate Limiting
-Protects your services from abuse by limiting the number of requests a client can make within a specific time frame.
+When you're ready to turn it on, this guide explains everything.
 
 ---
 
-## Configuration
+## What Is Cerberus?
 
-All security services are controlled via environment variables in your `docker-compose.yml`.
+Think of Cerberus as a guard dog for your websites. It has three heads (in Greek mythology), and each head watches for different threats:
 
-### Enable Cerberus (Runtime Toggle)
+1. **CrowdSec** — Blocks bad IP addresses
+2. **WAF (Web Application Firewall)** — Blocks bad requests
+3. **Access Lists** — You decide who gets in
 
-You can enable or disable Cerberus at runtime via the web UI `System Settings` or by setting the `security.cerberus.enabled` setting. This allows you to control the suite without restarting the service when using the UI.
+---
 
+## Turn It On (The Safe Way)
 
-### CrowdSec Configuration
+**Step 1: Start in "Monitor" Mode**
 
-| Variable | Value | Description |
-| :--- | :--- | :--- |
-| `CERBERUS_SECURITY_CROWDSEC_MODE` | `disabled` | (Default) CrowdSec is turned off. (CERBERUS_ preferred; CHARON_/CPM_ still supported) |
-| | `local` | Installs and runs CrowdSec agent inside the container. |
-| | `local` | Installs and runs CrowdSec agent inside the container. |
+This means Cerberus watches but doesn't block anyone yet.
 
-**Example (Local Mode):**
-```yaml
-environment:
-  - CERBERUS_SECURITY_CROWDSEC_MODE=local # CERBERUS_ preferred; CHARON_/CPM_ still supported
-```
+Add this to your `docker-compose.yml`:
 
-**Example (External Mode):**
-```yaml
- environment:
-  - CERBERUS_SECURITY_CROWDSEC_MODE=external
-  - CERBERUS_SECURITY_CROWDSEC_API_URL=http://192.168.1.50:8080
-  - CERBERUS_SECURITY_CROWDSEC_API_KEY=your-bouncer-key-here
-```
-
-### WAF Configuration
-
-| Variable | Values | Description |
-| :--- | :--- | :--- |
-| `CERBERUS_SECURITY_WAF_MODE` | `disabled` | (Default) WAF is turned off. |
-|  | `monitor` | Evaluate requests, emit metrics & structured logs, do not block. |
-|  | `block` | Evaluate & actively block suspicious payloads. |
-
-**Example (Monitor Mode):**
 ```yaml
 environment:
   - CERBERUS_SECURITY_WAF_MODE=monitor
+  - CERBERUS_SECURITY_CROWDSEC_MODE=local
 ```
 
-**Example (Blocking Mode):**
+Restart Charon:
+
+```bash
+docker-compose restart
+```
+
+**Step 2: Watch the Logs**
+
+Check "Security" in the sidebar. You'll see what would have been blocked. If it looks right, move to Step 3.
+
+**Step 3: Turn On Blocking**
+
+Change `monitor` to `block`:
+
 ```yaml
 environment:
   - CERBERUS_SECURITY_WAF_MODE=block
 ```
 
-> Migration Note: Earlier documentation referenced a value `enabled`. Use `block` going forward for enforcement.
+Restart again. Now bad guys actually get blocked.
 
-### ACL Configuration
+---
 
-| Variable | Value | Description |
-| :--- | :--- | :--- |
-| `CERBERUS_SECURITY_ACL_MODE` | `disabled` | (Default) ACLs are turned off. |
-| | `enabled` | Enables IP and geo-blocking ACLs. |
-| `CHARON_GEOIP_DB_PATH`/`CPM_GEOIP_DB_PATH` | Path | Path to MaxMind GeoLite2-Country.mmdb (auto-configured in Docker) (CHARON_ preferred; CPM_ still supported) |
+## CrowdSec (Block Bad IPs)
 
-**Example:**
+**What it does:** Thousands of people share information about attackers. When someone tries to hack one of them, everyone else blocks that attacker too.
+
+**Why you care:** If someone is attacking servers in France, you block them before they even get to your server in California.
+
+### How to Enable It
+
+**Local Mode** (Runs inside Charon):
+
 ```yaml
 environment:
-  - CERBERUS_SECURITY_ACL_MODE=enabled
+  - CERBERUS_SECURITY_CROWDSEC_MODE=local
 ```
 
-### Rate Limiting Configuration
+That's it. CrowdSec starts automatically and begins blocking bad IPs.
 
-| Variable | Value | Description |
-| :--- | :--- | :--- |
-| `CERBERUS_SECURITY_RATELIMIT_MODE` | `enabled` / `disabled` | Enable global rate limiting. |
+**What you'll see:** The "Security" page shows blocked IPs and why they were blocked.
 
 ---
 
-## Self-Lockout Protection
+## WAF (Block Bad Behavior)
 
-When enabling the Cerberus suite (CrowdSec, WAF, ACLs, Rate Limiting) there is a risk of accidentally locking yourself out of the Admin UI or services you rely on. Charon provides the following safeguards to reduce this risk:
+**What it does:** Looks at every request and checks if it's trying to do something nasty—like inject SQL code or run JavaScript attacks.
 
-- **Admin Whitelist**: When enabling Cerberus you should enter at least one administrative IP or CIDR range (for example your VPN IP, Tailscale IP, or a trusted office IP). This whitelist is always excluded from blocking decisions.
-- **Break-Glass Token**: You can generate a temporary break-glass token from the Security UI. This one-time token (returned plaintext once) can be used to disable Cerberus if you lose access.
-- **Localhost Bypass**: Requests from `127.0.0.1` or `::1` may be allowed to manage the system locally without a token (helpful for local management access).
-- **Manager Checks**: Config deployment will be refused if Cerberus is enabled and no admin whitelist is configured — this prevents accidental global lockouts when applying new configurations.
+**Why you care:** Even if your app has a bug, the WAF might catch the attack first.
 
-Follow a phased approach: deploy in `monitor` (log-only) first, validate findings, add admin whitelist entries, then switch to `block` enforcement.
+### How to Enable It
 
-## ACL Best Practices by Service Type
-
-### Internal Services (Pi-hole, Home Assistant, Router Admin)
-**Recommended**: **Local Network Only** ACL
-- Blocks all public internet access
-- Only allows RFC1918 private IPs (10.x, 192.168.x, 172.16-31.x)
-- Perfect for: Pi-hole, Unifi Controller, Home Assistant, Proxmox, Router interfaces
-
-### Media Servers (Plex, Jellyfin, Emby)
-**Recommended**: **Geo Blacklist** for high-risk countries
-- Block countries known for scraping/piracy monitoring (e.g., China, Russia, Iran)
-- Allows legitimate users worldwide while reducing abuse
-- Example countries to block: CN, RU, IR, KP, BY
-
-### Personal Cloud Storage (Nextcloud, Syncthing)
-**Recommended**: **Geo Whitelist** to your country/region
-- Only allow access from countries where you actually travel
-- Example: US, CA, GB, FR, DE (if you're North American/European)
-- Dramatically reduces attack surface
-
-### Public-Facing Services (Blogs, Portfolio Sites)
-**Recommended**: **No ACL** or **Blacklist** only
-- Keep publicly accessible for SEO and visitors
-- Use blacklist only if experiencing targeted attacks
-- Rely on WAF + CrowdSec for protection instead
-
-### Password Managers (Vaultwarden, Bitwarden)
-**Recommended**: **IP Whitelist** or **Geo Whitelist**
-- Whitelist your home IP, VPN endpoint, or mobile carrier IPs
-- Or geo-whitelist your home country only
-- Most restrictive option for highest-value targets
-
-### Business/Work Services (GitLab, Wiki, Internal Apps)
-**Recommended**: **IP Whitelist** for office/VPN
-- Whitelist office IP ranges and VPN server IPs
-- Blocks all other access, even from same country
-- Example: 203.0.113.0/24 (office), 198.51.100.50 (VPN)
-
----
-
-## Multi-Layer Protection & When to Use ACLs
-
-Charon follows a multi-layered security approach. The recommendation below shows which module is best suited for specific types of threats:
-
-- **CrowdSec**: Best for dynamic, behavior-driven blocking — bots, scanners, credential stuffing, IP reputation. CrowdSec integrates with local or external agents and should be used for most bot and scanner detection/remediation.
-- **WAF (Coraza)**: Best for payload and application-level attacks (XSS, SQLi, file inclusion). Protects against malicious payloads regardless of source IP.
-
-### Coraza runtime integration test
-
-To validate runtime Coraza WAF integration locally using Docker Compose:
-
-1. Build the local Docker image and start services: `docker build -t charon:local . && docker compose -f docker-compose.local.yml up -d`.
-2. Configure a ruleset via the API: POST to `/api/v1/security/rulesets` with a rule that would match an XSS payload.
-3. Send a request that triggers the rule (e.g., POST with `<script>` payload) and verify `403` or similar WAF-blocking response.
-
-There is a lightweight helper script `scripts/coraza_integration.sh` which performs these steps and can be used as a starting point for CI integration tests.
-- **Rate Limiting**: Best for high-volume scanners and brute-force attempts; helps prevent abuse from cloud providers and scrapers.
-- **ACLs (Geo/Page-Level)**: Best for static location-based or private network restrictions, e.g., geo-blocking or restricting access to RFC1918 ranges for internal services.
-
-Because IP-based blocklists are dynamic and often incomplete, we removed the IP-based Access List presets (e.g., botnet, scanner, VPN lists) from the default UI presets. These dynamic IP blocklists are now the recommended responsibility of CrowdSec and rate limiting; they are easier to maintain, update, and automatically mitigate at scale.
-
-Use ACLs primarily for explicit or static restrictions such as geofencing or limiting access to your home/office IP ranges.
-
----
-
-## Observability & Logging
-
-Charon exposes security observability through Prometheus metrics and structured logs:
-
-### Prometheus Metrics
-| Metric | Description |
-| :--- | :--- |
-| `charon_waf_requests_total` | Total requests evaluated by the WAF. |
-| `charon_waf_blocked_total` | Requests blocked in `block` mode. |
-| `charon_waf_monitored_total` | Requests logged in `monitor` mode. |
-
-Scrape endpoint: `GET /metrics` (no auth). Integrate with Prometheus server or a compatible collector.
-
-### Structured Logs
-WAF decisions emit JSON-like structured fields:
-```
-source: "waf"
-decision: "block" | "monitor"
-mode: "block" | "monitor" | "disabled"
-path: "/api/v1/..."
-query: "raw url query string"
-```
-Use these fields to build dashboards and alerting (e.g., block rate spikes).
-
-### Recommended Dashboards
-- Block Rate (% blocked / evaluated)
-- Monitor to Block Transition (verify stability before enforcing)
-- Top Paths Triggering Blocks
-- Recent Security Decisions (from `/api/v1/security/decisions`)
-
----
-
-## Security API Summary
-
-| Endpoint | Method | Purpose |
-| :--- | :--- | :--- |
-| `/api/v1/security/status` | GET | Current enabled state & modes. |
-| `/api/v1/security/config` | GET | Retrieve persisted global security config. |
-| `/api/v1/security/config` | POST | Upsert global security config. |
-| `/api/v1/security/enable` | POST | Enable Cerberus (requires whitelist or break-glass token). |
-| `/api/v1/security/disable` | POST | Disable Cerberus (localhost or break-glass token). |
-| `/api/v1/security/breakglass/generate` | POST | Generate one-time break-glass token. |
-| `/api/v1/security/decisions` | GET | List recent decisions (limit query param). |
-| `/api/v1/security/decisions` | POST | Manually log a decision (override). |
-| `/api/v1/security/rulesets` | GET | List uploaded rulesets. |
-| `/api/v1/security/rulesets` | POST | Create/update a ruleset. |
-| `/api/v1/security/rulesets/:id` | DELETE | Remove a ruleset. |
-
-### Sample Security Config Payload
-```json
-{
-  "name": "default",
-  "enabled": true,
-  "admin_whitelist": "198.51.100.10,203.0.113.0/24",
-  "crowdsec_mode": "local",
-  "crowdsec_api_url": "",
-  "waf_mode": "monitor",
-  "waf_rules_source": "owasp-crs-local",
-  "waf_learning": true,
-  "rate_limit_enable": false,
-  "rate_limit_burst": 0,
-  "rate_limit_requests": 0,
-  "rate_limit_window_sec": 0
-}
+```yaml
+environment:
+  - CERBERUS_SECURITY_WAF_MODE=block
 ```
 
-### Sample Ruleset Upsert Payload
-```json
-{
-  "name": "owasp-crs-quick",
-  "source_url": "https://example.com/owasp-crs.txt",
-  "mode": "owasp",
-  "content": "# raw rules or placeholder"
-}
+**Start with `monitor` first!** This lets you see what would be blocked without actually blocking it.
+
+---
+
+## Access Lists (You Decide Who Gets In)
+
+Access lists let you block or allow specific countries, IP addresses, or networks.
+
+### Example 1: Block a Country
+
+**Scenario:** You only need access from the US, so block everyone else.
+
+1. Go to **Access Lists**
+2. Click **Add List**
+3. Name it "US Only"
+4. **Type:** Geo Whitelist
+5. **Countries:** United States
+6. **Assign to your proxy host**
+
+Now only US visitors can access that website. Everyone else sees "Access Denied."
+
+### Example 2: Private Network Only
+
+**Scenario:** Your admin panel should only work from your home network.
+
+1. Create an access list
+2. **Type:** Local Network Only
+3. Assign it to your admin panel proxy
+
+Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public internet can't.
+
+### Example 3: Block One Country
+
+**Scenario:** You're getting attacked from one specific country.
+
+1. Create a list
+2. **Type:** Geo Blacklist
+3. Pick the country
+4. Assign to the targeted website
+
+---
+
+## Don't Lock Yourself Out!
+
+**Problem:** If you turn on security and misconfigure it, you might block yourself.
+
+**Solution:** Add your IP to the "Admin Whitelist" first.
+
+### How to Add Your IP
+
+1. Go to **Settings → Security**
+2. Find "Admin Whitelist"
+3. Add your IP address (find it at [ifconfig.me](https://ifconfig.me))
+4. Save
+
+Now you can never accidentally block yourself.
+
+### Break-Glass Token (Emergency Exit)
+
+If you do lock yourself out:
+
+1. Log into your server directly (SSH)
+2. Run this command:
+
+```bash
+docker exec charon charon break-glass
 ```
 
----
-
-## Testing ACLs
-
-Before applying an ACL to a production service:
-
-1. Create the ACL in the web UI
-2. Leave it **Disabled** initially
-3. Use the **Test IP** button to verify your own IP would be allowed
-4. Assign to a non-critical service first
-5. Test access from both allowed and blocked locations
-6. Enable on production services once validated
-
-**Tip**: Always test with your own IP first! Use sites like `ifconfig.me` or `ipinfo.io/ip` to find your current public IP.
+It generates a one-time token that lets you disable security and get back in.
 
 ---
 
-## Dashboard
+## Recommended Settings by Service Type
 
-You can view the status of these services in the Charon web interface under the **Security** tab.
+### Internal Admin Panels (Router, Pi-hole, etc.)
 
-*   **CrowdSec**: Shows connection status and mode.
-*   **WAF**: Indicates if the Core Rule Set is loaded.
-*   **ACLs**: Manage your Block/Allow lists.
-*   **Rate Limits**: Configure global request limits.
+```
+Access List: Local Network Only
+```
+
+Blocks all public internet traffic.
+
+### Personal Blog or Portfolio
+
+```
+No access list
+WAF: Enabled
+CrowdSec: Enabled
+```
+
+Keep it open for visitors, but protect against attacks.
+
+### Password Manager (Vaultwarden, etc.)
+
+```
+Access List: IP Whitelist (your home IP)
+Or: Geo Whitelist (your country only)
+```
+
+Most restrictive. Only you can access it.
+
+### Media Server (Plex, Jellyfin)
+
+```
+Access List: Geo Blacklist (high-risk countries)
+CrowdSec: Enabled
+```
+
+Allows friends to access, blocks obvious threat countries.
+
+---
+
+## Check If It's Working
+
+1. Go to **Security → Decisions** in the sidebar
+2. You'll see a list of recent blocks
+3. If you see activity, it's working!
+
+---
+
+## Turn It Off
+
+If security is causing problems:
+
+**Option 1: Via Web UI**
+
+1. Go to **Settings → Security**
+2. Toggle "Enable Cerberus" off
+
+**Option 2: Via Environment Variable**
+
+Remove the security lines from `docker-compose.yml` and restart.
+
+---
+
+## Common Questions
+
+### "Will this slow down my websites?"
+
+No. The checks happen in milliseconds. Humans won't notice.
+
+### "Can I whitelist specific paths?"
+
+Not yet, but it's planned. For now, access lists apply to entire websites.
+
+### "What if CrowdSec blocks a legitimate visitor?"
+
+You can manually unblock IPs in the Security → Decisions page.
+
+### "Do I need all three security features?"
+
+No. Use what you need:
+
+- **Just starting?** CrowdSec only
+- **Public service?** CrowdSec + WAF
+- **Private service?** Access Lists only
+
+---
+
+## Zero-Day Protection
+
+### What We Protect Against
+
+**Web Application Exploits:**
+- ✅ SQL Injection (SQLi) — even zero-days using SQL syntax
+- ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
+- ✅ Remote Code Execution (RCE) — command injection patterns
+- ✅ Path Traversal — attempts to read system files
+- ⚠️ CrowdSec — protects hours/days after first exploitation (crowd-sourced)
+
+### How It Works
+
+The WAF (Coraza) uses the OWASP Core Rule Set to detect attack patterns. Even if the exploit is brand new, the pattern is usually recognizable.
+
+**Example:** A zero-day SQLi exploit discovered today:
+
+```
+https://yourapp.com/search?q=' OR '1'='1
+```
+
+- **Pattern:** `' OR '1'='1` matches SQL injection signature
+- **Action:** WAF blocks request → attacker never reaches your database
+
+### What We DON'T Protect Against
+
+- ❌ Zero-days in Charon itself (keep Charon updated)
+- ❌ Zero-days in Docker, Linux kernel (keep OS updated)
+- ❌ Logic bugs in your application code (need code reviews)
+- ❌ Insider threats (need access controls + auditing)
+- ❌ Social engineering (need user training)
+
+### Recommendation: Defense in Depth
+
+1. **Enable all Cerberus layers:**
+   - CrowdSec (IP reputation)
+   - ACLs (restrict access by geography/IP)
+   - WAF (request inspection)
+   - Rate Limiting (slow down attacks)
+
+2. **Keep everything updated:**
+   - Charon (watch GitHub releases)
+   - Docker images (rebuild regularly)
+   - Host OS (enable unattended-upgrades)
+
+3. **Monitor security logs:**
+   - Check "Security → Decisions" weekly
+   - Set up alerts for high block rates
+
+---
+
+## More Technical Details
+
+Want the nitty-gritty? See [Cerberus Technical Docs](cerberus.md).

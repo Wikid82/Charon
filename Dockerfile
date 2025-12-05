@@ -109,29 +109,52 @@ RUN apk add --no-cache git
 RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-# Pre-fetch/override vulnerable module versions in the module cache so xcaddy
-# will pick them up during the build. These `go get` calls attempt to pin
-# fixed versions of dependencies known to cause Trivy findings (expr, quic-go).
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go get github.com/expr-lang/expr@v1.17.0 github.com/quic-go/quic-go@v0.54.1 || true
-
 # Build Caddy for the target architecture with security plugins.
-# Try the requested v${CADDY_VERSION} tag first; if it fails (unknown tag),
-# fall back to a known-good v2.10.2 build to keep the build resilient.
+# We use XCADDY_SKIP_CLEANUP=1 to keep the build environment, then patch dependencies.
+# hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
-        --mount=type=cache,target=/go/pkg/mod \
-        sh -c "GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+    --mount=type=cache,target=/go/pkg/mod \
+    sh -c 'set -e; \
+        export XCADDY_SKIP_CLEANUP=1; \
+        # Run xcaddy build - it will fail at the end but create the go.mod
+        GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer \
             --with github.com/zhangjiayin/caddy-geoip2 \
-            --output /usr/bin/caddy || \
-            (echo 'Requested Caddy tag v${CADDY_VERSION} failed; falling back to v2.10.2' && \
-             GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v2.10.2 \
-                 --with github.com/greenpau/caddy-security \
-                 --with github.com/corazawaf/coraza-caddy/v2 \
-                 --with github.com/hslatman/caddy-crowdsec-bouncer \
-                 --with github.com/zhangjiayin/caddy-geoip2 --output /usr/bin/caddy)"
+            --output /tmp/caddy-temp || true; \
+        # Find the build directory
+        BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
+        if [ -d "$BUILDDIR" ] && [ -f "$BUILDDIR/go.mod" ]; then \
+            echo "Patching dependencies in $BUILDDIR"; \
+            cd "$BUILDDIR"; \
+            # Upgrade transitive dependencies to pick up security fixes.
+            # These are Caddy dependencies that lag behind upstream releases.
+            # Renovate tracks these via regex manager in renovate.json
+            # TODO: Remove this block once Caddy ships with fixed deps (check v2.10.3+)
+            # renovate: datasource=go depName=github.com/expr-lang/expr
+            go get github.com/expr-lang/expr@v1.17.0 || true; \
+            # renovate: datasource=go depName=github.com/quic-go/quic-go
+            go get github.com/quic-go/quic-go@v0.54.1 || true; \
+            # renovate: datasource=go depName=github.com/smallstep/certificates
+            go get github.com/smallstep/certificates@v0.29.0 || true; \
+            go mod tidy || true; \
+            # Rebuild with patched dependencies
+            echo "Rebuilding Caddy with patched dependencies..."; \
+            GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy \
+                -ldflags "-w -s" -trimpath -tags "nobadger,nomysql,nopgx" . && \
+            echo "Build successful"; \
+        else \
+            echo "Build directory not found, using standard xcaddy build"; \
+            GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+                --with github.com/greenpau/caddy-security \
+                --with github.com/corazawaf/coraza-caddy/v2 \
+                --with github.com/hslatman/caddy-crowdsec-bouncer \
+                --with github.com/zhangjiayin/caddy-geoip2 \
+                --output /usr/bin/caddy; \
+        fi; \
+        rm -rf /tmp/buildenv_* /tmp/caddy-temp; \
+        /usr/bin/caddy version'
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
@@ -180,20 +203,13 @@ RUN chmod +x /docker-entrypoint.sh
 
 # Set default environment variables
 ENV CHARON_ENV=production \
-    CHARON_HTTP_PORT=8080 \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
     CHARON_CADDY_ADMIN_API=http://localhost:2019 \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
-    CPM_ENV=production \
-    CPM_HTTP_PORT=8080 \
-    CPM_DB_PATH=/app/data/cpm.db \
-    CPM_FRONTEND_DIR=/app/frontend/dist \
-    CPM_CADDY_ADMIN_API=http://localhost:2019 \
-    CPM_CADDY_CONFIG_DIR=/app/data/caddy \
-    CPM_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb
-
+    CHARON_HTTP_PORT=8080 \
+    CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
@@ -214,7 +230,7 @@ LABEL org.opencontainers.image.title="Charon (CPMP legacy)" \
       org.opencontainers.image.licenses="MIT"
 
 # Expose ports
-EXPOSE 80 443 443/udp 8080 2019
+EXPOSE 80 443 443/udp 2019 8080
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]
