@@ -45,6 +45,35 @@ jobs:
           scripts/coraza_integration.sh 2>&1 | tee waf-test-output.txt
           exit ${PIPESTATUS[0]}
 
+      - name: Dump Debug Info on Failure
+        if: failure()
+        run: |
+          echo "## 🔍 Debug Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Container Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker ps -a --filter "name=charon" --filter "name=coraza" >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Caddy Admin Config" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          curl -s http://localhost:2019/config 2>/dev/null | head -200 >> $GITHUB_STEP_SUMMARY || echo "Could not retrieve Caddy config" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Charon Container Logs (last 100 lines)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker logs charon-debug 2>&1 | tail -100 >> $GITHUB_STEP_SUMMARY || echo "No container logs available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### WAF Ruleset Files" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          docker exec charon-debug sh -c 'ls -la /app/data/caddy/coraza/rulesets/ 2>/dev/null && echo "---" && cat /app/data/caddy/coraza/rulesets/*.conf 2>/dev/null' >> $GITHUB_STEP_SUMMARY || echo "No ruleset files found" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: WAF Integration Summary
         if: always()
         run: |

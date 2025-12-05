@@ -1,191 +1,212 @@
-# ✨ Features
+# What Can Charon Do?
 
-Charon is packed with features to make managing your web services simple and secure. Here's everything you can do:
-
----
-
-## 🔒 Security
-
-### Cerberus Security Suite (Optional)
-Cerberus bundles CrowdSec, WAF (Coraza), ACLs, and Rate Limiting into an optional security suite that can be enabled at runtime.
-
-### CrowdSec Integration
-Block malicious IPs automatically using community-driven threat intelligence. CrowdSec analyzes your logs and blocks attackers before they can cause harm.
-→ [Learn more about CrowdSec](https://www.crowdsec.net/)
-
-### Web Application Firewall (WAF)
-Protect your applications from common web attacks like SQL injection and cross-site scripting using the integrated (placeholder) Coraza WAF pipeline.
-
-**Global Modes**:
-- `disabled` – WAF not evaluated.
-- `monitor` – Evaluate & log every request (increment Prometheus counters) without blocking.
-- `block` – Enforce rules (suspicious payloads are rejected; counters increment).
-
-**Observability**:
-- Prometheus counters: `charon_waf_requests_total`, `charon_waf_blocked_total`, `charon_waf_monitored_total`.
-- Structured logs: fields `source=waf`, `decision=block|monitor`, `mode`, `path`, `query`.
-
-**Rulesets**:
-- Manage rule sources via the Security UI / API (`/api/v1/security/rulesets`). Each ruleset stores `name`, optional `source_url`, `mode`, and raw `content`.
-- Attach a global rules source using `waf_rules_source` in the security config.
-
-→ [Coraza](https://coraza.io/) · [Cerberus Deep Dive](cerberus.md#waf)
-
-### Access Control Lists (ACLs)
-Control who can access your services with IP whitelists, blacklists, and geo-blocking. Block entire countries or allow only specific networks.
-→ [ACL Documentation](security.md#access-control-lists)
-
-### Rate Limiting
-Prevent abuse by limiting how many requests a single IP can make. Protect against brute force attacks and API abuse.
-→ [Rate Limiting Setup](security.md#rate-limiting)
-
-### Automatic HTTPS
-Every site gets a free SSL certificate automatically. No configuration needed—just add your domain and it's secure.
-→ [SSL/TLS Configuration](security.md#ssltls-certificates)
+Here's everything Charon can do for you, explained simply.
 
 ---
 
-## 📊 Monitoring
+## \ud83d\udd10 SSL Certificates (The Green Lock)
 
-### Built-in Uptime Monitor
-Know instantly when your services go down. Get notifications via Discord, Slack, email, or webhooks when something isn't responding.
-→ [Uptime Monitoring Guide](uptime.md) *(coming soon)*
+**What it does:** Makes browsers show a green lock next to your website address.
 
-### Real-time Health Dashboard
-See the status of all your services at a glance. View response times, uptime history, and current availability from one dashboard.
+**Why you care:** Without it, browsers scream "NOT SECURE!" and people won't trust your site.
 
-### Smart Notifications
-Get notified only when it matters. Notifications are grouped by server so you don't get spammed when a whole host goes down.
+**What you do:** Nothing. Charon gets free certificates from Let's Encrypt and renews them automatically.
 
 ---
 
-## 🖥️ Proxy Management
+## \ud83d\udee1\ufe0f Security (Optional)
 
-### Visual Proxy Configuration
-Add and manage reverse proxies without touching configuration files. Point-and-click simplicity with full power under the hood.
+Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready.
 
-### Multi-Domain Support
-Host unlimited domains from a single server. Each domain can point to a different backend service.
+### Block Bad IPs Automatically
 
-### WebSocket Support
-Real-time apps like chat, gaming, and live updates work out of the box. WebSocket connections are automatically upgraded.
+**What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
 
-### Load Balancing
-Distribute traffic across multiple backend servers. Keep your services fast and reliable even under heavy load.
+**Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
-### Custom Headers
-Add, modify, or remove HTTP headers as traffic passes through. Perfect for CORS, security headers, or custom routing logic.
+**What you do:** Add one line to your docker-compose file. See [Security Guide](security.md).
+
+### Block Entire Countries
+
+**What it does:** Stop all traffic from specific countries.
+
+**Why you care:** If you only need access from the US, block everywhere else.
+
+**What you do:** Create an access list, pick countries, assign it to your website.
+
+### Block Bad Behavior
+
+**What it does:** Detects common attacks like SQL injection or XSS.
+
+**Why you care:** Protects your apps even if they have bugs.
+
+**What you do:** Turn on "WAF" mode in security settings.
+### Zero-Day Exploit Protection
+
+**What it does:** The WAF (Web Application Firewall) can detect and block many zero-day exploits before they reach your apps.
+
+**Why you care:** Even if a brand-new vulnerability is discovered in your software, the WAF might catch it by recognizing the attack pattern.
+
+**How it works:**
+- Attackers use predictable patterns (SQL syntax, JavaScript tags, command injection)
+- The WAF inspects every request for these patterns
+- If detected, the request is blocked or logged (depending on mode)
+
+**What you do:**
+1. Enable WAF in "Monitor" mode first (logs only, doesn't block)
+2. Review logs for false positives
+3. Switch to "Block" mode when ready
+
+**Limitations:**
+- Only protects web-based exploits (HTTP/HTTPS traffic)
+- Does NOT protect against zero-days in Docker, Linux, or Charon itself
+- Does NOT replace regular security updates
+
+**Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
+---
+
+## \ud83d\udc33 Docker Integration
+
+### Auto-Discover Containers
+
+**What it does:** Sees all your Docker containers and shows them in a list.
+
+**Why you care:** Instead of typing IP addresses, just click your container and Charon fills everything in.
+
+**What you do:** Make sure Charon can access `/var/run/docker.sock` (it's in the quick start).
+
+### Remote Docker Servers
+
+**What it does:** Manages containers on other computers.
+
+**Why you care:** Run Charon on one server, manage containers on five others.
+
+**What you do:** Add remote servers in the "Docker" section.
 
 ---
 
-## 🐳 Docker Integration
+## \ud83d\udce5 Import Your Old Setup
 
-### Container Discovery
-See all Docker containers running on your servers. One click to create a proxy for any container.
+**What it does:** Reads your existing Caddyfile and creates proxy hosts for you.
 
-### Remote Docker Support
-Manage containers on other servers through secure connections. Perfect for multi-server setups with Tailscale or WireGuard VPNs.
-→ [Remote Docker Setup](getting-started.md#remote-docker)
+**Why you care:** Don't start from scratch if you already have working configs.
 
-### Automatic Port Detection
-Charon reads container labels and exposed ports automatically. Less typing, fewer mistakes.
+**What you do:** Click "Import," paste your Caddyfile, review the results, click "Import."
+
+**[Detailed Import Guide](import-guide.md)**
 
 ---
 
-## 📥 Import & Migration
+## \u26a1 Zero Downtime Updates
 
-### Caddyfile Import
-Already using Caddy? Import your existing Caddyfile and Charon will create proxies for each site automatically.
-→ [Import Guide](import-guide.md)
+**What it does:** Apply changes without stopping traffic.
 
-### NPM Migration *(coming soon)*
-Migrating from Nginx Proxy Manager? We'll import your configuration so you don't start from scratch.
+**Why you care:** Your websites stay up even while you're making changes.
 
-### Conflict Resolution
-When imports find existing entries, you choose what to do—keep existing, overwrite, or merge configurations.
+**What you do:** Nothing special—every change is zero-downtime by default.
 
 ---
 
-## 💾 Backup & Restore
+## \ud83c\udfa8 Beautiful Loading Animations
 
-### Automatic Backups
-Your configuration is automatically backed up before destructive operations like deletes.
+When you make changes, Charon shows you themed animations so you know what's happening.
 
-### One-Click Restore
-Something go wrong? Restore any previous configuration with a single click.
+### The Gold Coin (Login)
 
-### Export Configuration
-Download your entire configuration for safekeeping or migration to another server.
+When you log in, you see a spinning gold coin. In Greek mythology, people paid Charon the ferryman with a coin to cross the river into the afterlife. So logging in = paying for passage!
 
----
+### The Blue Boat (Managing Websites)
 
-## 🎨 User Experience
+When you create or update websites, you see Charon's boat sailing across the river. He's literally "ferrying" your changes to the server.
 
-### Dark Mode Interface
-Easy on the eyes during late-night troubleshooting. The modern dark interface looks great on any device.
+### The Red Guardian (Security)
 
-### Mobile Responsive
-Manage your proxies from your phone or tablet. The interface adapts to any screen size.
+When you change security settings, you see Cerberus—the three-headed guard dog. He protects the gates of the underworld, just like your security settings protect your apps.
 
-### Bulk Operations
-Select multiple items and perform actions on all of them at once. Delete, enable, or disable in bulk.
-
-### Search & Filter
-Find what you're looking for quickly. Filter by status, search by name, or sort by any column.
+**Why these exist:** Changes can take 1-10 seconds to apply. The animations tell you what's happening so you don't think it's broken.
 
 ---
 
-## 🔌 API & Automation
+## \ud83d\udd0d Health Checks
 
-### RESTful API
-Automate everything through a complete REST API. Create proxies, manage certificates, and monitor uptime programmatically.
-→ [API Documentation](api.md)
+**What it does:** Tests if your app is actually reachable before saving.
 
-### Webhook Notifications
-Send events to any system that accepts webhooks. Integrate with your existing monitoring and automation tools.
+**Why you care:** Catches typos and mistakes before they break things.
 
-### Webhook Payload Templates
-Customize JSON payloads for webhooks using built-in Minimal and Detailed templates, or upload a Custom JSON template. The server validates templates on save and provides a preview endpoint so you can test rendering before sending.
+**What you do:** Click the "Test" button when adding a website.
 
 ---
 
-## 🛡️ Enterprise Features
+## \ud83d\udccb Logs & Monitoring
 
-### Multi-User Support *(coming soon)*
-Add team members with different permission levels. Admins, editors, and viewers.
+**What it does:** Shows you what's happening with your proxy.
 
-### Audit Logging *(coming soon)*
-Track who changed what and when. Full history of all configuration changes.
+**Why you care:** When something breaks, you can see exactly what went wrong.
 
-### SSO Integration *(coming soon)*
-Sign in with your existing identity provider. Support for OAuth, SAML, and OIDC.
+**What you do:** Click "Logs" in the sidebar.
 
 ---
 
-## 🚀 Performance
+## \ud83d\udcbe Backup & Restore
 
-### Caddy-Powered
-Built on Caddy, one of the fastest and most memory-efficient web servers available.
+**What it does:** Saves a copy of your configuration before destructive changes.
 
-### Minimal Resource Usage
-Runs happily on a Raspberry Pi. Low CPU and memory footprint.
+**Why you care:** If you accidentally delete something, restore it with one click.
 
-### Instant Configuration Reloads
-Changes take effect immediately without downtime. Zero-downtime configuration updates.
+**What you do:** Backups happen automatically. Restore from the "Backups" page.
 
 ---
 
-## 📚 Need More Details?
+## \ud83c\udf10 WebSocket Support
 
-Each feature has detailed documentation:
+**What it does:** Handles real-time connections for chat apps, live updates, etc.
 
-- [Getting Started](getting-started.md) - Your first proxy in 5 minutes
-- [Security Features](security.md) - Deep dive into security options
-- [API Reference](api.md) - Complete API documentation
-- [Import Guide](import-guide.md) - Migrating from other tools
+**Why you care:** Apps like Discord bots, live dashboards, and chat servers need this to work.
+
+**What you do:** Nothing—WebSockets work automatically.
 
 ---
 
-<p align="center">
-  <em>Missing a feature? <a href="https://github.com/Wikid82/charon/discussions">Let us know!</a></em>
-</p>
+## \ud83d\udcca Uptime Monitoring (Coming Soon)
+
+**What it does:** Checks if your websites are responding.
+
+**Why you care:** Get notified when something goes down.
+
+**Status:** Coming in a future update.
+
+---
+
+## \ud83d\udcf1 Mobile-Friendly Interface
+
+**What it does:** Works perfectly on phones and tablets.
+
+**Why you care:** Fix problems from anywhere, even if you're not at your desk.
+
+**What you do:** Just open the web interface on your phone.
+
+---
+
+## \ud83c\udf19 Dark Mode
+
+**What it does:** Easy-on-the-eyes dark interface.
+
+**Why you care:** Late-night troubleshooting doesn't burn your retinas.
+
+**What you do:** It's always dark mode. (Light mode coming if people ask for it.)
+
+---
+
+## \ud83d\udd0c API for Automation
+
+**What it does:** Control everything via code instead of the web interface.
+
+**Why you care:** Automate repetitive tasks or integrate with other tools.
+
+**What you do:** See the [API Documentation](api.md).
+
+---
+
+## Missing Something?
+
+**[Request a feature](https://github.com/Wikid82/charon/discussions)** — Tell us what you need!

@@ -25,6 +25,17 @@ export default function Settings() {
         </Link>
 
         <Link
+          to="/settings/smtp"
+          className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+            isActive('/settings/smtp')
+              ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
+              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+        >
+          Email (SMTP)
+        </Link>
+
+        <Link
           to="/settings/account"
           className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
             isActive('/settings/account')

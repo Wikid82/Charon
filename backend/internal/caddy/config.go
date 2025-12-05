@@ -328,13 +328,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
 						// Capture ruleset_name if present, remove it from advanced_config,
-						// and set up 'include' array for coraza-caddy plugin.
+						// and set up 'directives' with Include statement for coraza-caddy plugin.
 						if rn, has := v["ruleset_name"]; has {
 							if rnStr, ok := rn.(string); ok && rnStr != "" {
-								// Set 'include' array with the ruleset file path for coraza-caddy
+								// Set 'directives' with Include statement for coraza-caddy
 								if rulesetPaths != nil {
 									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-										v["include"] = []string{p}
+										v["directives"] = fmt.Sprintf("Include %s", p)
 									}
 								}
 							}
@@ -352,7 +352,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir string, acmeEmail strin
 								if rnStr, ok := rn.(string); ok && rnStr != "" {
 									if rulesetPaths != nil {
 										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-											m["include"] = []string{p}
+											m["directives"] = fmt.Sprintf("Include %s", p)
 										}
 									}
 								}
@@ -721,10 +721,19 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 	return h, nil
 }
 
-// buildWAFHandler returns a placeholder WAF handler (Coraza) configuration.
-// This is a stub; integration with a Coraza caddy plugin would be required
-// for real runtime enforcement.
+// buildWAFHandler returns a WAF handler (Coraza) configuration.
+// The coraza-caddy plugin registers as http.handlers.waf and expects:
+// - handler: "waf"
+// - directives: ModSecurity directive string including Include statements
 func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
+	// Early exit if WAF is disabled
+	if !wafEnabled {
+		return nil, nil
+	}
+	if secCfg != nil && secCfg.WAFMode == "disabled" {
+		return nil, nil
+	}
+
 	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
 	var hostRulesetName string
 	if host != nil && host.AdvancedConfig != "" {
@@ -738,38 +747,73 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		}
 	}
 
-	// Find a ruleset to associate with WAF; prefer name match by host.Application, host.AdvancedConfig ruleset_name or default 'owasp-crs'
+	// Find a ruleset to associate with WAF
+	// Priority order:
+	// 1. Exact match to secCfg.WAFRulesSource (user's global choice)
+	// 2. Exact match to hostRulesetName (per-host advanced_config)
+	// 3. Match to host.Application (app-specific defaults)
+	// 4. Fallback to owasp-crs
 	var selected *models.SecurityRuleSet
+	var hostRulesetMatch, appMatch, owaspFallback *models.SecurityRuleSet
+
+	// First pass: find all potential matches
 	for i, r := range rulesets {
-		if r.Name == "owasp-crs" || (host != nil && r.Name == host.Application) || (hostRulesetName != "" && r.Name == hostRulesetName) || (secCfg != nil && r.Name == secCfg.WAFRulesSource) {
+		// Priority 1: Global WAF rules source - highest priority, select immediately
+		if secCfg != nil && secCfg.WAFRulesSource != "" && r.Name == secCfg.WAFRulesSource {
 			selected = &rulesets[i]
 			break
 		}
+		// Priority 2: Per-host ruleset name from advanced_config
+		if hostRulesetName != "" && r.Name == hostRulesetName && hostRulesetMatch == nil {
+			hostRulesetMatch = &rulesets[i]
+		}
+		// Priority 3: Match by host application
+		if host != nil && r.Name == host.Application && appMatch == nil {
+			appMatch = &rulesets[i]
+		}
+		// Priority 4: Track owasp-crs as fallback
+		if r.Name == "owasp-crs" && owaspFallback == nil {
+			owaspFallback = &rulesets[i]
+		}
 	}
 
-	if !wafEnabled {
-		return nil, nil
+	// Second pass: select by priority if not already selected
+	if selected == nil {
+		if hostRulesetMatch != nil {
+			selected = hostRulesetMatch
+		} else if appMatch != nil {
+			selected = appMatch
+		} else if owaspFallback != nil {
+			selected = owaspFallback
+		}
 	}
+
+	// Build the handler with directives
 	h := Handler{"handler": "waf"}
+	directivesSet := false
+
 	if selected != nil {
 		if rulesetPaths != nil {
 			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
-				h["include"] = []string{p}
+				h["directives"] = fmt.Sprintf("Include %s", p)
+				directivesSet = true
 			}
 		}
 	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
 		// If there was a requested ruleset name but nothing matched, include path if known
 		if rulesetPaths != nil {
 			if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
-				h["include"] = []string{p}
+				h["directives"] = fmt.Sprintf("Include %s", p)
+				directivesSet = true
 			}
 		}
 	}
-	// WAF enablement is handled by the caller. Don't add a 'mode' field
-	// here because the module expects a specific configuration schema.
-	if secCfg != nil && secCfg.WAFMode == "disabled" {
+
+	// Bug fix: Don't return a WAF handler without directives - it creates a no-op WAF
+	if !directivesSet {
 		return nil, nil
 	}
+
 	return h, nil
 }
 

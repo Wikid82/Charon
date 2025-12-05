@@ -115,10 +115,20 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
 		}
 		for _, rs := range rulesets {
-			// sanitize name to a safe filename
-			safeName := strings.ReplaceAll(strings.ToLower(rs.Name), " ", "-")
+			// Sanitize name to a safe filename - prevent path traversal and special chars
+			safeName := strings.ToLower(rs.Name)
+			safeName = strings.ReplaceAll(safeName, " ", "-")
 			safeName = strings.ReplaceAll(safeName, "/", "-")
-			filePath := filepath.Join(corazaDir, safeName+".conf")
+			safeName = strings.ReplaceAll(safeName, "\\", "-")
+			safeName = strings.ReplaceAll(safeName, "..", "")   // Strip path traversal sequences
+			safeName = strings.ReplaceAll(safeName, "\x00", "") // Strip null bytes
+			safeName = strings.ReplaceAll(safeName, "%2f", "-") // URL-encoded slash
+			safeName = strings.ReplaceAll(safeName, "%2e", "")  // URL-encoded dot
+			safeName = strings.Trim(safeName, ".-")             // Trim leading/trailing dots and dashes
+			if safeName == "" {
+				safeName = "unnamed-ruleset"
+			}
+
 			// Prepend required Coraza directives if not already present.
 			// These are essential for the WAF to actually enforce rules:
 			// - SecRuleEngine On: enables blocking mode (blocks malicious requests)
@@ -137,6 +147,13 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 				}
 				content = fmt.Sprintf("SecRuleEngine %s\nSecRequestBodyAccess On\n\n", engineMode) + content
 			}
+
+			// Calculate hash of the FINAL content (after prepending mode directives)
+			// to ensure filename changes when mode changes, forcing Caddy to reload
+			hash := sha256.Sum256([]byte(content))
+			shortHash := fmt.Sprintf("%x", hash)[:8]
+			filePath := filepath.Join(corazaDir, fmt.Sprintf("%s-%s.conf", safeName, shortHash))
+
 			// Write ruleset file with world-readable permissions so the Caddy
 			// process (which may run as an unprivileged user) can read it.
 			if err := writeFileFunc(filePath, []byte(content), 0644); err != nil {
@@ -180,6 +197,21 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
+	}
+
+	// Debug logging: WAF configuration state for troubleshooting integration issues
+	logger.Log().WithFields(map[string]interface{}{
+		"waf_enabled":       wafEnabled,
+		"waf_mode":          secCfg.WAFMode,
+		"waf_rules_source":  secCfg.WAFRulesSource,
+		"ruleset_count":     len(rulesets),
+		"ruleset_paths_len": len(rulesetPaths),
+	}).Debug("WAF configuration state")
+	for rsName, rsPath := range rulesetPaths {
+		logger.Log().WithFields(map[string]interface{}{
+			"ruleset_name": rsName,
+			"ruleset_path": rsPath,
+		}).Debug("WAF ruleset path mapping")
 	}
 
 	// Log generated config size and a compact JSON snippet for debugging when in debug mode

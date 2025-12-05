@@ -296,12 +296,12 @@ func TestProxyHostCreate_AdvancedConfig_Normalization(t *testing.T) {
 	// Provide an advanced_config value that will be normalized by caddy.NormalizeAdvancedConfig
 	adv := `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`
 	payload := map[string]interface{}{
-		"name":           "AdvHost",
-		"domain_names":   "adv.example.com",
-		"forward_scheme": "http",
-		"forward_host":   "localhost",
-		"forward_port":   8080,
-		"enabled":        true,
+		"name":            "AdvHost",
+		"domain_names":    "adv.example.com",
+		"forward_scheme":  "http",
+		"forward_host":    "localhost",
+		"forward_port":    8080,
+		"enabled":         true,
 		"advanced_config": adv,
 	}
 	bodyBytes, _ := json.Marshal(payload)
@@ -657,14 +657,14 @@ func TestProxyHostUpdate_AdvancedConfig_ClearAndBackup(t *testing.T) {
 
 	// Create host with advanced config
 	host := &models.ProxyHost{
-		UUID:            "adv-clear-uuid",
-		Name:            "Advanced Host",
-		DomainNames:     "adv-clear.example.com",
-		ForwardHost:     "localhost",
-		ForwardPort:     8080,
-		AdvancedConfig:  `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`,
+		UUID:                 "adv-clear-uuid",
+		Name:                 "Advanced Host",
+		DomainNames:          "adv-clear.example.com",
+		ForwardHost:          "localhost",
+		ForwardPort:          8080,
+		AdvancedConfig:       `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`,
 		AdvancedConfigBackup: "",
-		Enabled:         true,
+		Enabled:              true,
 	}
 	require.NoError(t, db.Create(host).Error)
 
@@ -854,7 +854,7 @@ func TestProxyHostUpdate_Locations_Replace(t *testing.T) {
 		ForwardHost: "localhost",
 		ForwardPort: 8080,
 		Enabled:     true,
-		Locations: []models.Location{{UUID: uuid.NewString(), Path: "/old", ForwardHost: "localhost", ForwardPort: 8080, ForwardScheme: "http"}},
+		Locations:   []models.Location{{UUID: uuid.NewString(), Path: "/old", ForwardHost: "localhost", ForwardPort: 8080, ForwardScheme: "http"}},
 	}
 	require.NoError(t, db.Create(host).Error)
 
@@ -884,14 +884,14 @@ func TestProxyHostCreate_WithCertificateAndLocations(t *testing.T) {
 
 	adv := `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`
 	payload := map[string]interface{}{
-		"name":           "Create With Cert",
-		"domain_names":   "cert.example.com",
-		"forward_scheme": "http",
-		"forward_host":   "localhost",
-		"forward_port":   8080,
-		"enabled":        true,
-		"certificate_id": cert.ID,
-		"locations": []map[string]interface{}{{"path": "/app", "forward_scheme": "http", "forward_host": "localhost", "forward_port": 8080}},
+		"name":            "Create With Cert",
+		"domain_names":    "cert.example.com",
+		"forward_scheme":  "http",
+		"forward_host":    "localhost",
+		"forward_port":    8080,
+		"enabled":         true,
+		"certificate_id":  cert.ID,
+		"locations":       []map[string]interface{}{{"path": "/app", "forward_scheme": "http", "forward_host": "localhost", "forward_port": 8080}},
 		"advanced_config": adv,
 	}
 	body, _ := json.Marshal(payload)

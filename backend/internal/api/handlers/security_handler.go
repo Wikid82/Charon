@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -60,10 +61,65 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		}
 	}
 
+	// Allow runtime override for CrowdSec enabled flag via settings table
+	crowdsecEnabled := mode == "local"
+	if h.db != nil {
+		var cs struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&cs).Error; err == nil && cs.Value != "" {
+			if strings.EqualFold(cs.Value, "true") {
+				crowdsecEnabled = true
+				// If enabled via settings and mode is not local, set mode to local
+				if mode != "local" {
+					mode = "local"
+				}
+			} else if strings.EqualFold(cs.Value, "false") {
+				crowdsecEnabled = false
+				mode = "disabled"
+				apiURL = ""
+			}
+		}
+	}
+
 	// Only allow 'local' as an enabled mode. Any other value should be treated as disabled.
 	if mode != "local" {
 		mode = "disabled"
 		apiURL = ""
+	}
+
+	// Allow runtime override for WAF enabled flag via settings table
+	wafEnabled := h.cfg.WAFMode != "" && h.cfg.WAFMode != "disabled"
+	wafMode := h.cfg.WAFMode
+	if h.db != nil {
+		var w struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&w).Error; err == nil && w.Value != "" {
+			if strings.EqualFold(w.Value, "true") {
+				wafEnabled = true
+				if wafMode == "" || wafMode == "disabled" {
+					wafMode = "enabled"
+				}
+			} else if strings.EqualFold(w.Value, "false") {
+				wafEnabled = false
+				wafMode = "disabled"
+			}
+		}
+	}
+
+	// Allow runtime override for Rate Limit enabled flag via settings table
+	rateLimitEnabled := h.cfg.RateLimitMode == "enabled"
+	rateLimitMode := h.cfg.RateLimitMode
+	if h.db != nil {
+		var rl struct{ Value string }
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.rate_limit.enabled").Scan(&rl).Error; err == nil && rl.Value != "" {
+			if strings.EqualFold(rl.Value, "true") {
+				rateLimitEnabled = true
+				if rateLimitMode == "" || rateLimitMode == "disabled" {
+					rateLimitMode = "enabled"
+				}
+			} else if strings.EqualFold(rl.Value, "false") {
+				rateLimitEnabled = false
+				rateLimitMode = "disabled"
+			}
+		}
 	}
 
 	// Allow runtime override for ACL enabled flag via settings table
@@ -90,15 +146,15 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"crowdsec": gin.H{
 			"mode":    mode,
 			"api_url": apiURL,
-			"enabled": mode == "local",
+			"enabled": crowdsecEnabled,
 		},
 		"waf": gin.H{
-			"mode":    h.cfg.WAFMode,
-			"enabled": h.cfg.WAFMode != "" && h.cfg.WAFMode != "disabled",
+			"mode":    wafMode,
+			"enabled": wafEnabled,
 		},
 		"rate_limit": gin.H{
-			"mode":    h.cfg.RateLimitMode,
-			"enabled": h.cfg.RateLimitMode == "enabled",
+			"mode":    rateLimitMode,
+			"enabled": rateLimitEnabled,
 		},
 		"acl": gin.H{
 			"mode":    h.cfg.ACLMode,
@@ -134,6 +190,12 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	if err := h.svc.Upsert(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Apply updated config to Caddy so WAF mode changes take effect
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"config": payload})
 }
@@ -329,6 +391,12 @@ func (h *SecurityHandler) Enable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable Cerberus"})
 		return
 	}
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": true})
 }
 
@@ -348,6 +416,9 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 			cfg.Enabled = false
 		}
 		_ = h.svc.Upsert(cfg)
+		if h.caddyManager != nil {
+			_ = h.caddyManager.ApplyConfig(c.Request.Context())
+		}
 		c.JSON(http.StatusOK, gin.H{"enabled": false})
 		return
 	}
@@ -367,5 +438,8 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	}
 	cfg.Enabled = false
 	_ = h.svc.Upsert(cfg)
+	if h.caddyManager != nil {
+		_ = h.caddyManager.ApplyConfig(c.Request.Context())
+	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
 }

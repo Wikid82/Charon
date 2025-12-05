@@ -28,6 +28,11 @@ type ProxyHost struct {
 	Locations            []Location      `json:"locations" gorm:"foreignKey:ProxyHostID;constraint:OnDelete:CASCADE"`
 	AdvancedConfig       string          `json:"advanced_config" gorm:"type:text"`
 	AdvancedConfigBackup string          `json:"advanced_config_backup" gorm:"type:text"`
-	CreatedAt            time.Time       `json:"created_at"`
-	UpdatedAt            time.Time       `json:"updated_at"`
+
+	// Forward Auth / User Gateway settings
+	// When enabled, Caddy will use forward_auth to verify user access via Charon
+	ForwardAuthEnabled bool `json:"forward_auth_enabled" gorm:"default:false"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

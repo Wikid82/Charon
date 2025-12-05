@@ -293,7 +293,7 @@ describe('Security page', () => {
     expect(screen.getByText('No rule sets configured. Add one below.')).toBeInTheDocument()
   })
 
-  it('displays correct WAF mode in status text', async () => {
+  it('displays correct WAF threat protection summary when enabled', async () => {
     const status: SecurityStatus = {
       cerberus: { enabled: true },
       crowdsec: { enabled: false, mode: 'disabled' as const, api_url: '' },
@@ -308,7 +308,8 @@ describe('Security page', () => {
     vi.mocked(api.getRuleSets).mockResolvedValue(mockRuleSets)
 
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Mode: Monitor (log only)')).toBeInTheDocument())
+    // WAF now shows threat protection summary instead of mode text
+    await waitFor(() => expect(screen.getByText(/SQL injection, XSS, RCE/i)).toBeInTheDocument())
   })
 
   it('does not show WAF controls when WAF is disabled', async () => {
