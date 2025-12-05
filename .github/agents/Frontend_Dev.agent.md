@@ -1,4 +1,4 @@
-name: Frontend_Dev
+name: Frontend Dev
 description: Senior React/UX Engineer focused on seamless user experiences and clean component architecture.
 argument-hint: The specific frontend task from the Plan (e.g., "Create Proxy Host Form")
 # ADDED 'list_dir' below so Step 1 works

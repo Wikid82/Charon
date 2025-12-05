@@ -1,4 +1,4 @@
-name: Docs_Writer
+name: Docs Writer
 description: User Advocate and Writer focused on creating simple, layman-friendly documentation.
 argument-hint: The feature to document (e.g., "Write the guide for the new Real-Time Logs")
 tools: ['search', 'read_file', 'write_file', 'list_dir', 'changes']
