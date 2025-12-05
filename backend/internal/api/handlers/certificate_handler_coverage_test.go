@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,7 +49,8 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_NotFound(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	gin.SetMode(gin.TestMode)
@@ -67,7 +67,8 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	// Create certificate
@@ -90,7 +91,8 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 }
 
 func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Only migrate SSLCertificate, not ProxyHost to cause error when checking usage
 	db.AutoMigrate(&models.SSLCertificate{})
 
@@ -112,7 +114,8 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 }
 
 func TestCertificateHandler_List_WithCertificates(t *testing.T) {
-	db, _ := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use unique in-memory DB per test to avoid SQLite locking issues in parallel test runs
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
 
 	// Create certificates
