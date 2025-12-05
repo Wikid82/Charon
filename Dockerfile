@@ -133,7 +133,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # Renovate tracks these via regex manager in renovate.json
             # TODO: Remove this block once Caddy ships with fixed deps (check v2.10.3+)
             # renovate: datasource=go depName=github.com/expr-lang/expr
-            go get github.com/expr-lang/expr@v1.17.0 || true; \
+            go get github.com/expr-lang/expr@v1.17.6 || true; \
             # renovate: datasource=go depName=github.com/quic-go/quic-go
             go get github.com/quic-go/quic-go@v0.54.1 || true; \
             # renovate: datasource=go depName=github.com/smallstep/certificates
