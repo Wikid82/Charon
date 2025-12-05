@@ -12,7 +12,7 @@
         "env": {
             "GOWORK": "off",
             "GOFLAGS": "-mod=mod",
-            "GOTOOLCHAIN": "none"
+            "GOTOOLCHAIN": "auto"
         },
         "directoryFilters": [
             "-**/pkg/mod/**",
@@ -25,7 +25,7 @@
     "go.toolsEnvVars": {
         "GOWORK": "off",
         "GOFLAGS": "-mod=mod",
-        "GOTOOLCHAIN": "none"
+        "GOTOOLCHAIN": "auto"
     },
     "files.watcherExclude": {
         "**/pkg/mod/**": true,
@@ -39,5 +39,7 @@
     },
     "githubPullRequests.ignoredPullRequestBranches": [
         "main"
-    ]
+    ],
+    // Toggle workspace-specific keybindings (used by .vscode/keybindings.json)
+    "charon.workspaceKeybindingsEnabled": true
 }
