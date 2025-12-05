@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -163,6 +164,120 @@ func TestMailService_BuildEmail(t *testing.T) {
 	assert.Contains(t, msgStr, "Subject: Test Subject")
 	assert.Contains(t, msgStr, "Content-Type: text/html")
 	assert.Contains(t, msgStr, "Test Body")
+}
+
+// TestMailService_HeaderInjectionPrevention tests that CRLF injection is prevented (CWE-93)
+func TestMailService_HeaderInjectionPrevention(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	tests := []struct {
+		name            string
+		subject         string
+		subjectShouldBe string // The sanitized subject line
+	}{
+		{
+			name:            "subject with CRLF injection attempt",
+			subject:         "Normal Subject\r\nBcc: attacker@evil.com",
+			subjectShouldBe: "Normal SubjectBcc: attacker@evil.com", // CRLF stripped, text concatenated
+		},
+		{
+			name:            "subject with LF injection attempt",
+			subject:         "Normal Subject\nX-Injected: malicious",
+			subjectShouldBe: "Normal SubjectX-Injected: malicious",
+		},
+		{
+			name:            "subject with null byte",
+			subject:         "Normal Subject\x00Hidden",
+			subjectShouldBe: "Normal SubjectHidden",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := svc.buildEmail(
+				"sender@example.com",
+				"recipient@example.com",
+				tc.subject,
+				"<p>Body</p>",
+			)
+
+			msgStr := string(msg)
+
+			// Verify sanitized subject appears
+			assert.Contains(t, msgStr, "Subject: "+tc.subjectShouldBe)
+
+			// Split by the header/body separator to get headers only
+			parts := strings.SplitN(msgStr, "\r\n\r\n", 2)
+			require.Len(t, parts, 2, "Email should have headers and body separated by CRLFCRLF")
+			headers := parts[0]
+
+			// Count the number of header lines - there should be exactly 5:
+			// From, To, Subject, MIME-Version, Content-Type
+			headerLines := strings.Split(headers, "\r\n")
+			assert.Equal(t, 5, len(headerLines),
+				"Should have exactly 5 header lines (no injected headers)")
+
+			// Verify no injected headers appear as separate lines
+			for _, line := range headerLines {
+				if strings.HasPrefix(line, "Bcc:") || strings.HasPrefix(line, "X-Injected:") {
+					t.Errorf("Injected header found: %s", line)
+				}
+			}
+		})
+	}
+}
+
+// TestSanitizeEmailHeader tests the sanitizeEmailHeader function directly
+func TestSanitizeEmailHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"clean string", "Normal Subject", "Normal Subject"},
+		{"CR removal", "Subject\rInjected", "SubjectInjected"},
+		{"LF removal", "Subject\nInjected", "SubjectInjected"},
+		{"CRLF removal", "Subject\r\nBcc: evil@hacker.com", "SubjectBcc: evil@hacker.com"},
+		{"null byte removal", "Subject\x00Hidden", "SubjectHidden"},
+		{"tab removal", "Subject\tTabbed", "SubjectTabbed"},
+		{"multiple control chars", "A\r\n\x00\x1f\x7fB", "AB"},
+		{"empty string", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := sanitizeEmailHeader(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// TestValidateEmailAddress tests email address validation
+func TestValidateEmailAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		email   string
+		wantErr bool
+	}{
+		{"valid email", "user@example.com", false},
+		{"valid email with name", "User Name <user@example.com>", false},
+		{"empty email", "", true},
+		{"invalid format", "not-an-email", true},
+		{"missing domain", "user@", true},
+		{"injection attempt", "user@example.com\r\nBcc: evil@hacker.com", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEmailAddress(tc.email)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestMailService_TestConnection_NotConfigured(t *testing.T) {

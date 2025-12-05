@@ -6,13 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net/mail"
 	"net/smtp"
+	"regexp"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"gorm.io/gorm"
 )
+
+// emailHeaderSanitizer removes CR, LF, and other control characters that could
+// enable header injection attacks (CWE-93: Improper Neutralization of CRLF).
+var emailHeaderSanitizer = regexp.MustCompile(`[\r\n\x00-\x1f\x7f]`)
 
 // SMTPConfig holds the SMTP server configuration.
 type SMTPConfig struct {
@@ -171,6 +177,7 @@ func (s *MailService) TestConnection() error {
 }
 
 // SendEmail sends an email using the configured SMTP settings.
+// The to address and subject are sanitized to prevent header injection.
 func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 	config, err := s.GetSMTPConfig()
 	if err != nil {
@@ -181,7 +188,15 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 		return errors.New("SMTP not configured")
 	}
 
-	// Build the email message
+	// Validate email addresses to prevent injection attacks
+	if err := validateEmailAddress(to); err != nil {
+		return fmt.Errorf("invalid recipient address: %w", err)
+	}
+	if err := validateEmailAddress(config.FromAddress); err != nil {
+		return fmt.Errorf("invalid from address: %w", err)
+	}
+
+	// Build the email message (headers are sanitized in buildEmail)
 	msg := s.buildEmail(config.FromAddress, to, subject, htmlBody)
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
@@ -200,12 +215,18 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 	}
 }
 
-// buildEmail constructs a properly formatted email message.
+// buildEmail constructs a properly formatted email message with sanitized headers.
+// All header values are sanitized to prevent email header injection (CWE-93).
 func (s *MailService) buildEmail(from, to, subject, htmlBody string) []byte {
+	// Sanitize all header values to prevent CRLF injection
+	sanitizedFrom := sanitizeEmailHeader(from)
+	sanitizedTo := sanitizeEmailHeader(to)
+	sanitizedSubject := sanitizeEmailHeader(subject)
+
 	headers := make(map[string]string)
-	headers["From"] = from
-	headers["To"] = to
-	headers["Subject"] = subject
+	headers["From"] = sanitizedFrom
+	headers["To"] = sanitizedTo
+	headers["Subject"] = sanitizedSubject
 	headers["MIME-Version"] = "1.0"
 	headers["Content-Type"] = "text/html; charset=UTF-8"
 
@@ -217,6 +238,25 @@ func (s *MailService) buildEmail(from, to, subject, htmlBody string) []byte {
 	msg.WriteString(htmlBody)
 
 	return msg.Bytes()
+}
+
+// sanitizeEmailHeader removes CR, LF, and control characters from email header
+// values to prevent email header injection attacks (CWE-93).
+func sanitizeEmailHeader(value string) string {
+	return emailHeaderSanitizer.ReplaceAllString(value, "")
+}
+
+// validateEmailAddress validates that an email address is well-formed.
+// Returns an error if the address is invalid.
+func validateEmailAddress(email string) error {
+	if email == "" {
+		return errors.New("email address is empty")
+	}
+	_, err := mail.ParseAddress(email)
+	if err != nil {
+		return fmt.Errorf("invalid email address: %w", err)
+	}
+	return nil
 }
 
 // sendSSL sends email using direct SSL/TLS connection.
