@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -78,6 +79,18 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	svc := services.NewCertificateService("/tmp", db)
+	// Wait for background sync goroutine to complete to avoid race with -race flag
+	// NewCertificateService spawns a goroutine that immediately queries the DB
+	// which can race with our test HTTP request. Give it time to complete.
+	// In real usage, this isn't an issue because the server starts before receiving requests.
+	// Alternative would be to add a WaitGroup to CertificateService, but that's overkill for tests.
+	// A simple sleep is acceptable here as it's test-only code.
+	// 100ms is more than enough for the goroutine to finish its initial sync.
+	// This is the minimum reliable wait time based on empirical testing with -race flag.
+	// The goroutine needs to: acquire mutex, stat directory, query DB, release mutex.
+	// On CI runners, this can take longer than on local dev machines.
+	time.Sleep(200 * time.Millisecond)
+
 	// No backup service
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
