@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,6 +24,9 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// Enable gzip compression for API responses (reduces payload size ~70%)
+	router.Use(gzip.Gzip(gzip.DefaultCompression))
+
 	// Apply security headers middleware globally
 	// This sets CSP, HSTS, X-Frame-Options, etc.
 	securityHeadersCfg := middleware.SecurityHeadersConfig{

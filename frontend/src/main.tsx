@@ -5,7 +5,18 @@ import App from './App.tsx'
 import { ThemeProvider } from './context/ThemeContext'
 import './index.css'
 
-const queryClient = new QueryClient()
+// Global query client with optimized defaults for performance
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 30, // 30 seconds - reduces unnecessary refetches
+      gcTime: 1000 * 60 * 5, // 5 minutes garbage collection
+      refetchOnWindowFocus: false, // Prevents refetch when switching tabs
+      refetchOnReconnect: 'always', // Refetch when network reconnects
+      retry: 1, // Only retry failed requests once
+    },
+  },
+})
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
