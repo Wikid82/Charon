@@ -7,6 +7,7 @@ import { createBackup } from '../api/backups'
 import { updateSetting } from '../api/settings'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function CrowdSecConfig() {
   const { data: status } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
@@ -82,10 +83,41 @@ export default function CrowdSecConfig() {
     toast.success('CrowdSec mode saved (restart may be required)')
   }
 
+  // Determine if any operation is in progress
+  const isApplyingConfig =
+    importMutation.isPending ||
+    writeMutation.isPending ||
+    updateModeMutation.isPending ||
+    backupMutation.isPending
+
+  // Determine contextual message
+  const getMessage = () => {
+    if (importMutation.isPending) {
+      return { message: 'Summoning the guardian...', submessage: 'Importing CrowdSec configuration' }
+    }
+    if (writeMutation.isPending) {
+      return { message: 'Guardian inscribes...', submessage: 'Saving configuration file' }
+    }
+    if (updateModeMutation.isPending) {
+      return { message: 'Three heads turn...', submessage: 'CrowdSec mode updating' }
+    }
+    return { message: 'Strengthening the guard...', submessage: 'Configuration in progress' }
+  }
+
+  const { message, submessage } = getMessage()
+
   if (!status) return <div className="p-8 text-center">Loading...</div>
 
   return (
-    <div className="space-y-6">
+    <>
+      {isApplyingConfig && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="cerberus"
+        />
+      )}
+      <div className="space-y-6">
       <h1 className="text-2xl font-bold">CrowdSec Configuration</h1>
       <Card>
         <div className="flex items-center justify-between">
@@ -141,6 +173,7 @@ export default function CrowdSecConfig() {
           </div>
         </div>
       </Card>
-    </div>
+      </div>
+    </>
   )
 }

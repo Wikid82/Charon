@@ -1,136 +1,181 @@
-# ACME Staging Environment
+# Testing SSL Certificates (Without Breaking Things)
 
-## Overview
+Let's Encrypt gives you free SSL certificates. But there's a catch: **you can only get 50 per week**.
 
-Charon supports using Let's Encrypt's staging environment for development and testing. This prevents rate limiting issues when frequently rebuilding/testing SSL certificates.
+If you're testing or rebuilding a lot, you'll hit that limit fast.
 
-## Configuration
+**The solution:** Use "staging mode" for testing. Staging gives you unlimited fake certificates. Once everything works, switch to production for real ones.
 
-Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode. `CPM_ACME_STAGING` is still supported as a legacy fallback:
-Set the `CPM_ACME_STAGING` environment variable to `true` to enable staging mode:
+---
 
-```bash
-export CPM_ACME_STAGING=true
-```
+## What Is Staging Mode?
 
-Or in Docker Compose:
+**Staging** = practice mode
+**Production** = real certificates
+
+In staging mode:
+
+- ✅ Unlimited certificates (no rate limits)
+- ✅ Works exactly like production
+- ❌ Browsers don't trust the certificates (they show "Not Secure")
+
+**Use staging when:**
+- Testing new domains
+- Rebuilding containers repeatedly
+- Learning how SSL works
+
+**Use production when:**
+- Your site is ready for visitors
+- You need the green lock to show up
+
+---
+
+## Turn On Staging Mode
+
+Add this to your `docker-compose.yml`:
 
 ```yaml
 environment:
-  - CPM_ACME_STAGING=true
+  - CHARON_ACME_STAGING=true
 ```
 
-## What It Does
+Restart Charon:
 
-When enabled:
-- Caddy will use `https://acme-staging-v02.api.letsencrypt.org/directory` instead of production
-- Certificates issued will be **fake/invalid** for browsers (untrusted)
-      - CHARON_ENV=development
-- Perfect for development, testing, and CI/CD
-
-## Production Use
-
-For production deployments:
-- **Remove** or set `CPM_ACME_STAGING=false`
-- Caddy will use the production Let's Encrypt server by default
-- Certificates will be valid and trusted by browsers
-      - CHARON_ENV=production
-
-## Docker Compose Examples
-
-### Development (docker-compose.local.yml)
-```yaml
-services:
-  app:
-    environment:
-      - CPM_ENV=development
-      - CPM_ACME_STAGING=true  # Use staging for dev
-```
-
-### Production (docker-compose.yml)
-```yaml
-services:
-## Verifying Configuration
-Check container logs to confirm staging is active:
 ```bash
-docker logs charon 2>&1 | grep acme-staging
-export CHARON_ACME_STAGING=true
-Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode. `CHARON_` is preferred; `CPM_` variables are still supported as a legacy fallback.
-Set the `CHARON_ACME_STAGING` environment variable to `true` to enable staging mode:
-You should see:
-```
-export CHARON_ACME_STAGING=true
+docker-compose restart
 ```
 
-## Rate Limits Reference
+Now when you add domains, they'll use staging certificates.
 
-  - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
-- 50 certificates per registered domain per week
-- 5 duplicate certificates per week
-- 300 new orders per account per 3 hours
-- 10 accounts per IP address per 3 hours
-      - CHARON_ENV=development
-      - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
-- **No practical rate limits**
- - **Remove** or set `CHARON_ACME_STAGING=false` (CPM_ still supported)
-- Perfect for development and testing
-  - CHARON_ACME_STAGING=true  # Use staging for dev (CHARON_ preferred; CPM_ still supported)
-### Staging (CHARON_ACME_STAGING=true)
+---
 
-1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
-### "Certificate not trusted" in browser
-1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
-1. Set `CHARON_ACME_STAGING=true`
-This is **expected** when using staging. Staging certificates are signed by a fake CA that browsers don't recognize.
+## Switch to Production
 
-1. Set `CHARON_ACME_STAGING=false` (or remove the variable)
-1. Set `CHARON_ACME_STAGING=true`
-### Switching from staging to production
-1. Set `CPM_ACME_STAGING=false` (or remove the variable)
-2. Restart the container
-3. **Clean up staging certificates** (choose one method):
+When you're ready for real certificates:
 
-   **Option A - Via UI (Recommended):**
-   - Go to **Certificates** page in the web interface
-   - Delete any certificates with "acme-staging" in the issuer name
+### Step 1: Turn Off Staging
 
-   **Option B - Via Terminal:**
-   ```bash
-  docker exec charon rm -rf /app/data/caddy/data/acme/acme-staging*
-  docker exec charon rm -rf /data/acme/acme-staging*
-   ```
+Remove or change the line:
 
-4. Certificates will be automatically reissued from production on next request
-
-### Switching from production to staging
-1. Set `CPM_ACME_STAGING=true`
-2. Restart the container
-3. **Optional:** Delete production certificates to force immediate reissue
-   ```bash
-  docker exec charon rm -rf /app/data/caddy/data/acme/acme-v02.api.letsencrypt.org-directory
-  docker exec charon rm -rf /data/acme/acme-v02.api.letsencrypt.org-directory
-   ```
-
-### Cleaning up old certificates
-Caddy automatically manages certificate renewal and cleanup. However, if you need to manually clear certificates:
-
-**Remove all ACME certificates (both staging and production):**
-```bash
-docker exec charon rm -rf /app/data/caddy/data/acme/*
-docker exec charon rm -rf /data/acme/*
+```yaml
+environment:
+  - CHARON_ACME_STAGING=false
 ```
 
-**Remove only staging certificates:**
+Or just delete the line entirely.
+
+### Step 2: Delete Staging Certificates
+
+**Option A: Through the UI**
+
+1. Go to **Certificates** page
+2. Delete any certificates with "staging" in the name
+
+**Option B: Through Terminal**
+
 ```bash
 docker exec charon rm -rf /app/data/caddy/data/acme/acme-staging*
- docker exec charon rm -rf /data/acme/acme-staging*
 ```
 
-After deletion, restart your proxy hosts or container to trigger fresh certificate requests.
+### Step 3: Restart
+
+```bash
+docker-compose restart
+```
+
+Charon will automatically get real certificates on the next request.
+
+---
+
+## How to Tell Which Mode You're In
+
+### Check Your Config
+
+Look at your `docker-compose.yml`:
+
+- **Has `CHARON_ACME_STAGING=true`** → Staging mode
+- **Doesn't have the line** → Production mode
+
+### Check Your Browser
+
+Visit your website:
+
+- **"Not Secure" warning** → Staging certificate
+- **Green lock** → Production certificate
+
+---
+
+## Let's Encrypt Rate Limits
+
+If you hit the limit, you'll see errors like:
+
+```
+too many certificates already issued
+```
+
+**Production limits:**
+- 50 certificates per domain per week
+- 5 duplicate certificates per week
+
+**Staging limits:**
+- Basically unlimited (thousands per week)
+
+**How to check current limits:** Visit [letsencrypt.org/docs/rate-limits](https://letsencrypt.org/docs/rate-limits/)
+
+---
+
+## Common Questions
+
+### "Why do I see a security warning in staging?"
+
+That's normal. Staging certificates are signed by a fake authority that browsers don't recognize. It's just for testing.
+
+### "Can I use staging for my real website?"
+
+No. Visitors will see "Not Secure" warnings. Use production for real traffic.
+
+### "I switched to production but still see staging certificates"
+
+Delete the old staging certificates (see Step 2 above). Charon won't replace them automatically.
+
+### "Do I need to change anything else?"
+
+No. Staging vs production is just one environment variable. Everything else stays the same.
+
+---
 
 ## Best Practices
 
-1. **Always use staging for local development** to avoid hitting rate limits
-2. Use production in CI/CD pipelines that test actual certificate validation
-3. Document your environment variable settings in your deployment docs
-4. Monitor Let's Encrypt rate limit emails in production
+1. **Always start in staging** when setting up new domains
+2. **Test everything** before switching to production
+3. **Don't rebuild production constantly** — you'll hit rate limits
+4. **Keep staging enabled in development environments**
+
+---
+
+## Still Getting Rate Limited?
+
+If you hit the 50/week limit in production:
+
+1. Switch back to staging for now
+2. Wait 7 days (limits reset weekly)
+3. Plan your changes so you need fewer rebuilds
+4. Use staging for all testing going forward
+
+---
+
+## Technical Note
+
+Under the hood, staging points to:
+
+```
+https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Production points to:
+
+```
+https://acme-v02.api.letsencrypt.org/directory
+```
+
+You don't need to know this, but if you see these URLs in logs, that's what they mean.

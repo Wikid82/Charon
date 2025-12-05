@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDefaultCrowdsecExecutorPidFile(t *testing.T) {
@@ -74,4 +76,92 @@ while true; do sleep 1; done
 	if running2 {
 		t.Fatalf("process still running after stop")
 	}
+}
+
+// Additional coverage tests for error paths
+
+func TestDefaultCrowdsecExecutor_Status_NoPidFile(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	running, pid, err := exec.Status(context.Background(), tmpDir)
+
+	assert.NoError(t, err)
+	assert.False(t, running)
+	assert.Equal(t, 0, pid)
+}
+
+func TestDefaultCrowdsecExecutor_Status_InvalidPid(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	// Write invalid pid
+	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
+
+	running, pid, err := exec.Status(context.Background(), tmpDir)
+
+	assert.NoError(t, err)
+	assert.False(t, running)
+	assert.Equal(t, 0, pid)
+}
+
+func TestDefaultCrowdsecExecutor_Status_NonExistentProcess(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	// Write a pid that doesn't exist
+	// Use a very high PID that's unlikely to exist
+	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
+
+	running, pid, err := exec.Status(context.Background(), tmpDir)
+
+	assert.NoError(t, err)
+	assert.False(t, running)
+	assert.Equal(t, 999999999, pid)
+}
+
+func TestDefaultCrowdsecExecutor_Stop_NoPidFile(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	err := exec.Stop(context.Background(), tmpDir)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "pid file read")
+}
+
+func TestDefaultCrowdsecExecutor_Stop_InvalidPid(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	// Write invalid pid
+	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
+
+	err := exec.Stop(context.Background(), tmpDir)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid pid")
+}
+
+func TestDefaultCrowdsecExecutor_Stop_NonExistentProcess(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	// Write a pid that doesn't exist
+	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
+
+	err := exec.Stop(context.Background(), tmpDir)
+
+	// Should fail with signal error
+	assert.Error(t, err)
+}
+
+func TestDefaultCrowdsecExecutor_Start_InvalidBinary(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	pid, err := exec.Start(context.Background(), "/nonexistent/binary", tmpDir)
+
+	assert.Error(t, err)
+	assert.Equal(t, 0, pid)
 }

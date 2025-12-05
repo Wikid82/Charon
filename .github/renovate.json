@@ -16,7 +16,27 @@
   "vulnerabilityAlerts": { "enabled": true },
   "schedule": ["every weekday"],
   "rangeStrategy": "bump",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track Go dependencies patched in Dockerfile for Caddy CVE fixes",
+      "fileMatch": ["^Dockerfile$"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=go\\s+depName=(?<depName>[^\\s]+)\\s*\\n\\s*go get (?<depName2>[^@]+)@v(?<currentValue>[^\\s|]+)"
+      ],
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    }
+  ],
   "packageRules": [
+    {
+      "description": "Caddy transitive dependency patches in Dockerfile",
+      "matchManagers": ["regex"],
+      "matchFileNames": ["Dockerfile"],
+      "matchPackagePatterns": ["expr-lang/expr", "quic-go/quic-go", "smallstep/certificates"],
+      "labels": ["dependencies", "caddy-patch", "security"],
+      "automerge": true
+    },
     {
       "description": "Automerge safe patch updates",
       "matchUpdateTypes": ["patch"],

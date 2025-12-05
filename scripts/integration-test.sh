@@ -23,7 +23,17 @@ if [ "$code" != "200" ]; then
 fi
 
 echo "Checking setup status..."
-SETUP_REQUIRED=$(curl -s $API_URL/setup | jq -r .setupRequired)
+SETUP_RESPONSE=$(curl -s $API_URL/setup)
+echo "Setup response: $SETUP_RESPONSE"
+
+# Validate response is JSON before parsing
+if ! echo "$SETUP_RESPONSE" | jq -e . >/dev/null 2>&1; then
+  echo "❌ Setup endpoint did not return valid JSON"
+  echo "Raw response: $SETUP_RESPONSE"
+  exit 1
+fi
+
+SETUP_REQUIRED=$(echo "$SETUP_RESPONSE" | jq -r .setupRequired)
 if [ "$SETUP_REQUIRED" = "true" ]; then
   echo "Setup is required; attempting to create initial admin..."
   SETUP_RESPONSE=$(curl -s -X POST $API_URL/setup \
