@@ -706,18 +706,25 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	return nil, nil
 }
 
-// buildCrowdSecHandler returns a placeholder CrowdSec handler. In a future
-// implementation this can be replaced with a proper Caddy plugin integration
-// to call into a local CrowdSec agent.
+// buildCrowdSecHandler returns a CrowdSec handler for the caddy-crowdsec-bouncer plugin.
+// The plugin expects api_url and optionally api_key fields.
+// For local mode, we use the local LAPI address at http://localhost:8080.
 func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
 	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
-	// The computed flag incorporates runtime overrides and global Cerberus enablement.
 	if !crowdsecEnabled {
 		return nil, nil
 	}
-	// For now, the local-only mode is supported; crowdsecEnabled implies 'local'
+
 	h := Handler{"handler": "crowdsec"}
-	h["mode"] = "local"
+
+	// caddy-crowdsec-bouncer expects api_url and api_key
+	// For local mode, use the local LAPI address
+	if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
+		h["api_url"] = secCfg.CrowdSecAPIURL
+	} else {
+		h["api_url"] = "http://localhost:8080"
+	}
+
 	return h, nil
 }
 
@@ -817,15 +824,30 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	return h, nil
 }
 
-// buildRateLimitHandler returns a placeholder for a rate-limit handler.
-// Real implementation should use the relevant Caddy module/plugin when available.
+// buildRateLimitHandler returns a rate-limit handler using the caddy-ratelimit module.
+// The module is registered as http.handlers.rate_limit and expects:
+// - handler: "rate_limit"
+// - rate_limits: map of named rate limit zones with key, window, and max_events
+// See: https://github.com/mholt/caddy-ratelimit
+//
+// Note: The rateLimitEnabled flag is already checked by the caller (GenerateConfig).
+// This function only validates that the config has positive request/window values.
 func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
-	// If host has custom rate limit metadata we could parse and construct it.
+	if secCfg == nil {
+		return nil, nil
+	}
+	if secCfg.RateLimitRequests <= 0 || secCfg.RateLimitWindowSec <= 0 {
+		return nil, nil
+	}
+
+	// caddy-ratelimit format
 	h := Handler{"handler": "rate_limit"}
-	if secCfg != nil && secCfg.RateLimitRequests > 0 && secCfg.RateLimitWindowSec > 0 {
-		h["requests"] = secCfg.RateLimitRequests
-		h["window_sec"] = secCfg.RateLimitWindowSec
-		h["burst"] = secCfg.RateLimitBurst
+	h["rate_limits"] = map[string]interface{}{
+		"static": map[string]interface{}{
+			"key":        "{http.request.remote.host}",
+			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
+			"max_events": secCfg.RateLimitRequests,
+		},
 	}
 	return h, nil
 }
