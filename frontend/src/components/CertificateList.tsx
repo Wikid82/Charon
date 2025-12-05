@@ -155,13 +155,7 @@ export default function CertificateList() {
                             return
                           }
 
-                          // Only allow deletion for non-active statuses
-                          const isDeletableStatus = cert.status !== 'valid' && cert.status !== 'expiring'
-                          if (!isDeletableStatus) {
-                            toast.error('Only expired or deactivated certificates can be deleted')
-                            return
-                          }
-
+                          // Allow deletion for custom/staging certs not in use (status check removed)
                           const message = cert.provider === 'custom'
                             ? 'Are you sure you want to delete this certificate? This will create a backup before deleting.'
                             : 'Delete this staging certificate? It will be regenerated on next request.'

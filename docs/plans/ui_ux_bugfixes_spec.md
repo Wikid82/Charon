@@ -294,7 +294,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
   children: [
     { name: 'System', path: '/settings/system', icon: '⚙️' },
     { name: 'Email (SMTP)', path: '/settings/smtp', icon: '📧' },
-    { name: 'Account', path: '/settings/account', icon: '🛡️' },
+    { name: 'Accounts', path: '/settings/accounts', icon: '🛡️' },
     { name: 'Account Management', path: '/settings/account/management', icon: '👥' },
   ]
 }

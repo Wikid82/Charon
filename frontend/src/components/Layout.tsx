@@ -63,7 +63,6 @@ export default function Layout({ children }: LayoutProps) {
       { name: 'WAF (Coraza)', path: '/security/waf', icon: '🛡️' },
     ]},
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
-    { name: 'Users', path: '/users', icon: '👥' },
     // Import group moved under Tasks
     {
       name: 'Settings',
@@ -72,7 +71,8 @@ export default function Layout({ children }: LayoutProps) {
       children: [
         { name: 'System', path: '/settings/system', icon: '⚙️' },
         { name: 'Email (SMTP)', path: '/settings/smtp', icon: '📧' },
-        { name: 'Account', path: '/settings/account', icon: '🛡️' },
+        { name: 'Admin Account', path: '/settings/account', icon: '🛡️' },
+        { name: 'Account Management', path: '/settings/account-management', icon: '👥' },
       ]
     },
     {
@@ -99,13 +99,15 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 z-40">
-        <img src="/banner.png" alt="Charon" height={1280} width={640} />
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)} data-testid="mobile-menu-toggle">
+            <Menu className="w-5 h-5" />
+          </Button>
+          <img src="/logo.png" alt="Charon" className="h-10 w-auto" />
+        </div>
         <div className="flex items-center gap-2">
           <NotificationCenter />
           <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}>
-            {mobileSidebarOpen ? '✕' : '☰'}
-          </Button>
         </div>
       </div>
 
@@ -118,11 +120,9 @@ export default function Layout({ children }: LayoutProps) {
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-gray-200 dark:border-gray-800`}>
            {isCollapsed ? (
-                                <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
-
-
+             <img src="/logo.png" alt="Charon" className="h-12 w-auto" />
            ) : (
-             <img src="/banner.png" alt="Charon" className="h-16 w-auto" />
+             <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" />
            )}
         </div>
 

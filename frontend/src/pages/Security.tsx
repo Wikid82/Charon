@@ -242,19 +242,19 @@ export default function Security() {
               <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
             )}
             {status.crowdsec.enabled && (
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="w-full"
+                    className="w-full text-xs"
                     onClick={() => navigate('/tasks/logs?search=crowdsec')}
                   >
-                    View Logs
+                    Logs
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="w-full"
+                    className="w-full text-xs"
                     onClick={async () => {
                       // download config
                       try {
@@ -275,35 +275,31 @@ export default function Security() {
                   >
                     Export
                   </Button>
-                  <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/security/crowdsec')}>
-                    Configure
+                  <Button variant="secondary" size="sm" className="w-full text-xs" onClick={() => navigate('/security/crowdsec')}>
+                    Config
                   </Button>
-                  <div className="flex gap-2 w-full">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => startMutation.mutate()}
-                      data-testid="crowdsec-start"
-                      isLoading={startMutation.isPending}
-                      disabled={!!crowdsecStatus?.running}
-                    >
-
-                      Start
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => stopMutation.mutate()}
-                      data-testid="crowdsec-stop"
-                      isLoading={stopMutation.isPending}
-                      disabled={!crowdsecStatus?.running}
-                    >
-
-                      Stop
-                    </Button>
-                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => startMutation.mutate()}
+                    data-testid="crowdsec-start"
+                    isLoading={startMutation.isPending}
+                    disabled={!!crowdsecStatus?.running}
+                  >
+                    Start
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full text-xs"
+                    onClick={() => stopMutation.mutate()}
+                    data-testid="crowdsec-stop"
+                    isLoading={stopMutation.isPending}
+                    disabled={!crowdsecStatus?.running}
+                  >
+                    Stop
+                  </Button>
                 </div>
             )}
           </div>
