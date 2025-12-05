@@ -23,6 +23,13 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// Apply security headers middleware globally
+	// This sets CSP, HSTS, X-Frame-Options, etc.
+	securityHeadersCfg := middleware.SecurityHeadersConfig{
+		IsDevelopment: cfg.Environment == "development",
+	}
+	router.Use(middleware.SecurityHeaders(securityHeadersCfg))
+
 	// AutoMigrate all models for Issue #5 persistence layer
 	if err := db.AutoMigrate(
 		&models.ProxyHost{},
@@ -46,6 +53,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},
 		&models.SecurityRuleSet{},
+		&models.UserPermittedHost{}, // Join table for user permissions
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -85,7 +93,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	// Auth routes
 	authService := services.NewAuthService(db, cfg)
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := handlers.NewAuthHandlerWithDB(authService, db)
 	authMiddleware := middleware.AuthMiddleware(authService)
 
 	// Backup routes
@@ -104,6 +112,15 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/register", authHandler.Register)
+
+	// Forward auth endpoint for Caddy (public, validates session internally)
+	api.GET("/auth/verify", authHandler.Verify)
+	api.GET("/auth/status", authHandler.VerifyStatus)
+
+	// User invite acceptance (public endpoints)
+	userHandler := handlers.NewUserHandler(db)
+	api.GET("/invite/validate", userHandler.ValidateInvite)
+	api.POST("/invite/accept", userHandler.AcceptInvite)
 
 	// Uptime Service - define early so it can be used during route registration
 	uptimeService := services.NewUptimeService(db, notificationService)
@@ -132,16 +149,34 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/settings", settingsHandler.GetSettings)
 		protected.POST("/settings", settingsHandler.UpdateSetting)
 
+		// SMTP Configuration
+		protected.GET("/settings/smtp", settingsHandler.GetSMTPConfig)
+		protected.POST("/settings/smtp", settingsHandler.UpdateSMTPConfig)
+		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
+		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
+
+		// Auth related protected routes
+		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)
+		protected.GET("/auth/check-host/:hostId", authHandler.CheckHostAccess)
+
 		// Feature flags (DB-backed with env fallback)
 		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
 		protected.GET("/feature-flags", featureFlagsHandler.GetFlags)
 		protected.PUT("/feature-flags", featureFlagsHandler.UpdateFlags)
 
 		// User Profile & API Key
-		userHandler := handlers.NewUserHandler(db)
 		protected.GET("/user/profile", userHandler.GetProfile)
 		protected.POST("/user/profile", userHandler.UpdateProfile)
 		protected.POST("/user/api-key", userHandler.RegenerateAPIKey)
+
+		// User Management (admin only routes are in RegisterRoutes)
+		protected.GET("/users", userHandler.ListUsers)
+		protected.POST("/users", userHandler.CreateUser)
+		protected.POST("/users/invite", userHandler.InviteUser)
+		protected.GET("/users/:id", userHandler.GetUser)
+		protected.PUT("/users/:id", userHandler.UpdateUser)
+		protected.DELETE("/users/:id", userHandler.DeleteUser)
+		protected.PUT("/users/:id/permissions", userHandler.UpdateUserPermissions)
 
 		// Updates
 		updateService := services.NewUpdateService()
@@ -266,9 +301,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	protected.PUT("/access-lists/:id", accessListHandler.Update)
 	protected.DELETE("/access-lists/:id", accessListHandler.Delete)
 	protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
-
-	userHandler := handlers.NewUserHandler(db)
-	userHandler.RegisterRoutes(api)
 
 	// Certificate routes
 	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage

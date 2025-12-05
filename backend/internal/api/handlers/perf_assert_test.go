@@ -1,13 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"sort"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -74,9 +74,13 @@ func computePercentiles(samples []float64) (avg, p50, p95, p99, max float64) {
 	}
 	avg = sum / float64(len(samples))
 	p := func(pct float64) float64 {
-		idx := int(float64(len(samples))*pct)
-		if idx < 0 { idx = 0 }
-		if idx >= len(samples) { idx = len(samples)-1 }
+		idx := int(float64(len(samples)) * pct)
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(samples) {
+			idx = len(samples) - 1
+		}
 		return samples[idx]
 	}
 	p50 = p(0.50)
@@ -112,7 +116,9 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	// default thresholds ms
 	thresholdP95 := 2.0 // 2ms per request
 	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil { thresholdP95 = ms(parsed) }
+		if parsed, err := time.ParseDuration(env); err == nil {
+			thresholdP95 = ms(parsed)
+		}
 	}
 	// fail if p95 exceeds threshold
 	t.Logf("GetStatus avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
@@ -144,13 +150,19 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 	}
 
 	// run 4 concurrent workers
-	for k := 0; k < 4; k++ { go worker() }
+	for k := 0; k < 4; k++ {
+		go worker()
+	}
 	collected := make([]float64, 0, n*4)
-	for i := 0; i < n*4; i++ { collected = append(collected, <-samples) }
+	for i := 0; i < n*4; i++ {
+		collected = append(collected, <-samples)
+	}
 	avg, _, p95, _, max := computePercentiles(collected)
 	thresholdP95 := 5.0 // 5ms default
 	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95_PARALLEL"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil { thresholdP95 = ms(parsed) }
+		if parsed, err := time.ParseDuration(env); err == nil {
+			thresholdP95 = ms(parsed)
+		}
 	}
 	t.Logf("GetStatus Parallel avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
 	if p95 > thresholdP95 {
@@ -177,7 +189,9 @@ func TestPerf_ListDecisions_AssertThreshold(t *testing.T) {
 	avg, _, p95, _, max := computePercentiles(samples)
 	thresholdP95 := 30.0 // 30ms default
 	if env := os.Getenv("PERF_MAX_MS_LISTDECISIONS_P95"); env != "" {
-		if parsed, err := time.ParseDuration(env); err == nil { thresholdP95 = ms(parsed) }
+		if parsed, err := time.ParseDuration(env); err == nil {
+			thresholdP95 = ms(parsed)
+		}
 	}
 	t.Logf("ListDecisions avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
 	if p95 > thresholdP95 {

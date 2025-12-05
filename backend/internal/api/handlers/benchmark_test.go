@@ -274,10 +274,10 @@ func BenchmarkSecurityHandler_UpdateConfig(b *testing.B) {
 	router.PUT("/api/v1/security/config", h.UpdateConfig)
 
 	payload := map[string]interface{}{
-		"name":               "default",
-		"enabled":            true,
-		"rate_limit_enable":  true,
-		"rate_limit_burst":   10,
+		"name":                "default",
+		"enabled":             true,
+		"rate_limit_enable":   true,
+		"rate_limit_burst":    10,
 		"rate_limit_requests": 100,
 	}
 	body, _ := json.Marshal(payload)
