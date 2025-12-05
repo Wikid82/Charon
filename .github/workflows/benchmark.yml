@@ -42,7 +42,7 @@ jobs:
           name: Go Benchmark
           tool: 'go'
           output-file-path: backend/output.txt
-          github-token: ${{ secrets.CHARON_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           # Show alert with commit comment on detection of performance regression
           alert-threshold: '150%'

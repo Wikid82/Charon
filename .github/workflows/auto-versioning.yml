@@ -91,11 +91,12 @@ jobs:
           CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
 
       - name: Create GitHub Release (tag-only, no workspace changes)
-        if: ${{ steps.semver.outputs.changed && steps.check_release.outputs.exists == 'false' }}
+        if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
           body: ${{ steps.semver.outputs.release_notes }}
+          make_latest: false
         env:
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
