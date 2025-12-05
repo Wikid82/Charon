@@ -135,7 +135,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # renovate: datasource=go depName=github.com/expr-lang/expr
             go get github.com/expr-lang/expr@v1.17.6 || true; \
             # renovate: datasource=go depName=github.com/quic-go/quic-go
-            go get github.com/quic-go/quic-go@v0.54.1 || true; \
+            go get github.com/quic-go/quic-go@v0.57.1 || true; \
             # renovate: datasource=go depName=github.com/smallstep/certificates
             go get github.com/smallstep/certificates@v0.29.0 || true; \
             go mod tidy || true; \
