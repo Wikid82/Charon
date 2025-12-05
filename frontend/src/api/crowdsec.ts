@@ -1,5 +1,14 @@
 import client from './client'
 
+export interface CrowdSecDecision {
+  id: string
+  ip: string
+  reason: string
+  duration: string
+  created_at: string
+  source: string
+}
+
 export async function startCrowdsec() {
   const resp = await client.post('/admin/crowdsec/start')
   return resp.data
@@ -44,4 +53,17 @@ export async function writeCrowdsecFile(path: string, content: string) {
   return resp.data
 }
 
-export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile }
+export async function listCrowdsecDecisions(): Promise<{ decisions: CrowdSecDecision[] }> {
+  const resp = await client.get<{ decisions: CrowdSecDecision[] }>('/admin/crowdsec/decisions')
+  return resp.data
+}
+
+export async function banIP(ip: string, duration: string, reason: string): Promise<void> {
+  await client.post('/admin/crowdsec/ban', { ip, duration, reason })
+}
+
+export async function unbanIP(ip: string): Promise<void> {
+  await client.delete(`/admin/crowdsec/ban/${encodeURIComponent(ip)}`)
+}
+
+export default { startCrowdsec, stopCrowdsec, statusCrowdsec, importCrowdsecConfig, exportCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP }

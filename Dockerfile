@@ -122,6 +122,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer \
             --with github.com/zhangjiayin/caddy-geoip2 \
+            --with github.com/mholt/caddy-ratelimit \
             --output /tmp/caddy-temp || true; \
         # Find the build directory
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
@@ -151,6 +152,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
                 --with github.com/corazawaf/coraza-caddy/v2 \
                 --with github.com/hslatman/caddy-crowdsec-bouncer \
                 --with github.com/zhangjiayin/caddy-geoip2 \
+                --with github.com/mholt/caddy-ratelimit \
                 --output /usr/bin/caddy; \
         fi; \
         rm -rf /tmp/buildenv_* /tmp/caddy-temp; \

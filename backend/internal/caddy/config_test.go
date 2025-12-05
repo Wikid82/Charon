@@ -311,3 +311,133 @@ func TestBuildACLHandler_AdminWhitelistParsing(t *testing.T) {
 	require.Contains(t, s2, "1.2.3.0/24")
 	require.Contains(t, s2, "192.168.0.1/32")
 }
+
+func TestBuildRateLimitHandler_Disabled(t *testing.T) {
+	// Test nil secCfg returns nil handler
+	h, err := buildRateLimitHandler(nil, nil)
+	require.NoError(t, err)
+	require.Nil(t, h)
+}
+
+func TestBuildRateLimitHandler_InvalidValues(t *testing.T) {
+	// Test zero requests returns nil handler
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:  0,
+		RateLimitWindowSec: 60,
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.Nil(t, h)
+
+	// Test zero window returns nil handler
+	secCfg2 := &models.SecurityConfig{
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 0,
+	}
+	h, err = buildRateLimitHandler(nil, secCfg2)
+	require.NoError(t, err)
+	require.Nil(t, h)
+
+	// Test negative values returns nil handler
+	secCfg3 := &models.SecurityConfig{
+		RateLimitRequests:  -1,
+		RateLimitWindowSec: 60,
+	}
+	h, err = buildRateLimitHandler(nil, secCfg3)
+	require.NoError(t, err)
+	require.Nil(t, h)
+}
+
+func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
+	// Test valid configuration produces correct caddy-ratelimit format
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Verify handler type
+	require.Equal(t, "rate_limit", h["handler"])
+
+	// Verify rate_limits structure
+	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	require.True(t, ok, "rate_limits should be a map")
+
+	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	require.True(t, ok, "static zone should be a map")
+
+	// Verify caddy-ratelimit specific fields
+	require.Equal(t, "{http.request.remote.host}", staticZone["key"])
+	require.Equal(t, "60s", staticZone["window"])
+	require.Equal(t, 100, staticZone["max_events"])
+}
+
+func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
+	// Test that the handler produces valid JSON matching caddy-ratelimit schema
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:  30,
+		RateLimitWindowSec: 10,
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Marshal to JSON and verify structure
+	b, err := json.Marshal(h)
+	require.NoError(t, err)
+	s := string(b)
+
+	// Verify expected JSON content
+	require.Contains(t, s, `"handler":"rate_limit"`)
+	require.Contains(t, s, `"rate_limits"`)
+	require.Contains(t, s, `"static"`)
+	require.Contains(t, s, `"key":"{http.request.remote.host}"`)
+	require.Contains(t, s, `"window":"10s"`)
+	require.Contains(t, s, `"max_events":30`)
+}
+
+func TestGenerateConfig_WithRateLimiting(t *testing.T) {
+	// Test that rate limiting is included in generated config when enabled
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "test-uuid",
+			DomainNames: "example.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	secCfg := &models.SecurityConfig{
+		RateLimitEnable:    true,
+		RateLimitRequests:  60,
+		RateLimitWindowSec: 60,
+	}
+
+	// rateLimitEnabled=true should include the handler
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, true, false, "", nil, nil, nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, config.Apps.HTTP)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	require.Len(t, server.Routes, 1)
+
+	route := server.Routes[0]
+	// Handlers should include rate_limit + reverse_proxy
+	require.GreaterOrEqual(t, len(route.Handle), 2)
+
+	// Find the rate_limit handler
+	var foundRateLimit bool
+	for _, h := range route.Handle {
+		if h["handler"] == "rate_limit" {
+			foundRateLimit = true
+			// Verify it has the correct structure
+			require.NotNil(t, h["rate_limits"])
+			break
+		}
+	}
+	require.True(t, foundRateLimit, "rate_limit handler should be present")
+}
