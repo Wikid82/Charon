@@ -97,5 +97,6 @@ jobs:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
           body: ${{ steps.semver.outputs.release_notes }}
+          make_latest: false
         env:
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
