@@ -117,8 +117,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	api.GET("/auth/verify", authHandler.Verify)
 	api.GET("/auth/status", authHandler.VerifyStatus)
 
-	// User invite acceptance (public endpoints)
+	// User handler (public endpoints)
 	userHandler := handlers.NewUserHandler(db)
+	api.GET("/setup", userHandler.GetSetupStatus)
+	api.POST("/setup", userHandler.Setup)
 	api.GET("/invite/validate", userHandler.ValidateInvite)
 	api.POST("/invite/accept", userHandler.AcceptInvite)
 
