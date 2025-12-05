@@ -154,6 +154,7 @@ export default function CrowdSecConfig() {
   if (isLoading) return <div className="p-8 text-center text-white">Loading CrowdSec configuration...</div>
   if (error) return <div className="p-8 text-center text-red-500">Failed to load security status: {(error as Error).message}</div>
   if (!status) return <div className="p-8 text-center text-gray-400">No security status available</div>
+  if (!status.crowdsec) return <div className="p-8 text-center text-red-500">CrowdSec configuration not found in security status</div>
 
   return (
     <>
@@ -207,7 +208,7 @@ export default function CrowdSecConfig() {
           <div className="flex items-center gap-2">
             <select className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white" value={selectedPath ?? ''} onChange={(e) => handleReadFile(e.target.value)}>
               <option value="">Select a file...</option>
-              {listMutation.data?.files.map((f) => (
+              {listMutation.data?.files?.map((f) => (
                 <option value={f} key={f}>{f}</option>
               ))}
             </select>
