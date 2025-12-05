@@ -10,7 +10,7 @@ import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function CrowdSecConfig() {
-  const { data: status } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
+  const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
   const [file, setFile] = useState<File | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
@@ -106,7 +106,9 @@ export default function CrowdSecConfig() {
 
   const { message, submessage } = getMessage()
 
-  if (!status) return <div className="p-8 text-center">Loading...</div>
+  if (isLoading) return <div className="p-8 text-center text-white">Loading CrowdSec configuration...</div>
+  if (error) return <div className="p-8 text-center text-red-500">Failed to load security status: {(error as Error).message}</div>
+  if (!status) return <div className="p-8 text-center text-gray-400">No security status available</div>
 
   return (
     <>

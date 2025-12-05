@@ -1201,3 +1201,156 @@ func TestFormatDuration(t *testing.T) {
 		assert.Equal(t, tc.expected, result, "formatDuration(%v)", tc.input)
 	}
 }
+
+func TestUptimeService_SyncMonitorForHost(t *testing.T) {
+	t.Run("updates monitor when proxy host is edited", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host
+		host := models.ProxyHost{
+			UUID:        "sync-test-1",
+			Name:        "Original Name",
+			DomainNames: "original.example.com",
+			ForwardHost: "10.0.0.1",
+			ForwardPort: 8080,
+			SSLForced:   false,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Sync monitors to create the uptime monitor
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Verify monitor was created with original values
+		var monitor models.UptimeMonitor
+		err = db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "Original Name", monitor.Name)
+		assert.Equal(t, "http://original.example.com", monitor.URL)
+		assert.Equal(t, "10.0.0.1", monitor.UpstreamHost)
+
+		// Update the proxy host
+		host.Name = "Updated Name"
+		host.DomainNames = "updated.example.com"
+		host.ForwardHost = "10.0.0.2"
+		host.SSLForced = true
+		db.Save(&host)
+
+		// Call SyncMonitorForHost
+		err = us.SyncMonitorForHost(host.ID)
+		assert.NoError(t, err)
+
+		// Verify monitor was updated
+		err = db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "Updated Name", monitor.Name)
+		assert.Equal(t, "https://updated.example.com", monitor.URL)
+		assert.Equal(t, "10.0.0.2", monitor.UpstreamHost)
+	})
+
+	t.Run("returns nil when no monitor exists", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host without creating a monitor
+		host := models.ProxyHost{
+			UUID:        "no-monitor-test",
+			Name:        "No Monitor Host",
+			DomainNames: "nomonitor.example.com",
+			ForwardHost: "10.0.0.3",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Call SyncMonitorForHost - should return nil without error
+		err := us.SyncMonitorForHost(host.ID)
+		assert.NoError(t, err)
+
+		// Verify no monitor was created
+		var count int64
+		db.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", host.ID).Count(&count)
+		assert.Equal(t, int64(0), count)
+	})
+
+	t.Run("returns error when host does not exist", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Call SyncMonitorForHost with non-existent host ID
+		err := us.SyncMonitorForHost(99999)
+		assert.Error(t, err)
+	})
+
+	t.Run("uses domain name when proxy host name is empty", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host with a name
+		host := models.ProxyHost{
+			UUID:        "empty-name-test",
+			Name:        "Has Name",
+			DomainNames: "domain.example.com",
+			ForwardHost: "10.0.0.4",
+			ForwardPort: 8080,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Clear the host name
+		host.Name = ""
+		db.Save(&host)
+
+		// Call SyncMonitorForHost
+		err = us.SyncMonitorForHost(host.ID)
+		assert.NoError(t, err)
+
+		// Verify monitor uses domain name
+		var monitor models.UptimeMonitor
+		err = db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "domain.example.com", monitor.Name)
+	})
+
+	t.Run("handles multiple domains correctly", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create a proxy host with multiple domains
+		host := models.ProxyHost{
+			UUID:        "multi-domain-test",
+			Name:        "Multi Domain",
+			DomainNames: "first.example.com, second.example.com, third.example.com",
+			ForwardHost: "10.0.0.5",
+			ForwardPort: 8080,
+			SSLForced:   true,
+			Enabled:     true,
+		}
+		db.Create(&host)
+
+		// Sync monitors
+		err := us.SyncMonitors()
+		assert.NoError(t, err)
+
+		// Call SyncMonitorForHost
+		err = us.SyncMonitorForHost(host.ID)
+		assert.NoError(t, err)
+
+		// Verify monitor uses first domain
+		var monitor models.UptimeMonitor
+		err = db.Where("proxy_host_id = ?", host.ID).First(&monitor).Error
+		assert.NoError(t, err)
+		assert.Equal(t, "https://first.example.com", monitor.URL)
+	})
+}
