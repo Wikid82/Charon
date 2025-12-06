@@ -12,6 +12,28 @@ Here's everything Charon can do for you, explained simply.
 
 **What you do:** Nothing. Charon gets free certificates from Let's Encrypt and renews them automatically.
 
+### Smart Certificate Cleanup
+
+**What it does:** When you delete websites, Charon asks if you want to delete unused certificates too.
+
+**Why you care:** Custom and staging certificates can pile up over time. This helps you keep things tidy.
+
+**How it works:**
+- Delete a website → Charon checks if its certificate is used elsewhere
+- If the certificate is custom or staging (not Let's Encrypt) and orphaned → you get a prompt
+- Choose to keep or delete the certificate
+- Default is "keep" (safe choice)
+
+**When it prompts:**
+- ✅ Custom certificates you uploaded
+- ✅ Staging certificates (for testing)
+- ❌ Let's Encrypt certificates (managed automatically)
+
+**What you do:**
+- See the prompt after clicking Delete on a proxy host
+- Check the box if you want to delete the orphaned certificate
+- Leave unchecked to keep the certificate (in case you need it later)
+
 ---
 
 ## \ud83d\udee1\ufe0f Security (Optional)

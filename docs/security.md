@@ -129,6 +129,27 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 
 ---
 
+## Certificate Management Security
+
+**What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
+
+**How it works:**
+- Certificates cannot be deleted while in use by proxy hosts (conflict error)
+- Automatic backup is created before any certificate deletion
+- Authentication required (when auth is implemented)
+
+**Backup & Recovery:**
+- Every certificate deletion triggers an automatic backup
+- Find backups in the "Backups" page
+- Restore from backup if you accidentally delete the wrong certificate
+
+**Best Practice:**
+- Review which proxy hosts use a certificate before deleting it
+- When deleting proxy hosts, use the cleanup prompt to delete orphaned certificates
+- Keep custom certificates you might reuse later
+
+---
+
 ## Don't Lock Yourself Out!
 
 **Problem:** If you turn on security and misconfigure it, you might block yourself.
