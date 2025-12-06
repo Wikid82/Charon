@@ -187,6 +187,95 @@ Response 200: `{ "deleted": true }`
 
 ---
 
+### SSL Certificates
+
+#### List All Certificates
+
+```http
+GET /certificates
+```
+
+**Response 200:**
+```json
+[
+  {
+    "id": 1,
+    "uuid": "cert-uuid-123",
+    "name": "My Custom Cert",
+    "provider": "custom",
+    "domains": "example.com, www.example.com",
+    "expires_at": "2026-01-01T00:00:00Z",
+    "created_at": "2025-01-01T10:00:00Z"
+  }
+]
+```
+
+#### Upload Certificate
+
+```http
+POST /certificates/upload
+Content-Type: multipart/form-data
+```
+
+**Request Body:**
+- `name` (required) - Certificate name
+- `certificate_file` (required) - Certificate file (.crt or .pem)
+- `key_file` (required) - Private key file (.key or .pem)
+
+**Response 201:**
+```json
+{
+  "id": 1,
+  "uuid": "cert-uuid-123",
+  "name": "My Custom Cert",
+  "provider": "custom",
+  "domains": "example.com"
+}
+```
+
+#### Delete Certificate
+
+Delete a certificate. Requires that the certificate is not currently in use by any proxy hosts.
+
+```http
+DELETE /certificates/:id
+```
+
+**Parameters:**
+- `id` (path) - Certificate ID (numeric)
+
+**Response 200:**
+```json
+{
+  "message": "certificate deleted"
+}
+```
+
+**Response 400:**
+```json
+{
+  "error": "invalid id"
+}
+```
+
+**Response 409:**
+```json
+{
+  "error": "certificate is in use by one or more proxy hosts"
+}
+```
+
+**Response 500:**
+```json
+{
+  "error": "failed to delete certificate"
+}
+```
+
+**Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
+
+---
+
 ### Proxy Hosts
 
 #### List All Proxy Hosts

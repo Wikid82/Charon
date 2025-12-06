@@ -24,10 +24,20 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
+// mockAuthMiddleware adds a mock user to the context for testing
+func mockAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("user", map[string]interface{}{"id": 1, "username": "testuser"})
+		c.Next()
+	}
+}
+
 func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.Use(mockAuthMiddleware())
 
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
@@ -92,6 +102,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 
 	// Mock BackupService
@@ -145,6 +156,7 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 
 	// Mock BackupService that fails
@@ -198,6 +210,7 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 
 	// Mock BackupService
@@ -227,7 +240,8 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 
 // Mock BackupService for testing
 type mockBackupService struct {
-	createFunc func() (string, error)
+	createFunc         func() (string, error)
+	availableSpaceFunc func() (int64, error)
 }
 
 func (m *mockBackupService) CreateBackup() (string, error) {
@@ -253,6 +267,14 @@ func (m *mockBackupService) RestoreBackup(filename string) error {
 	return fmt.Errorf("not implemented")
 }
 
+func (m *mockBackupService) GetAvailableSpace() (int64, error) {
+	if m.availableSpaceFunc != nil {
+		return m.availableSpaceFunc()
+	}
+	// Default: return 1GB available
+	return 1024 * 1024 * 1024, nil
+}
+
 // Test List handler
 func TestCertificateHandler_List(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
@@ -266,6 +288,8 @@ func TestCertificateHandler_List(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
@@ -292,6 +316,7 @@ func TestCertificateHandler_Upload_MissingName(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
@@ -319,6 +344,7 @@ func TestCertificateHandler_Upload_MissingCertFile(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
@@ -349,6 +375,7 @@ func TestCertificateHandler_Upload_MissingKeyFile(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
@@ -376,6 +403,7 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 
 	// Create a mock CertificateService that returns a created certificate
 	// Create a temporary services.CertificateService with a temp dir and DB
