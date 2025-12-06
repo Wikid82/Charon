@@ -27,7 +27,10 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	// Note: NOT adding mockAuthMiddleware here to test auth requirement
+	// Add a middleware that rejects all unauthenticated requests
+	r.Use(func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	})
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
@@ -54,7 +57,10 @@ func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	// Note: NOT adding mockAuthMiddleware here to test auth requirement
+	// Add a middleware that rejects all unauthenticated requests
+	r.Use(func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	})
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
@@ -81,7 +87,10 @@ func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	// Note: NOT adding mockAuthMiddleware here to test auth requirement
+	// Add a middleware that rejects all unauthenticated requests
+	r.Use(func(c *gin.Context) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	})
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)

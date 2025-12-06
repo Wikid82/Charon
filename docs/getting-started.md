@@ -93,11 +93,13 @@ For this to work, you need:
 
 If you have both, Charon will automatically:
 
-- Request a free SSL certificate from Let's Encrypt
+- Request a free SSL certificate from a trusted provider
 - Install it
 - Renew it before it expires
 
 **You don't do anything.** It just works.
+
+By default, Charon uses "Auto" mode, which tries Let's Encrypt first and automatically falls back to ZeroSSL if needed. You can change this in System Settings if you want to use a specific certificate provider.
 
 **Testing without a domain?** See [Testing SSL Certificates](acme-staging.md) for a practice mode.
 
@@ -124,6 +126,10 @@ In your domain provider's control panel:
 3. Set it to your server's IP address
 
 Wait 5-10 minutes for it to update.
+
+### "Can I change which certificate provider is used?"
+
+Yes! Go to **System Settings** and look for the **SSL Provider** dropdown. The default "Auto" mode works best for most users, but you can choose a specific provider if needed. See [Features](features.md#choose-your-ssl-provider) for details.
 
 ### "Can I use this for apps on different computers?"
 
