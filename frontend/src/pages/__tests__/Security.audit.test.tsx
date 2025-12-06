@@ -391,7 +391,7 @@ describe('Security Page - QA Security Audit', () => {
 
     it('handles undefined crowdsec status gracefully', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue(null as any)
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue(null as never)
 
       render(<Security />, { wrapper })
 

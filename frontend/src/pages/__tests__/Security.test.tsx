@@ -189,7 +189,7 @@ describe('Security', () => {
       const user = userEvent.setup()
       const mockMutate = vi.fn()
       const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as any)
+      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       render(<Security />, { wrapper })
@@ -239,7 +239,7 @@ describe('Security', () => {
     it('should export CrowdSec config', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue('config data' as any)
+      vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['config data']))
       window.URL.createObjectURL = vi.fn(() => 'blob:url')
       window.URL.revokeObjectURL = vi.fn()
 
@@ -261,7 +261,7 @@ describe('Security', () => {
       const user = userEvent.setup()
       const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
       const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as any)
+      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       render(<Security />, { wrapper })
@@ -277,7 +277,7 @@ describe('Security', () => {
       const user = userEvent.setup()
       const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
       const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as any)
+      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       render(<Security />, { wrapper })

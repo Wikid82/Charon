@@ -184,7 +184,7 @@ describe('ProxyHosts page extra tests', () => {
     vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
     vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({ 'ui.domain_link_behavior': 'new_window' })) }))
 
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null as any)
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
 
     const { default: ProxyHosts } = await import('../ProxyHosts')
     renderWithProviders(<ProxyHosts />)

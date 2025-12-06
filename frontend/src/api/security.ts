@@ -55,13 +55,13 @@ export const generateBreakGlassToken = async () => {
   return response.data
 }
 
-export const enableCerberus = async (payload?: any) => {
-  const response = await client.post('/security/enable', payload || {} as unknown) // Specify a more accurate type
+export const enableCerberus = async (payload?: Record<string, unknown>) => {
+  const response = await client.post('/security/enable', payload || {})
   return response.data
 }
 
-export const disableCerberus = async (payload?: any) => {
-  const response = await client.post('/security/disable', payload || {} as unknown) // Specify a more accurate type
+export const disableCerberus = async (payload?: Record<string, unknown>) => {
+  const response = await client.post('/security/disable', payload || {})
   return response.data
 }
 
@@ -70,7 +70,14 @@ export const getDecisions = async (limit = 50) => {
   return response.data
 }
 
-export const createDecision = async (payload: any) => {
+export interface CreateDecisionPayload {
+  type: string
+  value: string
+  duration: string
+  reason?: string
+}
+
+export const createDecision = async (payload: CreateDecisionPayload) => {
   const response = await client.post('/security/decisions', payload)
   return response.data
 }
