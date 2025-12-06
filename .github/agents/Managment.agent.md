@@ -36,8 +36,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     -   **Frontend**: Call `Frontend_Dev` with the plan file.
 
 4.  **Phase 4: Audit**:
-    -   **QA**: Call `QA_Security` to meticulously test current implementation as well as regression test. Ask for a pass/fail report.
-
+    -   **QA**: Call `QA_Security` to meticulously test current implementation as well as regression test. Run all linting and manual pre-commit checks. Write a report to `docs/reports/qa_report.md`. Start back at Phase 1 if issues are found.
 5.  **Phase 5: Closure**:
     -   **Docs**: Call `Docs_Writer`.
     -   **Final Report**: Summarize the successful subagent runs.
