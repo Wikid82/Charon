@@ -43,12 +43,6 @@ func NewCertificateHandler(service *services.CertificateService, backupService B
 }
 
 func (h *CertificateHandler) List(c *gin.Context) {
-	// Defense in depth - verify user context exists
-	if _, exists := c.Get("user"); !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
 	certs, err := h.service.ListCertificates()
 	if err != nil {
 		logger.Log().WithError(err).Error("failed to list certificates")
@@ -66,12 +60,6 @@ type UploadCertificateRequest struct {
 }
 
 func (h *CertificateHandler) Upload(c *gin.Context) {
-	// Defense in depth - verify user context exists
-	if _, exists := c.Get("user"); !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
 	// Handle multipart form
 	name := c.PostForm("name")
 	if name == "" {
@@ -142,12 +130,6 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 }
 
 func (h *CertificateHandler) Delete(c *gin.Context) {
-	// Defense in depth - verify user context exists
-	if _, exists := c.Get("user"); !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
