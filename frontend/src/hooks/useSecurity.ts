@@ -12,6 +12,8 @@ import {
   upsertRuleSet,
   deleteRuleSet,
   type UpsertRuleSetPayload,
+  type SecurityConfigPayload,
+  type CreateDecisionPayload,
 } from '../api/security'
 import toast from 'react-hot-toast'
 
@@ -26,8 +28,8 @@ export function useSecurityConfig() {
 export function useUpdateSecurityConfig() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: any) => updateSecurityConfig(payload),
-    onSuccess: () => { // Specify a more accurate type for payload
+    mutationFn: (payload: SecurityConfigPayload) => updateSecurityConfig(payload),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
       qc.invalidateQueries({ queryKey: ['securityStatus'] })
       toast.success('Security configuration updated')
@@ -49,7 +51,7 @@ export function useDecisions(limit = 50) {
 export function useCreateDecision() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload: any) => createDecision(payload),
+    mutationFn: (payload: CreateDecisionPayload) => createDecision(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['securityDecisions'] }),
   })
 }
@@ -89,7 +91,7 @@ export function useDeleteRuleSet() {
 export function useEnableCerberus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload?: any) => enableCerberus(payload),
+    mutationFn: (payload?: Record<string, unknown>) => enableCerberus(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
       qc.invalidateQueries({ queryKey: ['securityStatus'] })
@@ -104,7 +106,7 @@ export function useEnableCerberus() {
 export function useDisableCerberus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (payload?: any) => disableCerberus(payload),
+    mutationFn: (payload?: Record<string, unknown>) => disableCerberus(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securityConfig'] })
       qc.invalidateQueries({ queryKey: ['securityStatus'] })

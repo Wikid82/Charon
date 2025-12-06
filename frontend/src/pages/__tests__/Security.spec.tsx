@@ -119,7 +119,7 @@ describe('Security page', () => {
     }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
     const blob = new Blob(['dummy'])
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob as any)
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
     renderWithProviders(<Security />)
     await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
     const exportBtn = screen.getByText('Export')
