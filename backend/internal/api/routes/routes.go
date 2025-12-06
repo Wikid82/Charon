@@ -288,6 +288,27 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
+
+		// Access Lists
+		accessListHandler := handlers.NewAccessListHandler(db)
+		protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
+		protected.GET("/access-lists", accessListHandler.List)
+		protected.POST("/access-lists", accessListHandler.Create)
+		protected.GET("/access-lists/:id", accessListHandler.Get)
+		protected.PUT("/access-lists/:id", accessListHandler.Update)
+		protected.DELETE("/access-lists/:id", accessListHandler.Delete)
+		protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
+
+		// Certificate routes
+		// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
+		// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
+		caddyDataDir := cfg.CaddyConfigDir + "/data"
+		logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
+		certService := services.NewCertificateService(caddyDataDir, db)
+		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
+		protected.GET("/certificates", certHandler.List)
+		protected.POST("/certificates", certHandler.Upload)
+		protected.DELETE("/certificates/:id", certHandler.Delete)
 	}
 
 	// Caddy Manager already created above
@@ -297,27 +318,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
-
-	// Access Lists
-	accessListHandler := handlers.NewAccessListHandler(db)
-	protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
-	protected.GET("/access-lists", accessListHandler.List)
-	protected.POST("/access-lists", accessListHandler.Create)
-	protected.GET("/access-lists/:id", accessListHandler.Get)
-	protected.PUT("/access-lists/:id", accessListHandler.Update)
-	protected.DELETE("/access-lists/:id", accessListHandler.Delete)
-	protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
-
-	// Certificate routes
-	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
-	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
-	caddyDataDir := cfg.CaddyConfigDir + "/data"
-	logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
-	certService := services.NewCertificateService(caddyDataDir, db)
-	certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
-	protected.GET("/certificates", certHandler.List)
-	protected.POST("/certificates", certHandler.Upload)
-	protected.DELETE("/certificates/:id", certHandler.Delete)
 
 	// Initial Caddy Config Sync
 	go func() {

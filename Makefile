@@ -29,6 +29,16 @@ install:
 	@echo "Installing frontend dependencies..."
 	cd frontend && npm install
 
+# Install Go 1.25.5 system-wide and setup GOPATH/bin
+install-go:
+	@echo "Installing Go 1.25.5 and gopls (requires sudo)"
+	sudo ./scripts/install-go-1.25.5.sh
+
+# Clear Go and gopls caches
+clear-go-cache:
+	@echo "Clearing Go and gopls caches"
+ 	./scripts/clear-go-cache.sh
+
 # Run all tests
 test:
 	@echo "Running backend tests..."
