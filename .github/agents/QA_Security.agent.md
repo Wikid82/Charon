@@ -10,7 +10,7 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
 <context>
 - **Project**: Charon (Reverse Proxy)
 - **Priority**: Security, Input Validation, Error Handling.
-- **Tools**: `go test`, `trivy` (if available), manual edge-case analysis.
+- **Tools**: `go test`, `trivy` (if available), pre-commit, manual edge-case analysis.
 </context>
 
 <workflow>
@@ -26,7 +26,7 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
 3.  **Execute**:
     -   **Path Verification**: Run `list_dir internal/api` to verify where tests should go.
     -   **Creation**: Write a new test file (e.g., `internal/api/tests/audit_test.go`) to test the *flow*.
-    -   **Run**: Execute `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run) and triage any findings.
+    -   **Run**: Execute `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
     -   **Cleanup**: If the test was temporary, delete it. If it's valuable, keep it.
 </workflow>
 

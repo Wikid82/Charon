@@ -11,7 +11,31 @@ Here's everything Charon can do for you, explained simply.
 **Why you care:** Without it, browsers scream "NOT SECURE!" and people won't trust your site.
 
 **What you do:** Nothing. Charon gets free certificates from Let's Encrypt and renews them automatically.
+### Choose Your SSL Provider
 
+**What it does:** Lets you select which Certificate Authority (CA) issues your SSL certificates.
+
+**Why you care:** Different providers have different rate limits and reliability. You also get a staging option for testing.
+
+**Where to find it:** Go to System Settings → SSL Provider dropdown
+
+**Available options:**
+
+- **Auto (Recommended)** — The smart default. Tries Let's Encrypt first, automatically falls back to ZeroSSL if there are any issues. Best reliability with zero configuration.
+
+- **Let's Encrypt (Prod)** — Uses only Let's Encrypt production servers. Choose this if you specifically need Let's Encrypt certificates and have no rate limit concerns.
+
+- **Let's Encrypt (Staging)** — For testing purposes only. Issues certificates that browsers won't trust, but lets you test your configuration without hitting rate limits. See [Testing SSL Certificates](acme-staging.md) for details.
+
+- **ZeroSSL** — Uses only ZeroSSL as your certificate provider. Choose this if you prefer ZeroSSL or are hitting Let's Encrypt rate limits.
+
+**Recommended setting:** Leave it on "Auto (Recommended)" unless you have a specific reason to change it. The auto mode gives you the best of both worlds—Let's Encrypt's speed with ZeroSSL as a backup.
+
+**When to change it:**
+- Testing configurations → Use "Let's Encrypt (Staging)"
+- Hitting rate limits → Switch to "ZeroSSL"
+- Specific CA requirement → Choose that specific provider
+- Otherwise → Keep "Auto"
 ### Smart Certificate Cleanup
 
 **What it does:** When you delete websites, Charon asks if you want to delete unused certificates too.

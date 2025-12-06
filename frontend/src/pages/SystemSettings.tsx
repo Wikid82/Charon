@@ -29,7 +29,7 @@ interface UpdateInfo {
 export default function SystemSettings() {
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
-  const [sslProvider, setSslProvider] = useState('letsencrypt')
+  const [sslProvider, setSslProvider] = useState('auto')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
   const [cerberusEnabled, setCerberusEnabled] = useState(false)
 
@@ -43,7 +43,12 @@ export default function SystemSettings() {
   useEffect(() => {
     if (settings) {
       if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
-      if (settings['caddy.ssl_provider']) setSslProvider(settings['caddy.ssl_provider'])
+      // Default to 'auto' if empty or invalid value
+      if (settings['caddy.ssl_provider']) {
+        const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
+        const provider = settings['caddy.ssl_provider']
+        setSslProvider(validProviders.includes(provider) ? provider : 'auto')
+      }
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
       if (settings['security.cerberus.enabled']) setCerberusEnabled(settings['security.cerberus.enabled'] === 'true')
     }
@@ -140,11 +145,13 @@ export default function SystemSettings() {
               onChange={(e) => setSslProvider(e.target.value)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             >
-              <option value="letsencrypt">Let's Encrypt (Default)</option>
+              <option value="auto">Auto (Recommended)</option>
+              <option value="letsencrypt-prod">Let's Encrypt (Prod)</option>
+              <option value="letsencrypt-staging">Let's Encrypt (Staging)</option>
               <option value="zerossl">ZeroSSL</option>
             </select>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Choose the default Certificate Authority for SSL certificates.
+              Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback. Staging is for testing.
             </p>
           </div>
 
