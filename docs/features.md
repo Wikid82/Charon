@@ -4,6 +4,54 @@ Here's everything Charon can do for you, explained simply.
 
 ---
 
+## \u2699\ufe0f Optional Features
+
+Charon includes optional features that can be toggled on or off based on your needs. All features are enabled by default, giving you the full Charon experience from the start.
+
+### What Are Optional Features?
+
+**What it does:** Lets you enable or disable major features like security monitoring and uptime checks.
+
+**Why you care:** If you don't need certain features, turning them off keeps your sidebar cleaner and saves system resources.
+
+**Where to find it:** Go to **System Settings** → Scroll to **Optional Features**
+
+### Available Optional Features
+
+#### Cerberus Security Suite
+- **What it is:** Complete security system including CrowdSec integration, country blocking, WAF protection, and access control
+- **When enabled:** Security menu appears in sidebar, all protection features are active
+- **When disabled:** Security menu is hidden, all protection stops, but configuration data is preserved
+- **Default:** Enabled
+
+#### Uptime Monitoring
+- **What it is:** Background checks that monitor if your websites are responding
+- **When enabled:** Uptime menu appears in sidebar, automatic checks run every minute
+- **When disabled:** Uptime menu is hidden, background checks stop, but uptime history is preserved
+- **Default:** Enabled
+
+### What Happens When Disabled?
+
+When you disable a feature:
+
+- ✅ **Sidebar item is hidden** — Keeps your navigation clean
+- ✅ **Background jobs stop** — Saves CPU and memory resources
+- ✅ **API requests are blocked** — Feature-specific endpoints return appropriate errors
+- ✅ **Configuration data is preserved** — Your settings remain intact if you re-enable the feature
+
+**Important:** Disabling a feature does NOT delete your data. All your security rules, uptime history, and configurations stay safe in the database. You can re-enable features at any time without losing anything.
+
+### How to Toggle Features
+
+1. Go to **System Settings**
+2. Scroll to the **Optional Features** section
+3. Toggle the switch for the feature you want to enable/disable
+4. Changes take effect immediately
+
+**Note:** Both features default to enabled when you first install Charon. This gives you full functionality out of the box.
+
+---
+
 ## \ud83d\udd10 SSL Certificates (The Green Lock)
 
 **What it does:** Makes browsers show a green lock next to your website address.
@@ -183,6 +231,18 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 
 ---
 
+## \ud83d\udcca Uptime Monitoring
+
+**What it does:** Automatically checks if your websites are responding every minute.
+
+**Why you care:** Get visibility into uptime history and response times for all your proxy hosts.
+
+**What you do:** View the "Uptime" page in the sidebar. Uptime checks run automatically in the background.
+
+**Optional:** You can disable this feature in System Settings → Optional Features if you don't need it. Your uptime history will be preserved.
+
+---
+
 ## \ud83d\udccb Logs & Monitoring
 
 **What it does:** Shows you what's happening with your proxy.
@@ -211,17 +271,7 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 
 **What you do:** Nothing—WebSockets work automatically.
 
----
 
-## \ud83d\udcca Uptime Monitoring (Coming Soon)
-
-**What it does:** Checks if your websites are responding.
-
-**Why you care:** Get notified when something goes down.
-
-**Status:** Coming in a future update.
-
----
 
 ## \ud83d\udcf1 Mobile-Friendly Interface
 

@@ -48,12 +48,18 @@ func (c *Cerberus) IsEnabled() bool {
 	// Check database setting (runtime toggle) only if db is provided
 	if c.db != nil {
 		var s models.Setting
+		// Check feature flag
+		if err := c.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
+			return strings.EqualFold(s.Value, "true")
+		}
+		// Fallback to legacy setting for backward compatibility
 		if err := c.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
 			return strings.EqualFold(s.Value, "true")
 		}
 	}
 
-	return false
+	// Default to true (Optional Features spec)
+	return true
 }
 
 // Middleware returns a Gin middleware that enforces Cerberus checks when enabled.
