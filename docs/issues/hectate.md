@@ -40,12 +40,36 @@ type TunnelProvider interface {
 - **Mechanism**: Uses `tsnet` (Tailscale's Go library) to embed the node directly into Charon, OR manages the `tailscaled` socket.
 - **Outcome**: Charon becomes a node on the Mesh VPN.
 
-## 3. Dashboard Implementation (Frontend)
-A new tab "Hecate / Tunnels" will be added to the Charon Dashboard.
+## 3. Dashboard Implementation (Unified UI)
 
-- **Tunnel Cards**: Display status of connected services.
-- **Auth Manager**: Input fields for API Keys/Auth Tokens.
-- **Routing Table**: A visual map showing which external domains map to which tunnel.
+**Hecate does NOT have a separate "Tunnels" tab.**
+Instead, it is fully integrated into the **Remote Servers** dashboard to provide a unified experience for managing connectivity.
+
+### 3.1 "Add Server" Workflow
+When a user clicks "Add Server" in the dashboard, they are presented with a **Connection Type** dropdown that determines how Charon reaches the target.
+
+#### Connection Types:
+1.  **Direct / Manual (Existing)**
+    *   **Use Case**: The server is on the same LAN or reachable via a static IP/DNS.
+    *   **Fields**: `Host`, `Port`, `TLS Toggle`.
+    *   **Backend**: Standard TCP dialer.
+
+2.  **Orthrus Agent (New)**
+    *   **Use Case**: The server is behind a NAT/Firewall and cannot accept inbound connections.
+    *   **Workflow**:
+        *   User selects "Orthrus Agent".
+        *   Charon generates a unique `AUTH_KEY`.
+        *   UI displays a `docker-compose.yml` snippet pre-filled with the key and `CHARON_LINK`.
+        *   User deploys the agent on the remote host.
+        *   Hecate waits for the incoming WebSocket connection.
+
+3.  **Cloudflare Tunnel (Future)**
+    *   **Use Case**: Exposing a service via Cloudflare's edge network.
+    *   **Fields**: `Tunnel Token`.
+    *   **Backend**: Hecate spawns/manages the `cloudflared` process.
+
+### 3.2 Hecate's Role
+Hecate acts as the invisible backend engine for these non-direct connection types. It manages the lifecycle of the tunnels and agents, while the UI simply shows the status (Online/Offline) of the "Server".
 
 ## 4. API Endpoints
 - `GET /api/hecate/status` - Returns health of all tunnels.
