@@ -5,6 +5,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { useAuth } from '../hooks/useAuth'
 import { checkHealth } from '../api/health'
+import { getFeatureFlags } from '../api/featureFlags'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
 import { Menu, ChevronDown, ChevronRight } from 'lucide-react'
@@ -46,6 +47,12 @@ export default function Layout({ children }: LayoutProps) {
     queryKey: ['health'],
     queryFn: checkHealth,
     staleTime: 1000 * 60 * 60, // 1 hour
+  })
+
+  const { data: featureFlags } = useQuery({
+    queryKey: ['feature-flags'],
+    queryFn: getFeatureFlags,
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 
   const navigation: NavItem[] = [
@@ -93,7 +100,13 @@ export default function Layout({ children }: LayoutProps) {
         { name: 'Logs', path: '/tasks/logs', icon: '📝' },
       ]
     },
-  ]
+  ].filter(item => {
+    // Optional Features Logic
+    // Default to visible (true) if flags are loading or undefined
+    if (item.name === 'Uptime') return featureFlags?.['feature.uptime.enabled'] !== false
+    if (item.name === 'Security') return featureFlags?.['feature.cerberus.enabled'] !== false
+    return true
+  })
 
   return (
     <div className="min-h-screen bg-light-bg dark:bg-dark-bg flex transition-colors duration-200">

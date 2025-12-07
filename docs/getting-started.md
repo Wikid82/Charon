@@ -154,7 +154,8 @@ Now that you have the basics:
 
 - **[See All Features](features.md)** — Discover what else Charon can do
 - **[Import Your Old Config](import-guide.md)** — Bring your existing Caddy setup
-- **[Turn On Security](security.md)** — Block attackers (optional but recommended)
+- **[Configure Optional Features](features.md#%EF%B8%8F-optional-features)** — Enable/disable features like security and uptime monitoring
+- **[Turn On Security](security.md)** — Block attackers (enabled by default, highly recommended)
 
 ---
 

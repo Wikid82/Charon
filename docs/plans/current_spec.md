@@ -1,133 +1,66 @@
-# SSL Provider Selection Feature Plan
+# Plan: Refactor Feature Flags to Optional Features
 
 ## Overview
-This plan details the implementation of a user-configurable SSL Certificate Provider setting in the System Settings page. The goal is to allow users to choose between "Auto (Recommended)", "Let's Encrypt (Staging)", "Let's Encrypt (Prod)", and "ZeroSSL".
+Refactor the existing "Feature Flags" system into a user-friendly "Optional Features" section in System Settings. This involves renaming, consolidating toggles (Cerberus, Uptime), and enforcing behavior (hiding sidebar items, stopping background jobs) when features are disabled.
 
-## 1. Backend Changes
+## User Requirements
+1.  **Rename**: 'Feature Flags' -> 'Optional Features'.
+2.  **Cerberus**: Move global toggle to 'Optional Features'.
+3.  **Uptime**: Add toggle to 'Optional Features'.
+4.  **Cleanup**: Remove unused flags (`feature.global.enabled`, `feature.notifications.enabled`, `feature.docker.enabled`).
+5.  **Behavior**:
+    -   **Default**: Cerberus and Uptime ON.
+    -   **OFF State**: Hide from Sidebar, stop background jobs, block notifications.
+    -   **Persistence**: Do NOT delete data when disabled.
 
-### Database Schema
-No schema changes are required. The setting will be stored in the existing `settings` table under the key `caddy.ssl_provider`.
+## Implementation Details
 
-### Logic Updates
+### 1. Backend Changes
 
-#### `backend/internal/caddy/manager.go`
+#### `backend/internal/api/handlers/feature_flags_handler.go`
+-   Update `defaultFlags` list:
+    -   Keep: `feature.cerberus.enabled`, `feature.uptime.enabled`
+    -   Remove: `feature.global.enabled`, `feature.notifications.enabled`, `feature.docker.enabled`
+-   Ensure defaults are `true` if not set in DB or Env.
 
-**Function**: `ApplyConfig`
+#### `backend/internal/cerberus/cerberus.go`
+-   Update `IsEnabled()` to check `feature.cerberus.enabled` instead of `security.cerberus.enabled`.
+-   Maintain backward compatibility or migrate existing setting if necessary (or just switch to the new key).
 
-**Current Logic**:
-- Fetches `caddy.ssl_provider` setting.
-- Uses `m.acmeStaging` (initialized from config/env) for staging status.
+#### `backend/internal/api/routes/routes.go`
+-   **Uptime Background Job**:
+    -   In the `go func()` that runs the ticker:
+        -   Check `feature.uptime.enabled` before running `uptimeService.CheckAll()`.
+        -   If disabled, skip the check.
+-   **Cerberus Middleware**:
+    -   The middleware already calls `IsEnabled()`, so updating `cerberus.go` is sufficient.
 
-**New Logic**:
-- Fetch `caddy.ssl_provider` setting.
-- Parse the value to determine the effective `sslProvider` string and `acmeStaging` boolean.
-- **Mapping**:
-    - `auto` (or empty/missing):
-        - `sslProvider` = `""` (defaults to "both" in `GenerateConfig`)
-        - `acmeStaging` = `false` (Recommended default)
-    - `letsencrypt-staging`:
-        - `sslProvider` = `"letsencrypt"`
-        - `acmeStaging` = `true`
-    - `letsencrypt-prod`:
-        - `sslProvider` = `"letsencrypt"`
-        - `acmeStaging` = `false`
-    - `zerossl`:
-        - `sslProvider` = `"zerossl"`
-        - `acmeStaging` = `false`
-- Pass these derived values to `generateConfigFunc`.
-
-**Code Snippet (Conceptual)**:
-```go
-// Fetch SSL Provider setting
-var sslProviderSetting models.Setting
-var sslProviderVal string
-if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&sslProviderSetting).Error; err == nil {
-    sslProviderVal = sslProviderSetting.Value
-}
-
-    // Determine effective provider and staging flag
-    effectiveProvider := ""
-    effectiveStaging := false // Default to prod
-
-    switch sslProviderVal {
-    case "letsencrypt-staging":
-        effectiveProvider = "letsencrypt"
-        effectiveStaging = true
-    case "letsencrypt-prod":
-        effectiveProvider = "letsencrypt"
-        effectiveStaging = false
-    case "zerossl":
-        effectiveProvider = "zerossl"
-        effectiveStaging = false
-    case "auto":
-        effectiveProvider = "" // "both"
-        effectiveStaging = false
-    default:
-        // Fallback to existing behavior or default to auto
-        effectiveProvider = ""
-        effectiveStaging = m.acmeStaging // Respect env var if setting is unset? Or just default to false?
-        // Better to default to false for stability, or respect env var if "auto" isn't explicitly set.
-        if sslProviderVal == "" {
-             effectiveStaging = m.acmeStaging
-        }
-    }
-
-    // ...
-    config, err := generateConfigFunc(..., effectiveProvider, effectiveStaging, ...)
-```
-
-## 2. Frontend Changes
-
-### UI Updates
+### 2. Frontend Changes
 
 #### `frontend/src/pages/SystemSettings.tsx`
+-   **Rename Card**: Change "Feature Flags" to "Optional Features".
+-   **Consolidate Toggles**:
+    -   Remove "Enable Cerberus Security" from "General Configuration".
+    -   Render specific toggles for "Cerberus Security" and "Uptime Monitoring" in the "Optional Features" card.
+    -   Use `feature.cerberus.enabled` and `feature.uptime.enabled` keys.
+    -   Add user-friendly descriptions for each.
+-   **Remove Generic List**: Instead of iterating over all keys, explicitly render the supported optional features to control order and presentation.
 
-**Component**: `SystemSettings`
+#### `frontend/src/components/Layout.tsx`
+-   **Fetch Flags**: Use `getFeatureFlags` (or a new hook) to get current state.
+-   **Conditional Rendering**:
+    -   Hide "Uptime" nav item if `feature.uptime.enabled` is false.
+    -   Hide "Security" nav group if `feature.cerberus.enabled` is false.
 
-**Changes**:
-- Update the `sslProvider` state initialization to handle the new values.
-- Update the `<select>` element for "SSL Provider" to include the new options.
+### 3. Migration / Data Integrity
+-   Existing `security.cerberus.enabled` setting in DB should be migrated to `feature.cerberus.enabled` or the code should handle the transition.
+-   **Action**: We will switch to `feature.cerberus.enabled`. The user can re-enable it if it defaults to off, but we'll try to default it to ON in the handler.
 
-**New Options**:
-- **Label**: `Auto (Recommended)` | **Value**: `auto`
-- **Label**: `Let's Encrypt (Staging)` | **Value**: `letsencrypt-staging`
-- **Label**: `Let's Encrypt (Prod)` | **Value**: `letsencrypt-prod`
-- **Label**: `ZeroSSL` | **Value**: `zerossl`
+## Step-by-Step Execution
 
-**Code Snippet**:
-```tsx
-            <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              SSL Provider
-            </label>
-            <select
-              value={sslProvider}
-              onChange={(e) => setSslProvider(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            >
-              <option value="auto">Auto (Recommended)</option>
-              <option value="letsencrypt-prod">Let's Encrypt (Prod)</option>
-              <option value="letsencrypt-staging">Let's Encrypt (Staging)</option>
-              <option value="zerossl">ZeroSSL</option>
-            </select>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback. Staging is for testing.
-            </p>
-          </div>
-```
-
-### State Management
-- Ensure `sslProvider` defaults to `auto` if the API returns an empty value or a value not in the list (for backward compatibility).
-- The `saveSettingsMutation` will send the selected string value (`auto`, `letsencrypt-staging`, etc.) to the backend.
-
-## 3. Verification Plan
-1.  **Frontend**:
-    -   Verify the dropdown shows all 4 options.
-    -   Verify selecting an option and saving persists the value (reload page).
-2.  **Backend**:
-    -   Verify the `settings` table updates with the correct key-value pair.
-    -   **Critical**: Verify the generated Caddy config (via logs or `backend/data/caddy/config-*.json` snapshots) reflects the choice:
-        -   `auto`: Should show multiple issuers (ACME + ZeroSSL).
-        -   `letsencrypt-staging`: Should show ACME issuer with staging CA URL.
-        -   `letsencrypt-prod`: Should show ACME issuer without staging CA URL.
-        -   `zerossl`: Should show only ZeroSSL issuer.
+1.  **Backend**: Update `feature_flags_handler.go` to clean up flags and set defaults.
+2.  **Backend**: Update `cerberus.go` to use new flag key.
+3.  **Backend**: Update `routes.go` to gate Uptime background job.
+4.  **Frontend**: Update `SystemSettings.tsx` UI.
+5.  **Frontend**: Update `Layout.tsx` sidebar logic.
+6.  **Verify**: Test toggling features and checking sidebar/background behavior.

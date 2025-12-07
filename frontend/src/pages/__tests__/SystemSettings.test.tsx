@@ -323,7 +323,7 @@ describe('SystemSettings', () => {
       await user.click(saveButton)
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(4)
+        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(3)
         expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.admin_api',
           expect.any(String),
@@ -334,6 +334,12 @@ describe('SystemSettings', () => {
           'caddy.ssl_provider',
           expect.any(String),
           'caddy',
+          'string'
+        )
+        expect(settingsApi.updateSetting).toHaveBeenCalledWith(
+          'ui.domain_link_behavior',
+          expect.any(String),
+          'ui',
           'string'
         )
       })
@@ -373,6 +379,158 @@ describe('SystemSettings', () => {
       // Check for loading spinner
       const spinners = document.querySelectorAll('.animate-spin')
       expect(spinners.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('Optional Features', () => {
+    it('renders the Optional Features section', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Optional Features')).toBeTruthy()
+      })
+    })
+
+    it('displays Cerberus Security Suite toggle', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
+        expect(screen.getByText('Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.')).toBeTruthy()
+      })
+    })
+
+    it('displays Uptime Monitoring toggle', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Uptime Monitoring')).toBeTruthy()
+        expect(screen.getByText('Monitor the availability of your proxy hosts and remote servers.')).toBeTruthy()
+      })
+    })
+
+    it('shows Cerberus toggle as checked when enabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
+      })
+
+      // Find the switch by looking for the parent div and then the input
+      const cerberusText = screen.getByText('Cerberus Security Suite')
+      const parentDiv = cerberusText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+      expect(switchInput?.checked).toBe(true)
+    })
+
+    it('shows Uptime toggle as checked when enabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Uptime Monitoring')).toBeTruthy()
+      })
+
+      const uptimeText = screen.getByText('Uptime Monitoring')
+      const parentDiv = uptimeText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+      expect(switchInput?.checked).toBe(true)
+    })
+
+    it('shows Cerberus toggle as unchecked when disabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
+      })
+
+      const cerberusText = screen.getByText('Cerberus Security Suite')
+      const parentDiv = cerberusText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+      expect(switchInput?.checked).toBe(false)
+    })
+
+    it('toggles Cerberus feature flag when switch is clicked', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+      })
+      vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const cerberusText = screen.getByText('Cerberus Security Suite')
+      const parentDiv = cerberusText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+
+      await user.click(switchInput)
+
+      await waitFor(() => {
+        expect(featureFlagsApi.updateFeatureFlags).toHaveBeenCalledWith({
+          'feature.cerberus.enabled': true,
+        })
+      })
+    })
+
+    it('toggles Uptime feature flag when switch is clicked', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.uptime.enabled': true,
+      })
+      vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Uptime Monitoring')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const uptimeText = screen.getByText('Uptime Monitoring')
+      const parentDiv = uptimeText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+
+      await user.click(switchInput)
+
+      await waitFor(() => {
+        expect(featureFlagsApi.updateFeatureFlags).toHaveBeenCalledWith({
+          'feature.uptime.enabled': false,
+        })
+      })
+    })
+
+    it('shows loading message when feature flags are not loaded', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockReturnValue(new Promise(() => {}))
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Optional Features')).toBeTruthy()
+      })
+
+      expect(screen.getByText('Loading features...')).toBeTruthy()
     })
   })
 })

@@ -1,8 +1,8 @@
 # Security Features
 
-Charon includes **Cerberus**, a security system that protects your websites. It's **turned off by default** so it doesn't get in your way while you're learning.
+Charon includes **Cerberus**, a security system that protects your websites. It's **enabled by default** so your sites are protected from the start.
 
-When you're ready to turn it on, this guide explains everything.
+You can disable it in **System Settings → Optional Features** if you don't need it, or configure it using this guide.
 
 ---
 

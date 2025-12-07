@@ -31,7 +31,6 @@ export default function SystemSettings() {
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
-  const [cerberusEnabled, setCerberusEnabled] = useState(false)
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -50,7 +49,6 @@ export default function SystemSettings() {
         setSslProvider(validProviders.includes(provider) ? provider : 'auto')
       }
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
-      if (settings['security.cerberus.enabled']) setCerberusEnabled(settings['security.cerberus.enabled'] === 'true')
     }
   }, [settings])
 
@@ -82,7 +80,6 @@ export default function SystemSettings() {
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
-      await updateSetting('security.cerberus.enabled', cerberusEnabled ? 'true' : 'false', 'security', 'bool')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -173,22 +170,6 @@ export default function SystemSettings() {
             </p>
           </div>
 
-          {/* Cerberus Security Toggle */}
-          <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Enable Cerberus Security
-            </label>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={cerberusEnabled}
-                onChange={(e) => setCerberusEnabled(e.target.checked)}
-              />
-              <p className="text-sm text-gray-500 dark:text-gray-400 -mt-1">
-                Optional suite that includes WAF, ACLs, Rate Limiting, and CrowdSec integration.
-              </p>
-            </div>
-          </div>
-
           <div className="flex justify-end">
             <Button
               onClick={() => saveSettingsMutation.mutate()}
@@ -201,25 +182,42 @@ export default function SystemSettings() {
         </div>
       </Card>
 
-      {/* Feature Flags */}
+      {/* Optional Features */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Feature Flags</h2>
-        <div className="space-y-4">
+        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Optional Features</h2>
+        <div className="space-y-6">
           {featureFlags ? (
-            Object.keys(featureFlags).map((key) => (
-              <div key={key} className="flex items-center justify-between">
+            <>
+              {/* Cerberus */}
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{key}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Toggle feature {key}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Cerberus Security Suite</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.
+                  </p>
                 </div>
                 <Switch
-                  checked={!!featureFlags[key]}
-                  onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
+                  checked={!!featureFlags['feature.cerberus.enabled']}
+                  onChange={(e) => updateFlagMutation.mutate({ 'feature.cerberus.enabled': e.target.checked })}
                 />
               </div>
-            ))
+
+              {/* Uptime */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Uptime Monitoring</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Monitor the availability of your proxy hosts and remote servers.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!featureFlags['feature.uptime.enabled']}
+                  onChange={(e) => updateFlagMutation.mutate({ 'feature.uptime.enabled': e.target.checked })}
+                />
+              </div>
+            </>
           ) : (
-            <p className="text-sm text-gray-500">Loading feature flags...</p>
+            <p className="text-sm text-gray-500">Loading features...</p>
           )}
         </div>
       </Card>

@@ -246,15 +246,32 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		go func() {
 			// Wait a bit for server to start
 			time.Sleep(30 * time.Second)
-			// Initial sync
-			if err := uptimeService.SyncMonitors(); err != nil {
-				logger.Log().WithError(err).Error("Failed to sync monitors")
+
+			// Initial sync if enabled
+			var s models.Setting
+			enabled := true
+			if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
+				enabled = s.Value == "true"
+			}
+
+			if enabled {
+				if err := uptimeService.SyncMonitors(); err != nil {
+					logger.Log().WithError(err).Error("Failed to sync monitors")
+				}
 			}
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
-				_ = uptimeService.SyncMonitors()
-				uptimeService.CheckAll()
+				// Check feature flag each tick
+				enabled := true
+				if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
+					enabled = s.Value == "true"
+				}
+
+				if enabled {
+					_ = uptimeService.SyncMonitors()
+					uptimeService.CheckAll()
+				}
 			}
 		}()
 
