@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
@@ -46,6 +46,12 @@ describe('Security', () => {
       },
     })
     vi.clearAllMocks()
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
+    vi.spyOn(window, 'open').mockImplementation(() => null)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -53,6 +59,12 @@ describe('Security', () => {
       <BrowserRouter>{children}</BrowserRouter>
     </QueryClientProvider>
   )
+
+  const renderSecurityPage = async () => {
+    await act(async () => {
+      render(<Security />, { wrapper })
+    })
+  }
 
   const mockSecurityStatus = {
     cerberus: { enabled: true },
@@ -63,58 +75,30 @@ describe('Security', () => {
   }
 
   describe('Rendering', () => {
-    it('should show loading state initially', () => {
+    it('should show loading state initially', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockReturnValue(new Promise(() => {}))
-      render(<Security />, { wrapper })
+
+      await renderSecurityPage()
+
       expect(screen.getByText(/Loading security status/i)).toBeInTheDocument()
     })
 
     it('should show error if security status fails to load', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('Failed'))
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
       await waitFor(() => expect(screen.getByText(/Failed to load security status/i)).toBeInTheDocument())
     })
 
     it('should render Security Dashboard when status loads', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
       await waitFor(() => expect(screen.getByText(/Security Dashboard/i)).toBeInTheDocument())
     })
 
     it('should show banner when Cerberus is disabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, cerberus: { enabled: false } })
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
       await waitFor(() => expect(screen.getByText(/Security Suite Disabled/i)).toBeInTheDocument())
-    })
-  })
-
-  describe('Cerberus Toggle', () => {
-    it('should toggle Cerberus on', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, cerberus: { enabled: false } })
-      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
-
-      render(<Security />, { wrapper })
-
-      await waitFor(() => screen.getByTestId('toggle-cerberus'))
-      const toggle = screen.getByTestId('toggle-cerberus')
-      await user.click(toggle)
-
-      await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.cerberus.enabled', 'true', 'security', 'bool'))
-    })
-
-    it('should toggle Cerberus off', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
-
-      render(<Security />, { wrapper })
-
-      await waitFor(() => screen.getByTestId('toggle-cerberus'))
-      const toggle = screen.getByTestId('toggle-cerberus')
-      await user.click(toggle)
-
-      await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.cerberus.enabled', 'false', 'security', 'bool'))
     })
   })
 
@@ -124,7 +108,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false } })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('toggle-crowdsec'))
       const toggle = screen.getByTestId('toggle-crowdsec')
@@ -138,11 +122,13 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, waf: { mode: 'enabled', enabled: false } })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('toggle-waf'))
       const toggle = screen.getByTestId('toggle-waf')
-      await user.click(toggle)
+      await act(async () => {
+        await user.click(toggle)
+      })
 
       await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.waf.enabled', 'true', 'security', 'bool'))
     })
@@ -152,7 +138,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, acl: { enabled: false } })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('toggle-acl'))
       const toggle = screen.getByTestId('toggle-acl')
@@ -166,7 +152,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, rate_limit: { enabled: false } })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('toggle-rate-limit'))
       const toggle = screen.getByTestId('toggle-rate-limit')
@@ -179,8 +165,8 @@ describe('Security', () => {
   describe('Admin Whitelist', () => {
     it('should load admin whitelist from config', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      render(<Security />, { wrapper })
 
+      await renderSecurityPage()
       await waitFor(() => screen.getByDisplayValue('10.0.0.0/8'))
       expect(screen.getByDisplayValue('10.0.0.0/8')).toBeInTheDocument()
     })
@@ -192,7 +178,7 @@ describe('Security', () => {
       vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByDisplayValue('10.0.0.0/8'))
 
@@ -212,11 +198,13 @@ describe('Security', () => {
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
       vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ success: true })
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('crowdsec-start'))
       const startButton = screen.getByTestId('crowdsec-start')
-      await user.click(startButton)
+      await act(async () => {
+        await user.click(startButton)
+      })
 
       await waitFor(() => expect(crowdsecApi.startCrowdsec).toHaveBeenCalled())
     })
@@ -227,11 +215,13 @@ describe('Security', () => {
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
       vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue({ success: true })
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('crowdsec-stop'))
       const stopButton = screen.getByTestId('crowdsec-stop')
-      await user.click(stopButton)
+      await act(async () => {
+        await user.click(stopButton)
+      })
 
       await waitFor(() => expect(crowdsecApi.stopCrowdsec).toHaveBeenCalled())
     })
@@ -243,7 +233,7 @@ describe('Security', () => {
       window.URL.createObjectURL = vi.fn(() => 'blob:url')
       window.URL.revokeObjectURL = vi.fn()
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByRole('button', { name: /Export/i }))
       const exportButton = screen.getByRole('button', { name: /Export/i })
@@ -264,7 +254,7 @@ describe('Security', () => {
       vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('waf-mode-select'))
       const select = screen.getByTestId('waf-mode-select')
@@ -280,7 +270,7 @@ describe('Security', () => {
       vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('waf-ruleset-select'))
       const select = screen.getByTestId('waf-ruleset-select')
@@ -293,8 +283,8 @@ describe('Security', () => {
   describe('Card Order (Pipeline Sequence)', () => {
     it('should render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      render(<Security />, { wrapper })
 
+      await renderSecurityPage()
       await waitFor(() => screen.getByText(/Security Dashboard/i))
 
       // Get all card headings
@@ -307,8 +297,8 @@ describe('Security', () => {
 
     it('should display layer indicators on each card', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      render(<Security />, { wrapper })
 
+      await renderSecurityPage()
       await waitFor(() => screen.getByText(/Security Dashboard/i))
 
       // Verify each layer indicator is present
@@ -320,8 +310,8 @@ describe('Security', () => {
 
     it('should display threat protection summaries', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      render(<Security />, { wrapper })
 
+      await renderSecurityPage()
       await waitFor(() => screen.getByText(/Security Dashboard/i))
 
       // Verify threat protection descriptions
@@ -333,26 +323,12 @@ describe('Security', () => {
   })
 
   describe('Loading Overlay', () => {
-    it('should show Cerberus overlay when Cerberus is toggling', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(settingsApi.updateSetting).mockImplementation(() => new Promise(() => {}))
-
-      render(<Security />, { wrapper })
-
-      await waitFor(() => screen.getByTestId('toggle-cerberus'))
-      const toggle = screen.getByTestId('toggle-cerberus')
-      await user.click(toggle)
-
-      await waitFor(() => expect(screen.getByText(/Cerberus awakens/i)).toBeInTheDocument())
-    })
-
     it('should show overlay when service is toggling', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
       vi.mocked(settingsApi.updateSetting).mockImplementation(() => new Promise(() => {}))
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('toggle-waf'))
       const toggle = screen.getByTestId('toggle-waf')
@@ -367,7 +343,7 @@ describe('Security', () => {
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
       vi.mocked(crowdsecApi.startCrowdsec).mockImplementation(() => new Promise(() => {}))
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('crowdsec-start'))
       const startButton = screen.getByTestId('crowdsec-start')
@@ -382,7 +358,7 @@ describe('Security', () => {
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
       vi.mocked(crowdsecApi.stopCrowdsec).mockImplementation(() => new Promise(() => {}))
 
-      render(<Security />, { wrapper })
+      await renderSecurityPage()
 
       await waitFor(() => screen.getByTestId('crowdsec-stop'))
       const stopButton = screen.getByTestId('crowdsec-stop')

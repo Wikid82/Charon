@@ -65,36 +65,9 @@ export default function Security() {
     },
 
   })
-  const toggleCerberusMutation = useMutation({
-    mutationFn: async (enabled: boolean) => {
-      await updateSetting('security.cerberus.enabled', enabled ? 'true' : 'false', 'security', 'bool')
-    },
-    onMutate: async (enabled: boolean) => {
-      await queryClient.cancelQueries({ queryKey: ['security-status'] })
-      const previous = queryClient.getQueryData(['security-status'])
-      if (previous) {
-        queryClient.setQueryData(['security-status'], (old: unknown) => {
-          const copy = JSON.parse(JSON.stringify(old)) as SecurityStatus
-          if (!copy.cerberus) copy.cerberus = { enabled: false }
-          copy.cerberus.enabled = enabled
-          return copy
-        })
-      }
-      return { previous }
-    },
-    onError: (_err, _vars, context: unknown) => {
-      if (context && typeof context === 'object' && 'previous' in context) {
-        queryClient.setQueryData(['security-status'], context.previous)
-      }
-    },
-    // onSuccess: already set below
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
-    },
-  })
 
   const fetchCrowdsecStatus = async () => {
+
     try {
       const s = await statusCrowdsec()
       setCrowdsecStatus(s)
@@ -110,7 +83,6 @@ export default function Security() {
 
   // Determine if any security operation is in progress
   const isApplyingConfig =
-    toggleCerberusMutation.isPending ||
     toggleServiceMutation.isPending ||
     updateSecurityConfigMutation.isPending ||
     generateBreakGlassMutation.isPending ||
@@ -119,9 +91,6 @@ export default function Security() {
 
   // Determine contextual message
   const getMessage = () => {
-    if (toggleCerberusMutation.isPending) {
-      return { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
-    }
     if (toggleServiceMutation.isPending) {
       return { message: 'Three heads turn...', submessage: 'Security configuration updating' }
     }
@@ -186,14 +155,6 @@ export default function Security() {
           <ShieldCheck className="w-8 h-8 text-green-500" />
           Security Dashboard
         </h1>
-          <div className="flex items-center gap-3">
-            <label className="text-sm text-gray-500 dark:text-gray-400">Enable Cerberus</label>
-            <Switch
-              checked={status?.cerberus?.enabled ?? false}
-              onChange={(e) => toggleCerberusMutation.mutate(e.target.checked)}
-              data-testid="toggle-cerberus"
-            />
-          </div>
           <div/>
         <Button
           variant="secondary"
