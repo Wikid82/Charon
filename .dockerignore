@@ -197,3 +197,4 @@ VERSION.md
 eslint.config.js
 go.work
 go.work.sum
+.cache
