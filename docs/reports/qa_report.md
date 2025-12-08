@@ -9,7 +9,7 @@
 
 **Final Verdict:** ✅ PASS (coverage gate met)
 
-- `pre-commit run --all-files` passes; coverage hook reports 85.0% vs required 85% (gate met) with hooks including Go vet, version check, frontend type-check, and lint fix.
+- `pre-commit run --all-files` passes; coverage hook reports 85.0% vs required 85% (gate met) after adding middleware sanitize tests. Hooks include Go vet, version check, frontend type-check, and lint fix.
 - `go test ./...` (backend) passes via task `Go: Test Backend`.
 - `npm run test:ci` passes (Vitest, 70 files / 598 tests). React Query undefined-data warnings and jsdom navigation warnings appear but suites stay green.
 
@@ -17,7 +17,7 @@
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Pre-commit | ✅ PASS | Coverage gate satisfied at 85.0%; all hooks succeeded. |
+| Pre-commit | ✅ PASS | Coverage gate satisfied at 85.0% (minimum 85%) after middleware sanitize tests; all hooks succeeded. |
 | Backend Unit Tests | ✅ PASS | `cd backend && go test ./...` (task: Go: Test Backend). |
 | Frontend Unit Tests | ✅ PASS* | `npm run test:ci` (Vitest, 70 files / 598 tests). Warnings: React Query "query data cannot be undefined" for `securityConfig`/`securityRulesets`/`feature-flags`; jsdom "navigation to another Document". |
 

@@ -61,6 +61,13 @@ func makeTarGz(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+func readFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	require.NoError(t, err)
+	return string(data)
+}
+
 func TestFetchIndexPrefersCSCLI(t *testing.T) {
 	exec := &recordingExec{outputs: map[string][]byte{"cscli hub list -o json": []byte(`{"collections":[{"name":"crowdsecurity/test","description":"desc","version":"1.0"}]}`)}}
 	svc := NewHubService(exec, nil, t.TempDir())
@@ -77,9 +84,13 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	exec := &recordingExec{errors: map[string]error{"cscli hub list -o json": fmt.Errorf("boom")}}
 	cacheDir := t.TempDir()
 	svc := NewHubService(exec, nil, cacheDir)
+	svc.HubBaseURL = "http://example.com"
+	indexBody := readFixture(t, "hub_index.json")
 	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		if req.URL.Path == defaultHubIndexPath {
-			return newResponse(http.StatusOK, `{"items":[{"name":"crowdsecurity/demo","title":"Demo","description":"desc","type":"collection"}]}`), nil
+		if req.URL.String() == "http://example.com"+defaultHubIndexPath {
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
 		}
 		return newResponse(http.StatusNotFound, ""), nil
 	})}
@@ -88,6 +99,34 @@ func TestFetchIndexFallbackHTTP(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, idx.Items, 1)
 	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+}
+
+func TestFetchIndexHTTPRejectsRedirect(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "http://hub.example"
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusMovedPermanently, "")
+		resp.Header.Set("Location", "https://hub.crowdsec.net/")
+		return resp, nil
+	})}
+
+	_, err := svc.fetchIndexHTTP(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "redirect")
+}
+
+func TestFetchIndexHTTPRejectsHTML(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	htmlBody := readFixture(t, "hub_index_html.html")
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusOK, htmlBody)
+		resp.Header.Set("Content-Type", "text/html")
+		return resp, nil
+	})}
+
+	_, err := svc.fetchIndexHTTP(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "HTML")
 }
 
 func TestPullCachesPreview(t *testing.T) {
@@ -398,8 +437,11 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "keep.txt"), []byte("before"), 0o644))
 
 	svc := NewHubService(nil, nil, dataDir)
-	_, err := svc.Apply(context.Background(), "crowdsecurity/demo")
+	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "cscli unavailable")
+	require.Empty(t, res.BackupPath)
+	require.Equal(t, "failed", res.Status)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
 	require.NoError(t, readErr)

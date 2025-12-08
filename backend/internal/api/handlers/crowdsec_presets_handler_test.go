@@ -273,12 +273,13 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "cscli unavailable")
 
 	var events []models.CrowdsecPresetEvent
 	require.NoError(t, db.Find(&events).Error)
 	require.Len(t, events, 1)
 	require.Equal(t, "failed", events[0].Status)
-	require.NotEmpty(t, events[0].BackupPath)
+	require.Empty(t, events[0].BackupPath)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
 	require.NoError(t, readErr)

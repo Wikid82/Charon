@@ -24,6 +24,7 @@ type CommandExecutor interface {
 }
 
 const (
+	defaultHubBaseURL     = "https://hub-data.crowdsec.net"
 	defaultHubIndexPath   = "/api/index.json"
 	defaultHubArchivePath = "/%s.tgz"
 	defaultHubPreviewPath = "/%s.yaml"
@@ -77,15 +78,33 @@ type HubService struct {
 
 // NewHubService constructs a HubService with sane defaults.
 func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubService {
+	clientTimeout := 10 * time.Second
 	return &HubService{
 		Exec:         exec,
 		Cache:        cache,
 		DataDir:      dataDir,
-		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
-		HubBaseURL:   "https://hub.crowdsec.net",
-		PullTimeout:  10 * time.Second,
+		HTTPClient:   newHubHTTPClient(clientTimeout),
+		HubBaseURL:   normalizeHubBaseURL(os.Getenv("HUB_BASE_URL")),
+		PullTimeout:  clientTimeout,
 		ApplyTimeout: 15 * time.Second,
 	}
+}
+
+func newHubHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func normalizeHubBaseURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return defaultHubBaseURL
+	}
+	return strings.TrimRight(trimmed, "/")
 }
 
 // FetchIndex downloads the hub index. If the hub is unreachable, returns ErrCacheMiss.
@@ -178,20 +197,39 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	if s.HTTPClient == nil {
 		return HubIndex{}, fmt.Errorf("http client missing")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.HubBaseURL+defaultHubIndexPath, nil)
+	target := strings.TrimRight(s.HubBaseURL, "/") + defaultHubIndexPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return HubIndex{}, err
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return HubIndex{}, err
+		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return HubIndex{}, fmt.Errorf("hub index status %d", resp.StatusCode)
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			loc := resp.Header.Get("Location")
+			return HubIndex{}, fmt.Errorf("hub index redirect (%d) to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", resp.StatusCode, firstNonEmpty(loc, target))
+		}
+		return HubIndex{}, fmt.Errorf("hub index status %d from %s", resp.StatusCode, target)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
+	if err != nil {
+		return HubIndex{}, fmt.Errorf("read hub index: %w", err)
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if ct != "" && !strings.Contains(ct, "application/json") {
+		if isLikelyHTML(data) {
+			return HubIndex{}, fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint")
+		}
+		return HubIndex{}, fmt.Errorf("unexpected hub content-type %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", ct)
 	}
 	var idx HubIndex
-	if err := json.NewDecoder(resp.Body).Decode(&idx); err != nil {
+	if err := json.Unmarshal(data, &idx); err != nil {
+		if isLikelyHTML(data) {
+			return HubIndex{}, fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint")
+		}
 		return HubIndex{}, fmt.Errorf("decode hub index: %w", err)
 	}
 	return idx, nil
@@ -234,11 +272,11 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 
 	archiveURL := entry.DownloadURL
 	if archiveURL == "" {
-		archiveURL = fmt.Sprintf(s.HubBaseURL+defaultHubArchivePath, cleanSlug)
+		archiveURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubArchivePath, cleanSlug)
 	}
 	previewURL := entry.PreviewURL
 	if previewURL == "" {
-		previewURL = fmt.Sprintf(s.HubBaseURL+defaultHubPreviewPath, cleanSlug)
+		previewURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubPreviewPath, cleanSlug)
 	}
 
 	archiveBytes, err := s.fetchWithLimit(pullCtx, archiveURL)
@@ -266,37 +304,46 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	if cleanSlug == "" {
 		return ApplyResult{}, fmt.Errorf("invalid slug")
 	}
+	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
+	defer cancel()
+
+	result := ApplyResult{AppliedPreset: cleanSlug, Status: "failed"}
+	meta, metaErr := s.loadCacheMeta(applyCtx, cleanSlug)
+	if metaErr == nil {
+		result.CacheKey = meta.CacheKey
+	}
+	hasCS := s.hasCSCLI(applyCtx)
+	if !hasCS && metaErr != nil {
+		msg := "cscli unavailable and no cached preset; pull the preset or install cscli"
+		result.ErrorMessage = msg
+		return result, errors.New(msg)
+	}
 
 	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
-	result := ApplyResult{BackupPath: backupPath, AppliedPreset: cleanSlug, Status: "failed"}
+	result.BackupPath = backupPath
 	if err := s.backupExisting(backupPath); err != nil {
 		return result, fmt.Errorf("backup: %w", err)
 	}
 
-	applyCtx, cancel := context.WithTimeout(ctx, s.ApplyTimeout)
-	defer cancel()
-	if meta, err := s.loadCacheMeta(applyCtx, cleanSlug); err == nil {
-		result.CacheKey = meta.CacheKey
-	}
-
 	// Try cscli first
-	if s.hasCSCLI(applyCtx) {
-		if err := s.runCSCLI(applyCtx, cleanSlug); err == nil {
+	if hasCS {
+		cscliErr := s.runCSCLI(applyCtx, cleanSlug)
+		if cscliErr == nil {
 			result.Status = "applied"
 			result.ReloadHint = true
 			result.UsedCSCLI = true
 			return result, nil
-		} else {
-			logger.Log().WithError(err).WithField("slug", cleanSlug).Warn("cscli install failed; attempting cache fallback")
 		}
+		logger.Log().WithField("slug", cleanSlug).WithError(cscliErr).Warn("cscli install failed; attempting cache fallback")
 	}
 
-	meta, err := s.loadCacheMeta(applyCtx, cleanSlug)
-	if err != nil {
+	if metaErr != nil {
 		_ = s.rollback(backupPath)
-		return result, fmt.Errorf("load cache: %w", err)
+		msg := fmt.Sprintf("load cache: %v", metaErr)
+		result.ErrorMessage = msg
+		return result, errors.New(msg)
 	}
-	result.CacheKey = meta.CacheKey
+
 	archive, err := os.ReadFile(meta.ArchivePath)
 	if err != nil {
 		_ = s.rollback(backupPath)
@@ -396,6 +443,18 @@ func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
 		}
 	}
 	return HubIndexEntry{}, false
+}
+
+func isLikelyHTML(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return false
+	}
+	lower := bytes.ToLower(trimmed)
+	if bytes.HasPrefix(lower, []byte("<!doctype")) || bytes.HasPrefix(lower, []byte("<html")) {
+		return true
+	}
+	return bytes.Contains(lower, []byte("<html"))
 }
 
 func (s *HubService) hasCSCLI(ctx context.Context) bool {
