@@ -20,7 +20,7 @@ Charon includes optional features that can be toggled on or off based on your ne
 
 #### Cerberus Security Suite
 - **What it is:** Complete security system including CrowdSec integration, country blocking, WAF protection, and access control
-- **When enabled:** Security menu appears in sidebar, all protection features are active
+- **When enabled:** Cerberus/Dashboard entries appear in the sidebar, all protection features are active
 - **When disabled:** Security menu is hidden, all protection stops, but configuration data is preserved
 - **Default:** Enabled
 
@@ -110,11 +110,11 @@ When you disable a feature:
 
 ## \ud83d\udee1\ufe0f Security (Optional)
 
-Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready.
+Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready. The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
 
 ### Block Bad IPs Automatically
 
-**What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
+**What it does:** CrowdSec watches for attackers and blocks them before they can do damage. The overview now has a single Start/Stop toggle—no separate mode selector.
 
 **Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
@@ -157,6 +157,12 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 - Does NOT replace regular security updates
 
 **Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
+
+### Configuration Packages
+
+- **Hub presets:** Pull presets from the CrowdSec Hub over HTTPS, use cache keys/ETags for faster repeat pulls, preview changes, then apply with an automatic backup and reload flag. Requires Cerberus to be enabled with admin scope; `cscli` is preferred for execution.
+- **Offline/curated:** If the Hub is unreachable or apply is not supported, curated/offline presets remain available.
+- **Validation:** Slugs are validated before apply. Hub errors surface cleanly (503 uses retry or cached data; 400 for bad slugs; apply failures prompt you to restore from the backup).
 ---
 
 ## \ud83d\udc33 Docker Integration

@@ -63,7 +63,7 @@ describe('Security page', () => {
     } as SecurityStatus)
 
     renderWithProviders(<Security />)
-    expect(await screen.findByText('Security Suite Disabled')).toBeInTheDocument()
+    expect(await screen.findByText('Cerberus Disabled')).toBeInTheDocument()
     const docBtns = screen.getAllByText('Documentation')
     expect(docBtns.length).toBeGreaterThan(0)
   })
@@ -80,14 +80,9 @@ describe('Security page', () => {
     vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
-    const crowdsecToggle = screen.getByTestId('toggle-crowdsec')
-    // debug: ensure element state
-    console.log('crowdsecToggle disabled:', (crowdsecToggle as HTMLInputElement).disabled)
-    expect(crowdsecToggle).toBeTruthy()
-      // Ensure the toggle exists and is not disabled
-      expect(crowdsecToggle).toBeTruthy()
-      expect((crowdsecToggle as HTMLInputElement).disabled).toBe(false)
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
+    const crowdsecToggle = screen.getByTestId('toggle-crowdsec') as HTMLInputElement
+    expect(crowdsecToggle.disabled).toBe(false)
     // Ensure enable-all controls were removed
     expect(screen.queryByTestId('enable-all-btn')).toBeNull()
   })
@@ -103,7 +98,7 @@ describe('Security page', () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
     const updateSpy = vi.mocked(settingsApi.updateSetting)
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
     const aclToggle = screen.getByTestId('toggle-acl')
     await userEvent.click(aclToggle)
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith('security.acl.enabled', 'true', 'security', 'bool'))
@@ -120,42 +115,47 @@ describe('Security page', () => {
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
     const blob = new Blob(['dummy'])
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
+    vi.spyOn(window, 'prompt').mockReturnValue('crowdsec-export')
+
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
     const exportBtn = screen.getByText('Export')
     await userEvent.click(exportBtn)
     await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
   })
 
-  it('calls start/stop endpoints for CrowdSec', async () => {
-    const status: SecurityStatus = {
+  it('calls start/stop endpoints for CrowdSec via toggle', async () => {
+    const user = userEvent.setup()
+    const baseStatus: SecurityStatus = {
       cerberus: { enabled: true },
-      crowdsec: { enabled: true, mode: 'local' as const, api_url: '' },
+      crowdsec: { enabled: false, mode: 'disabled' as const, api_url: '' },
       waf: { enabled: false, mode: 'disabled' as const },
       rate_limit: { enabled: false },
       acl: { enabled: false },
     }
-    vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
-    // Test start
-    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue(undefined)
+
+    vi.mocked(api.getSecurityStatus).mockResolvedValue(baseStatus as SecurityStatus)
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue(undefined)
+    vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
+
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
-    const startBtn = screen.getByText('Start')
-    await userEvent.click(startBtn)
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
+    const toggle = screen.getByTestId('toggle-crowdsec')
+    await user.click(toggle)
     await waitFor(() => expect(crowdsecApi.startCrowdsec).toHaveBeenCalled())
-    // Cleanup before re-render to avoid multiple DOM instances
+
     cleanup()
 
-    // Test stop: render with running state and click stop
-    vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
+    const enabledStatus: SecurityStatus = { ...baseStatus, crowdsec: { enabled: true, mode: 'local' as const, api_url: '' } }
+    vi.mocked(api.getSecurityStatus).mockResolvedValue(enabledStatus as SecurityStatus)
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123 })
+    vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
+
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText('Stop')).toBeInTheDocument())
-    const stopBtn = screen.getAllByText('Stop').find(b => !b.hasAttribute('disabled'))
-    if (!stopBtn) throw new Error('No enabled Stop button found')
-    await userEvent.click(stopBtn)
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
+    const stopToggle = screen.getByTestId('toggle-crowdsec')
+    await user.click(stopToggle)
     await waitFor(() => expect(crowdsecApi.stopCrowdsec).toHaveBeenCalled())
   })
 
@@ -169,7 +169,7 @@ describe('Security page', () => {
     }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Suite Disabled')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Cerberus Disabled')).toBeInTheDocument())
     const crowdsecToggle = screen.getByTestId('toggle-crowdsec')
     expect(crowdsecToggle).toBeDisabled()
   })
@@ -325,7 +325,7 @@ describe('Security page', () => {
     vi.mocked(api.getRuleSets).mockResolvedValue(mockRuleSets)
 
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Security Dashboard')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
 
     // Mode selector and ruleset selector should not be visible
     expect(screen.queryByTestId('waf-mode-select')).not.toBeInTheDocument()
