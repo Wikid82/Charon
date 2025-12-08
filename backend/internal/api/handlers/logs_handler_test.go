@@ -26,24 +26,24 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 	// It derives it from cfg.DatabasePath
 
 	dataDir := filepath.Join(tmpDir, "data")
-	err = os.MkdirAll(dataDir, 0755)
+	err = os.MkdirAll(dataDir, 0o755)
 	require.NoError(t, err)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
 
 	// Create logs dir
 	logsDir := filepath.Join(dataDir, "logs")
-	err = os.MkdirAll(logsDir, 0755)
+	err = os.MkdirAll(logsDir, 0o755)
 	require.NoError(t, err)
 
 	// Create dummy log files with JSON content
 	log1 := `{"level":"info","ts":1600000000,"msg":"request handled","request":{"method":"GET","host":"example.com","uri":"/","remote_ip":"1.2.3.4"},"status":200}`
 	log2 := `{"level":"error","ts":1600000060,"msg":"error handled","request":{"method":"POST","host":"api.example.com","uri":"/submit","remote_ip":"5.6.7.8"},"status":500}`
 
-	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0644)
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(log1+"\n"+log2+"\n"), 0o644)
 	require.NoError(t, err)
 	// Write a charon.log and create a cpmp.log symlink to it for backward compatibility (cpmp is legacy)
-	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0644)
+	err = os.WriteFile(filepath.Join(logsDir, "charon.log"), []byte("app log line 1\napp log line 2"), 0o644)
 	require.NoError(t, err)
 	// Create legacy cpmp log symlink (cpmp is a legacy name for Charon)
 	_ = os.Symlink(filepath.Join(logsDir, "charon.log"), filepath.Join(logsDir, "cpmp.log"))
@@ -72,7 +72,7 @@ func TestLogsLifecycle(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// 1. List logs
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
@@ -93,7 +93,7 @@ func TestLogsLifecycle(t *testing.T) {
 	require.True(t, found)
 
 	// 2. Read log
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=2", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log?limit=2", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
@@ -108,27 +108,27 @@ func TestLogsLifecycle(t *testing.T) {
 	require.Len(t, content.Logs, 2)
 
 	// 3. Download log
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/access.log/download", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "request handled")
 
 	// 4. Read non-existent log
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 
 	// 5. Download non-existent log
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log/download", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs/missing.log/download", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 
 	// 6. List logs error (delete directory)
 	os.RemoveAll(filepath.Join(tmpDir, "data", "logs"))
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	// ListLogs returns empty list if dir doesn't exist, so it should be 200 OK with empty list

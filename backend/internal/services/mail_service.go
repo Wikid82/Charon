@@ -18,7 +18,7 @@ import (
 
 // emailHeaderSanitizer removes CR, LF, and other control characters that could
 // enable header injection attacks (CWE-93: Improper Neutralization of CRLF).
-var emailHeaderSanitizer = regexp.MustCompile(`[\r\n\x00-\x1f\x7f]`)
+var emailHeaderSanitizer = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 
 // SMTPConfig holds the SMTP server configuration.
 type SMTPConfig struct {
@@ -145,14 +145,22 @@ func (s *MailService) TestConnection() error {
 		if err != nil {
 			return fmt.Errorf("SSL connection failed: %w", err)
 		}
-		defer conn.Close()
+		defer func() {
+			if err := conn.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close tls conn")
+			}
+		}()
 
 	case "starttls", "none", "":
 		client, err := smtp.Dial(addr)
 		if err != nil {
 			return fmt.Errorf("SMTP connection failed: %w", err)
 		}
-		defer client.Close()
+		defer func() {
+			if err := client.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close smtp client")
+			}
+		}()
 
 		if config.Encryption == "starttls" {
 			tlsConfig := &tls.Config{
@@ -270,13 +278,21 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, t
 	if err != nil {
 		return fmt.Errorf("SSL connection failed: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close tls conn")
+		}
+	}()
 
 	client, err := smtp.NewClient(conn, config.Host)
 	if err != nil {
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close smtp client")
+		}
+	}()
 
 	if auth != nil {
 		if err := client.Auth(auth); err != nil {
@@ -314,7 +330,11 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 	if err != nil {
 		return fmt.Errorf("SMTP connection failed: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close smtp client")
+		}
+	}()
 
 	tlsConfig := &tls.Config{
 		ServerName: config.Host,

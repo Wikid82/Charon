@@ -54,7 +54,7 @@ func TestDomainLifecycle(t *testing.T) {
 	require.NotEmpty(t, created.UUID)
 
 	// 2. List Domains
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/domains", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
@@ -65,13 +65,13 @@ func TestDomainLifecycle(t *testing.T) {
 	require.Equal(t, "example.com", list[0].Name)
 
 	// 3. Delete Domain
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/domains/"+created.UUID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/domains/"+created.UUID, http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	// 4. Verify Deletion
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/domains", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
@@ -101,7 +101,7 @@ func TestDomainErrors(t *testing.T) {
 func TestDomainDelete_NotFound(t *testing.T) {
 	router, _ := setupDomainTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/nonexistent-uuid", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/domains/nonexistent-uuid", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	// Handler may return 200 with deleted=true even if not found (soft delete behavior)
@@ -136,7 +136,7 @@ func TestDomainCreate_Duplicate(t *testing.T) {
 func TestDomainList_Empty(t *testing.T) {
 	router, _ := setupDomainTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/domains", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/domains", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)

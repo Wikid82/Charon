@@ -23,7 +23,7 @@ func TestRequestLoggerSanitizesPath(t *testing.T) {
 	router.Use(RequestLogger())
 	router.GET(longPath, func(c *gin.Context) { c.Status(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, longPath, nil)
+	req := httptest.NewRequest(http.MethodGet, longPath, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -56,7 +56,7 @@ func TestRequestLoggerIncludesRequestID(t *testing.T) {
 	router.Use(RequestLogger())
 	router.GET("/ok", func(c *gin.Context) { c.String(200, "ok") })
 
-	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ok", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

@@ -27,7 +27,7 @@ func TestRecoveryLogsStacktraceVerbose(t *testing.T) {
 		panic("test panic")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	req := httptest.NewRequest(http.MethodGet, "/panic", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -62,7 +62,7 @@ func TestRecoveryLogsBriefWhenNotVerbose(t *testing.T) {
 		panic("brief panic")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	req := httptest.NewRequest(http.MethodGet, "/panic", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -95,7 +95,7 @@ func TestRecoverySanitizesHeadersAndPath(t *testing.T) {
 		panic("sensitive panic")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	req := httptest.NewRequest(http.MethodGet, "/panic", http.NoBody)
 	// Add sensitive header that should be redacted
 	req.Header.Set("Authorization", "Bearer secret-token")
 	w := httptest.NewRecorder()

@@ -33,7 +33,7 @@ func TestFeatureFlagsHandler_GetFlags_DBPrecedence(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -58,7 +58,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvFallback(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -83,7 +83,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvShortForm(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -108,7 +108,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvNumeric(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -131,7 +131,7 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -154,7 +154,7 @@ func TestFeatureFlagsHandler_GetFlags_AllDefaultFlagsPresent(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -353,7 +353,7 @@ func TestFeatureFlagsHandler_GetFlags_DBValueVariants(t *testing.T) {
 			r := gin.New()
 			r.GET("/api/v1/feature-flags", h.GetFlags)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 
@@ -396,7 +396,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvValueVariants(t *testing.T) {
 			r := gin.New()
 			r.GET("/api/v1/feature-flags", h.GetFlags)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 

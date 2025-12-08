@@ -15,7 +15,7 @@ func TestHealthHandler(t *testing.T) {
 	r := gin.New()
 	r.GET("/health", HealthHandler)
 
-	req, _ := http.NewRequest("GET", "/health", nil)
+	req, _ := http.NewRequest("GET", "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

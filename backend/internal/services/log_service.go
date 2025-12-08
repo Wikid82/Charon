@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -44,26 +45,29 @@ func (s *LogService) ListLogs() ([]LogFile, error) {
 	var logs []LogFile
 	seen := make(map[string]bool)
 	for _, entry := range entries {
-		if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")) {
-			info, err := entry.Info()
-			if err != nil {
+		hasLogExtension := strings.HasSuffix(entry.Name(), ".log") || strings.Contains(entry.Name(), ".log.")
+		if entry.IsDir() || !hasLogExtension {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
+		entryPath := filepath.Join(s.LogDir, entry.Name())
+		resolved, err := filepath.EvalSymlinks(entryPath)
+		if err == nil {
+			if seen[resolved] {
 				continue
 			}
-			// Handle symlinks + deduplicate files (e.g., charon.log and cpmp.log (legacy name) pointing to same file)
-			entryPath := filepath.Join(s.LogDir, entry.Name())
-			resolved, err := filepath.EvalSymlinks(entryPath)
-			if err == nil {
-				if seen[resolved] {
-					continue
-				}
-				seen[resolved] = true
-			}
-			logs = append(logs, LogFile{
-				Name:    entry.Name(),
-				Size:    info.Size(),
-				ModTime: info.ModTime().Format(time.RFC3339),
-			})
+			seen[resolved] = true
 		}
+		logs = append(logs, LogFile{
+			Name:    entry.Name(),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		})
 	}
 	return logs, nil
 }
@@ -98,7 +102,11 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 	if err != nil {
 		return nil, 0, err
 	}
-	defer func() { _ = file.Close() }()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close log file after reading")
+		}
+	}()
 
 	var logs []models.CaddyAccessLog
 	var totalMatches int64
@@ -125,19 +133,15 @@ func (s *LogService) QueryLogs(filename string, filter models.LogFilter) ([]mode
 			// Handle non-JSON logs (like cpmp.log, legacy name for Charon)
 			// Try to parse standard Go log format: "2006/01/02 15:04:05 msg"
 			parts := strings.SplitN(line, " ", 3)
+			entry.Msg = line
+			entry.Level = "INFO" // Default level for plain logs
 			if len(parts) >= 3 {
-				// Try parsing date/time
-				ts, err := time.Parse("2006/01/02 15:04:05", parts[0]+" "+parts[1])
-				if err == nil {
+				// Try parsing date/time; if parsing fails, keep the original line as the Msg
+				if ts, perr := time.Parse("2006/01/02 15:04:05", parts[0]+" "+parts[1]); perr == nil {
 					entry.Ts = float64(ts.Unix())
 					entry.Msg = parts[2]
-				} else {
-					entry.Msg = line
 				}
-			} else {
-				entry.Msg = line
 			}
-			entry.Level = "INFO" // Default level for plain logs
 		}
 
 		if s.matchesFilter(entry, filter) {

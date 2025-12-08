@@ -133,7 +133,7 @@ func TestInviteToken_ExpiredCannotBeUsed(t *testing.T) {
 	r := setupRouterWithAuth(db, adminID, "admin")
 
 	// Try to validate expired token
-	req := httptest.NewRequest("GET", "/api/invite/validate?token=expired-token-12345678901234567890123456789012", nil)
+	req := httptest.NewRequest("GET", "/api/invite/validate?token=expired-token-12345678901234567890123456789012", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -296,7 +296,7 @@ func TestUserEndpoints_RequireAdmin(t *testing.T) {
 				req = httptest.NewRequest(ep.method, ep.path, strings.NewReader(ep.body))
 				req.Header.Set("Content-Type", "application/json")
 			} else {
-				req = httptest.NewRequest(ep.method, ep.path, nil)
+				req = httptest.NewRequest(ep.method, ep.path, http.NoBody)
 			}
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
@@ -363,7 +363,7 @@ func TestSMTPConfig_PasswordMasked(t *testing.T) {
 
 	r := setupRouterWithAuth(db, adminID, "admin")
 
-	req := httptest.NewRequest("GET", "/api/settings/smtp", nil)
+	req := httptest.NewRequest("GET", "/api/settings/smtp", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -510,7 +510,7 @@ func TestDeleteUser_CannotDeleteSelf(t *testing.T) {
 	r := setupRouterWithAuth(db, adminID, "admin")
 
 	// Try to delete self
-	req := httptest.NewRequest("DELETE", "/api/users/"+string(rune(adminID+'0')), nil)
+	req := httptest.NewRequest("DELETE", "/api/users/"+string(rune(adminID+'0')), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -591,7 +591,7 @@ func TestPublicEndpoints_NoAuthRequired(t *testing.T) {
 	require.NoError(t, db.Create(&user).Error)
 
 	// Validate invite should work without auth
-	req := httptest.NewRequest("GET", "/api/invite/validate?token=public-test-token-123456789012345678901234567", nil)
+	req := httptest.NewRequest("GET", "/api/invite/validate?token=public-test-token-123456789012345678901234567", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

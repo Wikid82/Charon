@@ -132,33 +132,42 @@ func (i *Importer) extractHandlers(handles []*CaddyHandler) []*CaddyHandler {
 	var result []*CaddyHandler
 
 	for _, handler := range handles {
-		// If this is a subroute, extract handlers from its first route
-		if handler.Handler == "subroute" {
-			if routes, ok := handler.Routes.([]interface{}); ok && len(routes) > 0 {
-				if subroute, ok := routes[0].(map[string]interface{}); ok {
-					if subhandles, ok := subroute["handle"].([]interface{}); ok {
-						// Convert the subhandles to CaddyHandler objects
-						for _, sh := range subhandles {
-							if shMap, ok := sh.(map[string]interface{}); ok {
-								subHandler := &CaddyHandler{}
-								if handlerType, ok := shMap["handler"].(string); ok {
-									subHandler.Handler = handlerType
-								}
-								if upstreams, ok := shMap["upstreams"]; ok {
-									subHandler.Upstreams = upstreams
-								}
-								if headers, ok := shMap["headers"]; ok {
-									subHandler.Headers = headers
-								}
-								result = append(result, subHandler)
-							}
-						}
-					}
-				}
-			}
-		} else {
-			// Regular handler, add it directly
+		// Regular handler, add it directly
+		if handler.Handler != "subroute" {
 			result = append(result, handler)
+			continue
+		}
+
+		// It's a subroute; extract handlers from its first route
+		routes, ok := handler.Routes.([]interface{})
+		if !ok || len(routes) == 0 {
+			continue
+		}
+		subroute, ok := routes[0].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		subhandles, ok := subroute["handle"].([]interface{})
+		if !ok {
+			continue
+		}
+		// Convert the subhandles to CaddyHandler objects
+		for _, sh := range subhandles {
+			shMap, ok := sh.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			subHandler := &CaddyHandler{}
+			if handlerType, ok := shMap["handler"].(string); ok {
+				subHandler.Handler = handlerType
+			}
+			if upstreams, ok := shMap["upstreams"]; ok {
+				subHandler.Upstreams = upstreams
+			}
+			if headers, ok := shMap["headers"]; ok {
+				subHandler.Headers = headers
+			}
+			result = append(result, subHandler)
 		}
 	}
 
@@ -337,7 +346,7 @@ func (i *Importer) ValidateCaddyBinary() error {
 
 // BackupCaddyfile creates a timestamped backup of the original Caddyfile.
 func BackupCaddyfile(originalPath, backupDir string) (string, error) {
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating backup directory: %w", err)
 	}
 
@@ -360,7 +369,7 @@ func BackupCaddyfile(originalPath, backupDir string) (string, error) {
 		return "", fmt.Errorf("reading original file: %w", err)
 	}
 
-	if err := os.WriteFile(backupPath, input, 0644); err != nil {
+	if err := os.WriteFile(backupPath, input, 0o644); err != nil {
 		return "", fmt.Errorf("writing backup: %w", err)
 	}
 

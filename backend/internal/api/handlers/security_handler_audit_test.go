@@ -65,7 +65,7 @@ func TestSecurityHandler_GetStatus_SQLInjection(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
 
-	req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -248,7 +248,7 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
 
-	req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -293,7 +293,7 @@ func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
 
-	req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -342,7 +342,7 @@ func TestSecurityAudit_DeleteRuleSet_InvalidID(t *testing.T) {
 			if tc.id == "" {
 				url = "/api/v1/security/rulesets/"
 			}
-			req := httptest.NewRequest("DELETE", url, nil)
+			req := httptest.NewRequest("DELETE", url, http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
@@ -383,7 +383,7 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Verify it's stored and returned as JSON (not rendered as HTML)
-	req2 := httptest.NewRequest("GET", "/api/v1/security/rulesets", nil)
+	req2 := httptest.NewRequest("GET", "/api/v1/security/rulesets", http.NoBody)
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)
 
@@ -468,7 +468,7 @@ func TestSecurityHandler_GetStatus_NilDB(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/v1/security/status", h.GetStatus)
 
-	req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	w := httptest.NewRecorder()
 
 	// Should not panic
@@ -498,7 +498,7 @@ func TestSecurityHandler_Enable_WithoutWhitelist(t *testing.T) {
 	router.POST("/api/v1/security/enable", h.Enable)
 
 	// Try to enable without token or whitelist
-	req := httptest.NewRequest("POST", "/api/v1/security/enable", nil)
+	req := httptest.NewRequest("POST", "/api/v1/security/enable", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -525,7 +525,7 @@ func TestSecurityHandler_Disable_RequiresToken(t *testing.T) {
 	router.POST("/api/v1/security/disable", h.Disable)
 
 	// Try to disable from non-localhost without token
-	req := httptest.NewRequest("POST", "/api/v1/security/disable", nil)
+	req := httptest.NewRequest("POST", "/api/v1/security/disable", http.NoBody)
 	req.RemoteAddr = "10.0.0.5:12345"
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -560,7 +560,7 @@ func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
 			router := gin.New()
 			router.GET("/api/v1/security/status", h.GetStatus)
 
-			req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+			req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 

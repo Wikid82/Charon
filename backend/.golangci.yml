@@ -20,6 +20,9 @@ linters:
       enabled-tags:
         - diagnostic
         - performance
+        - style
+        - opinionated
+        - experimental
       disabled-checks:
         - whyNoLint
         - wrapperFunc

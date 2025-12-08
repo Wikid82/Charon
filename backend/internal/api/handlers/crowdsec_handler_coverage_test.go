@@ -24,7 +24,7 @@ func (f *errorExec) Start(ctx context.Context, binPath, configDir string) (int, 
 func (f *errorExec) Stop(ctx context.Context, configDir string) error {
 	return errors.New("failed to stop crowdsec")
 }
-func (f *errorExec) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (f *errorExec) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	return false, 0, errors.New("failed to get status")
 }
 
@@ -40,7 +40,7 @@ func TestCrowdsec_Start_Error(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -59,7 +59,7 @@ func TestCrowdsec_Stop_Error(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/stop", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/stop", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -78,7 +78,7 @@ func TestCrowdsec_Status_Error(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -98,7 +98,7 @@ func TestCrowdsec_ReadFile_MissingPath(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -118,7 +118,7 @@ func TestCrowdsec_ReadFile_PathTraversal(t *testing.T) {
 
 	// Attempt path traversal
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=../../../etc/passwd", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=../../../etc/passwd", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -137,7 +137,7 @@ func TestCrowdsec_ReadFile_NotFound(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=nonexistent.conf", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=nonexistent.conf", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -227,7 +227,7 @@ func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -247,7 +247,7 @@ func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -273,7 +273,7 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -298,7 +298,7 @@ func TestCrowdsec_ImportConfig_NoFile(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", http.NoBody)
 	req.Header.Set("Content-Type", "multipart/form-data")
 	r.ServeHTTP(w, req)
 
@@ -323,7 +323,7 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=subdir/test.conf", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=subdir/test.conf", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

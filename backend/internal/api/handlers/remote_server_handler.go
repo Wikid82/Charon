@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -87,9 +88,9 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 
 // Get retrieves a remote server by UUID.
 func (h *RemoteServerHandler) Get(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	server, err := h.service.GetByUUID(uuid)
+	server, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -100,9 +101,9 @@ func (h *RemoteServerHandler) Get(c *gin.Context) {
 
 // Update updates an existing remote server.
 func (h *RemoteServerHandler) Update(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	server, err := h.service.GetByUUID(uuid)
+	server, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -123,9 +124,9 @@ func (h *RemoteServerHandler) Update(c *gin.Context) {
 
 // Delete removes a remote server.
 func (h *RemoteServerHandler) Delete(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	server, err := h.service.GetByUUID(uuid)
+	server, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -154,9 +155,9 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 
 // TestConnection tests the TCP connection to a remote server.
 func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	server, err := h.service.GetByUUID(uuid)
+	server, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
 		return
@@ -185,7 +186,11 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close tcp connection")
+		}
+	}()
 
 	// Connection successful
 	result["reachable"] = true
@@ -228,7 +233,11 @@ func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close tcp connection")
+		}
+	}()
 
 	// Connection successful
 	result["reachable"] = true

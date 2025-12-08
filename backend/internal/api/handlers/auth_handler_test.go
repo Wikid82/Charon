@@ -137,7 +137,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 	r := gin.New()
 	r.POST("/logout", handler.Logout)
 
-	req := httptest.NewRequest("POST", "/logout", nil)
+	req := httptest.NewRequest("POST", "/logout", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -171,7 +171,7 @@ func TestAuthHandler_Me(t *testing.T) {
 	})
 	r.GET("/me", handler.Me)
 
-	req := httptest.NewRequest("GET", "/me", nil)
+	req := httptest.NewRequest("GET", "/me", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -194,7 +194,7 @@ func TestAuthHandler_Me_NotFound(t *testing.T) {
 	})
 	r.GET("/me", handler.Me)
 
-	req := httptest.NewRequest("GET", "/me", nil)
+	req := httptest.NewRequest("GET", "/me", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -319,7 +319,7 @@ func TestAuthHandler_Verify_NoCookie(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -333,7 +333,7 @@ func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid-token"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -362,7 +362,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -391,7 +391,7 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -420,7 +420,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -459,7 +459,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 	r := gin.New()
 	r.GET("/verify", handler.Verify)
 
-	req := httptest.NewRequest("GET", "/verify", nil)
+	req := httptest.NewRequest("GET", "/verify", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	req.Header.Set("X-Forwarded-Host", "app.example.com")
 	w := httptest.NewRecorder()
@@ -474,7 +474,7 @@ func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
-	req := httptest.NewRequest("GET", "/status", nil)
+	req := httptest.NewRequest("GET", "/status", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -490,7 +490,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
-	req := httptest.NewRequest("GET", "/status", nil)
+	req := httptest.NewRequest("GET", "/status", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "invalid"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -520,7 +520,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
-	req := httptest.NewRequest("GET", "/status", nil)
+	req := httptest.NewRequest("GET", "/status", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -553,7 +553,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 	r := gin.New()
 	r.GET("/status", handler.VerifyStatus)
 
-	req := httptest.NewRequest("GET", "/status", nil)
+	req := httptest.NewRequest("GET", "/status", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -570,7 +570,7 @@ func TestAuthHandler_GetAccessibleHosts_Unauthorized(t *testing.T) {
 	r := gin.New()
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
-	req := httptest.NewRequest("GET", "/hosts", nil)
+	req := httptest.NewRequest("GET", "/hosts", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -604,7 +604,7 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 	})
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
-	req := httptest.NewRequest("GET", "/hosts", nil)
+	req := httptest.NewRequest("GET", "/hosts", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -640,7 +640,7 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 	})
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
-	req := httptest.NewRequest("GET", "/hosts", nil)
+	req := httptest.NewRequest("GET", "/hosts", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -679,7 +679,7 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 	})
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
-	req := httptest.NewRequest("GET", "/hosts", nil)
+	req := httptest.NewRequest("GET", "/hosts", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -701,7 +701,7 @@ func TestAuthHandler_GetAccessibleHosts_UserNotFound(t *testing.T) {
 	})
 	r.GET("/hosts", handler.GetAccessibleHosts)
 
-	req := httptest.NewRequest("GET", "/hosts", nil)
+	req := httptest.NewRequest("GET", "/hosts", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -714,7 +714,7 @@ func TestAuthHandler_CheckHostAccess_Unauthorized(t *testing.T) {
 	r := gin.New()
 	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
 
-	req := httptest.NewRequest("GET", "/hosts/1/access", nil)
+	req := httptest.NewRequest("GET", "/hosts/1/access", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -735,7 +735,7 @@ func TestAuthHandler_CheckHostAccess_InvalidHostID(t *testing.T) {
 	})
 	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
 
-	req := httptest.NewRequest("GET", "/hosts/invalid/access", nil)
+	req := httptest.NewRequest("GET", "/hosts/invalid/access", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -764,7 +764,7 @@ func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
 	})
 	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
 
-	req := httptest.NewRequest("GET", "/hosts/1/access", nil)
+	req := httptest.NewRequest("GET", "/hosts/1/access", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -796,7 +796,7 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 	})
 	r.GET("/hosts/:hostId/access", handler.CheckHostAccess)
 
-	req := httptest.NewRequest("GET", "/hosts/1/access", nil)
+	req := httptest.NewRequest("GET", "/hosts/1/access", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

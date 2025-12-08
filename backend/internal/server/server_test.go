@@ -16,14 +16,14 @@ func TestNewRouter(t *testing.T) {
 
 	// Create a dummy frontend dir
 	tempDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0644)
+	err := os.WriteFile(filepath.Join(tempDir, "index.html"), []byte("<html></html>"), 0o644)
 	assert.NoError(t, err)
 
 	router := NewRouter(tempDir)
 	assert.NotNil(t, router)
 
 	// Test static file serving
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest("GET", "/", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)

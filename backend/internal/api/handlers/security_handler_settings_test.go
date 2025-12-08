@@ -131,7 +131,7 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 			router.GET("/security/status", handler.GetStatus)
 
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest("GET", "/security/status", nil)
+			req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, http.StatusOK, w.Code)
@@ -173,7 +173,7 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -205,7 +205,7 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

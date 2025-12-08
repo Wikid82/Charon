@@ -70,7 +70,7 @@ func BenchmarkSecurityHandler_GetStatus(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -93,7 +93,7 @@ func BenchmarkSecurityHandler_GetStatus_NoSettings(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -126,7 +126,7 @@ func BenchmarkSecurityHandler_ListDecisions(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -159,7 +159,7 @@ func BenchmarkSecurityHandler_ListRuleSets(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/rulesets", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/rulesets", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -254,7 +254,7 @@ func BenchmarkSecurityHandler_GetConfig(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/config", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/config", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {
@@ -323,7 +323,7 @@ func BenchmarkSecurityHandler_GetStatus_Parallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+			req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 			if w.Code != http.StatusOK {
@@ -366,7 +366,7 @@ func BenchmarkSecurityHandler_ListDecisions_Parallel(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", nil)
+			req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 			if w.Code != http.StatusOK {
@@ -453,7 +453,7 @@ func BenchmarkSecurityHandler_ManySettingsLookups(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+		req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		if w.Code != http.StatusOK {

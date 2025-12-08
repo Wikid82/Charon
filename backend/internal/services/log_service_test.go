@@ -19,7 +19,7 @@ func TestLogService(t *testing.T) {
 
 	dataDir := filepath.Join(tmpDir, "data")
 	logsDir := filepath.Join(dataDir, "logs")
-	err = os.MkdirAll(logsDir, 0755)
+	err = os.MkdirAll(logsDir, 0o755)
 	require.NoError(t, err)
 
 	// Create sample JSON logs
@@ -50,9 +50,9 @@ func TestLogService(t *testing.T) {
 
 	content := string(line1) + "\n" + string(line2) + "\n"
 
-	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(content), 0644)
+	err = os.WriteFile(filepath.Join(logsDir, "access.log"), []byte(content), 0o644)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0644)
+	err = os.WriteFile(filepath.Join(logsDir, "other.txt"), []byte("ignore me"), 0o644)
 	require.NoError(t, err)
 
 	cfg := &config.Config{DatabasePath: filepath.Join(dataDir, "charon.db")}
@@ -120,7 +120,7 @@ func TestLogService(t *testing.T) {
 
 	// Test QueryLogs - Non-JSON Logs
 	plainContent := "2023/10/27 10:00:00 Application started\nJust a plain line\n"
-	err = os.WriteFile(filepath.Join(logsDir, "app.log"), []byte(plainContent), 0644)
+	err = os.WriteFile(filepath.Join(logsDir, "app.log"), []byte(plainContent), 0o644)
 	require.NoError(t, err)
 
 	results, total, err = service.QueryLogs("app.log", models.LogFilter{Limit: 10})
@@ -133,17 +133,17 @@ func TestLogService(t *testing.T) {
 
 	// Test QueryLogs - Pagination
 	// We have 2 logs in access.log
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 0})
+	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 0})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 500, results[0].Status) // Newest first
 
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 1})
+	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 1, Offset: 1})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 200, results[0].Status) // Second newest
 
-	results, total, err = service.QueryLogs("access.log", models.LogFilter{Limit: 10, Offset: 5})
+	results, _, err = service.QueryLogs("access.log", models.LogFilter{Limit: 10, Offset: 5})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 

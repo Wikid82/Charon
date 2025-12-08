@@ -84,13 +84,13 @@ func TestRemoteServerHandler_FullCRUD(t *testing.T) {
 	assert.NotEmpty(t, created.UUID)
 
 	// List
-	req, _ = http.NewRequest("GET", "/api/v1/remote-servers", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/remote-servers", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Get
-	req, _ = http.NewRequest("GET", "/api/v1/remote-servers/"+created.UUID, nil)
+	req, _ = http.NewRequest("GET", "/api/v1/remote-servers/"+created.UUID, http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -104,7 +104,7 @@ func TestRemoteServerHandler_FullCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Delete
-	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/"+created.UUID, nil)
+	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/"+created.UUID, http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNoContent, w.Code)
@@ -122,7 +122,7 @@ func TestRemoteServerHandler_FullCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
 	// Delete - Not Found
-	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/non-existent-uuid", nil)
+	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/non-existent-uuid", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)

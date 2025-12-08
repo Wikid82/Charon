@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -49,7 +50,11 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote client: %w", err)
 		}
-		defer func() { _ = cli.Close() }()
+		defer func() {
+			if err := cli.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close docker client")
+			}
+		}()
 	}
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: false})
