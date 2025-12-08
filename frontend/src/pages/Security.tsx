@@ -11,6 +11,7 @@ import { toast } from '../utils/toast'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 
 export default function Security() {
   const navigate = useNavigate()
@@ -78,27 +79,76 @@ export default function Security() {
 
   useEffect(() => { fetchCrowdsecStatus() }, [])
 
-  const startMutation = useMutation({ mutationFn: () => startCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
-  const stopMutation = useMutation({ mutationFn: () => stopCrowdsec(), onSuccess: () => fetchCrowdsecStatus(), onError: (e: unknown) => toast.error(String(e)) })
+  const handleCrowdsecExport = async () => {
+    const defaultName = buildCrowdsecExportFilename()
+    const filename = promptCrowdsecFilename(defaultName)
+    if (!filename) return
+
+    try {
+      const resp = await exportCrowdsecConfig()
+      downloadCrowdsecExport(resp, filename)
+      toast.success('CrowdSec configuration exported')
+    } catch {
+      toast.error('Failed to export CrowdSec configuration')
+    }
+  }
+
+  const crowdsecPowerMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
+      if (enabled) {
+        await startCrowdsec()
+      } else {
+        await stopCrowdsec()
+      }
+      return enabled
+    },
+    onMutate: async (enabled: boolean) => {
+      await queryClient.cancelQueries({ queryKey: ['security-status'] })
+      const previous = queryClient.getQueryData(['security-status'])
+      queryClient.setQueryData(['security-status'], (old: unknown) => {
+        if (!old || typeof old !== 'object') return old
+        const copy = { ...(old as SecurityStatus) }
+        if (copy.crowdsec && typeof copy.crowdsec === 'object') {
+          copy.crowdsec = { ...copy.crowdsec, enabled } as never
+        }
+        return copy
+      })
+      setCrowdsecStatus(prev => prev ? { ...prev, running: enabled } : prev)
+      return { previous }
+    },
+    onError: (err: unknown, enabled: boolean, context: unknown) => {
+      if (context && typeof context === 'object' && 'previous' in context) {
+        queryClient.setQueryData(['security-status'], context.previous)
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
+      fetchCrowdsecStatus()
+    },
+    onSuccess: async (enabled: boolean) => {
+      await fetchCrowdsecStatus()
+      queryClient.invalidateQueries({ queryKey: ['security-status'] })
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast.success(enabled ? 'CrowdSec started' : 'CrowdSec stopped')
+    },
+  })
 
   // Determine if any security operation is in progress
   const isApplyingConfig =
     toggleServiceMutation.isPending ||
     updateSecurityConfigMutation.isPending ||
     generateBreakGlassMutation.isPending ||
-    startMutation.isPending ||
-    stopMutation.isPending
+    crowdsecPowerMutation.isPending
 
   // Determine contextual message
   const getMessage = () => {
     if (toggleServiceMutation.isPending) {
-      return { message: 'Three heads turn...', submessage: 'Security configuration updating' }
+      return { message: 'Three heads turn...', submessage: 'Cerberus configuration updating' }
     }
-    if (startMutation.isPending) {
-      return { message: 'Summoning the guardian...', submessage: 'Intrusion prevention rising' }
-    }
-    if (stopMutation.isPending) {
-      return { message: 'Guardian rests...', submessage: 'Intrusion prevention pausing' }
+    if (crowdsecPowerMutation.isPending) {
+      return crowdsecPowerMutation.variables
+        ? { message: 'Summoning the guardian...', submessage: 'CrowdSec is starting' }
+        : { message: 'Guardian rests...', submessage: 'CrowdSec is stopping' }
     }
     return { message: 'Strengthening the guard...', submessage: 'Protective wards activating' }
   }
@@ -113,6 +163,10 @@ export default function Security() {
     return <div className="p-8 text-center text-red-500">Failed to load security status</div>
   }
 
+  const cerberusDisabled = !status.cerberus?.enabled
+  const crowdsecToggleDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
+  const crowdsecControlsDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
+
   // const suiteDisabled = !(status?.cerberus?.enabled ?? false)
 
   // Replace the previous early-return that instructed enabling via env vars.
@@ -121,10 +175,10 @@ export default function Security() {
     <div className="flex flex-col items-center justify-center text-center space-y-4 p-6 bg-gray-900/5 dark:bg-gray-800 rounded-lg">
       <div className="flex items-center gap-3">
         <Shield className="w-8 h-8 text-gray-400" />
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Security Suite Disabled</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Cerberus Disabled</h2>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-lg">
-        Charon supports advanced security features (CrowdSec, WAF, ACLs, Rate Limiting). Enable the global Cerberus toggle in System Settings and activate individual services below.
+        Cerberus powers CrowdSec, WAF, ACLs, and Rate Limiting. Enable the Cerberus toggle in System Settings to awaken the guardian, then configure each head below.
       </p>
       <Button
         variant="primary"
@@ -153,7 +207,7 @@ export default function Security() {
         <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <ShieldCheck className="w-8 h-8 text-green-500" />
-          Security Dashboard
+          Cerberus Dashboard
         </h1>
           <div/>
         <Button
@@ -185,9 +239,9 @@ export default function Security() {
             <div className="flex items-center gap-3">
               <Switch
                 checked={status.crowdsec.enabled}
-                disabled={!status.cerberus?.enabled}
+                disabled={crowdsecToggleDisabled}
                 onChange={(e) => {
-                  toggleServiceMutation.mutate({ key: 'security.crowdsec.enabled', enabled: e.target.checked })
+                  crowdsecPowerMutation.mutate(e.target.checked)
                 }}
                 data-testid="toggle-crowdsec"
               />
@@ -206,67 +260,35 @@ export default function Security() {
             {crowdsecStatus && (
               <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
             )}
-            {status.crowdsec.enabled && (
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => navigate('/tasks/logs?search=crowdsec')}
-                  >
-                    Logs
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={async () => {
-                      // download config
-                      try {
-                        const resp = await exportCrowdsecConfig()
-                        const url = window.URL.createObjectURL(new Blob([resp]))
-                        const a = document.createElement('a')
-                        a.href = url
-                        a.download = `crowdsec-config-${new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')}.tar.gz`
-                        document.body.appendChild(a)
-                        a.click()
-                        a.remove()
-                        window.URL.revokeObjectURL(url)
-                        toast.success('CrowdSec configuration exported')
-                      } catch {
-                        toast.error('Failed to export CrowdSec configuration')
-                      }
-                    }}
-                  >
-                    Export
-                  </Button>
-                  <Button variant="secondary" size="sm" className="w-full text-xs" onClick={() => navigate('/security/crowdsec')}>
-                    Config
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => startMutation.mutate()}
-                    data-testid="crowdsec-start"
-                    isLoading={startMutation.isPending}
-                    disabled={!!crowdsecStatus?.running}
-                  >
-                    Start
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full text-xs"
-                    onClick={() => stopMutation.mutate()}
-                    data-testid="crowdsec-stop"
-                    isLoading={stopMutation.isPending}
-                    disabled={!crowdsecStatus?.running}
-                  >
-                    Stop
-                  </Button>
-                </div>
-            )}
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full text-xs"
+                onClick={() => navigate('/tasks/logs?search=crowdsec')}
+                disabled={crowdsecControlsDisabled}
+              >
+                Logs
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full text-xs"
+                onClick={handleCrowdsecExport}
+                disabled={crowdsecControlsDisabled}
+              >
+                Export
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full text-xs"
+                onClick={() => navigate('/security/crowdsec')}
+                disabled={crowdsecControlsDisabled}
+              >
+                Config
+              </Button>
+            </div>
           </div>
         </Card>
 
