@@ -162,7 +162,7 @@ describe('security API', () => {
 
   describe('createDecision', () => {
     it('should call POST /security/decisions with payload', async () => {
-      const payload = { ip: '1.2.3.4', duration: '4h', type: 'ban' }
+      const payload = { value: '1.2.3.4', duration: '4h', type: 'ban' }
       const mockData = { success: true }
       vi.mocked(client.post).mockResolvedValue({ data: mockData })
 

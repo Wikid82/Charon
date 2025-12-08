@@ -30,10 +30,10 @@ describe('CrowdSecConfig', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('exports config when clicking Export', async () => {
-    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } } as any)
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] } as any)
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     const blob = new Blob(['dummy'])
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob as any)
+    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
     renderWithProviders(<CrowdSecConfig />)
     await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
     const exportBtn = screen.getByText('Export')
@@ -42,10 +42,10 @@ describe('CrowdSecConfig', () => {
   })
 
   it('uploads a file and calls import on Import (backup before save)', async () => {
-    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } } as any)
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' } as any)
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] } as any)
-    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({ status: 'imported' } as any)
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(crowdsecApi.importCrowdsecConfig).mockResolvedValue({ status: 'imported' })
     renderWithProviders(<CrowdSecConfig />)
     await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
     const input = screen.getByTestId('import-file') as HTMLInputElement
@@ -58,12 +58,12 @@ describe('CrowdSecConfig', () => {
   })
 
   it('lists files, reads file content and can save edits (backup before save)', async () => {
-    const status = { crowdsec: { enabled: true, mode: 'local', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } } as any
+    const status = { crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['conf.d/a.conf', 'b.conf'] } as any)
-    vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: 'rule1' } as any)
-    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' } as any)
-    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' } as any)
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['conf.d/a.conf', 'b.conf'] })
+    vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: 'rule1' })
+    vi.mocked(backupsApi.createBackup).mockResolvedValue({ filename: 'backup.tar.gz' })
+    vi.mocked(crowdsecApi.writeCrowdsecFile).mockResolvedValue({ status: 'written' })
 
     renderWithProviders(<CrowdSecConfig />)
     await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
@@ -86,9 +86,9 @@ describe('CrowdSecConfig', () => {
   })
 
   it('persists crowdsec.mode via settings when changed', async () => {
-    const status = { crowdsec: { enabled: true, mode: 'disabled', api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' }, rate_limit: { enabled: false }, acl: { enabled: false } } as any
+    const status = { crowdsec: { enabled: true, mode: 'disabled' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
-    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] } as any)
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
     renderWithProviders(<CrowdSecConfig />)

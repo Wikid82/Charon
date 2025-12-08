@@ -51,9 +51,19 @@ func TestIsEnabled_CrowdSecModeLocal(t *testing.T) {
 	require.True(t, c.IsEnabled())
 }
 
-func TestIsEnabled_DBSetting(t *testing.T) {
+func TestIsEnabled_DBSetting_FeatureFlag(t *testing.T) {
 	db := setupDBForTest(t)
-	// insert setting to database
+	// Test new feature flag key
+	s := models.Setting{Key: "feature.cerberus.enabled", Value: "true"}
+	require.NoError(t, db.Create(&s).Error)
+	cfg := config.SecurityConfig{}
+	c := cerberus.New(cfg, db)
+	require.True(t, c.IsEnabled())
+}
+
+func TestIsEnabled_DBSetting_LegacyKey(t *testing.T) {
+	db := setupDBForTest(t)
+	// Test backward compatibility with legacy key
 	s := models.Setting{Key: "security.cerberus.enabled", Value: "true"}
 	require.NoError(t, db.Create(&s).Error)
 	cfg := config.SecurityConfig{}
@@ -61,9 +71,19 @@ func TestIsEnabled_DBSetting(t *testing.T) {
 	require.True(t, c.IsEnabled())
 }
 
+func TestIsEnabled_DBSetting_FeatureFlagTakesPrecedence(t *testing.T) {
+	db := setupDBForTest(t)
+	// Feature flag should take precedence over legacy key
+	require.NoError(t, db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "false"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "true"}).Error)
+	cfg := config.SecurityConfig{}
+	c := cerberus.New(cfg, db)
+	require.False(t, c.IsEnabled())
+}
+
 func TestIsEnabled_DBSettingCaseInsensitive(t *testing.T) {
 	db := setupDBForTest(t)
-	s := models.Setting{Key: "security.cerberus.enabled", Value: "TrUe"}
+	s := models.Setting{Key: "feature.cerberus.enabled", Value: "TrUe"}
 	require.NoError(t, db.Create(&s).Error)
 	cfg := config.SecurityConfig{}
 	c := cerberus.New(cfg, db)
@@ -72,15 +92,16 @@ func TestIsEnabled_DBSettingCaseInsensitive(t *testing.T) {
 
 func TestIsEnabled_DBSettingFalse(t *testing.T) {
 	db := setupDBForTest(t)
-	s := models.Setting{Key: "security.cerberus.enabled", Value: "false"}
+	s := models.Setting{Key: "feature.cerberus.enabled", Value: "false"}
 	require.NoError(t, db.Create(&s).Error)
 	cfg := config.SecurityConfig{}
 	c := cerberus.New(cfg, db)
 	require.False(t, c.IsEnabled())
 }
 
-func TestIsEnabled_DefaultFalse(t *testing.T) {
+func TestIsEnabled_DefaultTrue(t *testing.T) {
 	cfg := config.SecurityConfig{}
 	c := cerberus.New(cfg, nil)
-	require.False(t, c.IsEnabled())
+	// Default to true per Optional Features spec
+	require.True(t, c.IsEnabled())
 }

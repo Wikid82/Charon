@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -266,4 +267,14 @@ func (s *BackupService) unzip(src, dest string) error {
 		}
 	}
 	return nil
+}
+
+// GetAvailableSpace returns the available disk space in bytes for the backup directory
+func (s *BackupService) GetAvailableSpace() (int64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(s.BackupDir, &stat); err != nil {
+		return 0, fmt.Errorf("failed to get disk space: %w", err)
+	}
+	// Available blocks * block size = available bytes
+	return int64(stat.Bavail) * int64(stat.Bsize), nil
 }

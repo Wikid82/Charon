@@ -132,7 +132,7 @@ const ProviderForm: FC<{
           </div>
           <div className="mt-2">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template</label>
-            <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300">
+            <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
               {/* Built-in template options */}
               {builtins?.map((t: NotificationTemplate) => (
                 <option key={t.id} value={t.id}>{t.name}</option>

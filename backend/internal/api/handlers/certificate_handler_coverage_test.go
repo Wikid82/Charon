@@ -21,6 +21,7 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
@@ -38,6 +39,7 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
@@ -56,6 +58,7 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
@@ -78,6 +81,7 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	// Wait for background sync goroutine to complete to avoid race with -race flag
 	// NewCertificateService spawns a goroutine that immediately queries the DB
@@ -115,6 +119,7 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
@@ -137,6 +142,7 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)

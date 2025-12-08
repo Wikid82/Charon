@@ -4,14 +4,17 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -24,16 +27,37 @@ type CrowdsecExecutor interface {
 	Status(ctx context.Context, configDir string) (running bool, pid int, err error)
 }
 
+// CommandExecutor abstracts command execution for testing
+type CommandExecutor interface {
+	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
+}
+
+// RealCommandExecutor executes commands using os/exec
+type RealCommandExecutor struct{}
+
+// Execute runs a command and returns its output
+func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.Output()
+}
+
 // CrowdsecHandler manages CrowdSec process and config imports.
 type CrowdsecHandler struct {
 	DB       *gorm.DB
 	Executor CrowdsecExecutor
+	CmdExec  CommandExecutor
 	BinPath  string
 	DataDir  string
 }
 
 func NewCrowdsecHandler(db *gorm.DB, exec CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
-	return &CrowdsecHandler{DB: db, Executor: exec, BinPath: binPath, DataDir: dataDir}
+	return &CrowdsecHandler{
+		DB:       db,
+		Executor: exec,
+		CmdExec:  &RealCommandExecutor{},
+		BinPath:  binPath,
+		DataDir:  dataDir,
+	}
 }
 
 // Start starts the CrowdSec process.
@@ -290,6 +314,149 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
 }
 
+// CrowdSecDecision represents a ban decision from CrowdSec
+type CrowdSecDecision struct {
+	ID        int64     `json:"id"`
+	Origin    string    `json:"origin"`
+	Type      string    `json:"type"`
+	Scope     string    `json:"scope"`
+	Value     string    `json:"value"`
+	Duration  string    `json:"duration"`
+	Scenario  string    `json:"scenario"`
+	CreatedAt time.Time `json:"created_at"`
+	Until     string    `json:"until,omitempty"`
+}
+
+// cscliDecision represents the JSON output from cscli decisions list
+type cscliDecision struct {
+	ID        int64  `json:"id"`
+	Origin    string `json:"origin"`
+	Type      string `json:"type"`
+	Scope     string `json:"scope"`
+	Value     string `json:"value"`
+	Duration  string `json:"duration"`
+	Scenario  string `json:"scenario"`
+	CreatedAt string `json:"created_at"`
+	Until     string `json:"until"`
+}
+
+// ListDecisions calls cscli to get current decisions (banned IPs)
+func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
+	ctx := c.Request.Context()
+	output, err := h.CmdExec.Execute(ctx, "cscli", "decisions", "list", "-o", "json")
+	if err != nil {
+		// If cscli is not available or returns error, return empty list with warning
+		logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
+		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "error": "cscli not available or failed"})
+		return
+	}
+
+	// Handle empty output (no decisions)
+	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
+		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "total": 0})
+		return
+	}
+
+	// Parse JSON output
+	var rawDecisions []cscliDecision
+	if err := json.Unmarshal(output, &rawDecisions); err != nil {
+		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to parse cscli decisions output")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse decisions"})
+		return
+	}
+
+	// Convert to our format
+	decisions := make([]CrowdSecDecision, 0, len(rawDecisions))
+	for _, d := range rawDecisions {
+		var createdAt time.Time
+		if d.CreatedAt != "" {
+			createdAt, _ = time.Parse(time.RFC3339, d.CreatedAt)
+		}
+		decisions = append(decisions, CrowdSecDecision{
+			ID:        d.ID,
+			Origin:    d.Origin,
+			Type:      d.Type,
+			Scope:     d.Scope,
+			Value:     d.Value,
+			Duration:  d.Duration,
+			Scenario:  d.Scenario,
+			CreatedAt: createdAt,
+			Until:     d.Until,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions)})
+}
+
+// BanIPRequest represents the request body for banning an IP
+type BanIPRequest struct {
+	IP       string `json:"ip" binding:"required"`
+	Duration string `json:"duration"`
+	Reason   string `json:"reason"`
+}
+
+// BanIP adds a manual ban for an IP address
+func (h *CrowdsecHandler) BanIP(c *gin.Context) {
+	var req BanIPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip is required"})
+		return
+	}
+
+	// Validate IP format (basic check)
+	ip := strings.TrimSpace(req.IP)
+	if ip == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip cannot be empty"})
+		return
+	}
+
+	// Default duration to 24h if not specified
+	duration := req.Duration
+	if duration == "" {
+		duration = "24h"
+	}
+
+	// Build reason string
+	reason := "manual ban"
+	if req.Reason != "" {
+		reason = fmt.Sprintf("manual ban: %s", req.Reason)
+	}
+
+	ctx := c.Request.Context()
+	args := []string{"decisions", "add", "-i", ip, "-d", duration, "-R", reason, "-t", "ban"}
+	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	if err != nil {
+		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions add")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban IP"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "banned", "ip": ip, "duration": duration})
+}
+
+// UnbanIP removes a ban for an IP address
+func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
+	ip := c.Param("ip")
+	if ip == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip parameter required"})
+		return
+	}
+
+	// Sanitize IP
+	ip = strings.TrimSpace(ip)
+
+	ctx := c.Request.Context()
+	args := []string{"decisions", "delete", "-i", ip}
+	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
+	if err != nil {
+		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions delete")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban IP"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+}
+
 // RegisterRoutes registers crowdsec admin routes under protected group
 func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/start", h.Start)
@@ -300,4 +467,8 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/files", h.ListFiles)
 	rg.GET("/admin/crowdsec/file", h.ReadFile)
 	rg.POST("/admin/crowdsec/file", h.WriteFile)
+	// Decision management endpoints (Banned IP Dashboard)
+	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
+	rg.POST("/admin/crowdsec/ban", h.BanIP)
+	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
 }
