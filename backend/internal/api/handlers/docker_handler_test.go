@@ -50,7 +50,7 @@ func TestDockerHandler_ListContainers(t *testing.T) {
 	h := NewDockerHandler(svc, rsService)
 	h.RegisterRoutes(r.Group("/"))
 
-	req, _ := http.NewRequest("GET", "/docker/containers", nil)
+	req, _ := http.NewRequest("GET", "/docker/containers", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -70,7 +70,7 @@ func TestDockerHandler_ListContainers_NonExistentServerID(t *testing.T) {
 	h.RegisterRoutes(r.Group("/"))
 
 	// Request with non-existent server_id
-	req, _ := http.NewRequest("GET", "/docker/containers?server_id=non-existent-uuid", nil)
+	req, _ := http.NewRequest("GET", "/docker/containers?server_id=non-existent-uuid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -101,7 +101,7 @@ func TestDockerHandler_ListContainers_WithServerID(t *testing.T) {
 	h.RegisterRoutes(r.Group("/"))
 
 	// Request with valid server_id (will fail to connect, but shouldn't error on lookup)
-	req, _ := http.NewRequest("GET", "/docker/containers?server_id="+server.UUID, nil)
+	req, _ := http.NewRequest("GET", "/docker/containers?server_id="+server.UUID, http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -124,7 +124,7 @@ func TestDockerHandler_ListContainers_WithHostQuery(t *testing.T) {
 	h.RegisterRoutes(r.Group("/"))
 
 	// Request with custom host parameter
-	req, _ := http.NewRequest("GET", "/docker/containers?host=tcp://invalid-host:2375", nil)
+	req, _ := http.NewRequest("GET", "/docker/containers?host=tcp://invalid-host:2375", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

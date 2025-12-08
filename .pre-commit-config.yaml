@@ -1,13 +1,4 @@
 repos:
-  - repo: local
-    hooks:
-      - id: python-compile
-        name: python compile check
-        entry: tools/python_compile_check.sh
-        language: script
-        files: ".*\\.py$"
-        pass_filenames: false
-        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

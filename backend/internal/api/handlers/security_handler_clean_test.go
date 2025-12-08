@@ -46,7 +46,7 @@ func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -72,7 +72,7 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -108,7 +108,7 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -127,7 +127,7 @@ func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/security/breakglass/generate", nil)
+	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
@@ -156,7 +156,7 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -185,7 +185,7 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -209,7 +209,7 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	var response map[string]interface{}
@@ -233,7 +233,7 @@ func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
 	router.GET("/security/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/status", nil)
+	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	var response map[string]interface{}
@@ -279,7 +279,7 @@ func TestSecurityHandler_Enable_Disable_WithAdminWhitelistAndToken(t *testing.T)
 	assert.Equal(t, http.StatusOK, resp.Code)
 
 	// Generate break-glass token
-	req = httptest.NewRequest("POST", "/api/v1/security/breakglass/generate", nil)
+	req = httptest.NewRequest("POST", "/api/v1/security/breakglass/generate", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)

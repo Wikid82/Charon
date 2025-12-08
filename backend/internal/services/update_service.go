@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/version"
 )
 
@@ -61,7 +62,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	req, err := http.NewRequest("GET", s.apiURL, nil)
+	req, err := http.NewRequest("GET", s.apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +72,11 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close update service response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		// If rate limited or not found, just return no update available
@@ -87,7 +92,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 	// In production, use a semver library.
 	// Assuming tags are "v0.1.0" and version is "0.1.0"
 	latest := release.TagName
-	if len(latest) > 0 && latest[0] == 'v' {
+	if latest != "" && latest[0] == 'v' {
 		latest = latest[1:]
 	}
 

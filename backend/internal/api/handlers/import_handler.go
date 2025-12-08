@@ -267,7 +267,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid import directory"})
 		return
 	}
-	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create uploads directory"})
 		return
 	}
@@ -276,7 +276,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid temp path"})
 		return
 	}
-	if err := os.WriteFile(tempPath, []byte(req.Content), 0644); err != nil {
+	if err := os.WriteFile(tempPath, []byte(req.Content), 0o644); err != nil {
 		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(err).Error("Import Upload: failed to write temp file")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write upload"})
 		return
@@ -415,7 +415,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid session directory"})
 		return
 	}
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session directory"})
 		return
 	}
@@ -438,13 +438,13 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 
 		// Create parent directory if file is in a subdirectory
 		if dir := filepath.Dir(targetPath); dir != sessionDir {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create directory for %s", f.Filename)})
 				return
 			}
 		}
 
-		if err := os.WriteFile(targetPath, []byte(f.Content), 0644); err != nil {
+		if err := os.WriteFile(targetPath, []byte(f.Content), 0o644); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to write file %s", f.Filename)})
 			return
 		}
@@ -510,12 +510,12 @@ func detectImportDirectives(content string) []string {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "import ") {
-			path := strings.TrimSpace(strings.TrimPrefix(trimmed, "import"))
+			importPath := strings.TrimSpace(strings.TrimPrefix(trimmed, "import"))
 			// Remove any trailing comments
-			if idx := strings.Index(path, "#"); idx != -1 {
-				path = strings.TrimSpace(path[:idx])
+			if idx := strings.Index(importPath, "#"); idx != -1 {
+				importPath = strings.TrimSpace(importPath[:idx])
 			}
-			imports = append(imports, path)
+			imports = append(imports, importPath)
 		}
 	}
 	return imports

@@ -36,7 +36,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// List
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/backups", nil)
+	req := httptest.NewRequest(http.MethodGet, "/backups", http.NoBody)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -44,7 +44,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Create (backup)
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/backups", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/backups", http.NoBody)
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusCreated {
 		t.Fatalf("create expected 201 got %d", w2.Code)
@@ -59,7 +59,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Delete missing
 	w3 := httptest.NewRecorder()
-	req3 := httptest.NewRequest(http.MethodDelete, "/backups/missing", nil)
+	req3 := httptest.NewRequest(http.MethodDelete, "/backups/missing", http.NoBody)
 	r.ServeHTTP(w3, req3)
 	if w3.Code != http.StatusNotFound {
 		t.Fatalf("delete missing expected 404 got %d", w3.Code)
@@ -67,7 +67,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Download missing
 	w4 := httptest.NewRecorder()
-	req4 := httptest.NewRequest(http.MethodGet, "/backups/missing", nil)
+	req4 := httptest.NewRequest(http.MethodGet, "/backups/missing", http.NoBody)
 	r.ServeHTTP(w4, req4)
 	if w4.Code != http.StatusNotFound {
 		t.Fatalf("download missing expected 404 got %d", w4.Code)
@@ -75,7 +75,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Download present (use filename returned from create)
 	w5 := httptest.NewRecorder()
-	req5 := httptest.NewRequest(http.MethodGet, "/backups/"+createResp.Filename, nil)
+	req5 := httptest.NewRequest(http.MethodGet, "/backups/"+createResp.Filename, http.NoBody)
 	r.ServeHTTP(w5, req5)
 	if w5.Code != http.StatusOK {
 		t.Fatalf("download expected 200 got %d", w5.Code)
@@ -83,7 +83,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Restore missing
 	w6 := httptest.NewRecorder()
-	req6 := httptest.NewRequest(http.MethodPost, "/backups/missing/restore", nil)
+	req6 := httptest.NewRequest(http.MethodPost, "/backups/missing/restore", http.NoBody)
 	r.ServeHTTP(w6, req6)
 	if w6.Code != http.StatusNotFound {
 		t.Fatalf("restore missing expected 404 got %d", w6.Code)
@@ -91,7 +91,7 @@ func TestBackupHandlerQuick(t *testing.T) {
 
 	// Restore ok
 	w7 := httptest.NewRecorder()
-	req7 := httptest.NewRequest(http.MethodPost, "/backups/"+createResp.Filename+"/restore", nil)
+	req7 := httptest.NewRequest(http.MethodPost, "/backups/"+createResp.Filename+"/restore", http.NoBody)
 	r.ServeHTTP(w7, req7)
 	if w7.Code != http.StatusOK {
 		t.Fatalf("restore expected 200 got %d", w7.Code)

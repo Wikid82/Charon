@@ -45,7 +45,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 
 	// List
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/notifications/templates", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/notifications/templates", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -76,7 +76,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	require.NotEmpty(t, previewResp["rendered"])
 
 	// Delete
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/notifications/templates/"+created.ID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/notifications/templates/"+created.ID, http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)

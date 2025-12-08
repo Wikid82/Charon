@@ -140,11 +140,11 @@ func TestManager_GetCurrentConfig(t *testing.T) {
 	client := NewClient(caddyServer.URL)
 	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
 
-	config, err := manager.GetCurrentConfig(context.Background())
+	cfg, err := manager.GetCurrentConfig(context.Background())
 	assert.NoError(t, err)
-	assert.NotNil(t, config)
-	assert.NotNil(t, config.Apps)
-	assert.NotNil(t, config.Apps.HTTP)
+	assert.NotNil(t, cfg)
+	assert.NotNil(t, cfg.Apps)
+	assert.NotNil(t, cfg.Apps.HTTP)
 }
 
 func TestManager_RotateSnapshots(t *testing.T) {
@@ -289,7 +289,7 @@ func TestManager_ApplyConfig_ValidationError(t *testing.T) {
 	// Setup Manager with a file as configDir to force saveSnapshot error
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config-file")
-	os.WriteFile(configDir, []byte("not a dir"), 0644)
+	os.WriteFile(configDir, []byte("not a dir"), 0o644)
 
 	client := NewClient("http://localhost")
 	manager := NewManager(client, db, configDir, "", false, config.SecurityConfig{})
@@ -325,7 +325,7 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a dummy snapshot manually so rollback has something to try
-	os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o644)
 
 	// Apply Config - will fail, try rollback, rollback will fail
 	err = manager.ApplyConfig(context.Background())

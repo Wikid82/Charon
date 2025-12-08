@@ -90,7 +90,7 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 			router.GET("/security/status", handler.GetStatus)
 
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest("GET", "/security/status", nil)
+			req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 			router.ServeHTTP(w, req)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)

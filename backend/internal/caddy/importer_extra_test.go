@@ -135,7 +135,7 @@ func TestBackupCaddyfile_Success(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
 	data := []byte("original-data")
-	os.WriteFile(originalFile, data, 0644)
+	os.WriteFile(originalFile, data, 0o644)
 	backupDir := filepath.Join(tmp, "backup")
 	path, err := BackupCaddyfile(originalFile, backupDir)
 	require.NoError(t, err)
@@ -195,10 +195,10 @@ func TestImporter_ExtractHosts_DuplicateHost(t *testing.T) {
 func TestBackupCaddyfile_WriteFailure(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
-	os.WriteFile(originalFile, []byte("original"), 0644)
+	os.WriteFile(originalFile, []byte("original"), 0o644)
 	// Create backup dir and make it readonly to prevent writing (best-effort)
 	backupDir := filepath.Join(tmp, "backup")
-	os.MkdirAll(backupDir, 0555)
+	os.MkdirAll(backupDir, 0o555)
 	_, err := BackupCaddyfile(originalFile, backupDir)
 	// Might error due to write permission; accept both success or failure depending on platform
 	if err != nil {
@@ -357,14 +357,14 @@ func TestImporter_ExtractHosts_ForceSplitFallback_PartsSscanfFail(t *testing.T) 
 func TestBackupCaddyfile_WriteErrorDeterministic(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
-	os.WriteFile(originalFile, []byte("original-data"), 0644)
+	os.WriteFile(originalFile, []byte("original-data"), 0o644)
 	backupDir := filepath.Join(tmp, "backup")
-	os.MkdirAll(backupDir, 0755)
+	os.MkdirAll(backupDir, 0o755)
 	// Determine backup path name the function will use
 	pid := fmt.Sprintf("%d", os.Getpid())
 	// Pre-create a directory at the exact backup path to ensure write fails with EISDIR
 	path := filepath.Join(backupDir, fmt.Sprintf("Caddyfile.%s.backup", pid))
-	os.Mkdir(path, 0755)
+	os.Mkdir(path, 0o755)
 	_, err := BackupCaddyfile(originalFile, backupDir)
 	require.Error(t, err)
 }
@@ -378,7 +378,7 @@ func TestParseCaddyfile_InvalidPath(t *testing.T) {
 	require.Error(t, err)
 
 	// Path traversal should be rejected
-	traversal := ".." + string(os.PathSeparator) + "Caddyfile"
+	traversal := filepath.Join("..", "Caddyfile")
 	_, err = importer.ParseCaddyfile(traversal)
 	require.Error(t, err)
 }
@@ -390,6 +390,6 @@ func TestBackupCaddyfile_InvalidOriginalPath(t *testing.T) {
 	require.Error(t, err)
 
 	// Path traversal rejection
-	_, err = BackupCaddyfile(".."+string(os.PathSeparator)+"Caddyfile", tmp)
+	_, err = BackupCaddyfile(filepath.Join("..", "Caddyfile"), tmp)
 	require.Error(t, err)
 }

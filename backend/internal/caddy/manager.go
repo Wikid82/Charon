@@ -43,7 +43,7 @@ type Manager struct {
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir string, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
+func NewManager(client *Client, db *gorm.DB, configDir, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
 	return &Manager{
 		client:      client,
 		db:          db,
@@ -138,7 +138,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	rulesetPaths := make(map[string]string)
 	if len(rulesets) > 0 {
 		corazaDir := filepath.Join(m.configDir, "coraza", "rulesets")
-		if err := os.MkdirAll(corazaDir, 0755); err != nil {
+		if err := os.MkdirAll(corazaDir, 0o755); err != nil {
 			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
 		}
 		for _, rs := range rulesets {
@@ -183,7 +183,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 			// Write ruleset file with world-readable permissions so the Caddy
 			// process (which may run as an unprivileged user) can read it.
-			if err := writeFileFunc(filePath, []byte(content), 0644); err != nil {
+			if err := writeFileFunc(filePath, []byte(content), 0o644); err != nil {
 				logger.Log().WithError(err).WithField("ruleset", rs.Name).Warn("failed to write coraza ruleset file")
 			} else {
 				// Log a short fingerprint for debugging and confirm path
@@ -221,7 +221,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
@@ -242,29 +242,29 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Log generated config size and a compact JSON snippet for debugging when in debug mode
-	if cfgJSON, jerr := jsonMarshalDebugFunc(config); jerr == nil {
+	if cfgJSON, jerr := jsonMarshalDebugFunc(generatedConfig); jerr == nil {
 		logger.Log().WithField("config_json_len", len(cfgJSON)).Debug("generated Caddy config JSON")
 	} else {
 		logger.Log().WithError(jerr).Warn("failed to marshal generated config for debug logging")
 	}
 
 	// Validate before applying
-	if err := validateConfigFunc(config); err != nil {
+	if err := validateConfigFunc(generatedConfig); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
 	// Save snapshot for rollback
-	snapshotPath, err := m.saveSnapshot(config)
+	snapshotPath, err := m.saveSnapshot(generatedConfig)
 	if err != nil {
 		return fmt.Errorf("save snapshot: %w", err)
 	}
 
 	// Calculate config hash for audit trail
-	configJSON, _ := json.Marshal(config)
+	configJSON, _ := json.Marshal(generatedConfig)
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configJSON))
 
 	// Apply to Caddy
-	if err := m.client.Load(ctx, config); err != nil {
+	if err := m.client.Load(ctx, generatedConfig); err != nil {
 		// Remove the failed snapshot so rollback uses the previous one
 		_ = removeFileFunc(snapshotPath)
 
@@ -293,17 +293,17 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 }
 
 // saveSnapshot stores the config to disk with timestamp.
-func (m *Manager) saveSnapshot(config *Config) (string, error) {
+func (m *Manager) saveSnapshot(conf *Config) (string, error) {
 	timestamp := time.Now().Unix()
 	filename := fmt.Sprintf("config-%d.json", timestamp)
 	path := filepath.Join(m.configDir, filename)
 
-	configJSON, err := jsonMarshalFunc(config, "", "  ")
+	configJSON, err := jsonMarshalFunc(conf, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := writeFileFunc(path, configJSON, 0644); err != nil {
+	if err := writeFileFunc(path, configJSON, 0o644); err != nil {
 		return "", fmt.Errorf("write snapshot: %w", err)
 	}
 
@@ -324,13 +324,13 @@ func (m *Manager) rollback(ctx context.Context) error {
 		return fmt.Errorf("read snapshot: %w", err)
 	}
 
-	var config Config
-	if err := json.Unmarshal(configJSON, &config); err != nil {
+	var conf Config
+	if err := json.Unmarshal(configJSON, &conf); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
 	}
 
 	// Apply the snapshot
-	if err := m.client.Load(ctx, &config); err != nil {
+	if err := m.client.Load(ctx, &conf); err != nil {
 		return fmt.Errorf("load snapshot: %w", err)
 	}
 
@@ -409,7 +409,7 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 
 // computeEffectiveFlags reads runtime settings to determine whether Cerberus
 // suite and each sub-component (ACL, WAF, RateLimit, CrowdSec) are effectively enabled.
-func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled bool, aclEnabled bool, wafEnabled bool, rateLimitEnabled bool, crowdsecEnabled bool) {
+func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled bool) {
 	// Base flags from static config
 	cerbEnabled = m.securityCfg.CerberusEnabled
 	// WAF is enabled if explicitly set and not 'disabled' (supports 'monitor'/'block')

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/logger"
 
 	"gorm.io/gorm"
 
@@ -106,9 +107,9 @@ func (s *ProxyHostService) GetByID(id uint) (*models.ProxyHost, error) {
 }
 
 // GetByUUID finds a proxy host by UUID.
-func (s *ProxyHostService) GetByUUID(uuid string) (*models.ProxyHost, error) {
+func (s *ProxyHostService) GetByUUID(uuidStr string) (*models.ProxyHost, error) {
 	var host models.ProxyHost
-	if err := s.db.Preload("Locations").Preload("Certificate").Where("uuid = ?", uuid).First(&host).Error; err != nil {
+	if err := s.db.Preload("Locations").Preload("Certificate").Where("uuid = ?", uuidStr).First(&host).Error; err != nil {
 		return nil, err
 	}
 	return &host, nil
@@ -134,7 +135,11 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close tcp connection")
+		}
+	}()
 
 	return nil
 }

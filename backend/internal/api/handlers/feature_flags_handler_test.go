@@ -32,7 +32,7 @@ func TestFeatureFlags_GetAndUpdate(t *testing.T) {
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
 	// 1) GET should return all default flags (as keys)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -83,7 +83,7 @@ func TestFeatureFlags_EnvFallback(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/trace"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -14,6 +12,9 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/trace"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -275,7 +276,11 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close webhook response body")
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned status: %d", resp.StatusCode)
@@ -359,7 +364,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 	return shoutrrr.Send(url, "Test notification from Charon")
 }
 
-// Templates (external notification templates) management
+// ListTemplates returns all external notification templates stored in the database.
 func (s *NotificationService) ListTemplates() ([]models.NotificationTemplate, error) {
 	var list []models.NotificationTemplate
 	if err := s.DB.Order("created_at desc").Find(&list).Error; err != nil {
@@ -368,6 +373,7 @@ func (s *NotificationService) ListTemplates() ([]models.NotificationTemplate, er
 	return list, nil
 }
 
+// GetTemplate returns a single notification template by its ID.
 func (s *NotificationService) GetTemplate(id string) (*models.NotificationTemplate, error) {
 	var t models.NotificationTemplate
 	if err := s.DB.First(&t, "id = ?", id).Error; err != nil {
@@ -376,21 +382,24 @@ func (s *NotificationService) GetTemplate(id string) (*models.NotificationTempla
 	return &t, nil
 }
 
+// CreateTemplate stores a new notification template in the database.
 func (s *NotificationService) CreateTemplate(t *models.NotificationTemplate) error {
 	return s.DB.Create(t).Error
 }
 
+// UpdateTemplate saves updates to an existing notification template.
 func (s *NotificationService) UpdateTemplate(t *models.NotificationTemplate) error {
 	return s.DB.Save(t).Error
 }
 
+// DeleteTemplate removes a notification template by its ID.
 func (s *NotificationService) DeleteTemplate(id string) error {
 	return s.DB.Delete(&models.NotificationTemplate{}, "id = ?", id).Error
 }
 
 // RenderTemplate renders a provider template with provided data and returns
 // the rendered JSON string and the parsed object for previewing/validation.
-func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (string, interface{}, error) {
+func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (resp string, parsed interface{}, err error) {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
 	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
@@ -428,7 +437,6 @@ func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data
 	}
 
 	// Validate produced JSON
-	var parsed interface{}
 	if err := json.Unmarshal(body.Bytes(), &parsed); err != nil {
 		return body.String(), nil, fmt.Errorf("failed to parse rendered template: %w", err)
 	}
