@@ -21,7 +21,7 @@ ARG CADDY_VERSION=2.10.2
 ARG CADDY_IMAGE=alpine:3.23
 
 # ---- Cross-Compilation Helpers ----
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0 AS xx
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
