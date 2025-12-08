@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
@@ -804,6 +805,47 @@ func (s *UptimeService) FlushPendingNotifications() {
 	for _, hostID := range pendingHostIDs {
 		s.flushPendingNotification(hostID)
 	}
+}
+
+// SyncMonitorForHost updates the uptime monitor linked to a specific proxy host.
+// This should be called when a proxy host is edited to keep the monitor in sync.
+// Returns nil if no monitor exists for the host (does not create one).
+func (s *UptimeService) SyncMonitorForHost(hostID uint) error {
+	var host models.ProxyHost
+	if err := s.DB.First(&host, hostID).Error; err != nil {
+		return err
+	}
+
+	var monitor models.UptimeMonitor
+	if err := s.DB.Where("proxy_host_id = ?", hostID).First(&monitor).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // No monitor to sync
+		}
+		return err
+	}
+
+	// Update monitor fields based on current proxy host values
+	domains := strings.Split(host.DomainNames, ",")
+	firstDomain := ""
+	if len(domains) > 0 {
+		firstDomain = strings.TrimSpace(domains[0])
+	}
+
+	scheme := "http"
+	if host.SSLForced {
+		scheme = "https"
+	}
+
+	newName := host.Name
+	if newName == "" {
+		newName = firstDomain
+	}
+
+	monitor.Name = newName
+	monitor.URL = fmt.Sprintf("%s://%s", scheme, firstDomain)
+	monitor.UpstreamHost = host.ForwardHost
+
+	return s.DB.Save(&monitor).Error
 }
 
 // CRUD for Monitors

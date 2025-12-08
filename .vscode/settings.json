@@ -8,24 +8,22 @@
     ]
     ,
     "gopls": {
-        "buildFlags": ["-tags=ignore", "-mod=mod"],
         "env": {
             "GOWORK": "off",
             "GOFLAGS": "-mod=mod",
-            "GOTOOLCHAIN": "none"
+            "GOTOOLCHAIN": "auto"
         },
         "directoryFilters": [
             "-**/pkg/mod/**",
             "-**/go/pkg/mod/**",
-            "-**/root/go/pkg/mod/**",
-            "-**/golang.org/toolchain@**"
+            "-**/root/go/pkg/mod/**"
         ]
     },
     "go.buildFlags": ["-tags=ignore", "-mod=mod"],
     "go.toolsEnvVars": {
         "GOWORK": "off",
         "GOFLAGS": "-mod=mod",
-        "GOTOOLCHAIN": "none"
+        "GOTOOLCHAIN": "auto"
     },
     "files.watcherExclude": {
         "**/pkg/mod/**": true,
@@ -39,5 +37,7 @@
     },
     "githubPullRequests.ignoredPullRequestBranches": [
         "main"
-    ]
+    ],
+    // Toggle workspace-specific keybindings (used by .vscode/keybindings.json)
+    "charon.workspaceKeybindingsEnabled": true
 }

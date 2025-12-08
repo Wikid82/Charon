@@ -1,4 +1,4 @@
-name: Dev_Ops
+name: Dev Ops
 description: DevOps specialist that debugs GitHub Actions, CI pipelines, and Docker builds.
 argument-hint: The workflow issue (e.g., "Why did the last build fail?" or "Fix the Docker push error")
 tools: ['run_terminal_command', 'read_file', 'write_file', 'search', 'list_dir']

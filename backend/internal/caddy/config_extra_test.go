@@ -225,7 +225,8 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 	// Provide rulesets and paths so WAF handler is created with directives
 	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
-	secCfg := &models.SecurityConfig{CrowdSecMode: "local"}
+	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
+	secCfg := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]

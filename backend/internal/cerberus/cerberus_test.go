@@ -42,6 +42,9 @@ func TestCerberus_IsEnabled_DBSetting(t *testing.T) {
 
 func TestCerberus_IsEnabled_Disabled(t *testing.T) {
 	db := setupTestDB(t)
+	// Per Optional Features spec: when no DB setting exists and no config modes are enabled,
+	// Cerberus defaults to true (enabled). To test disabled state, we must set DB flag to false.
+	db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "false"})
 	cfg := config.SecurityConfig{CerberusEnabled: false}
 	cerb := cerberus.New(cfg, db)
 	t.Logf("cfg: %+v", cfg)

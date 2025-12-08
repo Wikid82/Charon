@@ -1,4 +1,10 @@
-# Python
+# =============================================================================
+# .gitignore - Files to exclude from version control
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python (pre-commit, tooling)
+# -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -14,25 +20,44 @@ ENV/
 .hypothesis/
 htmlcov/
 
+# -----------------------------------------------------------------------------
 # Node/Frontend
+# -----------------------------------------------------------------------------
 node_modules/
 frontend/node_modules/
 backend/node_modules/
 frontend/dist/
 frontend/coverage/
+frontend/test-results/
 frontend/.vite/
 frontend/*.tsbuildinfo
+frontend/frontend/
 
-# Go/Backend
+# -----------------------------------------------------------------------------
+# Go/Backend - Build artifacts & coverage
+# -----------------------------------------------------------------------------
 backend/api
+backend/bin/
 backend/*.out
 backend/*.cover
+backend/*.html
 backend/coverage/
-backend/coverage.*.out
-backend/coverage_*.out
+backend/coverage*.out
+backend/coverage*.txt
+backend/*.coverage.out
+backend/handler_coverage.txt
+backend/handlers.out
+backend/services.test
+backend/test-output.txt
+backend/tr_no_cover.txt
+backend/nohup.out
 backend/charon
+backend/codeql-db/
+backend/.venv/
 
+# -----------------------------------------------------------------------------
 # Databases
+# -----------------------------------------------------------------------------
 *.db
 *.sqlite
 *.sqlite3
@@ -42,80 +67,105 @@ backend/cmd/api/data/*.db
 cpm.db
 charon.db
 
-# IDE
+# -----------------------------------------------------------------------------
+# IDE & Editor
+# -----------------------------------------------------------------------------
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+*.xcf
+.vscode/launch.json
+.vscode.backup*/
 
-
-# Logs
-.trivy_logs
+# -----------------------------------------------------------------------------
+# Logs & Temp Files
+# -----------------------------------------------------------------------------
+.trivy_logs/
 *.log
 logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+nohup.out
 
-# Environment
+# -----------------------------------------------------------------------------
+# Environment Files
+# -----------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
 
-# OS
+# -----------------------------------------------------------------------------
+# OS Files
+# -----------------------------------------------------------------------------
 Thumbs.db
-*.xcf
 
-# Caddy
+# -----------------------------------------------------------------------------
+# Caddy Runtime Data
+# -----------------------------------------------------------------------------
 backend/data/caddy/
+data/
 
-# Docker
+# -----------------------------------------------------------------------------
+# Docker Overrides
+# -----------------------------------------------------------------------------
 docker-compose.override.yml
 
+# -----------------------------------------------------------------------------
 # GoReleaser
+# -----------------------------------------------------------------------------
 dist/
 
-# Testing
+# -----------------------------------------------------------------------------
+# Testing & Coverage
+# -----------------------------------------------------------------------------
 coverage/
 coverage.out
 *.xml
-.trivy_logs/
-.trivy_logs/trivy-report.txt
-backend/coverage.txt
-
-# CodeQL
-codeql-db/
-codeql-results.sarif
-**.sarif
-codeql-results-js.sarif
-codeql-results-go.sarif
 *.crdownload
-.vscode/launch.json
 
-# More CodeQL/analysis artifacts and DBs
+# -----------------------------------------------------------------------------
+# CodeQL & Security Scanning
+# -----------------------------------------------------------------------------
+codeql-db/
 codeql-db-*/
-codeql-db-js/
-codeql-db-go/
+codeql-agent-results/
+codeql-custom-queries-*/
+codeql-results*.sarif
 codeql-*.sarif
+*.sarif
 .codeql/
 .codeql/**
 
-# Scripts (project-specific)
+# -----------------------------------------------------------------------------
+# Scripts & Temp Files (project-specific)
+# -----------------------------------------------------------------------------
 create_issues.sh
 cookies.txt
+cookies.txt.bak
+test.caddyfile
 
-# Project Documentation (keep important docs, ignore implementation notes)
-ACME_STAGING_IMPLEMENTATION.md
+# -----------------------------------------------------------------------------
+# Project Documentation (implementation notes - not needed in repo)
+# -----------------------------------------------------------------------------
+*.md.bak
+ACME_STAGING_IMPLEMENTATION.md*
 ARCHITECTURE_PLAN.md
-BULK_ACL_FEATURE.md
-DOCKER_TASKS.md
+DOCKER_TASKS.md*
 DOCUMENTATION_POLISH_SUMMARY.md
 GHCR_MIGRATION_SUMMARY.md
-ISSUE_*_IMPLEMENTATION.md
+ISSUE_*_IMPLEMENTATION.md*
 PHASE_*_SUMMARY.md
 PROJECT_BOARD_SETUP.md
 PROJECT_PLANNING.md
-SECURITY_IMPLEMENTATION_PLAN.md
 VERSIONING_IMPLEMENTATION.md
 backend/internal/api/handlers/import_handler.go.bak
+
+# -----------------------------------------------------------------------------
+# Import Directory (user uploads)
+# -----------------------------------------------------------------------------
+import/
+test-results/charon.hatfieldhosted.com.har
+test-results/local.har

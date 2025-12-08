@@ -297,6 +297,14 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Sync associated uptime monitor with updated proxy host values
+	if h.uptimeService != nil {
+		if err := h.uptimeService.SyncMonitorForHost(host.ID); err != nil {
+			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
+			// Don't fail the request if sync fails - the host update succeeded
+		}
+	}
+
 	c.JSON(http.StatusOK, host)
 }
 

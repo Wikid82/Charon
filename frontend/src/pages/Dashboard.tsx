@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
+import { useQuery } from '@tanstack/react-query'
 import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
 import UptimeWidget from '../components/UptimeWidget'
@@ -10,19 +10,14 @@ export default function Dashboard() {
   const { hosts } = useProxyHosts()
   const { servers } = useRemoteServers()
   const { certificates } = useCertificates()
-  const [health, setHealth] = useState<{ status: string } | null>(null)
 
-  useEffect(() => {
-    const fetchHealth = async () => {
-      try {
-        const result = await checkHealth()
-        setHealth(result)
-      } catch {
-        setHealth({ status: 'error' })
-      }
-    }
-    fetchHealth()
-  }, [])
+  // Use React Query for health check - benefits from global caching
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: checkHealth,
+    staleTime: 1000 * 60, // 1 minute for health checks
+    refetchInterval: 1000 * 60, // Auto-refresh every minute
+  })
 
   const enabledHosts = hosts.filter(h => h.enabled).length
   const enabledServers = servers.filter(s => s.enabled).length

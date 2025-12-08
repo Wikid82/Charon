@@ -1,9 +1,22 @@
-# Version control
-.git
+# =============================================================================
+# .dockerignore - Exclude files from Docker build context
+# Keep this file in sync with .gitignore where applicable
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Version Control & CI/CD
+# -----------------------------------------------------------------------------
+.git/
 .gitignore
 .github/
+.pre-commit-config.yaml
+.codecov.yml
+.goreleaser.yaml
+.sourcery.yml
 
-# Python
+# -----------------------------------------------------------------------------
+# Python (pre-commit, tooling)
+# -----------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -15,99 +28,172 @@ env/
 ENV/
 .pytest_cache/
 .coverage
-*.cover
 .hypothesis/
 htmlcov/
 *.egg-info/
 
-# Node/Frontend build artifacts
+# -----------------------------------------------------------------------------
+# Node/Frontend - Build in Docker, not from host
+# -----------------------------------------------------------------------------
 frontend/node_modules/
 frontend/coverage/
-frontend/coverage.out
+frontend/test-results/
 frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/frontend/
+frontend/e2e/
 
-# Go/Backend
-backend/coverage.txt
+# Root-level node artifacts (eslint config runner)
+node_modules/
+package-lock.json
+package.json
+
+# -----------------------------------------------------------------------------
+# Go/Backend - Build artifacts & coverage
+# -----------------------------------------------------------------------------
+backend/bin/
+backend/api
 backend/*.out
 backend/*.cover
+backend/*.html
 backend/coverage/
-backend/coverage.*.out
-backend/coverage_*.out
+backend/coverage*.out
+backend/coverage*.txt
+backend/*.coverage.out
+backend/handler_coverage.txt
+backend/handlers.out
+backend/services.test
+backend/test-output.txt
+backend/tr_no_cover.txt
+backend/nohup.out
 backend/package.json
 backend/package-lock.json
 
-# Databases (runtime)
-backend/data/*.db
-backend/data/**/*.db
-backend/cmd/api/data/*.db
+# Backend data (created at runtime)
+backend/data/
+backend/codeql-db/
+backend/.venv/
+backend/.vscode/
+
+# -----------------------------------------------------------------------------
+# Databases (created at runtime)
+# -----------------------------------------------------------------------------
+*.db
 *.sqlite
 *.sqlite3
-cpm.db
+data/
 charon.db
+cpm.db
 
-# IDE
+# -----------------------------------------------------------------------------
+# IDE & Editor
+# -----------------------------------------------------------------------------
 .vscode/
+.vscode.backup*/
 .idea/
 *.swp
 *.swo
 *~
+*.xcf
+Chiron.code-workspace
 
-# Logs
+# -----------------------------------------------------------------------------
+# Logs & Temp Files
+# -----------------------------------------------------------------------------
 .trivy_logs/
 *.log
 logs/
+nohup.out
 
-# Environment
+# -----------------------------------------------------------------------------
+# Environment Files
+# -----------------------------------------------------------------------------
 .env
 .env.local
 .env.*.local
+!.env.example
 
-# OS
+# -----------------------------------------------------------------------------
+# OS Files
+# -----------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
 
-# Documentation
+# -----------------------------------------------------------------------------
+# Documentation (not needed in image)
+# -----------------------------------------------------------------------------
 docs/
 *.md
 !README.md
+!CONTRIBUTING.md
+!LICENSE
 
-# Docker
+# -----------------------------------------------------------------------------
+# Docker Compose (not needed inside image)
+# -----------------------------------------------------------------------------
 docker-compose*.yml
 **/Dockerfile.*
 
-# CI/CD
-.github/
-.pre-commit-config.yaml
-.codecov.yml
-.goreleaser.yaml
-
-# GoReleaser artifacts
+# -----------------------------------------------------------------------------
+# GoReleaser & dist artifacts
+# -----------------------------------------------------------------------------
 dist/
 
-# Scripts
+# -----------------------------------------------------------------------------
+# Scripts & Tools (not needed in image)
+# -----------------------------------------------------------------------------
 scripts/
 tools/
 create_issues.sh
 cookies.txt
+cookies.txt.bak
+test.caddyfile
+Makefile
 
-# Testing artifacts
+# -----------------------------------------------------------------------------
+# Testing & Coverage Artifacts
+# -----------------------------------------------------------------------------
+coverage/
 coverage.out
 *.cover
 *.crdownload
+*.sarif
 
-# Project Documentation
-ACME_STAGING_IMPLEMENTATION.md
+# -----------------------------------------------------------------------------
+# CodeQL & Security Scanning (large, not needed)
+# -----------------------------------------------------------------------------
+codeql-db/
+codeql-db-*/
+codeql-agent-results/
+codeql-custom-queries-*/
+codeql-*.sarif
+codeql-results*.sarif
+.codeql/
+
+# -----------------------------------------------------------------------------
+# Import Directory (user data)
+# -----------------------------------------------------------------------------
+import/
+
+# -----------------------------------------------------------------------------
+# Project Documentation & Planning (not needed in image)
+# -----------------------------------------------------------------------------
+*.md.bak
+ACME_STAGING_IMPLEMENTATION.md*
 ARCHITECTURE_PLAN.md
 BULK_ACL_FEATURE.md
-DOCKER_TASKS.md
+DOCKER_TASKS.md*
 DOCUMENTATION_POLISH_SUMMARY.md
 GHCR_MIGRATION_SUMMARY.md
-ISSUE_*_IMPLEMENTATION.md
+ISSUE_*_IMPLEMENTATION.md*
 PHASE_*_SUMMARY.md
 PROJECT_BOARD_SETUP.md
 PROJECT_PLANNING.md
 SECURITY_IMPLEMENTATION_PLAN.md
 VERSIONING_IMPLEMENTATION.md
+QA_AUDIT_REPORT*.md
+VERSION.md
+eslint.config.js
+go.work
+go.work.sum

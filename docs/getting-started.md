@@ -93,11 +93,13 @@ For this to work, you need:
 
 If you have both, Charon will automatically:
 
-- Request a free SSL certificate from Let's Encrypt
+- Request a free SSL certificate from a trusted provider
 - Install it
 - Renew it before it expires
 
 **You don't do anything.** It just works.
+
+By default, Charon uses "Auto" mode, which tries Let's Encrypt first and automatically falls back to ZeroSSL if needed. You can change this in System Settings if you want to use a specific certificate provider.
 
 **Testing without a domain?** See [Testing SSL Certificates](acme-staging.md) for a practice mode.
 
@@ -125,6 +127,10 @@ In your domain provider's control panel:
 
 Wait 5-10 minutes for it to update.
 
+### "Can I change which certificate provider is used?"
+
+Yes! Go to **System Settings** and look for the **SSL Provider** dropdown. The default "Auto" mode works best for most users, but you can choose a specific provider if needed. See [Features](features.md#choose-your-ssl-provider) for details.
+
 ### "Can I use this for apps on different computers?"
 
 Yes! Just use the other computer's IP address in the "Forward To" field.
@@ -148,7 +154,8 @@ Now that you have the basics:
 
 - **[See All Features](features.md)** — Discover what else Charon can do
 - **[Import Your Old Config](import-guide.md)** — Bring your existing Caddy setup
-- **[Turn On Security](security.md)** — Block attackers (optional but recommended)
+- **[Configure Optional Features](features.md#%EF%B8%8F-optional-features)** — Enable/disable features like security and uptime monitoring
+- **[Turn On Security](security.md)** — Block attackers (enabled by default, highly recommended)
 
 ---
 

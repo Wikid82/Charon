@@ -1,8 +1,8 @@
 # Security Features
 
-Charon includes **Cerberus**, a security system that protects your websites. It's **turned off by default** so it doesn't get in your way while you're learning.
+Charon includes **Cerberus**, a security system that protects your websites. It's **enabled by default** so your sites are protected from the start.
 
-When you're ready to turn it on, this guide explains everything.
+You can disable it in **System Settings → Optional Features** if you don't need it, or configure it using this guide.
 
 ---
 
@@ -126,6 +126,27 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 2. **Type:** Geo Blacklist
 3. Pick the country
 4. Assign to the targeted website
+
+---
+
+## Certificate Management Security
+
+**What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
+
+**How it works:**
+- Certificates cannot be deleted while in use by proxy hosts (conflict error)
+- Automatic backup is created before any certificate deletion
+- Authentication required (when auth is implemented)
+
+**Backup & Recovery:**
+- Every certificate deletion triggers an automatic backup
+- Find backups in the "Backups" page
+- Restore from backup if you accidentally delete the wrong certificate
+
+**Best Practice:**
+- Review which proxy hosts use a certificate before deleting it
+- When deleting proxy hosts, use the cleanup prompt to delete orphaned certificates
+- Keep custom certificates you might reuse later
 
 ---
 

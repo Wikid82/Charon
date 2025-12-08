@@ -53,7 +53,8 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 	// Provide rulesets and paths so WAF handler is created with directives
 	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
-	sec := &models.SecurityConfig{CrowdSecMode: "local"}
+	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
+	sec := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec)
 	require.NoError(t, err)
 
@@ -364,15 +365,20 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "rate_limit" {
-			if req, ok := h["requests"].(int); ok && req == 10 {
-				if win, ok := h["window_sec"].(int); ok && win == 60 {
-					found = true
-					break
+			// Check caddy-ratelimit format: rate_limits.static.max_events and window
+			if rateLimits, ok := h["rate_limits"].(map[string]interface{}); ok {
+				if static, ok := rateLimits["static"].(map[string]interface{}); ok {
+					if maxEvents, ok := static["max_events"].(int); ok && maxEvents == 10 {
+						if window, ok := static["window"].(string); ok && window == "60s" {
+							found = true
+							break
+						}
+					}
 				}
 			}
 		}
 	}
-	require.True(t, found, "rate_limit handler with configured values should be present")
+	require.True(t, found, "rate_limit handler with caddy-ratelimit format should be present")
 }
 
 func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
@@ -384,13 +390,14 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "crowdsec" {
-			if mode, ok := h["mode"].(string); ok && mode == "local" {
+			// caddy-crowdsec-bouncer expects api_url field
+			if apiURL, ok := h["api_url"].(string); ok && apiURL == "http://cs.local" {
 				found = true
 				break
 			}
 		}
 	}
-	require.True(t, found, "crowdsec handler with api_url and mode should be present")
+	require.True(t, found, "crowdsec handler with api_url should be present")
 }
 
 func TestGenerateConfig_EmptyHostsAndNoFrontend(t *testing.T) {

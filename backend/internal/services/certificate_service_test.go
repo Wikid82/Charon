@@ -441,6 +441,36 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 		assert.Equal(t, gorm.ErrRecordNotFound, err)
 	})
 
+	t.Run("delete certificate in use returns ErrCertInUse", func(t *testing.T) {
+		// Create certificate
+		domain := "in-use.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("In Use", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "test-ph",
+			Name:          "Test Host",
+			DomainNames:   "in-use.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		// Attempt to delete certificate - should fail with ErrCertInUse
+		err = cs.DeleteCertificate(cert.ID)
+		assert.Error(t, err)
+		assert.Equal(t, ErrCertInUse, err)
+
+		// Verify certificate still exists
+		var dbCert models.SSLCertificate
+		err = db.First(&dbCert, "id = ?", cert.ID).Error
+		assert.NoError(t, err)
+	})
+
 	t.Run("delete certificate when file already removed", func(t *testing.T) {
 		// Create and upload cert
 		domain := "to-delete.com"
@@ -738,6 +768,122 @@ func TestCertificateService_CertificateWithSANs(t *testing.T) {
 		assert.Contains(t, cert.Domains, "san.example.com")
 		assert.Contains(t, cert.Domains, "www.san.example.com")
 		assert.Contains(t, cert.Domains, "api.san.example.com")
+	})
+}
+
+func TestCertificateService_IsCertificateInUse(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	cs := newTestCertificateService(tmpDir, db)
+
+	t.Run("certificate not in use", func(t *testing.T) {
+		// Create certificate without any proxy hosts
+		domain := "unused.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Unused", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.False(t, inUse)
+	})
+
+	t.Run("certificate used by one proxy host", func(t *testing.T) {
+		// Create certificate
+		domain := "used.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Used", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "ph-1",
+			Name:          "Test Host 1",
+			DomainNames:   "used.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+	})
+
+	t.Run("certificate used by multiple proxy hosts", func(t *testing.T) {
+		// Create certificate
+		domain := "shared.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Shared", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create multiple proxy hosts using this certificate
+		for i := 1; i <= 3; i++ {
+			ph := models.ProxyHost{
+				UUID:          fmt.Sprintf("ph-shared-%d", i),
+				Name:          fmt.Sprintf("Test Host %d", i),
+				DomainNames:   fmt.Sprintf("host%d.shared.com", i),
+				ForwardHost:   "localhost",
+				ForwardPort:   8080 + i,
+				CertificateID: &cert.ID,
+			}
+			require.NoError(t, db.Create(&ph).Error)
+		}
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+	})
+
+	t.Run("non-existent certificate", func(t *testing.T) {
+		inUse, err := cs.IsCertificateInUse(99999)
+		assert.NoError(t, err) // No error, just returns false
+		assert.False(t, inUse)
+	})
+
+	t.Run("certificate freed after proxy host deletion", func(t *testing.T) {
+		// Create certificate
+		domain := "freed.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Freed", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "ph-freed",
+			Name:          "Test Host Freed",
+			DomainNames:   "freed.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		// Verify in use
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+
+		// Delete the proxy host
+		require.NoError(t, db.Delete(&ph).Error)
+
+		// Verify no longer in use
+		inUse, err = cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.False(t, inUse)
+
+		// Now deletion should succeed
+		err = cs.DeleteCertificate(cert.ID)
+		assert.NoError(t, err)
 	})
 }
 

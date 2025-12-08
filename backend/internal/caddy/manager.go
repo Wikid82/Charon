@@ -69,11 +69,38 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		acmeEmail = acmeEmailSetting.Value
 	}
 
-	// Fetch SSL Provider setting
+	// Fetch SSL Provider setting and parse it
 	var sslProviderSetting models.Setting
-	var sslProvider string
+	var sslProviderVal string
 	if err := m.db.Where("key = ?", "caddy.ssl_provider").First(&sslProviderSetting).Error; err == nil {
-		sslProvider = sslProviderSetting.Value
+		sslProviderVal = sslProviderSetting.Value
+	}
+
+	// Determine effective provider and staging flag based on the setting value
+	effectiveProvider := ""
+	effectiveStaging := false // Default to production
+
+	switch sslProviderVal {
+	case "letsencrypt-staging":
+		effectiveProvider = "letsencrypt"
+		effectiveStaging = true
+	case "letsencrypt-prod":
+		effectiveProvider = "letsencrypt"
+		effectiveStaging = false
+	case "zerossl":
+		effectiveProvider = "zerossl"
+		effectiveStaging = false
+	case "auto":
+		effectiveProvider = "" // "both" (auto-select between Let's Encrypt and ZeroSSL)
+		effectiveStaging = false
+	default:
+		// Empty or unrecognized value: fallback to environment variable for backward compatibility
+		effectiveProvider = ""
+		if sslProviderVal == "" {
+			effectiveStaging = m.acmeStaging // Respect env var if setting is unset
+		} else {
+			effectiveStaging = false // Unknown value defaults to production
+		}
 	}
 
 	// Compute effective security flags (re-read runtime overrides)
@@ -194,7 +221,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, sslProvider, m.acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
+	config, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}
