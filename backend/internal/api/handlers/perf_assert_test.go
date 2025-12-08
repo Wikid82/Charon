@@ -33,20 +33,7 @@ func setupPerfDB(t *testing.T) *gorm.DB {
 }
 
 // thresholdFromEnv loads threshold from environment var as milliseconds
-func thresholdFromEnv(envKey string, defaultMs float64) float64 {
-	if v := os.Getenv(envKey); v != "" {
-		// try parse as float
-		if parsed, err := time.ParseDuration(v); err == nil {
-			return ms(parsed)
-		}
-		// fallback try parse as number ms
-		var f float64
-		if _, err := fmt.Sscanf(v, "%f", &f); err == nil {
-			return f
-		}
-	}
-	return defaultMs
-}
+// thresholdFromEnv removed — tests use inline environment parsing for clarity.
 
 // gatherStats runs the request counts times and returns durations ms
 func gatherStats(t *testing.T, req *http.Request, router http.Handler, counts int) []float64 {
@@ -90,11 +77,7 @@ func computePercentiles(samples []float64) (avg, p50, p95, p99, max float64) {
 	return
 }
 
-func perfLogStats(t *testing.T, title string, samples []float64) {
-	av, p50, p95, p99, max := computePercentiles(samples)
-	t.Logf("%s - avg=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms max=%.3fms", title, av, p50, p95, p99, max)
-	// no assert by default, individual tests decide how to fail
-}
+// perfLogStats removed — tests log stats inline where helpful.
 
 func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
