@@ -19,7 +19,7 @@ jobs:
 
       - name: Calculate Semantic Version
         id: semver
-        uses: paulhatch/semantic-version@v5.4.0
+        uses: paulhatch/semantic-version@a8f8f59fd7f0625188492e945240f12d7ad2dca3 # v5.4.0
         with:
           # The prefix to use to create tags
           tag_prefix: "v"
