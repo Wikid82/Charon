@@ -34,7 +34,7 @@ func TestUserHandler_GetSetupStatus(t *testing.T) {
 	r.GET("/setup", handler.GetSetupStatus)
 
 	// No users -> setup required
-	req, _ := http.NewRequest("GET", "/setup", nil)
+	req, _ := http.NewRequest("GET", "/setup", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -110,7 +110,7 @@ func TestUserHandler_RegenerateAPIKey(t *testing.T) {
 	})
 	r.POST("/api-key", handler.RegenerateAPIKey)
 
-	req, _ := http.NewRequest("POST", "/api-key", nil)
+	req, _ := http.NewRequest("POST", "/api-key", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -143,7 +143,7 @@ func TestUserHandler_GetProfile(t *testing.T) {
 	})
 	r.GET("/profile", handler.GetProfile)
 
-	req, _ := http.NewRequest("GET", "/profile", nil)
+	req, _ := http.NewRequest("GET", "/profile", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -206,18 +206,18 @@ func TestUserHandler_Errors(t *testing.T) {
 	})
 
 	// Test Unauthorized
-	req, _ := http.NewRequest("GET", "/profile-no-auth", nil)
+	req, _ := http.NewRequest("GET", "/profile-no-auth", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
-	req, _ = http.NewRequest("POST", "/api-key-no-auth", nil)
+	req, _ = http.NewRequest("POST", "/api-key-no-auth", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
 	// Test Not Found (GetProfile)
-	req, _ = http.NewRequest("GET", "/profile-not-found", nil)
+	req, _ = http.NewRequest("GET", "/profile-not-found", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -229,7 +229,7 @@ func TestUserHandler_Errors(t *testing.T) {
 	// However, let's see if we can force an error by closing DB? No, shared DB.
 	// We can drop the table?
 	db.Migrator().DropTable(&models.User{})
-	req, _ = http.NewRequest("POST", "/api-key-not-found", nil)
+	req, _ = http.NewRequest("POST", "/api-key-not-found", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	// If table missing, Update should fail
@@ -360,7 +360,7 @@ func TestUserHandler_UpdateProfile_Errors(t *testing.T) {
 
 	// 1. Unauthorized (no userID)
 	r.PUT("/profile-no-auth", handler.UpdateProfile)
-	req, _ := http.NewRequest("PUT", "/profile-no-auth", nil)
+	req, _ := http.NewRequest("PUT", "/profile-no-auth", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -409,7 +409,7 @@ func TestUserHandler_ListUsers_NonAdmin(t *testing.T) {
 	})
 	r.GET("/users", handler.ListUsers)
 
-	req := httptest.NewRequest("GET", "/users", nil)
+	req := httptest.NewRequest("GET", "/users", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -433,7 +433,7 @@ func TestUserHandler_ListUsers_Admin(t *testing.T) {
 	})
 	r.GET("/users", handler.ListUsers)
 
-	req := httptest.NewRequest("GET", "/users", nil)
+	req := httptest.NewRequest("GET", "/users", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -577,7 +577,7 @@ func TestUserHandler_GetUser_NonAdmin(t *testing.T) {
 	})
 	r.GET("/users/:id", handler.GetUser)
 
-	req := httptest.NewRequest("GET", "/users/1", nil)
+	req := httptest.NewRequest("GET", "/users/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -594,7 +594,7 @@ func TestUserHandler_GetUser_InvalidID(t *testing.T) {
 	})
 	r.GET("/users/:id", handler.GetUser)
 
-	req := httptest.NewRequest("GET", "/users/invalid", nil)
+	req := httptest.NewRequest("GET", "/users/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -611,7 +611,7 @@ func TestUserHandler_GetUser_NotFound(t *testing.T) {
 	})
 	r.GET("/users/:id", handler.GetUser)
 
-	req := httptest.NewRequest("GET", "/users/999", nil)
+	req := httptest.NewRequest("GET", "/users/999", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -632,7 +632,7 @@ func TestUserHandler_GetUser_Success(t *testing.T) {
 	})
 	r.GET("/users/:id", handler.GetUser)
 
-	req := httptest.NewRequest("GET", "/users/1", nil)
+	req := httptest.NewRequest("GET", "/users/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -759,7 +759,7 @@ func TestUserHandler_DeleteUser_NonAdmin(t *testing.T) {
 	})
 	r.DELETE("/users/:id", handler.DeleteUser)
 
-	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	req := httptest.NewRequest("DELETE", "/users/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -776,7 +776,7 @@ func TestUserHandler_DeleteUser_InvalidID(t *testing.T) {
 	})
 	r.DELETE("/users/:id", handler.DeleteUser)
 
-	req := httptest.NewRequest("DELETE", "/users/invalid", nil)
+	req := httptest.NewRequest("DELETE", "/users/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -794,7 +794,7 @@ func TestUserHandler_DeleteUser_NotFound(t *testing.T) {
 	})
 	r.DELETE("/users/:id", handler.DeleteUser)
 
-	req := httptest.NewRequest("DELETE", "/users/999", nil)
+	req := httptest.NewRequest("DELETE", "/users/999", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -816,7 +816,7 @@ func TestUserHandler_DeleteUser_Success(t *testing.T) {
 	})
 	r.DELETE("/users/:id", handler.DeleteUser)
 
-	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	req := httptest.NewRequest("DELETE", "/users/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -838,7 +838,7 @@ func TestUserHandler_DeleteUser_CannotDeleteSelf(t *testing.T) {
 	})
 	r.DELETE("/users/:id", handler.DeleteUser)
 
-	req := httptest.NewRequest("DELETE", "/users/1", nil)
+	req := httptest.NewRequest("DELETE", "/users/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -976,7 +976,7 @@ func TestUserHandler_ValidateInvite_MissingToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
-	req := httptest.NewRequest("GET", "/invite/validate", nil)
+	req := httptest.NewRequest("GET", "/invite/validate", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -989,7 +989,7 @@ func TestUserHandler_ValidateInvite_InvalidToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
-	req := httptest.NewRequest("GET", "/invite/validate?token=invalidtoken", nil)
+	req := httptest.NewRequest("GET", "/invite/validate?token=invalidtoken", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1014,7 +1014,7 @@ func TestUserHandler_ValidateInvite_ExpiredToken(t *testing.T) {
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
-	req := httptest.NewRequest("GET", "/invite/validate?token=expiredtoken123", nil)
+	req := httptest.NewRequest("GET", "/invite/validate?token=expiredtoken123", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1039,7 +1039,7 @@ func TestUserHandler_ValidateInvite_AlreadyAccepted(t *testing.T) {
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
-	req := httptest.NewRequest("GET", "/invite/validate?token=acceptedtoken123", nil)
+	req := httptest.NewRequest("GET", "/invite/validate?token=acceptedtoken123", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1064,7 +1064,7 @@ func TestUserHandler_ValidateInvite_Success(t *testing.T) {
 	r := gin.New()
 	r.GET("/invite/validate", handler.ValidateInvite)
 
-	req := httptest.NewRequest("GET", "/invite/validate?token=validtoken123", nil)
+	req := httptest.NewRequest("GET", "/invite/validate?token=validtoken123", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -1333,7 +1333,7 @@ func TestGetBaseURL(t *testing.T) {
 		c.String(200, url)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Host = "example.com"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()

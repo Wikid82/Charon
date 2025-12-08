@@ -35,7 +35,7 @@ func TestCertificateHandler_Delete_RequiresAuth(t *testing.T) {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/1", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -65,7 +65,7 @@ func TestCertificateHandler_List_RequiresAuth(t *testing.T) {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/certificates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -95,7 +95,7 @@ func TestCertificateHandler_Upload_RequiresAuth(t *testing.T) {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/certificates", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/certificates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -141,7 +141,7 @@ func TestCertificateHandler_Delete_DiskSpaceCheck(t *testing.T) {
 	h := NewCertificateHandler(svc, mockBackup, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -186,7 +186,7 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 	r.DELETE("/api/certificates/:id", h.Delete)
 
 	// Delete first cert
-	req1 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert1.ID), nil)
+	req1 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert1.ID), http.NoBody)
 	w1 := httptest.NewRecorder()
 	r.ServeHTTP(w1, req1)
 
@@ -195,7 +195,7 @@ func TestCertificateHandler_Delete_NotificationRateLimiting(t *testing.T) {
 	}
 
 	// Delete second cert (different ID, should not be rate limited)
-	req2 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert2.ID), nil)
+	req2 := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/certificates/%d", cert2.ID), http.NoBody)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
 

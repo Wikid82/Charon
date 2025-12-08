@@ -29,7 +29,7 @@ func TestSecurityHandler_GetConfigAndUpdateConfig(t *testing.T) {
 	// Create a gin test context for GetConfig when no config exists
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest("GET", "/security/config", nil)
+	req := httptest.NewRequest("GET", "/security/config", http.NoBody)
 	c.Request = req
 	h.GetConfig(c)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -53,7 +53,7 @@ func TestSecurityHandler_GetConfigAndUpdateConfig(t *testing.T) {
 	// Now call GetConfig again and ensure config is returned
 	w = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(w)
-	req = httptest.NewRequest("GET", "/security/config", nil)
+	req = httptest.NewRequest("GET", "/security/config", http.NoBody)
 	c.Request = req
 	h.GetConfig(c)
 	require.Equal(t, http.StatusOK, w.Code)

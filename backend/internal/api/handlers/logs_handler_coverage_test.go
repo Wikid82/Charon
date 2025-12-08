@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func TestLogsHandler_Read_FilterBySearch(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/access.log?search=error", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/access.log?search=error", http.NoBody)
 
 	h.Read(c)
 
@@ -69,7 +70,7 @@ func TestLogsHandler_Read_FilterByHost(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/access.log?host=example.com", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/access.log?host=example.com", http.NoBody)
 
 	h.Read(c)
 
@@ -99,7 +100,7 @@ func TestLogsHandler_Read_FilterByLevel(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/access.log?level=error", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/access.log?level=error", http.NoBody)
 
 	h.Read(c)
 
@@ -129,7 +130,7 @@ func TestLogsHandler_Read_FilterByStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/access.log?status=500", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/access.log?status=500", http.NoBody)
 
 	h.Read(c)
 
@@ -159,7 +160,7 @@ func TestLogsHandler_Read_SortAsc(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/access.log?sort=asc", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/access.log?sort=asc", http.NoBody)
 
 	h.Read(c)
 
@@ -185,7 +186,7 @@ func TestLogsHandler_List_DirectoryIsFile(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/logs", nil)
+	c.Request = httptest.NewRequest("GET", "/logs", http.NoBody)
 
 	h.List(c)
 

@@ -117,7 +117,7 @@ func TestSecurityHeaders(t *testing.T) {
 				c.String(http.StatusOK, "OK")
 			})
 
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 			resp := httptest.NewRecorder()
 			router.ServeHTTP(resp, req)
 
@@ -141,7 +141,7 @@ func TestSecurityHeadersCustomCSP(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 

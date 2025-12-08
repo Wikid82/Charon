@@ -23,10 +23,10 @@ import (
 func main() {
 	// Setup logging with rotation
 	logDir := "/app/data/logs"
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		// Fallback to local directory if /app/data fails (e.g. local dev)
 		logDir = "data/logs"
-		_ = os.MkdirAll(logDir, 0755)
+		_ = os.MkdirAll(logDir, 0o755)
 	}
 
 	logFile := filepath.Join(logDir, "charon.log")

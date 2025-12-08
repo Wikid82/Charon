@@ -380,7 +380,9 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 		addr := net.JoinHostPort(host.Host, port)
 		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 		if err == nil {
-			_ = conn.Close()
+			if err := conn.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			}
 			success = true
 			msg = fmt.Sprintf("TCP connection to %s successful", addr)
 			break
@@ -544,7 +546,11 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		client := http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Get(monitor.URL)
 		if err == nil {
-			defer resp.Body.Close()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					logger.Log().WithError(err).Warn("failed to close uptime service response body")
+				}
+			}()
 			// Accept 2xx, 3xx, and 401/403 (Unauthorized/Forbidden often means the service is up but protected)
 			if (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == 401 || resp.StatusCode == 403 {
 				success = true
@@ -558,7 +564,9 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	case "tcp":
 		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
 		if err == nil {
-			_ = conn.Close()
+			if err := conn.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			}
 			success = true
 			msg = "Connection successful"
 		} else {

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -63,7 +62,7 @@ func TestNotificationService_MarkAsRead(t *testing.T) {
 
 	notif, _ := svc.Create(models.NotificationTypeInfo, "N1", "M1")
 
-	err := svc.MarkAsRead(fmt.Sprintf("%s", notif.ID))
+	err := svc.MarkAsRead(notif.ID)
 	require.NoError(t, err)
 
 	var updated models.Notification

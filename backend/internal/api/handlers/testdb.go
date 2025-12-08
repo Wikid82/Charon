@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// openTestDB creates a SQLite in-memory DB unique per test and applies
+// OpenTestDB creates a SQLite in-memory DB unique per test and applies
 // a busy timeout and WAL journal mode to reduce SQLITE locking during parallel tests.
 func OpenTestDB(t *testing.T) *gorm.DB {
 	t.Helper()

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestNotificationHandler_List_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/notifications", nil)
+	c.Request = httptest.NewRequest("GET", "/notifications", http.NoBody)
 
 	h.List(c)
 
@@ -55,7 +56,7 @@ func TestNotificationHandler_List_UnreadOnly(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/notifications?unread=true", nil)
+	c.Request = httptest.NewRequest("GET", "/notifications?unread=true", http.NoBody)
 
 	h.List(c)
 

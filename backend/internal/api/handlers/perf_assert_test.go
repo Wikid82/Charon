@@ -53,7 +53,7 @@ func gatherStats(t *testing.T, req *http.Request, router http.Handler, counts in
 }
 
 // computePercentiles returns avg, p50, p95, p99, max
-func computePercentiles(samples []float64) (avg, p50, p95, p99, max float64) {
+func computePercentiles(samples []float64) (avg, p50, p95, p99, maxVal float64) {
 	sort.Float64s(samples)
 	var sum float64
 	for _, s := range samples {
@@ -73,7 +73,7 @@ func computePercentiles(samples []float64) (avg, p50, p95, p99, max float64) {
 	p50 = p(0.50)
 	p95 = p(0.95)
 	p99 = p(0.99)
-	max = samples[len(samples)-1]
+	maxVal = samples[len(samples)-1]
 	return
 }
 
@@ -93,9 +93,9 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	router.GET("/api/v1/security/status", h.GetStatus)
 
 	counts := 500
-	req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 	samples := gatherStats(t, req, router, counts)
-	avg, _, p95, _, max := computePercentiles(samples)
+	avg, _, p95, _, maxVal := computePercentiles(samples)
 	// default thresholds ms
 	thresholdP95 := 2.0 // 2ms per request
 	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95"); env != "" {
@@ -104,7 +104,7 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 		}
 	}
 	// fail if p95 exceeds threshold
-	t.Logf("GetStatus avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
+	t.Logf("GetStatus avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
 		t.Fatalf("GetStatus P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)
 	}
@@ -123,7 +123,7 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 	samples := make(chan float64, n)
 	var worker = func() {
 		for i := 0; i < n; i++ {
-			req := httptest.NewRequest("GET", "/api/v1/security/status", nil)
+			req := httptest.NewRequest("GET", "/api/v1/security/status", http.NoBody)
 			w := httptest.NewRecorder()
 			s := time.Now()
 			router.ServeHTTP(w, req)
@@ -140,14 +140,14 @@ func TestPerf_GetStatus_Parallel_AssertThreshold(t *testing.T) {
 	for i := 0; i < n*4; i++ {
 		collected = append(collected, <-samples)
 	}
-	avg, _, p95, _, max := computePercentiles(collected)
+	avg, _, p95, _, maxVal := computePercentiles(collected)
 	thresholdP95 := 5.0 // 5ms default
 	if env := os.Getenv("PERF_MAX_MS_GETSTATUS_P95_PARALLEL"); env != "" {
 		if parsed, err := time.ParseDuration(env); err == nil {
 			thresholdP95 = ms(parsed)
 		}
 	}
-	t.Logf("GetStatus Parallel avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
+	t.Logf("GetStatus Parallel avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
 		t.Fatalf("GetStatus Parallel P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)
 	}
@@ -167,16 +167,16 @@ func TestPerf_ListDecisions_AssertThreshold(t *testing.T) {
 	router.GET("/api/v1/security/decisions", h.ListDecisions)
 
 	counts := 200
-	req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", nil)
+	req := httptest.NewRequest("GET", "/api/v1/security/decisions?limit=50", http.NoBody)
 	samples := gatherStats(t, req, router, counts)
-	avg, _, p95, _, max := computePercentiles(samples)
+	avg, _, p95, _, maxVal := computePercentiles(samples)
 	thresholdP95 := 30.0 // 30ms default
 	if env := os.Getenv("PERF_MAX_MS_LISTDECISIONS_P95"); env != "" {
 		if parsed, err := time.ParseDuration(env); err == nil {
 			thresholdP95 = ms(parsed)
 		}
 	}
-	t.Logf("ListDecisions avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, max)
+	t.Logf("ListDecisions avg=%.3fms p95=%.3fms max=%.3fms", avg, p95, maxVal)
 	if p95 > thresholdP95 {
 		t.Fatalf("ListDecisions P95 (%.3fms) exceeds threshold %.3fms", p95, thresholdP95)
 	}

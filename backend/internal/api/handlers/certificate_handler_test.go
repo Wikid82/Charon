@@ -70,7 +70,7 @@ func TestDeleteCertificate_InUse(t *testing.T) {
 
 	r := setupCertTestRouter(t, db)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -117,7 +117,7 @@ func TestDeleteCertificate_CreatesBackup(t *testing.T) {
 	h := NewCertificateHandler(svc, mockBackupService, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -169,7 +169,7 @@ func TestDeleteCertificate_BackupFailure(t *testing.T) {
 	h := NewCertificateHandler(svc, mockBackupService, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -225,7 +225,7 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 	h := NewCertificateHandler(svc, mockBackupService, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -294,7 +294,7 @@ func TestCertificateHandler_List(t *testing.T) {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/certificates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -436,7 +436,7 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 	}
 }
 
-func generateSelfSignedCertPEM() (string, string, error) {
+func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 	// generate RSA key
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -458,11 +458,13 @@ func generateSelfSignedCertPEM() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	certPEM := new(bytes.Buffer)
-	pem.Encode(certPEM, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM := new(bytes.Buffer)
-	pem.Encode(keyPEM, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
-	return certPEM.String(), keyPEM.String(), nil
+	certBuf := new(bytes.Buffer)
+	pem.Encode(certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	keyBuf := new(bytes.Buffer)
+	pem.Encode(keyBuf, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	certPEM = certBuf.String()
+	keyPEM = keyBuf.String()
+	return certPEM, keyPEM, nil
 }
 
 // Note: mockCertificateService removed — helper tests now use real service instances or testify mocks inlined where required.

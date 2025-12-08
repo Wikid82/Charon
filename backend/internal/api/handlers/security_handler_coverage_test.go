@@ -102,7 +102,7 @@ func TestSecurityHandler_GetConfig_Success(t *testing.T) {
 	router.GET("/security/config", handler.GetConfig)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/config", nil)
+	req, _ := http.NewRequest("GET", "/security/config", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -122,7 +122,7 @@ func TestSecurityHandler_GetConfig_NotFound(t *testing.T) {
 	router.GET("/security/config", handler.GetConfig)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/config", nil)
+	req, _ := http.NewRequest("GET", "/security/config", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -147,7 +147,7 @@ func TestSecurityHandler_ListDecisions_Success(t *testing.T) {
 	router.GET("/security/decisions", handler.ListDecisions)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/decisions", nil)
+	req, _ := http.NewRequest("GET", "/security/decisions", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -173,7 +173,7 @@ func TestSecurityHandler_ListDecisions_WithLimit(t *testing.T) {
 	router.GET("/security/decisions", handler.ListDecisions)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/decisions?limit=2", nil)
+	req, _ := http.NewRequest("GET", "/security/decisions?limit=2", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -286,7 +286,7 @@ func TestSecurityHandler_ListRuleSets_Success(t *testing.T) {
 	router.GET("/security/rulesets", handler.ListRuleSets)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/security/rulesets", nil)
+	req, _ := http.NewRequest("GET", "/security/rulesets", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -377,7 +377,7 @@ func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/security/rulesets/1", nil)
+	req, _ := http.NewRequest("DELETE", "/security/rulesets/1", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -397,7 +397,7 @@ func TestSecurityHandler_DeleteRuleSet_NotFound(t *testing.T) {
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/security/rulesets/999", nil)
+	req, _ := http.NewRequest("DELETE", "/security/rulesets/999", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -413,7 +413,7 @@ func TestSecurityHandler_DeleteRuleSet_InvalidID(t *testing.T) {
 	router.DELETE("/security/rulesets/:id", handler.DeleteRuleSet)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/security/rulesets/invalid", nil)
+	req, _ := http.NewRequest("DELETE", "/security/rulesets/invalid", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -431,7 +431,7 @@ func TestSecurityHandler_DeleteRuleSet_EmptyID(t *testing.T) {
 
 	// This should hit the "id is required" check if we bypass routing
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/security/rulesets/", nil)
+	req, _ := http.NewRequest("DELETE", "/security/rulesets/", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Router won't match this path, so 404
@@ -517,7 +517,7 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 
 	// Generate a break-glass token
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/security/breakglass/generate", nil)
+	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -609,7 +609,7 @@ func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
 
 	// Generate token
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/security/breakglass/generate", nil)
+	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 	var tokenResp map[string]string
 	json.Unmarshal(w.Body.Bytes(), &tokenResp)
@@ -689,7 +689,7 @@ func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
 	router.POST("/security/breakglass/generate", handler.GenerateBreakGlass)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/security/breakglass/generate", nil)
+	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should succeed and create a new config with the token
