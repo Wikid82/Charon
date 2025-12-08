@@ -72,9 +72,9 @@ func (s *RemoteServerService) GetByID(id uint) (*models.RemoteServer, error) {
 }
 
 // GetByUUID retrieves a remote server by UUID.
-func (s *RemoteServerService) GetByUUID(uuid string) (*models.RemoteServer, error) {
+func (s *RemoteServerService) GetByUUID(uuidStr string) (*models.RemoteServer, error) {
 	var server models.RemoteServer
-	if err := s.db.Where("uuid = ?", uuid).First(&server).Error; err != nil {
+	if err := s.db.Where("uuid = ?", uuidStr).First(&server).Error; err != nil {
 		return nil, err
 	}
 	return &server, nil

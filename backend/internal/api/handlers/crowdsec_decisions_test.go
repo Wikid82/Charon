@@ -44,7 +44,7 @@ func TestListDecisions_Success(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -83,7 +83,7 @@ func TestListDecisions_EmptyList(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -114,7 +114,7 @@ func TestListDecisions_CscliError(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should return 200 with empty list and error message
@@ -146,7 +146,7 @@ func TestListDecisions_InvalidJSON(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -339,7 +339,7 @@ func TestUnbanIP_Success(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -373,7 +373,7 @@ func TestUnbanIP_CscliError(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -401,7 +401,7 @@ func TestListDecisions_MultipleDecisions(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

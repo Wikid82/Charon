@@ -120,16 +120,16 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 	// request.set.Upgrade should be an array
 	if req, ok := first["request"].(map[string]interface{}); ok {
 		if set, ok := req["set"].(map[string]interface{}); ok {
-			if val, ok := set["Upgrade"].([]string); ok {
+			switch val := set["Upgrade"].(type) {
+			case []string:
 				require.Equal(t, []string{"websocket"}, val)
-			} else if arr, ok := set["Upgrade"].([]interface{}); ok {
-				// Convert to string arr for assertion
+			case []interface{}:
 				var out []string
-				for _, v := range arr {
+				for _, v := range val {
 					out = append(out, fmt.Sprintf("%v", v))
 				}
 				require.Equal(t, []string{"websocket"}, out)
-			} else {
+			default:
 				t.Fatalf("Upgrade header not normalized to array: %#v", set["Upgrade"])
 			}
 		} else {
@@ -142,15 +142,16 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 	// response.set.X-Obj should be an array
 	if resp, ok := first["response"].(map[string]interface{}); ok {
 		if set, ok := resp["set"].(map[string]interface{}); ok {
-			if val, ok := set["X-Obj"].([]string); ok {
+			switch val := set["X-Obj"].(type) {
+			case []string:
 				require.Equal(t, []string{"1"}, val)
-			} else if arr, ok := set["X-Obj"].([]interface{}); ok {
+			case []interface{}:
 				var out []string
-				for _, v := range arr {
+				for _, v := range val {
 					out = append(out, fmt.Sprintf("%v", v))
 				}
 				require.Equal(t, []string{"1"}, out)
-			} else {
+			default:
 				t.Fatalf("X-Obj header not normalized to array: %#v", set["X-Obj"])
 			}
 		} else {

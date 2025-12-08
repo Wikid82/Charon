@@ -1,4 +1,4 @@
-.PHONY: help install test build run clean docker-build docker-run release
+.PHONY: help install test build run clean docker-build docker-run release go-check gopls-logs
 
 # Default target
 help:
@@ -16,6 +16,8 @@ help:
 	@echo "  docker-dev             - Run Docker in development mode"
 	@echo "  release                - Create a new semantic version release (interactive)"
 	@echo "  dev                    - Run both backend and frontend in dev mode (requires tmux)"
+	@echo "  go-check               - Verify backend build readiness (runs scripts/check_go_build.sh)"
+	@echo "  gopls-logs             - Collect gopls diagnostics (runs scripts/gopls_collect.sh)"
 	@echo ""
 	@echo "Security targets:"
 	@echo "  security-scan          - Quick security scan (govulncheck on Go deps)"
@@ -121,6 +123,12 @@ dev:
 # Create a new release (interactive script)
 release:
 	@./scripts/release.sh
+
+go-check:
+	./scripts/check_go_build.sh
+
+gopls-logs:
+	./scripts/gopls_collect.sh
 
 # Security scanning targets
 security-scan:

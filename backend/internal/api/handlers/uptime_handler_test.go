@@ -52,7 +52,7 @@ func TestUptimeHandler_List(t *testing.T) {
 	}
 	db.Create(&monitor)
 
-	req, _ := http.NewRequest("GET", "/api/v1/uptime", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/uptime", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -88,7 +88,7 @@ func TestUptimeHandler_GetHistory(t *testing.T) {
 		CreatedAt: time.Now(),
 	})
 
-	req, _ := http.NewRequest("GET", "/api/v1/uptime/"+monitorID+"/history", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/"+monitorID+"/history", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -108,7 +108,7 @@ func TestUptimeHandler_CheckMonitor(t *testing.T) {
 	monitor := models.UptimeMonitor{ID: "check-mon-1", Name: "Check Monitor", Type: "http", URL: "http://example.com"}
 	db.Create(&monitor)
 
-	req, _ := http.NewRequest("POST", "/api/v1/uptime/check-mon-1/check", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/check-mon-1/check", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -118,7 +118,7 @@ func TestUptimeHandler_CheckMonitor(t *testing.T) {
 func TestUptimeHandler_CheckMonitor_NotFound(t *testing.T) {
 	r, _ := setupUptimeHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/uptime/nonexistent/check", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/nonexistent/check", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -193,7 +193,7 @@ func TestUptimeHandler_DeleteAndSync(t *testing.T) {
 		monitor := models.UptimeMonitor{ID: "mon-delete", Name: "ToDelete", Type: "http", URL: "http://example.com"}
 		db.Create(&monitor)
 
-		req, _ := http.NewRequest("DELETE", "/api/v1/uptime/mon-delete", nil)
+		req, _ := http.NewRequest("DELETE", "/api/v1/uptime/mon-delete", http.NoBody)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
@@ -209,7 +209,7 @@ func TestUptimeHandler_DeleteAndSync(t *testing.T) {
 		host := models.ProxyHost{UUID: "ph-up-1", Name: "Test Host", DomainNames: "sync.example.com", ForwardHost: "127.0.0.1", ForwardPort: 80, Enabled: true}
 		db.Create(&host)
 
-		req, _ := http.NewRequest("POST", "/api/v1/uptime/sync", nil)
+		req, _ := http.NewRequest("POST", "/api/v1/uptime/sync", http.NoBody)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
@@ -244,7 +244,7 @@ func TestUptimeHandler_DeleteAndSync(t *testing.T) {
 func TestUptimeHandler_Sync_Success(t *testing.T) {
 	r, _ := setupUptimeHandlerTest(t)
 
-	req, _ := http.NewRequest("POST", "/api/v1/uptime/sync", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/uptime/sync", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -259,7 +259,7 @@ func TestUptimeHandler_Delete_Error(t *testing.T) {
 	r, db := setupUptimeHandlerTest(t)
 	db.Exec("DROP TABLE IF EXISTS uptime_monitors")
 
-	req, _ := http.NewRequest("DELETE", "/api/v1/uptime/nonexistent", nil)
+	req, _ := http.NewRequest("DELETE", "/api/v1/uptime/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -270,7 +270,7 @@ func TestUptimeHandler_List_Error(t *testing.T) {
 	r, db := setupUptimeHandlerTest(t)
 	db.Exec("DROP TABLE IF EXISTS uptime_monitors")
 
-	req, _ := http.NewRequest("GET", "/api/v1/uptime", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/uptime", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -281,7 +281,7 @@ func TestUptimeHandler_GetHistory_Error(t *testing.T) {
 	r, db := setupUptimeHandlerTest(t)
 	db.Exec("DROP TABLE IF EXISTS uptime_heartbeats")
 
-	req, _ := http.NewRequest("GET", "/api/v1/uptime/monitor-1/history", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/uptime/monitor-1/history", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

@@ -18,6 +18,37 @@
 					"problemMatcher": []
 				},
 		{
+			"label": "Go: Build Backend",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go build ./..."],
+			"group": { "kind": "build", "isDefault": true },
+			"presentation": { "reveal": "always", "panel": "shared" },
+			"problemMatcher": ["$go"]
+		},
+		{
+			"label": "Go: Test Backend",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go test ./... -v"],
+			"group": "test",
+			"presentation": { "reveal": "always", "panel": "shared" }
+		},
+		{
+			"label": "Go: Mod Tidy (Backend)",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go mod tidy"],
+			"presentation": { "reveal": "silent", "panel": "shared" }
+		},
+		{
+			"label": "Gather gopls logs",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "./scripts/gopls_collect.sh"],
+			"presentation": { "reveal": "always", "panel": "new" }
+		},
+		{
 			"label": "Git Remove Cached",
 			"type": "shell",
 			"command": "git rm -r --cached .",

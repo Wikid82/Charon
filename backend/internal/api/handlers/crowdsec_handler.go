@@ -20,19 +20,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// Executor abstracts starting/stopping CrowdSec so tests can mock it.
+// CrowdsecExecutor abstracts starting/stopping CrowdSec so tests can mock it.
 type CrowdsecExecutor interface {
 	Start(ctx context.Context, binPath, configDir string) (int, error)
 	Stop(ctx context.Context, configDir string) error
 	Status(ctx context.Context, configDir string) (running bool, pid int, err error)
 }
 
-// CommandExecutor abstracts command execution for testing
+// CommandExecutor abstracts command execution for testing.
 type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-// RealCommandExecutor executes commands using os/exec
+// RealCommandExecutor executes commands using os/exec.
 type RealCommandExecutor struct{}
 
 // Execute runs a command and returns its output
@@ -50,10 +50,10 @@ type CrowdsecHandler struct {
 	DataDir  string
 }
 
-func NewCrowdsecHandler(db *gorm.DB, exec CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
+func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
 	return &CrowdsecHandler{
 		DB:       db,
-		Executor: exec,
+		Executor: executor,
 		CmdExec:  &RealCommandExecutor{},
 		BinPath:  binPath,
 		DataDir:  dataDir,
@@ -139,13 +139,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open temp file"})
 		return
 	}
-	defer in.Close()
+	defer func() {
+		if err := in.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close temp file")
+		}
+	}()
 	out, err := os.Create(target)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create target file"})
 		return
 	}
-	defer out.Close()
+	defer func() {
+		if err := out.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close target file")
+		}
+	}()
 	if _, err := io.Copy(out, in); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write config"})
 		return
@@ -197,7 +205,11 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() {
+			if err := f.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", path)
+			}
+		}()
 
 		hdr := &tar.Header{
 			Name:    rel,

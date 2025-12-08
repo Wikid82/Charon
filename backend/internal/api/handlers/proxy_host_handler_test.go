@@ -59,7 +59,7 @@ func TestProxyHostLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &created))
 	require.Equal(t, "media.example.com", created.DomainNames)
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody)
 	listResp := httptest.NewRecorder()
 	router.ServeHTTP(listResp, listReq)
 	require.Equal(t, http.StatusOK, listResp.Code)
@@ -69,7 +69,7 @@ func TestProxyHostLifecycle(t *testing.T) {
 	require.Len(t, hosts, 1)
 
 	// Get by ID
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, http.NoBody)
 	getResp := httptest.NewRecorder()
 	router.ServeHTTP(getResp, getReq)
 	require.Equal(t, http.StatusOK, getResp.Code)
@@ -92,13 +92,13 @@ func TestProxyHostLifecycle(t *testing.T) {
 	require.False(t, updated.Enabled)
 
 	// Delete
-	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+created.UUID, http.NoBody)
 	delResp := httptest.NewRecorder()
 	router.ServeHTTP(delResp, delReq)
 	require.Equal(t, http.StatusOK, delResp.Code)
 
 	// Verify Delete
-	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, nil)
+	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+created.UUID, http.NoBody)
 	getResp2 := httptest.NewRecorder()
 	router.ServeHTTP(getResp2, getReq2)
 	require.Equal(t, http.StatusNotFound, getResp2.Code)
@@ -131,7 +131,7 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 	require.Equal(t, int64(1), count)
 
 	// Delete host with delete_uptime=true
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID+"?delete_uptime=true", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID+"?delete_uptime=true", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -198,7 +198,7 @@ func TestProxyHostErrors(t *testing.T) {
 	db.Create(&host)
 
 	// Test Get - Not Found
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/non-existent-uuid", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/non-existent-uuid", http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
@@ -226,13 +226,13 @@ func TestProxyHostErrors(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, resp.Code)
 
 	// Test Delete - Not Found
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/non-existent-uuid", nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/non-existent-uuid", http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 
 	// Test Delete - Apply Config Error
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID, http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusInternalServerError, resp.Code)
@@ -408,7 +408,7 @@ func TestProxyHostHandler_List_Error(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusInternalServerError, resp.Code)
@@ -465,7 +465,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	// Test Delete with Caddy Sync
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+createdHost.UUID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/proxy-hosts/"+createdHost.UUID, http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)

@@ -88,3 +88,4 @@ ignore:
   # Import/data directories
   - "import/**"
   - "data/**"
+  - ".cache/**"

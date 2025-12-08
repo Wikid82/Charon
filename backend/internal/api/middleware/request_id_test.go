@@ -24,7 +24,7 @@ func TestRequestIDAddsHeaderAndLogger(t *testing.T) {
 		c.String(200, "ok")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

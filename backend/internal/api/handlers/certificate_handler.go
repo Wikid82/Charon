@@ -86,14 +86,22 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open cert file"})
 		return
 	}
-	defer func() { _ = certSrc.Close() }()
+	defer func() {
+		if err := certSrc.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close certificate file")
+		}
+	}()
 
 	keySrc, err := keyFile.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open key file"})
 		return
 	}
-	defer func() { _ = keySrc.Close() }()
+	defer func() {
+		if err := keySrc.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close key file")
+		}
+	}()
 
 	// Read to string
 	// Limit size to avoid DoS (e.g. 1MB)

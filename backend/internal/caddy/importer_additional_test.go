@@ -40,7 +40,7 @@ func TestImporter_ImportFile_ParseOutputInvalidJSON(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
 	_, err = importer.ImportFile(tmpFile)
@@ -54,7 +54,7 @@ func TestImporter_ImportFile_ExecutorError(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
 	_, err = importer.ImportFile(tmpFile)

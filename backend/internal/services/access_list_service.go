@@ -98,9 +98,9 @@ func (s *AccessListService) GetByID(id uint) (*models.AccessList, error) {
 }
 
 // GetByUUID retrieves an access list by UUID
-func (s *AccessListService) GetByUUID(uuid string) (*models.AccessList, error) {
+func (s *AccessListService) GetByUUID(uuidStr string) (*models.AccessList, error) {
 	var acl models.AccessList
-	if err := s.db.Where("uuid = ?", uuid).First(&acl).Error; err != nil {
+	if err := s.db.Where("uuid = ?", uuidStr).First(&acl).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrAccessListNotFound
 		}
@@ -163,7 +163,7 @@ func (s *AccessListService) Delete(id uint) error {
 }
 
 // TestIP tests if an IP address would be allowed/blocked by the access list
-func (s *AccessListService) TestIP(aclID uint, ipAddress string) (bool, string, error) {
+func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
 	acl, err := s.GetByID(aclID)
 	if err != nil {
 		return false, "", err

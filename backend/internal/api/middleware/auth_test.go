@@ -33,7 +33,7 @@ func TestAuthMiddleware_MissingHeader(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -53,7 +53,7 @@ func TestRequireRole_Success(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -72,7 +72,7 @@ func TestRequireRole_Forbidden(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -95,7 +95,7 @@ func TestAuthMiddleware_Cookie(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: token})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -119,7 +119,7 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -137,7 +137,7 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -155,7 +155,7 @@ func TestRequireRole_MissingRoleInContext(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

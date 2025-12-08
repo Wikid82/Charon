@@ -38,7 +38,7 @@ func TestSettingsHandler_GetSettings(t *testing.T) {
 	router.GET("/settings", handler.GetSettings)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/settings", nil)
+	req, _ := http.NewRequest("GET", "/settings", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -148,7 +148,7 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 	router.GET("/settings/smtp", handler.GetSMTPConfig)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/settings/smtp", nil)
+	req, _ := http.NewRequest("GET", "/settings/smtp", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -169,7 +169,7 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 	router.GET("/settings/smtp", handler.GetSMTPConfig)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/settings/smtp", nil)
+	req, _ := http.NewRequest("GET", "/settings/smtp", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -303,7 +303,7 @@ func TestSettingsHandler_TestSMTPConfig_NonAdmin(t *testing.T) {
 	})
 	router.POST("/settings/smtp/test", handler.TestSMTPConfig)
 
-	req, _ := http.NewRequest("POST", "/settings/smtp/test", nil)
+	req, _ := http.NewRequest("POST", "/settings/smtp/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -321,7 +321,7 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 	})
 	router.POST("/settings/smtp/test", handler.TestSMTPConfig)
 
-	req, _ := http.NewRequest("POST", "/settings/smtp/test", nil)
+	req, _ := http.NewRequest("POST", "/settings/smtp/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

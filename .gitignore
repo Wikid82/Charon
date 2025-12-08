@@ -169,3 +169,4 @@ backend/internal/api/handlers/import_handler.go.bak
 import/
 test-results/charon.hatfieldhosted.com.har
 test-results/local.har
+.cache

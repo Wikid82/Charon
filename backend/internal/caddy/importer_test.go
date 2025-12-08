@@ -44,7 +44,7 @@ func TestImporter_ParseCaddyfile_Success(t *testing.T) {
 
 	// Create a dummy file to bypass os.Stat check
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
 	output, err := importer.ParseCaddyfile(tmpFile)
@@ -62,7 +62,7 @@ func TestImporter_ParseCaddyfile_Failure(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
 	_, err = importer.ParseCaddyfile(tmpFile)
@@ -227,7 +227,7 @@ func TestImporter_ImportFile(t *testing.T) {
 
 	// Create a dummy file
 	tmpFile := filepath.Join(t.TempDir(), "Caddyfile")
-	err := os.WriteFile(tmpFile, []byte("foo"), 0644)
+	err := os.WriteFile(tmpFile, []byte("foo"), 0o644)
 	assert.NoError(t, err)
 
 	result, err := importer.ImportFile(tmpFile)
@@ -279,7 +279,7 @@ func TestImporter_ValidateCaddyBinary(t *testing.T) {
 func TestBackupCaddyfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	originalFile := filepath.Join(tmpDir, "Caddyfile")
-	err := os.WriteFile(originalFile, []byte("original content"), 0644)
+	err := os.WriteFile(originalFile, []byte("original content"), 0o644)
 	assert.NoError(t, err)
 
 	backupDir := filepath.Join(tmpDir, "backups")

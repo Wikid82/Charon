@@ -27,7 +27,7 @@ func (f *fakeExec) Stop(ctx context.Context, configDir string) error {
 	f.started = false
 	return nil
 }
-func (f *fakeExec) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	if f.started {
 		return true, 12345, nil
 	}
@@ -53,7 +53,7 @@ func TestCrowdsecEndpoints(t *testing.T) {
 
 	// Status (initially stopped)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status expected 200 got %d", w.Code)
@@ -61,7 +61,7 @@ func TestCrowdsecEndpoints(t *testing.T) {
 
 	// Start
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", nil)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("start expected 200 got %d", w2.Code)
@@ -69,7 +69,7 @@ func TestCrowdsecEndpoints(t *testing.T) {
 
 	// Stop
 	w3 := httptest.NewRecorder()
-	req3 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/stop", nil)
+	req3 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/stop", http.NoBody)
 	r.ServeHTTP(w3, req3)
 	if w3.Code != http.StatusOK {
 		t.Fatalf("stop expected 200 got %d", w3.Code)
@@ -151,7 +151,7 @@ func TestImportCreatesBackup(t *testing.T) {
 		// fallback: check for any .backup.* in same parent dir
 		entries, _ := os.ReadDir(filepath.Dir(tmpDir))
 		for _, e := range entries {
-			if e.IsDir() && filepath.Ext(e.Name()) == "" && (len(e.Name()) > 0) && (filepath.Base(e.Name()) != filepath.Base(tmpDir)) {
+			if e.IsDir() && filepath.Ext(e.Name()) == "" && e.Name() != "" && (filepath.Base(e.Name()) != filepath.Base(tmpDir)) {
 				// best-effort assume backup present
 				found = true
 				break
@@ -181,7 +181,7 @@ func TestExportConfig(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("export expected 200 got %d body=%s", w.Code, w.Body.String())
@@ -211,14 +211,14 @@ func TestListAndReadFile(t *testing.T) {
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/files", http.NoBody)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("files expected 200 got %d body=%s", w.Code, w.Body.String())
 	}
 	// read a single file
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=conf.d/a.conf", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=conf.d/a.conf", http.NoBody)
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
 		t.Fatalf("file read expected 200 got %d body=%s", w2.Code, w2.Body.String())

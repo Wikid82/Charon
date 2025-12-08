@@ -129,7 +129,7 @@ func TestAccessListHandler_List(t *testing.T) {
 		db.Create(&acls[i])
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/access-lists", nil)
+	req := httptest.NewRequest(http.MethodGet, "/access-lists", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -173,7 +173,7 @@ func TestAccessListHandler_Get(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/access-lists/"+tt.id, nil)
+			req := httptest.NewRequest(http.MethodGet, "/access-lists/"+tt.id, http.NoBody)
 			w := httptest.NewRecorder()
 
 			router.ServeHTTP(w, req)
@@ -313,7 +313,7 @@ func TestAccessListHandler_Delete(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodDelete, "/access-lists/"+tt.id, nil)
+			req := httptest.NewRequest(http.MethodDelete, "/access-lists/"+tt.id, http.NoBody)
 			w := httptest.NewRecorder()
 
 			router.ServeHTTP(w, req)
@@ -393,7 +393,7 @@ func TestAccessListHandler_TestIP(t *testing.T) {
 func TestAccessListHandler_GetTemplates(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/access-lists/templates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/access-lists/templates", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
