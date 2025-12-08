@@ -71,6 +71,25 @@ When a user clicks "Add Server" in the dashboard, they are presented with a **Co
 ### 3.2 Hecate's Role
 Hecate acts as the invisible backend engine for these non-direct connection types. It manages the lifecycle of the tunnels and agents, while the UI simply shows the status (Online/Offline) of the "Server".
 
+### 3.3 Install Options & UX Snippets
+When a user selects `Orthrus Agent` or chooses a `Managed Tunnel` flow, the UI should offer multiple installation options so both containerized and non-containerized environments are supported.
+
+Provide these install options as tabs/snippets in the `Add Server` flow:
+
+- **Docker Compose**: A one-file snippet the user can copy/paste (already covered in `orthrus` docs).
+- **Standalone Binary + systemd**: Download URL, SHA256, install+`systemd` unit snippet for Linux hosts.
+- **Tarball + Installer**: For offline installs with checksum verification.
+- **Deb / RPM**: `apt`/`yum` install commands (when packages are available).
+- **Homebrew**: `brew tap` + `brew install` for macOS / Linuxbrew users.
+- **Kubernetes DaemonSet**: YAML for fleet or cluster-based deployments.
+
+UI Requirements:
+- Show the generated `AUTH_KEY` prominently and a single-copy button.
+- Provide checksum and GPG signature links for any downloadable artifact.
+- Offer a small troubleshooting panel with commands like `journalctl -u orthrus -f` and `systemctl status orthrus`.
+- Allow the user to copy a recommended sidecar snippet that runs a VPN client (e.g., Tailscale) next to Orthrus when desired.
+
+
 ## 4. API Endpoints
 - `GET /api/hecate/status` - Returns health of all tunnels.
 - `POST /api/hecate/configure` - Accepts auth tokens and provider types.
