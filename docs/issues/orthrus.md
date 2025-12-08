@@ -7,6 +7,7 @@ It eliminates the need for SSH tunneling or complex port forwarding by utilizing
 
 ## 2. Operational Logic
 Orthrus operates in **Reverse Mode**. It does not listen on a public port. Instead, it dials *out* to the tunneling network to connect with Charon.
+++-
 
 ### 2.1 Core Functions
 1.  **Docker Socket Proxy:** Securely proxies the remote server's `/var/run/docker.sock` so Charon can auto-discover containers on the remote host.
@@ -147,3 +148,89 @@ To maintain a lightweight footprint (< 20MB), Orthrus uses a separate Go module 
 *   **Charon**: Built from `backend/Dockerfile`.
 *   **Orthrus**: Built from `agent/Dockerfile`.
 *   **CI/CD**: A single GitHub Action workflow builds and pushes both images (`charon:latest` and `orthrus:latest`) synchronously.
+
+## 9. Packaging & Install Options
+
+Orthrus should be distributed in multiple formats so users can choose one that fits their environment and security posture.
+
+### 9.1 Supported Distribution Formats
+- **Docker / Docker Compose**: easiest for container-based hosts.
+- **Standalone static binary (recommended)**: small, copy to `/usr/local/bin`, run via `systemd`.
+- **Deb / RPM packages**: for managed installs via `apt`/`yum`.
+- **Homebrew formula**: for macOS / Linuxbrew users.
+- **Tarball with installer**: for offline or custom installs.
+- **Kubernetes DaemonSet**: for fleet deployment inside clusters.
+
+### 9.2 Quick Install Snippets (copyable)
+
+1) Docker Compose
+
+```yaml
+version: "3.8"
+services:
+  orthrus:
+    image: wikid82/orthrus:latest
+    restart: always
+    environment:
+      - ORTHRUS_NAME=remote-media-server
+      - CHARON_LINK=100.x.y.z:8080
+      - AUTH_KEY=REPLACE_WITH_AUTH_KEY
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+2) Standalone binary + `systemd` (Linux)
+
+```bash
+# download and install
+curl -L https://example.com/orthrus/latest/orthrus-linux-amd64 -o /usr/local/bin/orthrus
+chmod +x /usr/local/bin/orthrus
+
+# systemd unit (/etc/systemd/system/orthrus.service)
+cat > /etc/systemd/system/orthrus.service <<'EOF'
+[Unit]
+Description=Orthrus agent
+After=network.target
+
+[Service]
+Environment=ORTHRUS_NAME=remote-media-server
+Environment=CHARON_LINK=100.x.y.z:8080
+Environment=AUTH_KEY=REPLACE_WITH_AUTH_KEY
+ExecStart=/usr/local/bin/orthrus
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now orthrus
+```
+
+3) Tarball + install script
+
+```bash
+curl -L -o orthrus.tar.gz https://example.com/orthrus/vX.Y.Z/orthrus-linux-amd64.tar.gz
+sha256sum orthrus.tar.gz  # compare with UI-provided hash
+tar -xzf orthrus.tar.gz -C /usr/local/bin
+chmod +x /usr/local/bin/orthrus
+# then use the systemd unit above
+```
+
+4) Homebrew (macOS / Linuxbrew)
+
+```
+brew tap wikid82/charon
+brew install orthrus
+```
+
+5) Kubernetes DaemonSet
+
+Provide a DaemonSet YAML referencing the `orthrus` image and the required env vars (`AUTH_KEY`, `CHARON_LINK`), optionally mounting the Docker socket or using hostNetworking.
+
+### 9.3 Security & UX Notes
+- Provide SHA256 checksums and GPG signatures for binary downloads.
+- Avoid recommending `curl | sh`; prefer explicit steps and checksum verification.
+- The Hecate UI should present each snippet as a selectable tab with a copy button and an inline checksum.
+- Offer a one-click `AUTH_KEY` regenerate action in the UI and mark old keys revoked.
