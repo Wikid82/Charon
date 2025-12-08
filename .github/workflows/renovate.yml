@@ -22,16 +22,16 @@ jobs:
         run: |
           if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
             echo "Using CHARON_TOKEN" >&2
-            echo "RENOVATE_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using CPMP_TOKEN fallback" >&2
-            echo "RENOVATE_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+            echo "GITHUB_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
           fi
 
       - name: Run Renovate
         uses: renovatebot/github-action@5712c6a41dea6cdf32c72d92a763bd417e6606aa # v44.0.5
         with:
           configurationFile: .github/renovate.json
-          token: ${{ env.RENOVATE_TOKEN }}
+          token: ${{ env.GITHUB_TOKEN }}
         env:
           LOG_LEVEL: info
