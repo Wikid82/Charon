@@ -465,14 +465,4 @@ func generateSelfSignedCertPEM() (string, string, error) {
 	return certPEM.String(), keyPEM.String(), nil
 }
 
-// mockCertificateService implements minimal interface for Upload handler tests
-type mockCertificateService struct {
-	uploadFunc func(name, cert, key string) (*models.SSLCertificate, error)
-}
-
-func (m *mockCertificateService) UploadCertificate(name, cert, key string) (*models.SSLCertificate, error) {
-	if m.uploadFunc != nil {
-		return m.uploadFunc(name, cert, key)
-	}
-	return nil, fmt.Errorf("not implemented")
-}
+// Note: mockCertificateService removed — helper tests now use real service instances or testify mocks inlined where required.
