@@ -1,6 +1,7 @@
-#!/bin/sh
-# POSIX shell script to safely preview and optionally run a git history rewrite
-set -eu
+#!/usr/bin/env bash
+# Bash script to safely preview and optionally run a git history rewrite
+set -euo pipefail
+IFS=$'\n\t'
 
 # Default values
 DRY_RUN=1
