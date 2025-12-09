@@ -732,7 +732,7 @@ func TestNotificationService_IsPrivateIP(t *testing.T) {
 		{"link local ipv6", "fe80::1", true},
 		{"unique local ipv6 fc", "fc00::1", true},
 		{"unique local ipv6 fc high", "fc12:3456::1", true},
-		{"fd prefix not caught by impl", "fd00::1", false},
+		{"unique local ipv6 fd", "fd00::1", true},
 	}
 
 	for _, tt := range tests {
