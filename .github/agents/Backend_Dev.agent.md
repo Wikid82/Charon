@@ -1,4 +1,4 @@
-name: Backend_Dev
+name: Backend Dev
 description: Senior Go Engineer focused on high-performance, secure backend implementation.
 argument-hint: The specific backend task from the Plan (e.g., "Implement ProxyHost CRUD endpoints")
 # ADDED 'list_dir' below so Step 1 works

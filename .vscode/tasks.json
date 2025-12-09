@@ -18,6 +18,37 @@
 					"problemMatcher": []
 				},
 		{
+			"label": "Go: Build Backend",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go build ./..."],
+			"group": { "kind": "build", "isDefault": true },
+			"presentation": { "reveal": "always", "panel": "shared" },
+			"problemMatcher": ["$go"]
+		},
+		{
+			"label": "Go: Test Backend",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go test ./... -v"],
+			"group": "test",
+			"presentation": { "reveal": "always", "panel": "shared" }
+		},
+		{
+			"label": "Go: Mod Tidy (Backend)",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "cd backend && go mod tidy"],
+			"presentation": { "reveal": "silent", "panel": "shared" }
+		},
+		{
+			"label": "Gather gopls logs",
+			"type": "shell",
+			"command": "bash",
+			"args": ["-lc", "./scripts/gopls_collect.sh"],
+			"presentation": { "reveal": "always", "panel": "new" }
+		},
+		{
 			"label": "Git Remove Cached",
 			"type": "shell",
 			"command": "git rm -r --cached .",
@@ -216,3 +247,73 @@
 			},
 			"problemMatcher": ["$go"]
 		}
+	,
+		{
+			"label": "Frontend: Lint Fix",
+			"type": "shell",
+			"command": "cd frontend && npm run lint -- --fix",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Lint: GolangCI-Lint Fix",
+			"type": "shell",
+			"command": "cd backend && docker run --rm -v $(pwd):/app:rw -w /app golangci/golangci-lint:latest golangci-lint run --fix -v",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": ["$go"]
+		},
+		{
+			"label": "Frontend: Run All Tests & Scans",
+			"dependsOn": [
+				"Frontend: Type Check",
+				"Frontend: Test Coverage",
+				"Run CodeQL Scan (Local)"
+			],
+			"dependsOrder": "sequence",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "Backend: Run All Tests & Scans",
+			"dependsOn": [
+				"Backend: Go Test Coverage",
+				"Backend: Run Benchmarks (Quick)",
+				"Run Security Scan (govulncheck)",
+				"Lint: GolangCI-Lint",
+				"Lint: Go Race Detector"
+			],
+			"dependsOrder": "sequence",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Lint: Apply Fixes",
+			"dependsOn": [
+				"Frontend: Lint Fix",
+				"Lint: GolangCI-Lint Fix",
+				"Lint: Hadolint (Dockerfile)",
+				"Run Pre-commit (Staged Files)"
+			],
+			"dependsOrder": "sequence",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		}
+		]
+	}

@@ -61,7 +61,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	assert.NotEmpty(t, created.ID)
 
 	// 2. List
-	req, _ = http.NewRequest("GET", "/api/v1/notifications/providers", nil)
+	req, _ = http.NewRequest("GET", "/api/v1/notifications/providers", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -88,7 +88,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 	assert.Equal(t, "Updated Discord", dbProvider.Name)
 
 	// 4. Delete
-	req, _ = http.NewRequest("DELETE", "/api/v1/notifications/providers/"+created.ID, nil)
+	req, _ = http.NewRequest("DELETE", "/api/v1/notifications/providers/"+created.ID, http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -102,7 +102,7 @@ func TestNotificationProviderHandler_CRUD(t *testing.T) {
 func TestNotificationProviderHandler_Templates(t *testing.T) {
 	r, _ := setupNotificationProviderTest(t)
 
-	req, _ := http.NewRequest("GET", "/api/v1/notifications/templates", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/notifications/templates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

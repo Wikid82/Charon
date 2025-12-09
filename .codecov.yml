@@ -1,5 +1,7 @@
-# Codecov configuration - require 75% overall coverage by default
-# Adjust target as needed
+# =============================================================================
+# Codecov Configuration
+# Require 75% overall coverage, exclude test files and non-source code
+# =============================================================================
 
 coverage:
   status:
@@ -11,30 +13,79 @@ coverage:
 # Fail CI if Codecov upload/report indicates a problem
 require_ci_to_pass: yes
 
-# Exclude folders from Codecov
+# -----------------------------------------------------------------------------
+# Exclude from coverage reporting
+# -----------------------------------------------------------------------------
 ignore:
-  - "**/tests/*"
-  - "**/test/*"
-  - "**/__tests__/*"
+  # Test files
+  - "**/tests/**"
+  - "**/test/**"
+  - "**/__tests__/**"
   - "**/test_*.go"
   - "**/*_test.go"
   - "**/*.test.ts"
   - "**/*.test.tsx"
-  - "docs/*"
-  - ".github/*"
-  - "scripts/*"
-  - "tools/*"
-  - "frontend/node_modules/*"
-  - "frontend/dist/*"
-  - "frontend/coverage/*"
-  - "backend/cmd/seed/*"
-  - "backend/cmd/api/*"
-  - "backend/data/*"
-  - "backend/coverage/*"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"
+  - "**/vitest.config.ts"
+  - "**/vitest.setup.ts"
+
+  # E2E tests
+  - "**/e2e/**"
+  - "**/integration/**"
+
+  # Documentation
+  - "docs/**"
+  - "*.md"
+
+  # CI/CD & Config
+  - ".github/**"
+  - "scripts/**"
+  - "tools/**"
+  - "*.yml"
+  - "*.yaml"
+  - "*.json"
+
+  # Frontend build artifacts & dependencies
+  - "frontend/node_modules/**"
+  - "frontend/dist/**"
+  - "frontend/coverage/**"
+  - "frontend/test-results/**"
+  - "frontend/public/**"
+
+  # Backend non-source files
+  - "backend/cmd/seed/**"
+  - "backend/cmd/api/**"
+  - "backend/data/**"
+  - "backend/coverage/**"
+  - "backend/bin/**"
   - "backend/*.cover"
   - "backend/*.out"
+  - "backend/*.html"
+  - "backend/codeql-db/**"
+
+  # Docker-only code (not testable in CI)
   - "backend/internal/services/docker_service.go"
   - "backend/internal/api/handlers/docker_handler.go"
-  - "codeql-db/*"
+
+  # CodeQL artifacts
+  - "codeql-db/**"
+  - "codeql-db-*/**"
+  - "codeql-agent-results/**"
+  - "codeql-custom-queries-*/**"
   - "*.sarif"
-  - "*.md"
+
+  # Config files (no logic)
+  - "**/tailwind.config.js"
+  - "**/postcss.config.js"
+  - "**/eslint.config.js"
+  - "**/vite.config.ts"
+  - "**/tsconfig*.json"
+
+  # Type definitions only
+  - "**/*.d.ts"
+
+  # Import/data directories
+  - "import/**"
+  - "data/**"
+  - ".cache/**"

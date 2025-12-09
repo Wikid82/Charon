@@ -125,9 +125,9 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 // Get retrieves a proxy host by UUID.
 func (h *ProxyHostHandler) Get(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	host, err := h.service.GetByUUID(uuid)
+	host, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
@@ -297,14 +297,22 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Sync associated uptime monitor with updated proxy host values
+	if h.uptimeService != nil {
+		if err := h.uptimeService.SyncMonitorForHost(host.ID); err != nil {
+			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
+			// Don't fail the request if sync fails - the host update succeeded
+		}
+	}
+
 	c.JSON(http.StatusOK, host)
 }
 
 // Delete removes a proxy host.
 func (h *ProxyHostHandler) Delete(c *gin.Context) {
-	uuid := c.Param("uuid")
+	uuidStr := c.Param("uuid")
 
-	host, err := h.service.GetByUUID(uuid)
+	host, err := h.service.GetByUUID(uuidStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
@@ -391,11 +399,11 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	updated := 0
 	errors := []map[string]string{}
 
-	for _, uuid := range req.HostUUIDs {
-		host, err := h.service.GetByUUID(uuid)
+	for _, hostUUID := range req.HostUUIDs {
+		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
 			errors = append(errors, map[string]string{
-				"uuid":  uuid,
+				"uuid":  hostUUID,
 				"error": "proxy host not found",
 			})
 			continue
@@ -404,7 +412,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		host.AccessListID = req.AccessListID
 		if err := h.service.Update(host); err != nil {
 			errors = append(errors, map[string]string{
-				"uuid":  uuid,
+				"uuid":  hostUUID,
 				"error": err.Error(),
 			})
 			continue

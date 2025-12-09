@@ -40,7 +40,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	router.GET("/import/status", handler.GetStatus)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/import/status", nil)
+	req, _ := http.NewRequest("GET", "/import/status", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -52,7 +52,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	// Case 2: No DB session but has mounted Caddyfile
 	tmpDir := t.TempDir()
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
-	os.WriteFile(mountPath, []byte("example.com"), 0644)
+	os.WriteFile(mountPath, []byte("example.com"), 0o644)
 
 	handler2 := handlers.NewImportHandler(db, "echo", "/tmp", mountPath)
 	router2 := gin.New()
@@ -97,7 +97,7 @@ func TestImportHandler_GetPreview(t *testing.T) {
 
 	// Case 1: No session
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	req, _ := http.NewRequest("GET", "/import/preview", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
@@ -110,7 +110,7 @@ func TestImportHandler_GetPreview(t *testing.T) {
 	db.Create(&session)
 
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/import/preview", nil)
+	req, _ = http.NewRequest("GET", "/import/preview", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -141,7 +141,7 @@ func TestImportHandler_Cancel(t *testing.T) {
 	db.Create(&session)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=test-uuid", nil)
+	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=test-uuid", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -198,7 +198,7 @@ func TestImportHandler_Upload(t *testing.T) {
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	tmpDir := t.TempDir()
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
@@ -231,7 +231,7 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 	// Case: Active session with source file
 	content := "example.com {\n  reverse_proxy localhost:8080\n}"
 	sourceFile := filepath.Join(tmpDir, "source.caddyfile")
-	err := os.WriteFile(sourceFile, []byte(content), 0644)
+	err := os.WriteFile(sourceFile, []byte(content), 0o644)
 	assert.NoError(t, err)
 
 	// Case: Active session with source file
@@ -244,7 +244,7 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 	db.Create(&session)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	req, _ := http.NewRequest("GET", "/import/preview", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -307,7 +307,7 @@ func TestImportHandler_Cancel_Errors(t *testing.T) {
 
 	// Case 1: Session not found
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=non-existent", nil)
+	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=non-existent", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -320,14 +320,14 @@ func TestCheckMountedImport(t *testing.T) {
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	// Case 1: File does not exist
 	err := handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
 	assert.NoError(t, err)
 
 	// Case 2: File exists, not processed
-	err = os.WriteFile(mountPath, []byte("example.com"), 0644)
+	err = os.WriteFile(mountPath, []byte("example.com"), 0o644)
 	assert.NoError(t, err)
 
 	err = handlers.CheckMountedImport(db, mountPath, fakeCaddy, tmpDir)
@@ -431,10 +431,10 @@ func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 
 	// Create backup file
 	backupDir := filepath.Join(tmpDir, "backups")
-	os.MkdirAll(backupDir, 0755)
+	os.MkdirAll(backupDir, 0o755)
 	content := "backup content"
 	backupFile := filepath.Join(backupDir, "source.caddyfile")
-	os.WriteFile(backupFile, []byte(content), 0644)
+	os.WriteFile(backupFile, []byte(content), 0o644)
 
 	// Case: Active session with missing source file but existing backup
 	session := models.ImportSession{
@@ -446,7 +446,7 @@ func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 	db.Create(&session)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	req, _ := http.NewRequest("GET", "/import/preview", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -465,7 +465,7 @@ func TestImportHandler_RegisterRoutes(t *testing.T) {
 
 	// Verify routes exist by making requests
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/import/status", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/import/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
@@ -478,20 +478,20 @@ func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
 
 	// Create a mounted Caddyfile
 	content := "example.com"
-	err := os.WriteFile(mountPath, []byte(content), 0644)
+	err := os.WriteFile(mountPath, []byte(content), 0o644)
 	assert.NoError(t, err)
 
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
 	router := gin.New()
 	router.GET("/import/preview", handler.GetPreview)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/import/preview", nil)
+	req, _ := http.NewRequest("GET", "/import/preview", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code, "Response body: %s", w.Body.String())
@@ -522,7 +522,7 @@ func TestImportHandler_Commit_TransientUpload(t *testing.T) {
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
@@ -580,13 +580,13 @@ func TestImportHandler_Commit_TransientMount(t *testing.T) {
 	mountPath := filepath.Join(tmpDir, "mounted.caddyfile")
 
 	// Create a mounted Caddyfile
-	err := os.WriteFile(mountPath, []byte("mounted.com"), 0644)
+	err := os.WriteFile(mountPath, []byte("mounted.com"), 0o644)
 	assert.NoError(t, err)
 
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, mountPath)
 	router := gin.New()
@@ -627,7 +627,7 @@ func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()
@@ -658,7 +658,7 @@ func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
 
 	// Cancel should delete the file
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("DELETE", "/import/cancel?session_uuid="+sessionID, nil)
+	req, _ = http.NewRequest("DELETE", "/import/cancel?session_uuid="+sessionID, http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -704,7 +704,7 @@ func TestImportHandler_Errors(t *testing.T) {
 
 	// Cancel - Session Not Found
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("DELETE", "/import/cancel?session_uuid=non-existent", nil)
+	req, _ = http.NewRequest("DELETE", "/import/cancel?session_uuid=non-existent", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -794,7 +794,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 	// Use fake caddy script
 	cwd, _ := os.Getwd()
 	fakeCaddy := filepath.Join(cwd, "testdata", "fake_caddy_hosts.sh")
-	os.Chmod(fakeCaddy, 0755)
+	os.Chmod(fakeCaddy, 0o755)
 
 	handler := handlers.NewImportHandler(db, fakeCaddy, tmpDir, "")
 	router := gin.New()

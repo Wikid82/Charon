@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,6 +24,9 @@ import (
 
 // Register wires up API routes and performs automatic migrations.
 func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
+	// Enable gzip compression for API responses (reduces payload size ~70%)
+	router.Use(gzip.Gzip(gzip.DefaultCompression))
+
 	// Apply security headers middleware globally
 	// This sets CSP, HSTS, X-Frame-Options, etc.
 	securityHeadersCfg := middleware.SecurityHeadersConfig{
@@ -54,6 +58,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.SecurityAudit{},
 		&models.SecurityRuleSet{},
 		&models.UserPermittedHost{}, // Join table for user permissions
+		&models.CrowdsecPresetEvent{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -242,15 +247,32 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		go func() {
 			// Wait a bit for server to start
 			time.Sleep(30 * time.Second)
-			// Initial sync
-			if err := uptimeService.SyncMonitors(); err != nil {
-				logger.Log().WithError(err).Error("Failed to sync monitors")
+
+			// Initial sync if enabled
+			var s models.Setting
+			enabled := true
+			if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
+				enabled = s.Value == "true"
+			}
+
+			if enabled {
+				if err := uptimeService.SyncMonitors(); err != nil {
+					logger.Log().WithError(err).Error("Failed to sync monitors")
+				}
 			}
 
 			ticker := time.NewTicker(1 * time.Minute)
 			for range ticker.C {
-				_ = uptimeService.SyncMonitors()
-				uptimeService.CheckAll()
+				// Check feature flag each tick
+				enabled := true
+				if err := db.Where("key = ?", "feature.uptime.enabled").First(&s).Error; err == nil {
+					enabled = s.Value == "true"
+				}
+
+				if enabled {
+					_ = uptimeService.SyncMonitors()
+					uptimeService.CheckAll()
+				}
 			}
 		}()
 
@@ -284,6 +306,27 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
+
+		// Access Lists
+		accessListHandler := handlers.NewAccessListHandler(db)
+		protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
+		protected.GET("/access-lists", accessListHandler.List)
+		protected.POST("/access-lists", accessListHandler.Create)
+		protected.GET("/access-lists/:id", accessListHandler.Get)
+		protected.PUT("/access-lists/:id", accessListHandler.Update)
+		protected.DELETE("/access-lists/:id", accessListHandler.Delete)
+		protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
+
+		// Certificate routes
+		// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
+		// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
+		caddyDataDir := cfg.CaddyConfigDir + "/data"
+		logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
+		certService := services.NewCertificateService(caddyDataDir, db)
+		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
+		protected.GET("/certificates", certHandler.List)
+		protected.POST("/certificates", certHandler.Upload)
+		protected.DELETE("/certificates/:id", certHandler.Delete)
 	}
 
 	// Caddy Manager already created above
@@ -293,27 +336,6 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)
-
-	// Access Lists
-	accessListHandler := handlers.NewAccessListHandler(db)
-	protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
-	protected.GET("/access-lists", accessListHandler.List)
-	protected.POST("/access-lists", accessListHandler.Create)
-	protected.GET("/access-lists/:id", accessListHandler.Get)
-	protected.PUT("/access-lists/:id", accessListHandler.Update)
-	protected.DELETE("/access-lists/:id", accessListHandler.Delete)
-	protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
-
-	// Certificate routes
-	// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage
-	// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
-	caddyDataDir := cfg.CaddyConfigDir + "/data"
-	logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
-	certService := services.NewCertificateService(caddyDataDir, db)
-	certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
-	api.GET("/certificates", certHandler.List)
-	api.POST("/certificates", certHandler.Upload)
-	api.DELETE("/certificates/:id", certHandler.Delete)
 
 	// Initial Caddy Config Sync
 	go func() {

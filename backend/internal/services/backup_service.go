@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -31,7 +32,7 @@ type BackupFile struct {
 func NewBackupService(cfg *config.Config) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		logger.Log().WithError(err).Error("Failed to create backup directory")
 	}
 
@@ -104,7 +105,11 @@ func (s *BackupService) CreateBackup() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = outFile.Close() }()
+	defer func() {
+		if err := outFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close backup file")
+		}
+	}()
 
 	w := zip.NewWriter(outFile)
 
@@ -143,7 +148,11 @@ func (s *BackupService) addToZip(w *zip.Writer, srcPath, zipPath string) error {
 		}
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close file after adding to zip")
+		}
+	}()
 
 	f, err := w.Create(zipPath)
 	if err != nil {
@@ -223,7 +232,11 @@ func (s *BackupService) unzip(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = r.Close() }()
+	defer func() {
+		if err := r.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close zip reader")
+		}
+	}()
 
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
@@ -249,7 +262,9 @@ func (s *BackupService) unzip(src, dest string) error {
 
 		rc, err := f.Open()
 		if err != nil {
-			_ = outFile.Close()
+			if err := outFile.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close temporary output file after f.Open() error")
+			}
 			return err
 		}
 
@@ -266,4 +281,14 @@ func (s *BackupService) unzip(src, dest string) error {
 		}
 	}
 	return nil
+}
+
+// GetAvailableSpace returns the available disk space in bytes for the backup directory
+func (s *BackupService) GetAvailableSpace() (int64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(s.BackupDir, &stat); err != nil {
+		return 0, fmt.Errorf("failed to get disk space: %w", err)
+	}
+	// Available blocks * block size = available bytes
+	return int64(stat.Bavail) * int64(stat.Bsize), nil
 }

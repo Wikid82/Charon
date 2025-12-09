@@ -56,7 +56,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 
 	// Test List
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/remote-servers", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/remote-servers", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -123,7 +123,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 
 	// Test connection
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/remote-servers/"+server.UUID+"/test", nil)
+	req, _ := http.NewRequest("POST", "/api/v1/remote-servers/"+server.UUID+"/test", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -157,7 +157,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 
 	// Test Get
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, nil)
+	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -235,14 +235,14 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 
 	// Test Delete
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("DELETE", "/api/v1/remote-servers/"+server.UUID, nil)
+	req, _ := http.NewRequest("DELETE", "/api/v1/remote-servers/"+server.UUID, http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
 
 	// Verify Delete
 	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, nil)
+	req2, _ := http.NewRequest("GET", "/api/v1/remote-servers/"+server.UUID, http.NoBody)
 	router.ServeHTTP(w2, req2)
 
 	assert.Equal(t, http.StatusNotFound, w2.Code)
@@ -271,7 +271,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 
 	// Test List
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/proxy-hosts", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/proxy-hosts", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -362,7 +362,7 @@ func TestProxyHostHandler_PartialUpdate_DoesNotWipeFields(t *testing.T) {
 
 	// Fetch via GET to ensure DB persisted state correctly
 	w2 := httptest.NewRecorder()
-	req2, _ := http.NewRequest("GET", "/api/v1/proxy-hosts/"+original.UUID, nil)
+	req2, _ := http.NewRequest("GET", "/api/v1/proxy-hosts/"+original.UUID, http.NoBody)
 	router.ServeHTTP(w2, req2)
 	assert.Equal(t, http.StatusOK, w2.Code)
 
@@ -382,7 +382,7 @@ func TestHealthHandler(t *testing.T) {
 	router.GET("/health", handlers.HealthHandler)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/health", nil)
+	req, _ := http.NewRequest("GET", "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -404,7 +404,7 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 
 	// Get non-existent
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/non-existent", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/remote-servers/non-existent", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
@@ -417,7 +417,7 @@ func TestRemoteServerHandler_Errors(t *testing.T) {
 
 	// Delete non-existent
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/non-existent", nil)
+	req, _ = http.NewRequest("DELETE", "/api/v1/remote-servers/non-existent", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }

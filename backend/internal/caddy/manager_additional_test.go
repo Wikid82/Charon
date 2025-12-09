@@ -49,7 +49,7 @@ func TestManager_Rollback_UnmarshalError(t *testing.T) {
 	tmp := t.TempDir()
 	// Write a non-JSON file with .json extension
 	p := filepath.Join(tmp, "config-123.json")
-	os.WriteFile(p, []byte("not json"), 0644)
+	os.WriteFile(p, []byte("not json"), 0o644)
 	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Reader error should happen before client.Load
 	err := manager.rollback(context.Background())
@@ -61,7 +61,7 @@ func TestManager_Rollback_LoadSnapshotFail(t *testing.T) {
 	// Create a valid JSON file and set client to return error for /load
 	tmp := t.TempDir()
 	p := filepath.Join(tmp, "config-123.json")
-	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0644)
+	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0o644)
 
 	// Mock client that returns error on Load
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func TestManager_SaveSnapshot_WriteError(t *testing.T) {
 	// Create a file at path to use as configDir, so writes fail
 	tmp := t.TempDir()
 	notDir := filepath.Join(tmp, "file-not-dir")
-	os.WriteFile(notDir, []byte("data"), 0644)
+	os.WriteFile(notDir, []byte("data"), 0o644)
 	manager := NewManager(nil, nil, notDir, "", false, config.SecurityConfig{})
 	_, err := manager.saveSnapshot(&Config{})
 	assert.Error(t, err)
@@ -94,10 +94,10 @@ func TestManager_SaveSnapshot_WriteError(t *testing.T) {
 func TestBackupCaddyfile_MkdirAllFailure(t *testing.T) {
 	tmp := t.TempDir()
 	originalFile := filepath.Join(tmp, "Caddyfile")
-	os.WriteFile(originalFile, []byte("original"), 0644)
+	os.WriteFile(originalFile, []byte("original"), 0o644)
 	// Create a file where the backup dir should be to cause MkdirAll to fail
 	badDir := filepath.Join(tmp, "notadir")
-	os.WriteFile(badDir, []byte("data"), 0644)
+	os.WriteFile(badDir, []byte("data"), 0o644)
 
 	_, err := BackupCaddyfile(originalFile, badDir)
 	assert.Error(t, err)
@@ -178,7 +178,7 @@ func TestManager_RotateSnapshots_DeletesOld(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("config-%d.json", i)
 		p := filepath.Join(tmp, name)
-		os.WriteFile(p, []byte("{}"), 0644)
+		os.WriteFile(p, []byte("{}"), 0o644)
 		// tweak mod time
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
@@ -230,10 +230,10 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 	// Create snapshot files: make the oldest a non-empty directory to force delete error;
 	// generate 11 snapshots so rotateSnapshots(10) will attempt to delete 1
 	d1 := filepath.Join(tmp, "config-1.json")
-	os.MkdirAll(d1, 0755)
-	os.WriteFile(filepath.Join(d1, "inner"), []byte("x"), 0644) // non-empty
+	os.MkdirAll(d1, 0o755)
+	os.WriteFile(filepath.Join(d1, "inner"), []byte("x"), 0o644) // non-empty
 	for i := 2; i <= 11; i++ {
-		os.WriteFile(filepath.Join(tmp, fmt.Sprintf("config-%d.json", i)), []byte("{}"), 0644)
+		os.WriteFile(filepath.Join(tmp, fmt.Sprintf("config-%d.json", i)), []byte("{}"), 0o644)
 	}
 	// Set modification times to ensure config-1.json is oldest
 	for i := 1; i <= 11; i++ {
@@ -318,7 +318,7 @@ func TestManager_ApplyConfig_SaveSnapshotFails(t *testing.T) {
 	// Create a file where configDir should be to cause saveSnapshot to fail
 	tmp := t.TempDir()
 	filePath := filepath.Join(tmp, "file-not-dir")
-	os.WriteFile(filePath, []byte("data"), 0644)
+	os.WriteFile(filePath, []byte("data"), 0o644)
 
 	client := NewClient(caddyServer.URL)
 	manager := NewManager(client, db, filePath, "", false, config.SecurityConfig{})
@@ -387,7 +387,7 @@ func TestManager_RotateSnapshots_DeleteError(t *testing.T) {
 	// Create three files to remove one
 	for i := 1; i <= 3; i++ {
 		p := filepath.Join(tmp, fmt.Sprintf("config-%d.json", i))
-		os.WriteFile(p, []byte("{}"), 0644)
+		os.WriteFile(p, []byte("{}"), 0o644)
 		os.Chtimes(p, time.Now().Add(time.Duration(i)*time.Second), time.Now().Add(time.Duration(i)*time.Second))
 	}
 
@@ -500,7 +500,7 @@ func TestManager_Rollback_ReadFileError(t *testing.T) {
 	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Create snapshot entries via write
 	p := filepath.Join(tmp, "config-123.json")
-	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0644)
+	os.WriteFile(p, []byte(`{"apps":{"http":{}}}`), 0o644)
 	// Stub readFileFunc to return error
 	origRead := readFileFunc
 	readFileFunc = func(p string) ([]byte, error) { return nil, fmt.Errorf("read error") }
@@ -805,7 +805,7 @@ func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
 	tmp := t.TempDir()
 	// Create a file at tmp/coraza to cause MkdirAll on tmp/coraza/rulesets to fail
 	corazaFile := filepath.Join(tmp, "coraza")
-	os.WriteFile(corazaFile, []byte("not a dir"), 0644)
+	os.WriteFile(corazaFile, []byte("not a dir"), 0o644)
 
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"rulesets-mkdirfail")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -1278,13 +1278,13 @@ func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
 
 	// Create a stale file in the coraza rulesets dir
 	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
-	os.MkdirAll(corazaDir, 0755)
+	os.MkdirAll(corazaDir, 0o755)
 	staleFile := filepath.Join(corazaDir, "stale-ruleset.conf")
-	os.WriteFile(staleFile, []byte("old content"), 0644)
+	os.WriteFile(staleFile, []byte("old content"), 0o644)
 
 	// Create a subdirectory that should be skipped during cleanup (not deleted)
 	subDir := filepath.Join(corazaDir, "subdir")
-	os.MkdirAll(subDir, 0755)
+	os.MkdirAll(subDir, 0o755)
 
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/load" && r.Method == http.MethodPost {
@@ -1387,9 +1387,9 @@ func TestManager_ApplyConfig_RulesetCleanupRemoveError(t *testing.T) {
 
 	// Create stale file
 	corazaDir := filepath.Join(tmp, "coraza", "rulesets")
-	os.MkdirAll(corazaDir, 0755)
+	os.MkdirAll(corazaDir, 0o755)
 	staleFile := filepath.Join(corazaDir, "stale.conf")
-	os.WriteFile(staleFile, []byte("old"), 0644)
+	os.WriteFile(staleFile, []byte("old"), 0o644)
 
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/load" && r.Method == http.MethodPost {

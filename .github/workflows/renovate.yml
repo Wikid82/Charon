@@ -20,18 +20,29 @@ jobs:
           fetch-depth: 1
       - name: Choose Renovate Token
         run: |
+          # Prefer explicit tokens (CHARON_TOKEN > CPMP_TOKEN) if provided; otherwise use the default GITHUB_TOKEN
           if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
             echo "Using CHARON_TOKEN" >&2
-            echo "RENOVATE_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
-          else
+            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          elif [ -n "${{ secrets.CPMP_TOKEN }}" ]; then
             echo "Using CPMP_TOKEN fallback" >&2
-            echo "RENOVATE_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+            echo "GITHUB_TOKEN=${{ secrets.CPMP_TOKEN }}" >> $GITHUB_ENV
+          else
+            echo "Using default GITHUB_TOKEN from Actions" >&2
+            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+          fi
+
+      - name: Fail-fast if token not set
+        run: |
+          if [ -z "${{ env.GITHUB_TOKEN }}" ]; then
+            echo "ERROR: No Renovate token provided. Set CHARON_TOKEN, CPMP_TOKEN, or rely on default GITHUB_TOKEN." >&2
+            exit 1
           fi
 
       - name: Run Renovate
         uses: renovatebot/github-action@5712c6a41dea6cdf32c72d92a763bd417e6606aa # v44.0.5
         with:
           configurationFile: .github/renovate.json
-          token: ${{ env.RENOVATE_TOKEN }}
+          token: ${{ env.GITHUB_TOKEN }}
         env:
           LOG_LEVEL: info
