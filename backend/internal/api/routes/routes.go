@@ -58,6 +58,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.SecurityAudit{},
 		&models.SecurityRuleSet{},
 		&models.UserPermittedHost{}, // Join table for user permissions
+		&models.CrowdsecPresetEvent{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

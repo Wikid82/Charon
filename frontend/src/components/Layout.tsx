@@ -62,8 +62,8 @@ export default function Layout({ children }: LayoutProps) {
     { name: 'Domains', path: '/domains', icon: '🌍' },
     { name: 'Certificates', path: '/certificates', icon: '🔒' },
     { name: 'Uptime', path: '/uptime', icon: '📈' },
-    { name: 'Security', path: '/security', icon: '🛡️', children: [
-      { name: 'Overview', path: '/security', icon: '🛡️' },
+    { name: 'Cerberus', path: '/security', icon: '🛡️', children: [
+      { name: 'Dashboard', path: '/security', icon: '🛡️' },
       { name: 'CrowdSec', path: '/security/crowdsec', icon: '🛡️' },
       { name: 'Access Lists', path: '/security/access-lists', icon: '🔒' },
       { name: 'Rate Limiting', path: '/security/rate-limiting', icon: '⚡' },
@@ -104,7 +104,7 @@ export default function Layout({ children }: LayoutProps) {
     // Optional Features Logic
     // Default to visible (true) if flags are loading or undefined
     if (item.name === 'Uptime') return featureFlags?.['feature.uptime.enabled'] !== false
-    if (item.name === 'Security') return featureFlags?.['feature.cerberus.enabled'] !== false
+    if (item.name === 'Cerberus') return featureFlags?.['feature.cerberus.enabled'] !== false
     return true
   })
 

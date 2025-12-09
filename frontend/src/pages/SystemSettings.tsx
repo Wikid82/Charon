@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -10,6 +10,7 @@ import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
 // CrowdSec runtime control is now in the Security page
 import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 interface HealthResponse {
   status: string
@@ -96,6 +97,22 @@ export default function SystemSettings() {
     queryFn: getFeatureFlags,
   })
 
+  const featureToggles = useMemo(
+    () => [
+      {
+        key: 'feature.cerberus.enabled',
+        label: 'Cerberus Security Suite',
+        tooltip: 'Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.',
+      },
+      {
+        key: 'feature.uptime.enabled',
+        label: 'Uptime Monitoring',
+        tooltip: 'Monitor the availability of your proxy hosts and remote servers.',
+      },
+    ],
+    []
+  )
+
   const updateFlagMutation = useMutation({
     mutationFn: async (payload: Record<string, boolean>) => updateFeatureFlags(payload),
     onSuccess: () => {
@@ -110,16 +127,54 @@ export default function SystemSettings() {
 
   // CrowdSec control
 
+  // Determine loading message
+  const { message, submessage } = updateFlagMutation.isPending
+    ? { message: 'Updating features...', submessage: 'Applying configuration changes' }
+    : { message: 'Loading...', submessage: 'Please wait' }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-        <Server className="w-8 h-8" />
-        System Settings
-      </h1>
+    <>
+      {updateFlagMutation.isPending && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="charon"
+        />
+      )}
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+          <Server className="w-8 h-8" />
+          System Settings
+        </h1>
 
-      {/* General Configuration */}
-      <Card className="p-6">
+        {/* Features */}
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Features</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {featureFlags ? (
+              featureToggles.map(({ key, label, tooltip }) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800"
+                  title={tooltip}
+                >
+                  <p className="text-sm font-medium text-gray-900 dark:text-white cursor-help">{label}</p>
+                  <Switch
+                    aria-label={`${label} toggle`}
+                    checked={!!featureFlags[key]}
+                    disabled={updateFlagMutation.isPending}
+                    onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
+                  />
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 col-span-2">Loading features...</p>
+            )}
+          </div>
+        </Card>
+
+        {/* General Configuration */}
+        <Card className="p-6">
         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">General Configuration</h2>
         <div className="space-y-4">
           <Input
@@ -182,45 +237,8 @@ export default function SystemSettings() {
         </div>
       </Card>
 
-      {/* Optional Features */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Optional Features</h2>
-        <div className="space-y-6">
-          {featureFlags ? (
-            <>
-              {/* Cerberus */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Cerberus Security Suite</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.
-                  </p>
-                </div>
-                <Switch
-                  checked={!!featureFlags['feature.cerberus.enabled']}
-                  onChange={(e) => updateFlagMutation.mutate({ 'feature.cerberus.enabled': e.target.checked })}
-                />
-              </div>
+      {/* Optional Features - Removed (Moved to top) */}
 
-              {/* Uptime */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Uptime Monitoring</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Monitor the availability of your proxy hosts and remote servers.
-                  </p>
-                </div>
-                <Switch
-                  checked={!!featureFlags['feature.uptime.enabled']}
-                  onChange={(e) => updateFlagMutation.mutate({ 'feature.uptime.enabled': e.target.checked })}
-                />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-500">Loading features...</p>
-          )}
-        </div>
-      </Card>
 
       {/* System Status */}
       <Card className="p-6">
@@ -325,5 +343,6 @@ export default function SystemSettings() {
 
 
     </div>
+    </>
   )
 }
