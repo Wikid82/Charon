@@ -63,7 +63,10 @@ describe('SystemSettings', () => {
       'security.cerberus.enabled': 'false',
     })
 
-    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({})
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+      'feature.cerberus.enabled': false,
+      'feature.uptime.enabled': false,
+    })
 
     vi.mocked(client.get).mockResolvedValue({
       data: {
@@ -382,44 +385,53 @@ describe('SystemSettings', () => {
     })
   })
 
-  describe('Optional Features', () => {
-    it('renders the Optional Features section', async () => {
+  describe('Features', () => {
+    it('renders the Features section', async () => {
       renderWithProviders(<SystemSettings />)
 
       await waitFor(() => {
-        expect(screen.getByText('Optional Features')).toBeTruthy()
+        expect(screen.getByText('Features')).toBeTruthy()
       })
     })
 
     it('displays Cerberus Security Suite toggle', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': false,
       })
 
       renderWithProviders(<SystemSettings />)
 
       await waitFor(() => {
         expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
-        expect(screen.getByText('Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.')).toBeTruthy()
       })
+
+      const cerberusLabel = screen.getByText('Cerberus Security Suite')
+      const tooltipParent = cerberusLabel.closest('[title]') as HTMLElement
+      expect(tooltipParent?.getAttribute('title')).toContain('Advanced security features')
     })
 
     it('displays Uptime Monitoring toggle', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
+        'feature.cerberus.enabled': false,
       })
 
       renderWithProviders(<SystemSettings />)
 
       await waitFor(() => {
         expect(screen.getByText('Uptime Monitoring')).toBeTruthy()
-        expect(screen.getByText('Monitor the availability of your proxy hosts and remote servers.')).toBeTruthy()
       })
+
+      const uptimeLabel = screen.getByText('Uptime Monitoring')
+      const tooltipParent = uptimeLabel.closest('[title]') as HTMLElement
+      expect(tooltipParent?.getAttribute('title')).toContain('Monitor the availability')
     })
 
     it('shows Cerberus toggle as checked when enabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': false,
       })
 
       renderWithProviders(<SystemSettings />)
@@ -438,6 +450,7 @@ describe('SystemSettings', () => {
     it('shows Uptime toggle as checked when enabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
+        'feature.cerberus.enabled': false,
       })
 
       renderWithProviders(<SystemSettings />)
@@ -455,6 +468,7 @@ describe('SystemSettings', () => {
     it('shows Cerberus toggle as unchecked when disabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': false,
       })
 
       renderWithProviders(<SystemSettings />)
@@ -472,6 +486,7 @@ describe('SystemSettings', () => {
     it('toggles Cerberus feature flag when switch is clicked', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': false,
       })
       vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
 
@@ -498,6 +513,7 @@ describe('SystemSettings', () => {
     it('toggles Uptime feature flag when switch is clicked', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
+        'feature.cerberus.enabled': false,
       })
       vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
 
@@ -527,10 +543,37 @@ describe('SystemSettings', () => {
       renderWithProviders(<SystemSettings />)
 
       await waitFor(() => {
-        expect(screen.getByText('Optional Features')).toBeTruthy()
+        expect(screen.getByText('Features')).toBeTruthy()
       })
 
       expect(screen.getByText('Loading features...')).toBeTruthy()
+    })
+
+    it('shows loading overlay while toggling a feature flag', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': false,
+      })
+      vi.mocked(featureFlagsApi.updateFeatureFlags).mockImplementation(
+        () => new Promise(() => {})
+      )
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus Security Suite')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const cerberusText = screen.getByText('Cerberus Security Suite')
+      const parentDiv = cerberusText.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+
+      await user.click(switchInput)
+
+      await waitFor(() => {
+        expect(screen.getByText('Updating features...')).toBeInTheDocument()
+      })
     })
   })
 })
