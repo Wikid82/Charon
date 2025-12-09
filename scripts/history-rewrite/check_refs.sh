@@ -34,7 +34,7 @@ echo "Created tags tarball: $tags_tar"
 echo "Attempting to push tags to origin under refs/backups/tags/*"
 for t in $(git tag --list); do
   if ! git push origin "refs/tags/$t:refs/backups/tags/$t" >/dev/null 2>&1; then
-    echo "Warning: pushing tag $t to refs/backups/tags/$t failed" >&2 || true
+    echo "Warning: pushing tag $t to refs/backups/tags/$t failed" >&2
   fi
 done
 
