@@ -23,7 +23,8 @@ teardown() {
   rm -rf "$TMPREPO"
 }
 
-SCRIPT="/projects/Charon/scripts/history-rewrite/validate_after_rewrite.sh"
+REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../../../" && pwd)
+SCRIPT="$REPO_ROOT/scripts/history-rewrite/validate_after_rewrite.sh"
 
 @test "validate_after_rewrite fails when backup branch is missing" {
   run bash "$SCRIPT"
