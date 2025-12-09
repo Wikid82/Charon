@@ -58,9 +58,7 @@ if [ -z "${backup_branch}" ]; then
   exit 3
 fi
 
-if [ "$#" -gt 0 ]; then
-  usage; exit 1
-fi
+# No positional args required; any unknown options are handled during parsing
 
 echo "Running git maintenance: git count-objects -vH"
 git count-objects -vH || true
