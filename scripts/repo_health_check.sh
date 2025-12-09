@@ -21,7 +21,7 @@ du -sh . || true
 du -sb . | awk '{print "Total bytes:", $1}' || true
 
 echo "-- Largest files (>${MAX_MB}MB) --"
-find . -type f -size +${MAX_MB}M -not -path "./.git/*" -print -exec du -h {} + | sort -hr | head -n 50 > /tmp/repo_big_files.txt || true
+find . -type f -size +"${MAX_MB}"M -not -path "./.git/*" -print -exec du -h {} + | sort -hr | head -n 50 > /tmp/repo_big_files.txt || true
 if [ -s /tmp/repo_big_files.txt ]; then
   echo "Large files found:"
   cat /tmp/repo_big_files.txt
@@ -38,10 +38,11 @@ else
 fi
 
 echo "-- Detect files > ${LFS_ALLOW_MB}MB not using Git LFS --"
-BIG_FILES=$(find . -type f -size +${LFS_ALLOW_MB}M -not -path "./.git/*" -print)
 FAILED=0
-if [ -n "$BIG_FILES" ]; then
-  while read -r f; do
+# Use NUL-separated find results to safely handle filenames with spaces/newlines
+found_big_files=0
+while IFS= read -r -d '' f; do
+  found_big_files=1
     # check if file path is tracked by LFS
     if git ls-files --stage -- "${f}" >/dev/null 2>&1; then
       # check attr filter value
@@ -55,7 +56,9 @@ if [ -n "$BIG_FILES" ]; then
       echo "Large untracked file (in working tree): ${f}" >&2
       FAILED=1
     fi
-  done <<<"$BIG_FILES"
+done < <(find . -type f -size +"${LFS_ALLOW_MB}"M -not -path "./.git/*" -print0)
+if [ "$found_big_files" -eq 0 ]; then
+  echo "No files larger than ${LFS_ALLOW_MB}MB found"
 fi
 
 if [ $FAILED -ne 0 ]; then
