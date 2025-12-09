@@ -55,15 +55,30 @@ for p in $paths_list; do
   fi
 done
 
-# 2) Check for objects in paths
-obj_count=$(git rev-list --objects --all -- $paths_list | wc -l | tr -d ' ')
-if [ "$obj_count" -gt 0 ]; then
-  echo "ERROR: Found $obj_count objects in specified paths"
-  git rev-list --objects --all -- $paths_list | nl -ba | sed -n '1,100p'
-  echo "DRY-RUN FAILED: repository objects found in banned paths"
+# 2) Check for blob objects in paths only (ignore tag/commit objects)
+tmp_objects=$(mktemp)
+trap 'rm -f "$tmp_objects"' EXIT INT TERM
+git rev-list --objects --all -- $paths_list > "$tmp_objects"
+blob_count=0
+blob_list=$(mktemp)
+trap 'rm -f "$tmp_objects" "$blob_list"' EXIT INT TERM
+while read -r line; do
+  oid=$(printf '%s' "$line" | awk '{print $1}')
+  # Determine object type and only consider blobs
+  type=$(git cat-file -t "$oid" 2>/dev/null || true)
+  if [ "$type" = "blob" ]; then
+    echo "$line" >> "$blob_list"
+    blob_count=$((blob_count + 1))
+  fi
+done < "$tmp_objects"
+
+if [ "$blob_count" -gt 0 ]; then
+  echo "ERROR: Found $blob_count blob object(s) in specified paths"
+  nl -ba "$blob_list" | sed -n '1,100p'
+  echo "DRY-RUN FAILED: repository blob objects found in banned paths"
   exit 1
 else
-  echo "OK: No repository objects in specified paths"
+  echo "OK: No repository blob objects in specified paths"
 fi
 
 # 3) Check for large objects across history

@@ -5,6 +5,9 @@ setup() {
   TMPREPO=$(mktemp -d)
   cd "$TMPREPO"
   git init -q
+  # Set local git identity for test commits
+  git config user.email "test@example.com"
+  git config user.name "Test Runner"
   echo 'initial' > README.md
   git add README.md && git commit -m 'init' -q
   # Make a minimal .venv pre-commit stub
