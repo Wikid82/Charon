@@ -81,3 +81,4 @@ CI automation
 -------------
 - A CI dry-run workflow `.github/workflows/dry-run-history-rewrite.yml` runs a non-destructive check that fails CI when banned history entries or large objects are found. It is triggered on PRs and a daily schedule.
 - A PR checklist template `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` and a checklist validator `.github/workflows/pr-checklist.yml` ensure contributors attach the preview output and backups before seeking approval.
+- The PR checklist validator is conditional: it only enforces the checklist when the PR modifies `scripts/history-rewrite/*`, `docs/plans/history_rewrite.md`, or similar history-rewrite related files. This avoids blocking unrelated PRs.
