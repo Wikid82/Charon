@@ -162,3 +162,23 @@ Now that you have the basics:
 ## Stuck?
 
 **[Ask for help](https://github.com/Wikid82/charon/discussions)** — The community is friendly!
+
+## Maintainers: History-rewrite Tools
+
+If you are a repository maintainer and need to run the history-rewrite utilities, find the scripts in `scripts/history-rewrite/`.
+
+Minimum required tools:
+- `git` — install: `sudo apt-get update && sudo apt-get install -y git` (Debian/Ubuntu) or `brew install git` (macOS).
+- `git-filter-repo` — recommended install via pip: `pip install --user git-filter-repo` or via your package manager if available: `sudo apt-get install git-filter-repo`.
+- `pre-commit` — install via pip or package manager: `pip install --user pre-commit` and then `pre-commit install` in the repository.
+
+Quick checks before running scripts:
+```bash
+# Fetch full history (non-shallow)
+git fetch --unshallow || true
+command -v git || (echo "install git" && exit 1)
+command -v git-filter-repo || (echo "install git-filter-repo" && exit 1)
+command -v pre-commit || (echo "install pre-commit" && exit 1)
+```
+
+See `docs/plans/history_rewrite.md` for the full checklist, usage examples, and recovery steps.

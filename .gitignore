@@ -31,7 +31,7 @@ frontend/coverage/
 frontend/test-results/
 frontend/.vite/
 frontend/*.tsbuildinfo
-frontend/frontend/
+/frontend/frontend/
 
 # -----------------------------------------------------------------------------
 # Go/Backend - Build artifacts & coverage
@@ -61,6 +61,7 @@ backend/.venv/
 *.db
 *.sqlite
 *.sqlite3
+backend/data/
 backend/data/*.db
 backend/data/**/*.db
 backend/cmd/api/data/*.db
@@ -76,6 +77,7 @@ charon.db
 *~
 .DS_Store
 *.xcf
+.vscode/
 .vscode/launch.json
 .vscode.backup*/
 
@@ -106,7 +108,8 @@ Thumbs.db
 # Caddy Runtime Data
 # -----------------------------------------------------------------------------
 backend/data/caddy/
-data/
+/data/
+/data/backups/
 
 # -----------------------------------------------------------------------------
 # Docker Overrides

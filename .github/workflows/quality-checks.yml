@@ -19,6 +19,10 @@ jobs:
           go-version: '1.25.5'
           cache-dependency-path: backend/go.sum
 
+      - name: Repo health check
+        run: |
+          bash scripts/repo_health_check.sh
+
       - name: Run Go tests
         id: go-tests
         working-directory: ${{ github.workspace }}
@@ -75,6 +79,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Repo health check
+        run: |
+          bash scripts/repo_health_check.sh
 
       - name: Set up Node.js
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -83,13 +93,48 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Check if frontend was modified in PR
+        id: check-frontend
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Try to fetch the PR base ref. This may fail for forked PRs or other cases.
+          git fetch origin ${{ github.event.pull_request.base.ref }} --depth=1 || true
+
+          # Compute changed files against the PR base ref, fallback to origin/main, then fallback to last 10 commits
+          CHANGED=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD 2>/dev/null || echo "")
+          echo "Changed files (base ref):\n$CHANGED"
+
+          if [ -z "$CHANGED" ]; then
+            echo "Base ref diff empty or failed; fetching origin/main for fallback..."
+            git fetch origin main --depth=1 || true
+            CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || echo "")
+            echo "Changed files (main fallback):\n$CHANGED"
+          fi
+
+          if [ -z "$CHANGED" ]; then
+            echo "Still empty; falling back to diffing last 10 commits from HEAD..."
+            CHANGED=$(git diff --name-only HEAD~10...HEAD 2>/dev/null || echo "")
+            echo "Changed files (HEAD~10 fallback):\n$CHANGED"
+          fi
+
+          if echo "$CHANGED" | grep -q '^frontend/'; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install dependencies
         working-directory: frontend
+        if: ${{ github.event_name == 'push' || steps.check-frontend.outputs.frontend_changed == 'true' }}
         run: npm ci
 
       - name: Run frontend tests and coverage
         id: frontend-tests
         working-directory: ${{ github.workspace }}
+        if: ${{ github.event_name == 'push' || steps.check-frontend.outputs.frontend_changed == 'true' }}
         run: |
           bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
           exit ${PIPESTATUS[0]}

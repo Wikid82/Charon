@@ -20,6 +20,31 @@ func setupUnitTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestExtractPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"http url default", "http://example.com", "80"},
+		{"https url default", "https://example.com", "443"},
+		{"http with port", "http://example.com:8080", "8080"},
+		{"https with port", "https://example.com:8443", "8443"},
+		{"host:port", "example.com:3000", "3000"},
+		{"plain host", "example.com", ""},
+		{"localhost with port", "localhost:5000", "5000"},
+		{"ip with port", "192.168.1.1:9090", "9090"},
+		{"ipv6 with port", "[::1]:8080", "8080"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractPort(tt.input)
+			require.Equal(t, tt.expected, got)
+		})
+	}
+}
+
 func TestUpdateMonitorEnabled_Unit(t *testing.T) {
 	db := setupUnitTestDB(t)
 	svc := NewUptimeService(db, nil)

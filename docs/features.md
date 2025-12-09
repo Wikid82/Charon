@@ -161,6 +161,7 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 ### Configuration Packages
 
 - **Hub presets:** Pull presets from the CrowdSec Hub over HTTPS, use cache keys/ETags for faster repeat pulls, preview changes, then apply with an automatic backup and reload flag. Requires Cerberus to be enabled with admin scope; `cscli` is preferred for execution.
+- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
 - **Offline/curated:** If the Hub is unreachable or apply is not supported, curated/offline presets remain available.
 - **Validation:** Slugs are validated before apply. Hub errors surface cleanly (503 uses retry or cached data; 400 for bad slugs; apply failures prompt you to restore from the backup).
 ---

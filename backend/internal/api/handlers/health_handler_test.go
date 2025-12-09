@@ -27,3 +27,12 @@ func TestHealthHandler(t *testing.T) {
 	assert.Equal(t, "ok", resp["status"])
 	assert.NotEmpty(t, resp["version"])
 }
+
+func TestGetLocalIP(t *testing.T) {
+	// This test just ensures getLocalIP doesn't panic
+	// It may return empty string in test environments
+	ip := getLocalIP()
+	// IP can be empty or a valid IPv4 address
+	t.Logf("getLocalIP returned: %q", ip)
+	// No assertion needed - just exercising the code path
+}

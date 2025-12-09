@@ -24,8 +24,58 @@ func TestFindPreset(t *testing.T) {
 	if preset.Slug != "honeypot-friendly-defaults" {
 		t.Fatalf("unexpected preset slug %s", preset.Slug)
 	}
+	if preset.Title == "" {
+		t.Fatalf("expected preset to have a title")
+	}
+	if preset.Summary == "" {
+		t.Fatalf("expected preset to have a summary")
+	}
 
 	if _, ok := FindPreset("missing"); ok {
 		t.Fatalf("expected missing preset to return ok=false")
+	}
+}
+
+func TestFindPresetCaseVariants(t *testing.T) {
+	tests := []struct {
+		name  string
+		slug  string
+		found bool
+	}{
+		{"exact match", "bot-mitigation-essentials", true},
+		{"another preset", "geolocation-aware", true},
+		{"case sensitive miss", "BOT-MITIGATION-ESSENTIALS", false},
+		{"partial match miss", "bot-mitigation", false},
+		{"empty slug", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := FindPreset(tt.slug)
+			if ok != tt.found {
+				t.Errorf("FindPreset(%q) found=%v, want %v", tt.slug, ok, tt.found)
+			}
+		})
+	}
+}
+
+func TestListCuratedPresetsReturnsDifferentCopy(t *testing.T) {
+	list1 := ListCuratedPresets()
+	list2 := ListCuratedPresets()
+
+	if len(list1) == 0 {
+		t.Fatalf("expected non-empty preset list")
+	}
+
+	// Verify mutating one copy doesn't affect the other
+	list1[0].Title = "MODIFIED"
+	if list2[0].Title == "MODIFIED" {
+		t.Fatalf("expected independent copies but mutation leaked")
+	}
+
+	// Verify subsequent calls return fresh copies
+	list3 := ListCuratedPresets()
+	if list3[0].Title == "MODIFIED" {
+		t.Fatalf("mutation leaked to fresh copy")
 	}
 }

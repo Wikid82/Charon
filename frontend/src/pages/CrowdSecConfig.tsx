@@ -31,7 +31,7 @@ export default function CrowdSecConfig() {
   const [presetStatusMessage, setPresetStatusMessage] = useState<string | null>(null)
   const [hubUnavailable, setHubUnavailable] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: string; usedCscli?: boolean; cacheKey?: string } | null>(null)
+  const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
 
@@ -302,7 +302,7 @@ export default function CrowdSecConfig() {
         cacheKey: res.cache_key,
       })
 
-      const reloadNote = res.reload_hint ? ` (${res.reload_hint})` : ''
+      const reloadNote = res.reload_hint ? ' (reload required)' : ''
       toast.success(`Preset applied via backend${reloadNote}`)
       if (res.backup) {
         setPresetStatusMessage(`Backup stored at ${res.backup}`)
