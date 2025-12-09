@@ -129,6 +129,35 @@ func TestFetchIndexHTTPRejectsHTML(t *testing.T) {
 	require.Contains(t, err.Error(), "HTML")
 }
 
+func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub.crowdsec.net"
+	calls := make([]string, 0)
+
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://hub.crowdsec.net/api/index.json":
+			resp := newResponse(http.StatusMovedPermanently, "")
+			resp.Header.Set("Location", "https://hub-data.crowdsec.net/api/index.json")
+			return resp, nil
+		case "https://hub-data.crowdsec.net/api/index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	idx, err := svc.fetchIndexHTTP(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", "https://hub-data.crowdsec.net/api/index.json"}, calls)
+}
+
 func TestPullCachesPreview(t *testing.T) {
 	cacheDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "crowdsec")

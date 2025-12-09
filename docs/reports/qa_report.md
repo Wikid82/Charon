@@ -1,37 +1,67 @@
-# QA Report: CrowdSec Hub Preset (feature/beta-release)
+# QA Report: CrowdSec Hub/Preset Network-Error Fix (feature/beta-release)
 
-**Date:** December 8, 2025
-**QA Agent:** QA_Security
-**Scope:** Post-merge QA after CrowdSec hub preset backend/frontend changes on `feature/beta-release`.
-**Requested Steps:** `pre-commit run --all-files`, `backend: go test ./...`, `frontend: npm run test:ci`.
+**Date:** December 8, 2025 - 21:26 UTC
+**QA Agent:** QA_Automation
+**Scope:** Regression after CrowdSec hub/preset network-error fix on `feature/beta-release`.
+**Requested Steps:** `pre-commit run --all-files`, `cd backend && go test ./...`, `cd frontend && npm run test:ci`.
 
 ## Executive Summary
 
-**Final Verdict:** ✅ PASS (coverage gate met)
+**Final Verdict:** ✅ PASS (all commands green; coverage gate met)
 
-- `pre-commit run --all-files` passes; coverage hook reports 85.0% vs required 85% (gate met) after adding middleware sanitize tests. Hooks include Go vet, version check, frontend type-check, and lint fix.
-- `go test ./...` (backend) passes via task `Go: Test Backend`.
-- `npm run test:ci` passes (Vitest, 70 files / 598 tests). React Query undefined-data warnings and jsdom navigation warnings appear but suites stay green.
+- `pre-commit run --all-files` **PASSED** — Hooks completed; coverage gate at **85.1%** (≥ 85%).
+- `cd backend && go test ./...` **PASSED** — All packages succeeded.
+- `cd frontend && npm run test:ci` **PASSED** — 70 files / 598 tests passed; one non-blocking warning about undefined query data in Layout feature-flags test.
 
 ## Test Results
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Pre-commit | ✅ PASS | Coverage gate satisfied at 85.0% (minimum 85%) after middleware sanitize tests; all hooks succeeded. |
-| Backend Unit Tests | ✅ PASS | `cd backend && go test ./...` (task: Go: Test Backend). |
-| Frontend Unit Tests | ✅ PASS* | `npm run test:ci` (Vitest, 70 files / 598 tests). Warnings: React Query "query data cannot be undefined" for `securityConfig`/`securityRulesets`/`feature-flags`; jsdom "navigation to another Document". |
+| Area | Command | Status | Details |
+| --- | --- | --- | --- |
+| Pre-commit Hooks | `pre-commit run --all-files` | ✅ PASS | Coverage 85.1% (min 85%), Go Vet, .version check, TS check, frontend lint all passed |
+| Backend Tests | `cd backend && go test ./...` | ✅ PASS | All packages passed (services, util, version, handlers, middleware) |
+| Frontend Tests | `cd frontend && npm run test:ci` | ✅ PASS | 70 files / 598 tests passed; duration ~46s; warning: React Query "query data cannot be undefined" for `feature-flags` in Layout.test |
 
-## Evidence / Logs
+## Detailed Results
 
-- Coverage hook output: `Computed coverage: 85.0% (minimum required 85%)` followed by “Coverage requirement met.”
-- Backend tests: task output shows `ok github.com/Wikid82/charon/backend/internal/...` with no failures.
-- Frontend Vitest: full log at [test-results/frontend-test.log](test-results/frontend-test.log) (70 files, 598 tests, warnings noted above).
+### Pre-commit (All Files)
+- **Status:** ✅ Passed
+- **Coverage Gate:** 85.1% (requirement 85%)
+- **Hooks:** Go Vet, version tag check, Frontend TypeScript check, Frontend Lint (Fix)
+
+### Backend Tests
+- **Status:** ✅ Passed
+- **Notes:** `go test ./...` completed without failures; packages include services, util, version, handlers, middleware.
+
+### Frontend Tests
+- **Status:** ✅ Passed
+- **Totals:** 70 files; 598 tests; duration ~46s.
+- **Warnings (non-blocking):** React Query "query data cannot be undefined" for `feature-flags` in `Layout.test.tsx`; jsdom "navigation to another Document" informational notices.
+
+## Evidence
+
+### Pre-commit Output (excerpt)
+```
+Computed coverage: 85.1% (minimum required 85%)
+Coverage requirement met
+Go Vet...................................................................Passed
+Check .version matches latest Git tag....................................Passed
+Frontend TypeScript Check................................................Passed
+Frontend Lint (Fix)......................................................Passed
+```
+
+### Frontend Tests (vitest)
+```
+Test Files  70 passed (70)
+Tests      598 passed (598)
+Duration    46.45s
+Warning     Query data cannot be undefined. Affected query key: ["feature-flags"]
+```
 
 ## Follow-ups / Recommendations
 
-1. Optionally tighten React Query mocks in Security and Layout suites to eliminate "query data cannot be undefined" warnings; consider default fixtures for `securityConfig`, `securityRulesets`, and `feature-flags`.
-2. Silence jsdom "navigation to another Document" warnings if noise persists (e.g., stub navigation or avoid window.location changes in tests).
+1. **Silence React Query warning:** Provide default fixtures/mocks for `feature-flags` query in `Layout.test.tsx` to avoid undefined data warning.
+2. **Keep coverage gate ≥ 85%:** Current computed coverage 85.1%.
 
 ---
 
-**Status:** ✅ QA Passed (coverage gate satisfied).
+**Status:** ✅ QA PASS — All requested commands succeeded; coverage gate met at 85.1%
