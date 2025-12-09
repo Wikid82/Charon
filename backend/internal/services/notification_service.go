@@ -306,9 +306,14 @@ func isPrivateIP(ip net.IP) bool {
 		}
 	}
 
-	// IPv6 unique local addresses fc00::/7
-	if ip.To16() != nil && strings.HasPrefix(ip.String(), "fc") {
-		return true
+	// IPv6 unique local addresses fc00::/7 (both fc00::/8 and fd00::/8)
+	if ip16 := ip.To16(); ip16 != nil {
+		// Check the first byte for fc00::/7 (binary 11111100) -> 0xfc or 0xfd
+		if len(ip16) == net.IPv6len {
+			if ip16[0] == 0xfc || ip16[0] == 0xfd {
+				return true
+			}
+		}
 	}
 
 	return false
