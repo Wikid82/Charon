@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 # CI wrapper that fails if the repo contains historical objects or commits
 # touching specified paths, or objects larger than the configured strip size.
@@ -56,12 +56,14 @@ for p in $paths_list; do
 done
 
 # 2) Check for blob objects in paths only (ignore tag/commit objects)
+# Temp files
 tmp_objects=$(mktemp)
-trap 'rm -f "$tmp_objects"' EXIT INT TERM
+blob_list=$(mktemp)
+# shellcheck disable=SC2086 # $paths_list is intentionally unquoted to expand into multiple args
 git rev-list --objects --all -- $paths_list > "$tmp_objects"
 blob_count=0
-blob_list=$(mktemp)
-trap 'rm -f "$tmp_objects" "$blob_list"' EXIT INT TERM
+tmp_oids="$(mktemp)"
+trap 'rm -f "$tmp_objects" "$blob_list" "$tmp_oids"' EXIT INT TERM
 while read -r line; do
   oid=$(printf '%s' "$line" | awk '{print $1}')
   # Determine object type and only consider blobs
@@ -86,7 +88,6 @@ echo "Scanning for objects larger than ${STRIP_SIZE}M..."
 large_found=0
 # Write all object oids to a temp file to avoid a subshell problem
 tmp_oids="$(mktemp)"
-trap 'rm -f "$tmp_oids"' EXIT INT TERM
 git rev-list --objects --all | awk '{print $1}' > "$tmp_oids"
 while read -r oid; do
   size=$(git cat-file -s "$oid" 2>/dev/null || echo 0)
