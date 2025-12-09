@@ -33,7 +33,8 @@ teardown() {
   rm -rf "$TMPREPO"
 }
 
-SCRIPT="/projects/Charon/scripts/history-rewrite/clean_history.sh"
+REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../../../" && pwd)
+SCRIPT="$REPO_ROOT/scripts/history-rewrite/clean_history.sh"
 
 @test "clean_history dry-run prints expected log and exits 0" {
   run bash "$SCRIPT" --dry-run --paths 'backend/codeql-db' --strip-size 1
@@ -42,7 +43,7 @@ SCRIPT="/projects/Charon/scripts/history-rewrite/clean_history.sh"
 }
 
 @test "preview_removals shows commits for the path" {
-  run bash /projects/Charon/scripts/history-rewrite/preview_removals.sh --paths 'backend/codeql-db' --strip-size 1
+  run bash "$REPO_ROOT/scripts/history-rewrite/preview_removals.sh" --paths 'backend/codeql-db' --strip-size 1
   [ "$status" -eq 0 ]
   [[ "$output" == *"Path: backend/codeql-db"* ]]
 }

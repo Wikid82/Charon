@@ -19,7 +19,8 @@ teardown() {
   rm -rf "$TMPREPO"
 }
 
-SCRIPT="/projects/Charon/scripts/ci/dry_run_history_rewrite.sh"
+REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../../../" && pwd)
+SCRIPT="$REPO_ROOT/scripts/ci/dry_run_history_rewrite.sh"
 
 @test "dry_run script ignores tag-only objects and passes" {
   run bash "$SCRIPT" --paths 'backend/codeql-db' --strip-size 50
