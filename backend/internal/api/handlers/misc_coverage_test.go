@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -112,7 +113,7 @@ func TestRemoteServerHandler_List_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/remote-servers", nil)
+	c.Request = httptest.NewRequest("GET", "/remote-servers", http.NoBody)
 
 	h.List(c)
 
@@ -131,7 +132,7 @@ func TestRemoteServerHandler_List_EnabledOnly(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/remote-servers?enabled=true", nil)
+	c.Request = httptest.NewRequest("GET", "/remote-servers?enabled=true", http.NoBody)
 
 	h.List(c)
 
@@ -267,7 +268,7 @@ func TestUptimeHandler_GetHistory_Error(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "test-id"}}
-	c.Request = httptest.NewRequest("GET", "/uptime/test-id/history", nil)
+	c.Request = httptest.NewRequest("GET", "/uptime/test-id/history", http.NoBody)
 
 	h.GetHistory(c)
 

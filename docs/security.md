@@ -1,8 +1,10 @@
 # Security Features
 
-Charon includes **Cerberus**, a security system that protects your websites. It's **turned off by default** so it doesn't get in your way while you're learning.
+Charon includes **Cerberus**, a security system that protects your websites. It's **enabled by default** so your sites are protected from the start.
 
-When you're ready to turn it on, this guide explains everything.
+You can disable it in **System Settings → Optional Features** if you don't need it, or configure it using this guide. The sidebar now shows **Cerberus → Dashboard**; the page header reads **Cerberus Dashboard**.
+
+Want the quick reference? See https://wikid82.github.io/charon/security.
 
 ---
 
@@ -61,7 +63,9 @@ Restart again. Now bad guys actually get blocked.
 
 ### How to Enable It
 
-**Local Mode** (Runs inside Charon):
+- **Web UI:** The Cerberus Dashboard shows a single **Start/Stop** toggle. Use it to run or stop CrowdSec; there is no separate mode selector.
+- **Configuration page:** Uses a simple **Disabled / Local** toggle (no Mode dropdown). Choose Local to run the embedded CrowdSec agent.
+- **Environment variables (optional):**
 
 ```yaml
 environment:
@@ -70,7 +74,7 @@ environment:
 
 That's it. CrowdSec starts automatically and begins blocking bad IPs.
 
-**What you'll see:** The "Security" page shows blocked IPs and why they were blocked.
+**What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
 ---
 
@@ -126,6 +130,36 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 2. **Type:** Geo Blacklist
 3. Pick the country
 4. Assign to the targeted website
+
+---
+
+## Configuration Packages
+
+- **Import/Export:** You can import or export Cerberus configuration packages; exports prompt you to confirm the filename before saving.
+- **Presets (CrowdSec Hub):** Pull presets from the CrowdSec Hub over HTTPS using cache keys/ETags, prefer `cscli` execution, and require Cerberus to be enabled with an admin-scoped session. Workflow: pull → preview → apply with an automatic backup and reload flag.
+- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
+- **Fallbacks:** If the Hub is unreachable (503 uses retry or cached data), curated/offline presets stay available; invalid slugs return a 400 with validation detail; apply failures remind you to restore from the backup; if apply is not supported (501), stay on curated/offline presets.
+
+---
+
+## Certificate Management Security
+
+**What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
+
+**How it works:**
+- Certificates cannot be deleted while in use by proxy hosts (conflict error)
+- Automatic backup is created before any certificate deletion
+- Authentication required (when auth is implemented)
+
+**Backup & Recovery:**
+- Every certificate deletion triggers an automatic backup
+- Find backups in the "Backups" page
+- Restore from backup if you accidentally delete the wrong certificate
+
+**Best Practice:**
+- Review which proxy hosts use a certificate before deleting it
+- When deleting proxy hosts, use the cleanup prompt to delete orphaned certificates
+- Keep custom certificates you might reuse later
 
 ---
 

@@ -44,7 +44,7 @@ func TestNotificationHandler_List(t *testing.T) {
 
 	// Test List All
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/notifications", nil)
+	req, _ := http.NewRequest("GET", "/notifications", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -55,7 +55,7 @@ func TestNotificationHandler_List(t *testing.T) {
 
 	// Test List Unread
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/notifications?unread=true", nil)
+	req, _ = http.NewRequest("GET", "/notifications?unread=true", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -79,7 +79,7 @@ func TestNotificationHandler_MarkAsRead(t *testing.T) {
 	router.POST("/notifications/:id/read", handler.MarkAsRead)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/notifications/"+notif.ID+"/read", nil)
+	req, _ := http.NewRequest("POST", "/notifications/"+notif.ID+"/read", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -103,7 +103,7 @@ func TestNotificationHandler_MarkAllAsRead(t *testing.T) {
 	router.POST("/notifications/read-all", handler.MarkAllAsRead)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/notifications/read-all", nil)
+	req, _ := http.NewRequest("POST", "/notifications/read-all", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -126,7 +126,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req, _ := http.NewRequest("POST", "/notifications/read-all", nil)
+	req, _ := http.NewRequest("POST", "/notifications/read-all", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -145,7 +145,7 @@ func TestNotificationHandler_DBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req, _ := http.NewRequest("POST", "/notifications/1/read", nil)
+	req, _ := http.NewRequest("POST", "/notifications/1/read", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)

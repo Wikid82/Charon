@@ -4,6 +4,54 @@ Here's everything Charon can do for you, explained simply.
 
 ---
 
+## \u2699\ufe0f Optional Features
+
+Charon includes optional features that can be toggled on or off based on your needs. All features are enabled by default, giving you the full Charon experience from the start.
+
+### What Are Optional Features?
+
+**What it does:** Lets you enable or disable major features like security monitoring and uptime checks.
+
+**Why you care:** If you don't need certain features, turning them off keeps your sidebar cleaner and saves system resources.
+
+**Where to find it:** Go to **System Settings** → Scroll to **Optional Features**
+
+### Available Optional Features
+
+#### Cerberus Security Suite
+- **What it is:** Complete security system including CrowdSec integration, country blocking, WAF protection, and access control
+- **When enabled:** Cerberus/Dashboard entries appear in the sidebar, all protection features are active
+- **When disabled:** Security menu is hidden, all protection stops, but configuration data is preserved
+- **Default:** Enabled
+
+#### Uptime Monitoring
+- **What it is:** Background checks that monitor if your websites are responding
+- **When enabled:** Uptime menu appears in sidebar, automatic checks run every minute
+- **When disabled:** Uptime menu is hidden, background checks stop, but uptime history is preserved
+- **Default:** Enabled
+
+### What Happens When Disabled?
+
+When you disable a feature:
+
+- ✅ **Sidebar item is hidden** — Keeps your navigation clean
+- ✅ **Background jobs stop** — Saves CPU and memory resources
+- ✅ **API requests are blocked** — Feature-specific endpoints return appropriate errors
+- ✅ **Configuration data is preserved** — Your settings remain intact if you re-enable the feature
+
+**Important:** Disabling a feature does NOT delete your data. All your security rules, uptime history, and configurations stay safe in the database. You can re-enable features at any time without losing anything.
+
+### How to Toggle Features
+
+1. Go to **System Settings**
+2. Scroll to the **Optional Features** section
+3. Toggle the switch for the feature you want to enable/disable
+4. Changes take effect immediately
+
+**Note:** Both features default to enabled when you first install Charon. This gives you full functionality out of the box.
+
+---
+
 ## \ud83d\udd10 SSL Certificates (The Green Lock)
 
 **What it does:** Makes browsers show a green lock next to your website address.
@@ -11,16 +59,62 @@ Here's everything Charon can do for you, explained simply.
 **Why you care:** Without it, browsers scream "NOT SECURE!" and people won't trust your site.
 
 **What you do:** Nothing. Charon gets free certificates from Let's Encrypt and renews them automatically.
+### Choose Your SSL Provider
+
+**What it does:** Lets you select which Certificate Authority (CA) issues your SSL certificates.
+
+**Why you care:** Different providers have different rate limits and reliability. You also get a staging option for testing.
+
+**Where to find it:** Go to System Settings → SSL Provider dropdown
+
+**Available options:**
+
+- **Auto (Recommended)** — The smart default. Tries Let's Encrypt first, automatically falls back to ZeroSSL if there are any issues. Best reliability with zero configuration.
+
+- **Let's Encrypt (Prod)** — Uses only Let's Encrypt production servers. Choose this if you specifically need Let's Encrypt certificates and have no rate limit concerns.
+
+- **Let's Encrypt (Staging)** — For testing purposes only. Issues certificates that browsers won't trust, but lets you test your configuration without hitting rate limits. See [Testing SSL Certificates](acme-staging.md) for details.
+
+- **ZeroSSL** — Uses only ZeroSSL as your certificate provider. Choose this if you prefer ZeroSSL or are hitting Let's Encrypt rate limits.
+
+**Recommended setting:** Leave it on "Auto (Recommended)" unless you have a specific reason to change it. The auto mode gives you the best of both worlds—Let's Encrypt's speed with ZeroSSL as a backup.
+
+**When to change it:**
+- Testing configurations → Use "Let's Encrypt (Staging)"
+- Hitting rate limits → Switch to "ZeroSSL"
+- Specific CA requirement → Choose that specific provider
+- Otherwise → Keep "Auto"
+### Smart Certificate Cleanup
+
+**What it does:** When you delete websites, Charon asks if you want to delete unused certificates too.
+
+**Why you care:** Custom and staging certificates can pile up over time. This helps you keep things tidy.
+
+**How it works:**
+- Delete a website → Charon checks if its certificate is used elsewhere
+- If the certificate is custom or staging (not Let's Encrypt) and orphaned → you get a prompt
+- Choose to keep or delete the certificate
+- Default is "keep" (safe choice)
+
+**When it prompts:**
+- ✅ Custom certificates you uploaded
+- ✅ Staging certificates (for testing)
+- ❌ Let's Encrypt certificates (managed automatically)
+
+**What you do:**
+- See the prompt after clicking Delete on a proxy host
+- Check the box if you want to delete the orphaned certificate
+- Leave unchecked to keep the certificate (in case you need it later)
 
 ---
 
 ## \ud83d\udee1\ufe0f Security (Optional)
 
-Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready.
+Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready. The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
 
 ### Block Bad IPs Automatically
 
-**What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
+**What it does:** CrowdSec watches for attackers and blocks them before they can do damage. The overview now has a single Start/Stop toggle—no separate mode selector.
 
 **Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
@@ -63,6 +157,13 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 - Does NOT replace regular security updates
 
 **Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
+
+### Configuration Packages
+
+- **Hub presets:** Pull presets from the CrowdSec Hub over HTTPS, use cache keys/ETags for faster repeat pulls, preview changes, then apply with an automatic backup and reload flag. Requires Cerberus to be enabled with admin scope; `cscli` is preferred for execution.
+- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
+- **Offline/curated:** If the Hub is unreachable or apply is not supported, curated/offline presets remain available.
+- **Validation:** Slugs are validated before apply. Hub errors surface cleanly (503 uses retry or cached data; 400 for bad slugs; apply failures prompt you to restore from the backup).
 ---
 
 ## \ud83d\udc33 Docker Integration
@@ -137,6 +238,18 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 
 ---
 
+## \ud83d\udcca Uptime Monitoring
+
+**What it does:** Automatically checks if your websites are responding every minute.
+
+**Why you care:** Get visibility into uptime history and response times for all your proxy hosts.
+
+**What you do:** View the "Uptime" page in the sidebar. Uptime checks run automatically in the background.
+
+**Optional:** You can disable this feature in System Settings → Optional Features if you don't need it. Your uptime history will be preserved.
+
+---
+
 ## \ud83d\udccb Logs & Monitoring
 
 **What it does:** Shows you what's happening with your proxy.
@@ -165,17 +278,7 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 
 **What you do:** Nothing—WebSockets work automatically.
 
----
 
-## \ud83d\udcca Uptime Monitoring (Coming Soon)
-
-**What it does:** Checks if your websites are responding.
-
-**Why you care:** Get notified when something goes down.
-
-**Status:** Coming in a future update.
-
----
 
 ## \ud83d\udcf1 Mobile-Friendly Interface
 

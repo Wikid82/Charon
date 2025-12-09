@@ -17,18 +17,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate semantic version (fallback script)
+      - name: Calculate Semantic Version
         id: semver
-        run: |
-          # Ensure git tags are fetched
-          git fetch --tags --quiet || true
-          # Get latest tag or default to v0.0.0
-          TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "v0.0.0")
-          echo "Detected latest tag: $TAG"
-          # Set outputs for downstream steps
-          echo "version=$TAG" >> $GITHUB_OUTPUT
-          echo "release_notes=Fallback: using latest tag only" >> $GITHUB_OUTPUT
-          echo "changed=false" >> $GITHUB_OUTPUT
+        uses: paulhatch/semantic-version@a8f8f59fd7f0625188492e945240f12d7ad2dca3 # v5.4.0
+        with:
+          # The prefix to use to create tags
+          tag_prefix: "v"
+          # A string which, if present in the git log, indicates that a major version increase is required
+          major_pattern: "(MAJOR)"
+          # A string which, if present in the git log, indicates that a minor version increase is required
+          minor_pattern: "(feat)"
+          # Pattern to determine formatting
+          version_format: "${major}.${minor}.${patch}"
+          # If no tags are found, this version is used
+          version_from_branch: "0.0.0"
+          # This helps it search through history to find the last tag
+          search_commit_body: true
+          # Important: This enables the output 'changed' which your other steps rely on
+          enable_prerelease_mode: false
 
       - name: Show version
         run: |
@@ -96,7 +102,7 @@ jobs:
         with:
           tag_name: ${{ steps.determine_tag.outputs.tag }}
           name: Release ${{ steps.determine_tag.outputs.tag }}
-          body: ${{ steps.semver.outputs.release_notes }}
+          generate_release_notes: true
           make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

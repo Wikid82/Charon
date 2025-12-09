@@ -133,7 +133,7 @@ describe('useSecurity hooks', () => {
 
   describe('useCreateDecision', () => {
     it('should create decision and invalidate queries', async () => {
-      const payload = { ip: '1.2.3.4', duration: '4h', type: 'ban' }
+      const payload = { value: '1.2.3.4', duration: '4h', type: 'ban' }
       vi.mocked(securityApi.createDecision).mockResolvedValue({ success: true })
 
       const { result } = renderHook(() => useCreateDecision(), { wrapper })

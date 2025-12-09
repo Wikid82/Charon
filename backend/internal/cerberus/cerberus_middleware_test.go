@@ -34,7 +34,7 @@ func TestMiddleware_WAFBlocksPayload(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(w)
 
 	// Create a request containing "<script>" in the URI (should trigger WAF)
-	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", http.NoBody)
 	req.RequestURI = "/?q=<script>"
 	ctx.Request = req
 
@@ -58,7 +58,7 @@ func TestMiddleware_ACLBlocksClientIP(t *testing.T) {
 	// Setup gin context with remote address 8.8.8.8
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "8.8.8.8:1234"
 	ctx.Request = req
 
@@ -81,7 +81,7 @@ func TestMiddleware_ACLAllowsClientIP(t *testing.T) {
 	// Setup gin context with remote address 8.8.8.8 (allowed)
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "8.8.8.8:1234"
 	ctx.Request = req
 
@@ -99,7 +99,7 @@ func TestMiddleware_NotEnabledSkips(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "1.2.3.4:1234"
 	ctx.Request = req
 
@@ -115,7 +115,7 @@ func TestMiddleware_WAFPassesWithNoPayload(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?q=safe", http.NoBody)
 	req.RequestURI = "/?q=safe"
 	ctx.Request = req
 
@@ -132,7 +132,7 @@ func TestMiddleware_WAFMonitorLogsButDoesNotBlock(t *testing.T) {
 	// Test 1: suspicious payload in monitor mode should NOT block
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", http.NoBody)
 	req.RequestURI = "/?q=<script>"
 	ctx.Request = req
 
@@ -143,7 +143,7 @@ func TestMiddleware_WAFMonitorLogsButDoesNotBlock(t *testing.T) {
 	// Test 2: safe query in monitor mode should also pass
 	w2 := httptest.NewRecorder()
 	ctx2, _ := gin.CreateTestContext(w2)
-	req2 := httptest.NewRequest(http.MethodGet, "/?q=safe", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/?q=safe", http.NoBody)
 	req2.RequestURI = "/?q=safe"
 	ctx2.Request = req2
 
@@ -165,7 +165,7 @@ func TestMiddleware_ACLDisabledDoesNotBlock(t *testing.T) {
 	// Setup gin context with remote address 8.8.8.8
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.RemoteAddr = "8.8.8.8:1234"
 	ctx.Request = req
 

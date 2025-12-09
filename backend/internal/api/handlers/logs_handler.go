@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -84,22 +85,36 @@ func (h *LogsHandler) Download(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file"})
 		return
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() {
+		if err := os.Remove(tmpFile.Name()); err != nil {
+			logger.Log().WithError(err).Warn("failed to remove temp file")
+		}
+	}()
 
 	srcFile, err := os.Open(path)
 	if err != nil {
-		_ = tmpFile.Close()
+		if err := tmpFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close temp file")
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open log file"})
 		return
 	}
-	defer func() { _ = srcFile.Close() }()
+	defer func() {
+		if err := srcFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close source log file")
+		}
+	}()
 
 	if _, err := io.Copy(tmpFile, srcFile); err != nil {
-		_ = tmpFile.Close()
+		if err := tmpFile.Close(); err != nil {
+			logger.Log().WithError(err).Warn("failed to close temp file after copy error")
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy log file"})
 		return
 	}
-	_ = tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		logger.Log().WithError(err).Warn("failed to close temp file after copy")
+	}
 
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.File(tmpFile.Name())

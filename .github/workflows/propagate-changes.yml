@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   propagate:
@@ -60,6 +61,47 @@ jobs:
                   core.info(`${src} is not ahead of ${base}. No propagation needed.`);
                   return;
                 }
+
+                // If files changed include history-rewrite or other sensitive scripts,
+                // avoid automatic propagation. This prevents bypassing checklist validation
+                // and manual review for potentially destructive changes.
+                let files = (compare.data.files || []).map(f => (f.filename || '').toLowerCase());
+
+                // Fallback: if compare.files is empty/truncated, aggregate files from the commit list
+                if (files.length === 0 && Array.isArray(compare.data.commits) && compare.data.commits.length > 0) {
+                  for (const commit of compare.data.commits) {
+                    const commitData = await github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: commit.sha });
+                    for (const f of (commitData.data.files || [])) {
+                      files.push((f.filename || '').toLowerCase());
+                    }
+                  }
+                  files = Array.from(new Set(files));
+                }
+
+                // Load propagation config (list of sensitive paths) from .github/propagate-config.yml when available
+                let configPaths = ['scripts/history-rewrite/', 'data/backups', 'docs/plans/history_rewrite.md', '.github/workflows/'];
+                try {
+                  const configResp = await github.rest.repos.getContent({ owner: context.repo.owner, repo: context.repo.repo, path: '.github/propagate-config.yml', ref: src });
+                  const contentStr = Buffer.from(configResp.data.content, 'base64').toString('utf8');
+                  const lines = contentStr.split(/\r?\n/);
+                  let inSensitive = false;
+                  const parsedPaths = [];
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!inSensitive && trimmed.startsWith('sensitive_paths:')) { inSensitive = true; continue; }
+                    if (inSensitive) {
+                      if (trimmed.startsWith('-')) parsedPaths.push(trimmed.substring(1).trim());
+                      else if (trimmed.length === 0) continue; else break;
+                    }
+                  }
+                  if (parsedPaths.length > 0) configPaths = parsedPaths.map(p => p.toLowerCase());
+                } catch (err) { core.info('No .github/propagate-config.yml or parse failure; using defaults.'); }
+
+                const sensitive = files.some(fn => configPaths.some(sp => fn.startsWith(sp) || fn.includes(sp)));
+                if (sensitive) {
+                  core.info(`${src} -> ${base} contains sensitive changes (${files.join(', ')}). Skipping automatic propagation.`);
+                  return;
+                }
               } catch (error) {
                 // If base branch doesn't exist, etc.
                 core.warning(`Error comparing ${src} to ${base}: ${error.message}`);
@@ -75,8 +117,20 @@ jobs:
                   head: src,
                   base: base,
                   body: `Automated PR to propagate changes from ${src} into ${base}.\n\nTriggered by push to ${currentBranch}.`,
+                  draft: true,
                 });
                 core.info(`Created PR #${pr.data.number} to merge ${src} into ${base}`);
+                // Add an 'auto-propagate' label to the created PR and create the label if missing
+                try {
+                  try {
+                    await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: 'auto-propagate' });
+                  } catch (e) {
+                    await github.rest.issues.createLabel({ owner: context.repo.owner, repo: context.repo.repo, name: 'auto-propagate', color: '7dd3fc', description: 'Automatically created propagate PRs' });
+                  }
+                  await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: pr.data.number, labels: ['auto-propagate'] });
+                } catch (labelErr) {
+                  core.warning('Failed to ensure or add auto-propagate label: ' + labelErr.message);
+                }
               } catch (error) {
                 core.warning(`Failed to create PR from ${src} to ${base}: ${error.message}`);
               }

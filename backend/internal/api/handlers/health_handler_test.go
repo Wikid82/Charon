@@ -15,7 +15,7 @@ func TestHealthHandler(t *testing.T) {
 	r := gin.New()
 	r.GET("/health", HealthHandler)
 
-	req, _ := http.NewRequest("GET", "/health", nil)
+	req, _ := http.NewRequest("GET", "/health", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -26,4 +26,13 @@ func TestHealthHandler(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "ok", resp["status"])
 	assert.NotEmpty(t, resp["version"])
+}
+
+func TestGetLocalIP(t *testing.T) {
+	// This test just ensures getLocalIP doesn't panic
+	// It may return empty string in test environments
+	ip := getLocalIP()
+	// IP can be empty or a valid IPv4 address
+	t.Logf("getLocalIP returned: %q", ip)
+	// No assertion needed - just exercising the code path
 }

@@ -59,7 +59,7 @@ func (c *Client) Load(ctx context.Context, config *Config) error {
 
 // GetConfig retrieves the current running configuration from Caddy.
 func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -85,7 +85,7 @@ func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
 
 // Ping checks if Caddy admin API is reachable.
 func (c *Client) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/config/", http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

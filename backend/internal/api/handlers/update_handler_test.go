@@ -37,7 +37,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	r.GET("/api/v1/update", h.Check)
 
 	// Test Request
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/update", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/update", http.NoBody)
 	resp := httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 
@@ -62,7 +62,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	rError := gin.New()
 	rError.GET("/api/v1/update", hError.Check)
 
-	reqError := httptest.NewRequest(http.MethodGet, "/api/v1/update", nil)
+	reqError := httptest.NewRequest(http.MethodGet, "/api/v1/update", http.NoBody)
 	respError := httptest.NewRecorder()
 	rError.ServeHTTP(respError, reqError)
 
@@ -80,7 +80,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	rClientError := gin.New()
 	rClientError.GET("/api/v1/update", hClientError.Check)
 
-	reqClientError := httptest.NewRequest(http.MethodGet, "/api/v1/update", nil)
+	reqClientError := httptest.NewRequest(http.MethodGet, "/api/v1/update", http.NoBody)
 	respClientError := httptest.NewRecorder()
 	rClientError.ServeHTTP(respClientError, reqClientError)
 

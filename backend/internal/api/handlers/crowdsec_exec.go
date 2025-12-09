@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -61,23 +62,33 @@ func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) er
 	return nil
 }
 
-func (e *DefaultCrowdsecExecutor) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (e *DefaultCrowdsecExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	b, err := os.ReadFile(e.pidFile(configDir))
 	if err != nil {
+		// Missing pid file is treated as not running
 		return false, 0, nil
 	}
-	pid, err := strconv.Atoi(string(b))
+
+	pid, err = strconv.Atoi(string(b))
 	if err != nil {
+		// Malformed pid file is treated as not running
 		return false, 0, nil
 	}
-	// Check process exists
+
 	proc, err := os.FindProcess(pid)
 	if err != nil {
+		// Process lookup failures are treated as not running
 		return false, pid, nil
 	}
+
 	// Sending signal 0 is not portable on Windows, but OK for Linux containers
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	if err = proc.Signal(syscall.Signal(0)); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return false, pid, nil
+		}
+		// ESRCH or other errors mean process isn't running
 		return false, pid, nil
 	}
+
 	return true, pid, nil
 }

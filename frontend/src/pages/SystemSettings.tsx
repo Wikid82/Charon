@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -10,6 +10,7 @@ import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
 // CrowdSec runtime control is now in the Security page
 import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
+import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 interface HealthResponse {
   status: string
@@ -29,9 +30,8 @@ interface UpdateInfo {
 export default function SystemSettings() {
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
-  const [sslProvider, setSslProvider] = useState('letsencrypt')
+  const [sslProvider, setSslProvider] = useState('auto')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
-  const [cerberusEnabled, setCerberusEnabled] = useState(false)
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -43,9 +43,13 @@ export default function SystemSettings() {
   useEffect(() => {
     if (settings) {
       if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
-      if (settings['caddy.ssl_provider']) setSslProvider(settings['caddy.ssl_provider'])
+      // Default to 'auto' if empty or invalid value
+      if (settings['caddy.ssl_provider']) {
+        const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
+        const provider = settings['caddy.ssl_provider']
+        setSslProvider(validProviders.includes(provider) ? provider : 'auto')
+      }
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
-      if (settings['security.cerberus.enabled']) setCerberusEnabled(settings['security.cerberus.enabled'] === 'true')
     }
   }, [settings])
 
@@ -77,7 +81,6 @@ export default function SystemSettings() {
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
-      await updateSetting('security.cerberus.enabled', cerberusEnabled ? 'true' : 'false', 'security', 'bool')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -94,6 +97,22 @@ export default function SystemSettings() {
     queryFn: getFeatureFlags,
   })
 
+  const featureToggles = useMemo(
+    () => [
+      {
+        key: 'feature.cerberus.enabled',
+        label: 'Cerberus Security Suite',
+        tooltip: 'Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.',
+      },
+      {
+        key: 'feature.uptime.enabled',
+        label: 'Uptime Monitoring',
+        tooltip: 'Monitor the availability of your proxy hosts and remote servers.',
+      },
+    ],
+    []
+  )
+
   const updateFlagMutation = useMutation({
     mutationFn: async (payload: Record<string, boolean>) => updateFeatureFlags(payload),
     onSuccess: () => {
@@ -108,16 +127,54 @@ export default function SystemSettings() {
 
   // CrowdSec control
 
+  // Determine loading message
+  const { message, submessage } = updateFlagMutation.isPending
+    ? { message: 'Updating features...', submessage: 'Applying configuration changes' }
+    : { message: 'Loading...', submessage: 'Please wait' }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-        <Server className="w-8 h-8" />
-        System Settings
-      </h1>
+    <>
+      {updateFlagMutation.isPending && (
+        <ConfigReloadOverlay
+          message={message}
+          submessage={submessage}
+          type="charon"
+        />
+      )}
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+          <Server className="w-8 h-8" />
+          System Settings
+        </h1>
 
-      {/* General Configuration */}
-      <Card className="p-6">
+        {/* Features */}
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Features</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {featureFlags ? (
+              featureToggles.map(({ key, label, tooltip }) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800"
+                  title={tooltip}
+                >
+                  <p className="text-sm font-medium text-gray-900 dark:text-white cursor-help">{label}</p>
+                  <Switch
+                    aria-label={`${label} toggle`}
+                    checked={!!featureFlags[key]}
+                    disabled={updateFlagMutation.isPending}
+                    onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
+                  />
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 col-span-2">Loading features...</p>
+            )}
+          </div>
+        </Card>
+
+        {/* General Configuration */}
+        <Card className="p-6">
         <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">General Configuration</h2>
         <div className="space-y-4">
           <Input
@@ -140,11 +197,13 @@ export default function SystemSettings() {
               onChange={(e) => setSslProvider(e.target.value)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             >
-              <option value="letsencrypt">Let's Encrypt (Default)</option>
+              <option value="auto">Auto (Recommended)</option>
+              <option value="letsencrypt-prod">Let's Encrypt (Prod)</option>
+              <option value="letsencrypt-staging">Let's Encrypt (Staging)</option>
               <option value="zerossl">ZeroSSL</option>
             </select>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Choose the default Certificate Authority for SSL certificates.
+              Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback. Staging is for testing.
             </p>
           </div>
 
@@ -166,22 +225,6 @@ export default function SystemSettings() {
             </p>
           </div>
 
-          {/* Cerberus Security Toggle */}
-          <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Enable Cerberus Security
-            </label>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={cerberusEnabled}
-                onChange={(e) => setCerberusEnabled(e.target.checked)}
-              />
-              <p className="text-sm text-gray-500 dark:text-gray-400 -mt-1">
-                Optional suite that includes WAF, ACLs, Rate Limiting, and CrowdSec integration.
-              </p>
-            </div>
-          </div>
-
           <div className="flex justify-end">
             <Button
               onClick={() => saveSettingsMutation.mutate()}
@@ -194,28 +237,8 @@ export default function SystemSettings() {
         </div>
       </Card>
 
-      {/* Feature Flags */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Feature Flags</h2>
-        <div className="space-y-4">
-          {featureFlags ? (
-            Object.keys(featureFlags).map((key) => (
-              <div key={key} className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{key}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Toggle feature {key}</p>
-                </div>
-                <Switch
-                  checked={!!featureFlags[key]}
-                  onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
-                />
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-gray-500">Loading feature flags...</p>
-          )}
-        </div>
-      </Card>
+      {/* Optional Features - Removed (Moved to top) */}
+
 
       {/* System Status */}
       <Card className="p-6">
@@ -320,5 +343,6 @@ export default function SystemSettings() {
 
 
     </div>
+    </>
   )
 }

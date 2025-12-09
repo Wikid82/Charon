@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
@@ -379,7 +380,9 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 		addr := net.JoinHostPort(host.Host, port)
 		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 		if err == nil {
-			_ = conn.Close()
+			if err := conn.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			}
 			success = true
 			msg = fmt.Sprintf("TCP connection to %s successful", addr)
 			break
@@ -543,7 +546,11 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 		client := http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Get(monitor.URL)
 		if err == nil {
-			defer resp.Body.Close()
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					logger.Log().WithError(err).Warn("failed to close uptime service response body")
+				}
+			}()
 			// Accept 2xx, 3xx, and 401/403 (Unauthorized/Forbidden often means the service is up but protected)
 			if (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == 401 || resp.StatusCode == 403 {
 				success = true
@@ -557,7 +564,9 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 	case "tcp":
 		conn, err := net.DialTimeout("tcp", monitor.URL, 10*time.Second)
 		if err == nil {
-			_ = conn.Close()
+			if err := conn.Close(); err != nil {
+				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			}
 			success = true
 			msg = "Connection successful"
 		} else {
@@ -804,6 +813,47 @@ func (s *UptimeService) FlushPendingNotifications() {
 	for _, hostID := range pendingHostIDs {
 		s.flushPendingNotification(hostID)
 	}
+}
+
+// SyncMonitorForHost updates the uptime monitor linked to a specific proxy host.
+// This should be called when a proxy host is edited to keep the monitor in sync.
+// Returns nil if no monitor exists for the host (does not create one).
+func (s *UptimeService) SyncMonitorForHost(hostID uint) error {
+	var host models.ProxyHost
+	if err := s.DB.First(&host, hostID).Error; err != nil {
+		return err
+	}
+
+	var monitor models.UptimeMonitor
+	if err := s.DB.Where("proxy_host_id = ?", hostID).First(&monitor).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // No monitor to sync
+		}
+		return err
+	}
+
+	// Update monitor fields based on current proxy host values
+	domains := strings.Split(host.DomainNames, ",")
+	firstDomain := ""
+	if len(domains) > 0 {
+		firstDomain = strings.TrimSpace(domains[0])
+	}
+
+	scheme := "http"
+	if host.SSLForced {
+		scheme = "https"
+	}
+
+	newName := host.Name
+	if newName == "" {
+		newName = firstDomain
+	}
+
+	monitor.Name = newName
+	monitor.URL = fmt.Sprintf("%s://%s", scheme, firstDomain)
+	monitor.UpstreamHost = host.ForwardHost
+
+	return s.DB.Save(&monitor).Error
 }
 
 // CRUD for Monitors

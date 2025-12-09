@@ -85,13 +85,13 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 
 	// Create cert directory
 	certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-	err = os.MkdirAll(certDir, 0755)
+	err = os.MkdirAll(certDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create cert dir: %v", err)
 	}
 
 	certPath := filepath.Join(certDir, domain+".crt")
-	err = os.WriteFile(certPath, certPEM, 0644)
+	err = os.WriteFile(certPath, certPEM, 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write cert file: %v", err)
 	}
@@ -113,11 +113,11 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	expiredCertPEM := generateTestCert(t, expiredDomain, expiredExpiry)
 
 	expiredCertDir := filepath.Join(tmpDir, "certificates", "other", expiredDomain)
-	err = os.MkdirAll(expiredCertDir, 0755)
+	err = os.MkdirAll(expiredCertDir, 0o755)
 	assert.NoError(t, err)
 
 	expiredCertPath := filepath.Join(expiredCertDir, expiredDomain+".crt")
-	err = os.WriteFile(expiredCertPath, expiredCertPEM, 0644)
+	err = os.WriteFile(expiredCertPath, expiredCertPEM, 0o644)
 	assert.NoError(t, err)
 
 	// Force rescan to pick up new cert
@@ -209,11 +209,11 @@ func TestCertificateService_Persistence(t *testing.T) {
 	certPEM := generateTestCert(t, domain, expiry)
 
 	certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-	err = os.MkdirAll(certDir, 0755)
+	err = os.MkdirAll(certDir, 0o755)
 	require.NoError(t, err)
 
 	certPath := filepath.Join(certDir, domain+".crt")
-	err = os.WriteFile(certPath, certPEM, 0644)
+	err = os.WriteFile(certPath, certPEM, 0o644)
 	require.NoError(t, err)
 
 	// 2. Sync from disk and call ListCertificates
@@ -372,11 +372,10 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		// Create a cert file with invalid content
 		domain := "invalid.com"
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0755)
-		require.NoError(t, err)
+		err = os.MkdirAll(certDir, 0o755)
 
 		certPath := filepath.Join(certDir, domain+".crt")
-		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0644)
+		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0o644)
 		require.NoError(t, err)
 
 		certs, err := cs.ListCertificates()
@@ -399,9 +398,9 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		expiry1 := time.Now().Add(24 * time.Hour)
 		certPEM1 := generateTestCert(t, domain1, expiry1)
 		certDir1 := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain1)
-		err = os.MkdirAll(certDir1, 0755)
+		err = os.MkdirAll(certDir1, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir1, domain1+".crt"), certPEM1, 0644)
+		err = os.WriteFile(filepath.Join(certDir1, domain1+".crt"), certPEM1, 0o644)
 		require.NoError(t, err)
 
 		// Create custom cert via upload
@@ -439,6 +438,36 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 		err := cs.DeleteCertificate(99999)
 		assert.Error(t, err)
 		assert.Equal(t, gorm.ErrRecordNotFound, err)
+	})
+
+	t.Run("delete certificate in use returns ErrCertInUse", func(t *testing.T) {
+		// Create certificate
+		domain := "in-use.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("In Use", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "test-ph",
+			Name:          "Test Host",
+			DomainNames:   "in-use.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		// Attempt to delete certificate - should fail with ErrCertInUse
+		err = cs.DeleteCertificate(cert.ID)
+		assert.Error(t, err)
+		assert.Equal(t, ErrCertInUse, err)
+
+		// Verify certificate still exists
+		var dbCert models.SSLCertificate
+		err = db.First(&dbCert, "id = ?", cert.ID).Error
+		assert.NoError(t, err)
 	})
 
 	t.Run("delete certificate when file already removed", func(t *testing.T) {
@@ -481,9 +510,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Staging path contains "acme-staging"
 		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0755)
+		err = os.MkdirAll(certDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -512,16 +541,16 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Create staging cert first (alphabetically comes before production)
 		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(stagingDir, 0755)
+		err = os.MkdirAll(stagingDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		// Create production cert
 		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(prodDir, 0755)
+		err = os.MkdirAll(prodDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -550,9 +579,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// First, create only staging cert
 		stagingDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(stagingDir, 0755)
+		err = os.MkdirAll(stagingDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(stagingDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		// Scan - should be staging
@@ -565,9 +594,9 @@ func TestCertificateService_StagingCertificates(t *testing.T) {
 
 		// Now add production cert
 		prodDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(prodDir, 0755)
+		err = os.MkdirAll(prodDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(prodDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		// Rescan - should be upgraded to production
@@ -597,9 +626,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0755)
+		err = os.MkdirAll(certDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -625,9 +654,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0755)
+		err = os.MkdirAll(certDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -653,9 +682,9 @@ func TestCertificateService_ExpiringStatus(t *testing.T) {
 		certPEM := generateTestCert(t, domain, expiry)
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-staging-v02.api.letsencrypt.org-directory", domain)
-		err = os.MkdirAll(certDir, 0755)
+		err = os.MkdirAll(certDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0644)
+		err = os.WriteFile(filepath.Join(certDir, domain+".crt"), certPEM, 0o644)
 		require.NoError(t, err)
 
 		err = cs.SyncFromDisk()
@@ -685,9 +714,9 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
 		certPath := filepath.Join(certDir, domain+".crt")
-		err = os.MkdirAll(certDir, 0755)
+		err = os.MkdirAll(certDir, 0o755)
 		require.NoError(t, err)
-		err = os.WriteFile(certPath, certPEM, 0644)
+		err = os.WriteFile(certPath, certPEM, 0o644)
 		require.NoError(t, err)
 
 		// First scan - should create DB entry
@@ -738,6 +767,122 @@ func TestCertificateService_CertificateWithSANs(t *testing.T) {
 		assert.Contains(t, cert.Domains, "san.example.com")
 		assert.Contains(t, cert.Domains, "www.san.example.com")
 		assert.Contains(t, cert.Domains, "api.san.example.com")
+	})
+}
+
+func TestCertificateService_IsCertificateInUse(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	cs := newTestCertificateService(tmpDir, db)
+
+	t.Run("certificate not in use", func(t *testing.T) {
+		// Create certificate without any proxy hosts
+		domain := "unused.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Unused", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.False(t, inUse)
+	})
+
+	t.Run("certificate used by one proxy host", func(t *testing.T) {
+		// Create certificate
+		domain := "used.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Used", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "ph-1",
+			Name:          "Test Host 1",
+			DomainNames:   "used.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+	})
+
+	t.Run("certificate used by multiple proxy hosts", func(t *testing.T) {
+		// Create certificate
+		domain := "shared.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Shared", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create multiple proxy hosts using this certificate
+		for i := 1; i <= 3; i++ {
+			ph := models.ProxyHost{
+				UUID:          fmt.Sprintf("ph-shared-%d", i),
+				Name:          fmt.Sprintf("Test Host %d", i),
+				DomainNames:   fmt.Sprintf("host%d.shared.com", i),
+				ForwardHost:   "localhost",
+				ForwardPort:   8080 + i,
+				CertificateID: &cert.ID,
+			}
+			require.NoError(t, db.Create(&ph).Error)
+		}
+
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+	})
+
+	t.Run("non-existent certificate", func(t *testing.T) {
+		inUse, err := cs.IsCertificateInUse(99999)
+		assert.NoError(t, err) // No error, just returns false
+		assert.False(t, inUse)
+	})
+
+	t.Run("certificate freed after proxy host deletion", func(t *testing.T) {
+		// Create certificate
+		domain := "freed.com"
+		expiry := time.Now().Add(24 * time.Hour)
+		certPEM := generateTestCert(t, domain, expiry)
+		cert, err := cs.UploadCertificate("Freed", string(certPEM), "FAKE KEY")
+		require.NoError(t, err)
+
+		// Create proxy host using this certificate
+		ph := models.ProxyHost{
+			UUID:          "ph-freed",
+			Name:          "Test Host Freed",
+			DomainNames:   "freed.com",
+			ForwardHost:   "localhost",
+			ForwardPort:   8080,
+			CertificateID: &cert.ID,
+		}
+		require.NoError(t, db.Create(&ph).Error)
+
+		// Verify in use
+		inUse, err := cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.True(t, inUse)
+
+		// Delete the proxy host
+		require.NoError(t, db.Delete(&ph).Error)
+
+		// Verify no longer in use
+		inUse, err = cs.IsCertificateInUse(cert.ID)
+		assert.NoError(t, err)
+		assert.False(t, inUse)
+
+		// Now deletion should succeed
+		err = cs.DeleteCertificate(cert.ID)
+		assert.NoError(t, err)
 	})
 }
 

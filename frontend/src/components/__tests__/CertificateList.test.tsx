@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import userEvent from '@testing-library/user-event'
+import { QueryClientProvider } from '@tanstack/react-query'
 import CertificateList from '../CertificateList'
+import { createTestQueryClient } from '../../test/createTestQueryClient'
 
 vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: vi.fn(() => ({
@@ -44,7 +46,7 @@ vi.mock('../../utils/toast', () => ({
 }))
 
 function renderWithClient(ui: React.ReactNode) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } })
+  const qc = createTestQueryClient()
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
 
@@ -54,6 +56,7 @@ describe('CertificateList', () => {
     const { deleteCertificate } = await import('../../api/certificates')
     const { createBackup } = await import('../../api/backups')
     const { toast } = await import('../../utils/toast')
+    const user = userEvent.setup()
 
     renderWithClient(<CertificateList />)
     const rows = await screen.findAllByRole('row')
@@ -61,7 +64,7 @@ describe('CertificateList', () => {
     expect(customRow).toBeTruthy()
     const customBtn = customRow.querySelector('button[title="Delete Certificate"]') as HTMLButtonElement
     expect(customBtn).toBeTruthy()
-    await customBtn.click()
+    await user.click(customBtn)
 
     await waitFor(() => expect(createBackup).toHaveBeenCalled())
     await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(1))
@@ -72,11 +75,12 @@ describe('CertificateList', () => {
   it('deletes staging certificate when confirmed', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
     const { deleteCertificate } = await import('../../api/certificates')
+    const user = userEvent.setup()
 
     renderWithClient(<CertificateList />)
     const stagingButtons = await screen.findAllByTitle('Delete Staging Certificate')
     expect(stagingButtons.length).toBeGreaterThan(0)
-    await stagingButtons[0].click()
+    await user.click(stagingButtons[0])
 
     await waitFor(() => expect(deleteCertificate).toHaveBeenCalledWith(2))
     confirmSpy.mockRestore()
@@ -84,24 +88,26 @@ describe('CertificateList', () => {
 
   it('blocks deletion when certificate is in use by a proxy host', async () => {
     const { toast } = await import('../../utils/toast')
+    const user = userEvent.setup()
     renderWithClient(<CertificateList />)
     const deleteButtons = await screen.findAllByTitle('Delete Certificate')
     // Find button corresponding to ActiveCert (id 3)
     const activeButton = deleteButtons.find(btn => btn.closest('tr')?.querySelector('td')?.textContent?.includes('ActiveCert'))
     expect(activeButton).toBeTruthy()
-    if (activeButton) await activeButton.click()
+    if (activeButton) await user.click(activeButton)
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('in use')))
   })
 
   it('blocks deletion when certificate status is active (valid/expiring)', async () => {
     const { toast } = await import('../../utils/toast')
+    const user = userEvent.setup()
     renderWithClient(<CertificateList />)
     const deleteButtons = await screen.findAllByTitle('Delete Certificate')
     // ActiveCert (valid) should block even if not linked – ensure hosts mock links it so previous test covers linkage.
     // Here, simulate clicking a valid cert button if present
     const validButton = deleteButtons.find(btn => btn.closest('tr')?.querySelector('td')?.textContent?.includes('ActiveCert'))
     expect(validButton).toBeTruthy()
-    if (validButton) await validButton.click()
+    if (validButton) await user.click(validButton)
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
   })
 })

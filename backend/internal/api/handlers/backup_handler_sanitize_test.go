@@ -39,7 +39,7 @@ func TestBackupHandlerSanitizesFilename(t *testing.T) {
 
 	// Create a malicious filename with newline and path components
 	malicious := "../evil\nname"
-	c.Request = httptest.NewRequest(http.MethodGet, "/backups/"+strings.ReplaceAll(malicious, "\n", "%0A")+"/restore", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/backups/"+strings.ReplaceAll(malicious, "\n", "%0A")+"/restore", http.NoBody)
 	// Call handler directly with the test context
 	h.Restore(c)
 

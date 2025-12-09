@@ -57,7 +57,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &decisionResp))
 	require.NotNil(t, decisionResp["decision"])
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/security/decisions?limit=10", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/security/decisions?limit=10", http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	if resp.Code != http.StatusOK {
@@ -80,7 +80,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &rsResp))
 	require.NotNil(t, rsResp["ruleset"])
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/security/rulesets", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/security/rulesets", http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	if resp.Code != http.StatusOK {
@@ -94,7 +94,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	idFloat, ok := listRsResp["rulesets"][0]["id"].(float64)
 	require.True(t, ok)
 	id := int(idFloat)
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(id), nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(id), http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)
@@ -159,7 +159,7 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	// Read ID from DB
 	var rs models.SecurityRuleSet
 	assert.NoError(t, db.First(&rs).Error)
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(int(rs.ID)), nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(int(rs.ID)), http.NoBody)
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)

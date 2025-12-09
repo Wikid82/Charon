@@ -23,11 +23,8 @@ func NewFeatureFlagsHandler(db *gorm.DB) *FeatureFlagsHandler {
 
 // defaultFlags lists the canonical feature flags we expose.
 var defaultFlags = []string{
-	"feature.global.enabled",
 	"feature.cerberus.enabled",
 	"feature.uptime.enabled",
-	"feature.notifications.enabled",
-	"feature.docker.enabled",
 }
 
 // GetFlags returns a map of feature flag -> bool. DB setting takes precedence
@@ -70,8 +67,8 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 			}
 		}
 
-		// Default false
-		result[key] = false
+		// Default true for core optional features
+		result[key] = true
 	}
 
 	c.JSON(http.StatusOK, result)

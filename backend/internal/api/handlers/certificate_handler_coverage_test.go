@@ -21,11 +21,12 @@ func TestCertificateHandler_List_DBError(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/certificates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -38,11 +39,12 @@ func TestCertificateHandler_Delete_InvalidID(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/invalid", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -56,11 +58,12 @@ func TestCertificateHandler_Delete_NotFound(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/9999", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/9999", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -78,6 +81,7 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	// Wait for background sync goroutine to complete to avoid race with -race flag
 	// NewCertificateService spawns a goroutine that immediately queries the DB
@@ -95,7 +99,7 @@ func TestCertificateHandler_Delete_NoBackupService(t *testing.T) {
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -115,11 +119,12 @@ func TestCertificateHandler_Delete_CheckUsageDBError(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.DELETE("/api/certificates/:id", h.Delete)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -137,11 +142,12 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(mockAuthMiddleware())
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
 	r.GET("/api/certificates", h.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/certificates", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/certificates", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

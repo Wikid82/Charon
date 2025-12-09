@@ -10,7 +10,7 @@ import (
 
 func TestGetClientIPHeadersAndRemoteAddr(t *testing.T) {
 	// Cloudflare header should win
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("CF-Connecting-IP", "5.6.7.8")
 	ip := getClientIP(req)
 	if ip != "5.6.7.8" {
@@ -18,7 +18,7 @@ func TestGetClientIPHeadersAndRemoteAddr(t *testing.T) {
 	}
 
 	// X-Real-IP should be preferred over RemoteAddr
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req2.Header.Set("X-Real-IP", "10.0.0.4")
 	req2.RemoteAddr = "1.2.3.4:5678"
 	ip2 := getClientIP(req2)
@@ -27,7 +27,7 @@ func TestGetClientIPHeadersAndRemoteAddr(t *testing.T) {
 	}
 
 	// X-Forwarded-For returns first in list
-	req3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req3 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req3.Header.Set("X-Forwarded-For", "192.168.0.1, 192.168.0.2")
 	ip3 := getClientIP(req3)
 	if ip3 != "192.168.0.1" {
@@ -35,7 +35,7 @@ func TestGetClientIPHeadersAndRemoteAddr(t *testing.T) {
 	}
 
 	// Fallback to remote addr port trimmed
-	req4 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req4 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req4.RemoteAddr = "7.7.7.7:8888"
 	ip4 := getClientIP(req4)
 	if ip4 != "7.7.7.7" {
@@ -49,12 +49,43 @@ func TestGetMyIPHandler(t *testing.T) {
 	handler := NewSystemHandler()
 	r.GET("/myip", handler.GetMyIP)
 
-	// With CF header
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/myip", nil)
-	req.Header.Set("CF-Connecting-IP", "5.6.7.8")
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 got %d", w.Code)
-	}
+	t.Run("with CF header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("CF-Connecting-IP", "5.6.7.8")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("with X-Forwarded-For header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("X-Forwarded-For", "9.9.9.9")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("with X-Real-IP header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("X-Real-IP", "8.8.8.8")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("direct connection", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.RemoteAddr = "7.7.7.7:9999"
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
 }

@@ -1,36 +1,27 @@
 {
-    "python-envs.pythonProjects": [
-        {
-            "path": "",
-            "envManager": "ms-python.python:venv",
-            "packageManager": "ms-python.python:pip"
-        }
-    ]
-    ,
     "gopls": {
-        "buildFlags": ["-tags=ignore", "-mod=mod"],
-        "env": {
-            "GOWORK": "off",
-            "GOFLAGS": "-mod=mod",
-            "GOTOOLCHAIN": "none"
+        "staticcheck": true,
+        "analyses": {
+            "unusedparams": true,
+            "nilness": true
         },
-        "directoryFilters": [
-            "-**/pkg/mod/**",
-            "-**/go/pkg/mod/**",
-            "-**/root/go/pkg/mod/**",
-            "-**/golang.org/toolchain@**"
-        ]
+        "completeUnimported": true,
+        "matcher": "Fuzzy",
+        "verboseOutput": true
     },
-    "go.buildFlags": ["-tags=ignore", "-mod=mod"],
+    "go.useLanguageServer": true,
     "go.toolsEnvVars": {
-        "GOWORK": "off",
-        "GOFLAGS": "-mod=mod",
-        "GOTOOLCHAIN": "none"
+        "GOMODCACHE": "${workspaceFolder}/.cache/go/pkg/mod"
     },
+    "go.buildOnSave": "workspace",
+    "go.lintOnSave": "package",
+    "go.formatTool": "gofmt",
     "files.watcherExclude": {
         "**/pkg/mod/**": true,
         "**/go/pkg/mod/**": true,
-        "**/root/go/pkg/mod/**": true
+        "**/root/go/pkg/mod/**": true,
+        "**/backend/data/**": true,
+        "**/frontend/dist/**": true
     },
     "search.exclude": {
         "**/pkg/mod/**": true,
@@ -39,5 +30,7 @@
     },
     "githubPullRequests.ignoredPullRequestBranches": [
         "main"
-    ]
+    ],
+    // Toggle workspace-specific keybindings (used by .vscode/keybindings.json)
+    "charon.workspaceKeybindingsEnabled": true
 }

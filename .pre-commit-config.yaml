@@ -1,13 +1,4 @@
 repos:
-  - repo: local
-    hooks:
-      - id: python-compile
-        name: python compile check
-        entry: tools/python_compile_check.sh
-        language: script
-        files: ".*\\.py$"
-        pass_filenames: false
-        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
@@ -45,6 +36,27 @@ repos:
         language: system
         files: '\.version$'
         pass_filenames: false
+      - id: check-lfs-large-files
+        name: Prevent large files that are not tracked by LFS
+        entry: bash scripts/pre-commit-hooks/check-lfs-for-large-files.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        always_run: true
+      - id: block-codeql-db-commits
+        name: Prevent committing CodeQL DB artifacts
+        entry: bash scripts/pre-commit-hooks/block-codeql-db-commits.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        always_run: true
+      - id: block-data-backups-commit
+        name: Prevent committing data/backups files
+        entry: bash scripts/pre-commit-hooks/block-data-backups-commit.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        always_run: true
 
       # === MANUAL/CI-ONLY HOOKS ===
       # These are slow and should only run on-demand or in CI

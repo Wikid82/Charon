@@ -38,7 +38,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 
 	// Block mode should reject suspicious payload on an API route covered by middleware
 	rBlock, _ := newServer("block")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", http.NoBody)
 	w := httptest.NewRecorder()
 	rBlock.ServeHTTP(w, req)
 	if w.Code == http.StatusOK {
@@ -47,7 +47,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 
 	// Monitor mode should allow request but still evaluate (log-only)
 	rMon, _ := newServer("monitor")
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/remote-servers?test=<script>", http.NoBody)
 	w2 := httptest.NewRecorder()
 	rMon.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusOK {
@@ -55,7 +55,7 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 	}
 
 	// Metrics should be exposed
-	reqM := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	reqM := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	wM := httptest.NewRecorder()
 	rMon.ServeHTTP(wM, reqM)
 	if wM.Code != http.StatusOK {

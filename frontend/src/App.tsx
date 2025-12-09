@@ -76,6 +76,7 @@ export default function App() {
                 <Route path="smtp" element={<SMTPSettings />} />
                 <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="account" element={<Account />} />
+                <Route path="account-management" element={<UsersPage />} />
               </Route>
 
               {/* Tasks Routes */}

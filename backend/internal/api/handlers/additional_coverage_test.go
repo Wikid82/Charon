@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -143,7 +144,7 @@ func TestSecurityHandler_GetConfig_InternalError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/security/config", nil)
+	c.Request = httptest.NewRequest("GET", "/security/config", http.NoBody)
 
 	h.GetConfig(c)
 
@@ -186,7 +187,7 @@ func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/security/breakglass", nil)
+	c.Request = httptest.NewRequest("POST", "/security/breakglass", http.NoBody)
 
 	h.GenerateBreakGlass(c)
 
@@ -205,7 +206,7 @@ func TestSecurityHandler_ListDecisions_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/security/decisions", nil)
+	c.Request = httptest.NewRequest("GET", "/security/decisions", http.NoBody)
 
 	h.ListDecisions(c)
 
@@ -224,7 +225,7 @@ func TestSecurityHandler_ListRuleSets_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/security/rulesets", nil)
+	c.Request = httptest.NewRequest("GET", "/security/rulesets", http.NoBody)
 
 	h.ListRuleSets(c)
 
@@ -445,19 +446,19 @@ func TestImportHandler_UploadMulti_PathTraversal(t *testing.T) {
 
 // Logs Handler Download error coverage
 
-func setupLogsDownloadTest(t *testing.T) (*LogsHandler, string) {
+func setupLogsDownloadTest(t *testing.T) (h *LogsHandler, logsDir string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	os.MkdirAll(dataDir, 0o755)
 
-	logsDir := filepath.Join(dataDir, "logs")
+	logsDir = filepath.Join(dataDir, "logs")
 	os.MkdirAll(logsDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
 	cfg := &config.Config{DatabasePath: dbPath}
 	svc := services.NewLogService(cfg)
-	h := NewLogsHandler(svc)
+	h = NewLogsHandler(svc)
 
 	return h, logsDir
 }
@@ -469,7 +470,7 @@ func TestLogsHandler_Download_PathTraversal(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "../../../etc/passwd"}}
-	c.Request = httptest.NewRequest("GET", "/logs/../../../etc/passwd/download", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/../../../etc/passwd/download", http.NoBody)
 
 	h.Download(c)
 
@@ -484,7 +485,7 @@ func TestLogsHandler_Download_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "nonexistent.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/nonexistent.log/download", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/nonexistent.log/download", http.NoBody)
 
 	h.Download(c)
 
@@ -502,7 +503,7 @@ func TestLogsHandler_Download_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "test.log"}}
-	c.Request = httptest.NewRequest("GET", "/logs/test.log/download", nil)
+	c.Request = httptest.NewRequest("GET", "/logs/test.log/download", http.NoBody)
 
 	h.Download(c)
 
@@ -574,7 +575,7 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/backups", nil)
+	c.Request = httptest.NewRequest("GET", "/backups", http.NoBody)
 
 	h.List(c)
 
@@ -602,7 +603,7 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "../../../etc/passwd"}}
-	c.Request = httptest.NewRequest("DELETE", "/backups/../../../etc/passwd", nil)
+	c.Request = httptest.NewRequest("DELETE", "/backups/../../../etc/passwd", http.NoBody)
 
 	h.Delete(c)
 
@@ -641,7 +642,7 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "filename", Value: "test.zip"}}
-	c.Request = httptest.NewRequest("DELETE", "/backups/test.zip", nil)
+	c.Request = httptest.NewRequest("DELETE", "/backups/test.zip", http.NoBody)
 
 	h.Delete(c)
 
@@ -722,7 +723,7 @@ func TestHealthHandler_Basic(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/health", nil)
+	c.Request = httptest.NewRequest("GET", "/health", http.NoBody)
 
 	HealthHandler(c)
 
@@ -753,7 +754,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/backups", nil)
+	c.Request = httptest.NewRequest("POST", "/backups", http.NoBody)
 
 	h.Create(c)
 
@@ -782,7 +783,7 @@ func TestSettingsHandler_GetSettings_Error(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/settings", nil)
+	c.Request = httptest.NewRequest("GET", "/settings", http.NoBody)
 
 	h.GetSettings(c)
 

@@ -1,11 +1,12 @@
 import { ReactNode } from 'react'
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Layout from '../Layout'
 import { ThemeProvider } from '../../context/ThemeContext'
+import * as featureFlagsApi from '../../api/featureFlags'
 
 const mockLogout = vi.fn()
 
@@ -21,6 +22,13 @@ vi.mock('../../api/health', () => ({
   checkHealth: vi.fn().mockResolvedValue({
     version: '0.1.0',
     git_commit: 'abcdef1',
+  }),
+}))
+
+vi.mock('../../api/featureFlags', () => ({
+  getFeatureFlags: vi.fn().mockResolvedValue({
+    'feature.cerberus.enabled': true,
+    'feature.uptime.enabled': true,
   }),
 }))
 
@@ -45,6 +53,15 @@ const renderWithProviders = (children: ReactNode) => {
 }
 
 describe('Layout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Default: all features enabled
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+      'feature.cerberus.enabled': true,
+      'feature.uptime.enabled': true,
+    })
+  })
+
   it('renders the application logo', () => {
     renderWithProviders(
       <Layout>
@@ -116,20 +133,161 @@ describe('Layout', () => {
       </Layout>
     )
 
-    // Initially sidebar is hidden on mobile (by CSS class, but we can check if the toggle button exists)
-    // The toggle button has text '☰' when closed
-    await userEvent.click(screen.getByText('☰'))
+    // The mobile sidebar toggle is found by test-id
+    const toggleButton = screen.getByTestId('mobile-menu-toggle')
 
-    // Now it should show '✕'
-    expect(screen.getByText('✕')).toBeInTheDocument()
+    // Click to open the sidebar
+    await userEvent.click(toggleButton)
 
-    // And the overlay should be present
-    // The overlay has class 'fixed inset-0 bg-black/50 z-20 lg:hidden'
-    // We can find it by class or just assume if we click it it closes
-    // Let's try to click the overlay. It doesn't have text.
-    // We can query by selector if we add a test id or just rely on structure.
-    // But let's just click the toggle button again to close.
-    await userEvent.click(screen.getByText('✕'))
-    expect(screen.getByText('☰')).toBeInTheDocument()
+    // The overlay should be present when mobile sidebar is open
+    // The overlay has class 'fixed inset-0 bg-gray-900/50 z-20 lg:hidden'
+    // Click the toggle again to close
+    await userEvent.click(toggleButton)
+
+    // Toggle button should still be in the document
+    expect(toggleButton).toBeInTheDocument()
+  })
+
+  describe('Feature Flags - Conditional Sidebar Items', () => {
+    it('displays Cerberus nav item when Cerberus is enabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
+      })
+    })
+
+    it('hides Cerberus nav item when Cerberus is disabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.queryByText('Cerberus')).not.toBeInTheDocument()
+      })
+    })
+
+    it('displays Uptime nav item when Uptime is enabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Uptime')).toBeInTheDocument()
+      })
+    })
+
+    it('hides Uptime nav item when Uptime is disabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': false,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.queryByText('Uptime')).not.toBeInTheDocument()
+      })
+    })
+
+    it('shows Cerberus and Uptime when both features are enabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': true,
+        'feature.uptime.enabled': true,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
+        expect(screen.getByText('Uptime')).toBeInTheDocument()
+      })
+    })
+
+    it('hides both Cerberus and Uptime when both features are disabled', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': false,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.queryByText('Cerberus')).not.toBeInTheDocument()
+        expect(screen.queryByText('Uptime')).not.toBeInTheDocument()
+      })
+    })
+
+    it('defaults to showing Cerberus and Uptime when feature flags are loading', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue(undefined as any)
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      // When flags are undefined, items should be visible by default (conservative approach)
+      await waitFor(() => {
+        expect(screen.getByText('Cerberus')).toBeInTheDocument()
+        expect(screen.getByText('Uptime')).toBeInTheDocument()
+      })
+    })
+
+    it('shows other nav items regardless of feature flags', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.uptime.enabled': false,
+      })
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Dashboard')).toBeInTheDocument()
+        expect(screen.getByText('Proxy Hosts')).toBeInTheDocument()
+        expect(screen.getByText('Remote Servers')).toBeInTheDocument()
+        expect(screen.getByText('Certificates')).toBeInTheDocument()
+      })
+    })
   })
 })

@@ -16,7 +16,7 @@ import (
 func TestAccessListHandler_Get_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/access-lists/invalid", nil)
+	req := httptest.NewRequest(http.MethodGet, "/access-lists/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -53,7 +53,7 @@ func TestAccessListHandler_Update_InvalidJSON(t *testing.T) {
 func TestAccessListHandler_Delete_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/access-lists/invalid", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/access-lists/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -98,7 +98,7 @@ func TestAccessListHandler_List_DBError(t *testing.T) {
 	handler := NewAccessListHandler(db)
 	router.GET("/access-lists", handler.List)
 
-	req := httptest.NewRequest(http.MethodGet, "/access-lists", nil)
+	req := httptest.NewRequest(http.MethodGet, "/access-lists", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -115,7 +115,7 @@ func TestAccessListHandler_Get_DBError(t *testing.T) {
 	handler := NewAccessListHandler(db)
 	router.GET("/access-lists/:id", handler.Get)
 
-	req := httptest.NewRequest(http.MethodGet, "/access-lists/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/access-lists/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -138,7 +138,7 @@ func TestAccessListHandler_Delete_InternalError(t *testing.T) {
 	acl := models.AccessList{UUID: "test-uuid", Name: "Test", Type: "whitelist"}
 	db.Create(&acl)
 
-	req := httptest.NewRequest(http.MethodDelete, "/access-lists/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/access-lists/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
