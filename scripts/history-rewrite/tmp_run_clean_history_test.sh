@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+TMPREMOTE=$(mktemp -d)
+git init --bare "$TMPREMOTE/remote.git"
+TMPCLONE=$(mktemp -d)
+cd "$TMPCLONE"
+git clone "$TMPREMOTE/remote.git" .
+# create a commit
+mkdir -p backend/codeql-db
+echo 'dummy' > backend/codeql-db/foo.txt
+git add -A
+git commit -m "Add dummy file" -q
+git checkout -b feature/test
+# set up stub git-filter-repo in PATH
+TMPBIN=$(mktemp -d)
+cat > "$TMPBIN/git-filter-repo" <<'SH'
+#!/usr/bin/env sh
+# Minimal stub to simulate git-filter-repo
+while [ $# -gt 0 ]; do
+  shift
+done
+exit 0
+SH
+chmod +x "$TMPBIN/git-filter-repo"
+export PATH="$TMPBIN:$PATH"
+# run clean_history.sh with dry-run
+/projects/Charon/scripts/history-rewrite/clean_history.sh --dry-run --paths 'backend/codeql-db' --strip-size 1
+# run clean_history.sh with force should attempt to push branch then succeed (requires that remote exists)
+/projects/Charon/scripts/history-rewrite/clean_history.sh --force --paths 'backend/codeql-db' --strip-size 1 <<'IN'
+I UNDERSTAND
+IN
+
+# test non-interactive with force
+/projects/Charon/scripts/history-rewrite/clean_history.sh --force --non-interactive --paths 'backend/codeql-db' --strip-size 1
+
+# cleanup
+rm -rf "$TMPREMOTE" "$TMPCLONE" "$TMPBIN"
+echo 'done'
