@@ -129,6 +129,35 @@ func TestFetchIndexHTTPRejectsHTML(t *testing.T) {
 	require.Contains(t, err.Error(), "HTML")
 }
 
+func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub.crowdsec.net"
+	calls := make([]string, 0)
+
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://hub.crowdsec.net/api/index.json":
+			resp := newResponse(http.StatusMovedPermanently, "")
+			resp.Header.Set("Location", "https://hub-data.crowdsec.net/api/index.json")
+			return resp, nil
+		case "https://hub-data.crowdsec.net/api/index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	idx, err := svc.fetchIndexHTTP(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", "https://hub-data.crowdsec.net/api/index.json"}, calls)
+}
+
 func TestPullCachesPreview(t *testing.T) {
 	cacheDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "crowdsec")
@@ -446,4 +475,167 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
 	require.NoError(t, readErr)
 	require.Equal(t, "before", string(content))
+}
+
+func TestNormalizeHubBaseURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty uses default", "", defaultHubBaseURL},
+		{"whitespace uses default", "   ", defaultHubBaseURL},
+		{"removes trailing slash", "https://hub.crowdsec.net/", "https://hub.crowdsec.net"},
+		{"removes multiple trailing slashes", "https://hub.crowdsec.net///", "https://hub.crowdsec.net"},
+		{"trims spaces", "  https://hub.crowdsec.net  ", "https://hub.crowdsec.net"},
+		{"no slash unchanged", "https://hub.crowdsec.net", "https://hub.crowdsec.net"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeHubBaseURL(tt.input)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestBuildIndexURL(t *testing.T) {
+	tests := []struct {
+		name  string
+		base  string
+		want  string
+	}{
+		{"empty base uses default", "", defaultHubBaseURL + defaultHubIndexPath},
+		{"standard base appends path", "https://hub.crowdsec.net", "https://hub.crowdsec.net" + defaultHubIndexPath},
+		{"trailing slash removed", "https://hub.crowdsec.net/", "https://hub.crowdsec.net" + defaultHubIndexPath},
+		{"direct json url unchanged", "https://custom.hub/index.json", "https://custom.hub/index.json"},
+		{"case insensitive json", "https://custom.hub/INDEX.JSON", "https://custom.hub/INDEX.JSON"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildIndexURL(tt.base)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestUniqueStrings(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{"empty slice", []string{}, []string{}},
+		{"no duplicates", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{"with duplicates", []string{"a", "b", "a", "c", "b"}, []string{"a", "b", "c"}},
+		{"all duplicates", []string{"x", "x", "x"}, []string{"x"}},
+		{"preserves order", []string{"z", "a", "m", "a"}, []string{"z", "a", "m"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := uniqueStrings(tt.input)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFirstNonEmpty(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{"first non-empty", []string{"", "second", "third"}, "second"},
+		{"all empty", []string{"", "", ""}, ""},
+		{"first is non-empty", []string{"first", "second"}, "first"},
+		{"whitespace treated as empty", []string{"  ", "second"}, "second"},
+		{"whitespace with content", []string{"  hello  ", "second"}, "  hello  "},
+		{"empty slice", []string{}, ""},
+		{"tabs and newlines", []string{"\t\n", "third"}, "third"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := firstNonEmpty(tt.values...)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCleanShellArg(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		safe  bool
+	}{
+		{"clean slug", "crowdsecurity/demo", true},
+		{"with dash", "crowdsecurity/demo-v1", true},
+		{"with underscore", "crowdsecurity/demo_parser", true},
+		{"with dot", "crowdsecurity/demo.yaml", true},
+		{"path traversal", "../etc/passwd", false},
+		{"absolute path", "/etc/passwd", false},
+		{"backslash converted", "bad\\path", true},
+		{"colon not allowed", "demo:1.0", false},
+		{"semicolon", "foo;rm -rf", false},
+		{"pipe", "foo|bar", false},
+		{"ampersand", "foo&bar", false},
+		{"backtick", "foo`cmd`", false},
+		{"dollar", "foo$var", false},
+		{"parenthesis", "foo()", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanShellArg(tt.input)
+			if tt.safe {
+				require.NotEmpty(t, got, "safe input should not be empty")
+				// Note: backslashes are converted to forward slashes by filepath.Clean
+			} else {
+				require.Empty(t, got, "unsafe input should return empty string")
+			}
+		})
+	}
+}
+
+func TestHasCSCLI(t *testing.T) {
+	t.Run("cscli available", func(t *testing.T) {
+		exec := &recordingExec{outputs: map[string][]byte{"cscli version": []byte("v1.5.0")}}
+		svc := NewHubService(exec, nil, t.TempDir())
+		got := svc.hasCSCLI(context.Background())
+		require.True(t, got)
+	})
+
+	t.Run("cscli not found", func(t *testing.T) {
+		exec := &recordingExec{errors: map[string]error{"cscli version": fmt.Errorf("executable not found")}}
+		svc := NewHubService(exec, nil, t.TempDir())
+		got := svc.hasCSCLI(context.Background())
+		require.False(t, got)
+	})
+}
+
+func TestFindPreviewFileFromArchive(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	t.Run("finds yaml in archive", func(t *testing.T) {
+		archive := makeTarGz(t, map[string]string{
+			"scenarios/test.yaml": "name: test-scenario\ndescription: test",
+		})
+		preview := svc.findPreviewFile(archive)
+		require.Contains(t, preview, "test-scenario")
+	})
+
+	t.Run("returns empty for no yaml", func(t *testing.T) {
+		archive := makeTarGz(t, map[string]string{
+			"readme.txt": "no yaml here",
+		})
+		preview := svc.findPreviewFile(archive)
+		require.Empty(t, preview)
+	})
+
+	t.Run("returns empty for invalid archive", func(t *testing.T) {
+		preview := svc.findPreviewFile([]byte("not a gzip archive"))
+		require.Empty(t, preview)
+	})
 }

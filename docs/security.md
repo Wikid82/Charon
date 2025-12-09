@@ -137,6 +137,7 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 
 - **Import/Export:** You can import or export Cerberus configuration packages; exports prompt you to confirm the filename before saving.
 - **Presets (CrowdSec Hub):** Pull presets from the CrowdSec Hub over HTTPS using cache keys/ETags, prefer `cscli` execution, and require Cerberus to be enabled with an admin-scoped session. Workflow: pull → preview → apply with an automatic backup and reload flag.
+- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
 - **Fallbacks:** If the Hub is unreachable (503 uses retry or cached data), curated/offline presets stay available; invalid slugs return a 400 with validation detail; apply failures remind you to restore from the backup; if apply is not supported (501), stay on curated/offline presets.
 
 ---

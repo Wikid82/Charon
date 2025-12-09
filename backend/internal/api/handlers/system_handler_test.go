@@ -49,12 +49,43 @@ func TestGetMyIPHandler(t *testing.T) {
 	handler := NewSystemHandler()
 	r.GET("/myip", handler.GetMyIP)
 
-	// With CF header
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
-	req.Header.Set("CF-Connecting-IP", "5.6.7.8")
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 got %d", w.Code)
-	}
+	t.Run("with CF header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("CF-Connecting-IP", "5.6.7.8")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("with X-Forwarded-For header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("X-Forwarded-For", "9.9.9.9")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("with X-Real-IP header", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.Header.Set("X-Real-IP", "8.8.8.8")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
+
+	t.Run("direct connection", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/myip", http.NoBody)
+		req.RemoteAddr = "7.7.7.7:9999"
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 got %d", w.Code)
+		}
+	})
 }

@@ -27,7 +27,7 @@ export interface PullCrowdsecPresetResponse {
 export interface ApplyCrowdsecPresetResponse {
   status: string
   backup?: string
-  reload_hint?: string
+  reload_hint?: boolean
   used_cscli?: boolean
   cache_key?: string
   slug?: string
@@ -42,6 +42,10 @@ export interface CachedCrowdsecPresetPreview {
 export async function listCrowdsecPresets() {
   const resp = await client.get<{ presets: CrowdsecPresetSummary[] }>('/admin/crowdsec/presets')
   return resp.data
+}
+
+export async function getCrowdsecPresets() {
+  return listCrowdsecPresets()
 }
 
 export async function pullCrowdsecPreset(slug: string) {
@@ -61,6 +65,7 @@ export async function getCrowdsecPresetCache(slug: string) {
 
 export default {
   listCrowdsecPresets,
+  getCrowdsecPresets,
   pullCrowdsecPreset,
   applyCrowdsecPreset,
   getCrowdsecPresetCache,

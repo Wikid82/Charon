@@ -2,22 +2,48 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import Security from '../Security'
 import * as api from '../../api/security'
 import type { SecurityStatus, RuleSetsResponse } from '../../api/security'
 import * as settingsApi from '../../api/settings'
 import * as crowdsecApi from '../../api/crowdsec'
+import { createTestQueryClient } from '../../test/createTestQueryClient'
+
+const mockNavigate = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return { ...actual, useNavigate: () => mockNavigate }
+})
 
 vi.mock('../../api/security')
 vi.mock('../../api/settings')
 vi.mock('../../api/crowdsec')
 
-const createQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+const defaultFeatureFlags = {
+  'feature.cerberus.enabled': true,
+  'feature.uptime.enabled': true,
+}
 
-const renderWithProviders = (ui: React.ReactNode) => {
-  const qc = createQueryClient()
+const baseStatus: SecurityStatus = {
+  cerberus: { enabled: true },
+  crowdsec: { enabled: false, mode: 'disabled' as const, api_url: '' },
+  waf: { enabled: false, mode: 'disabled' as const },
+  rate_limit: { enabled: false },
+  acl: { enabled: false },
+}
+
+const createQueryClient = (initialData = []) => createTestQueryClient([
+  { key: ['securityConfig'], data: mockSecurityConfig },
+  { key: ['securityRulesets'], data: mockRuleSets },
+  { key: ['feature-flags'], data: defaultFeatureFlags },
+  ...initialData,
+])
+
+const renderWithProviders = (ui: React.ReactNode, initialData = []) => {
+  const qc = createQueryClient(initialData)
   return render(
     <QueryClientProvider client={qc}>
       <BrowserRouter>
@@ -46,6 +72,10 @@ const mockRuleSets: RuleSetsResponse = {
 describe('Security page', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.getSecurityStatus).mockResolvedValue(baseStatus as SecurityStatus)
+    vi.mocked(api.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+    vi.mocked(api.getRuleSets).mockResolvedValue(mockRuleSets)
+    vi.mocked(api.updateSecurityConfig).mockResolvedValue({})
   })
 
   it('shows banner when all services are disabled and links to docs', async () => {

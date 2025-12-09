@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import ImportCrowdSec from '../ImportCrowdSec'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as backupsApi from '../../api/backups'
 import { toast } from 'react-hot-toast'
+import { createTestQueryClient } from '../../test/createTestQueryClient'
 
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/backups')
@@ -27,7 +28,7 @@ describe('ImportCrowdSec', () => {
   })
 
   const renderPage = () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const qc = createTestQueryClient()
     return render(
       <QueryClientProvider client={qc}>
         <MemoryRouter>
@@ -49,11 +50,12 @@ describe('ImportCrowdSec', () => {
 
     const fileInput = screen.getByTestId('crowdsec-import-file') as HTMLInputElement
     const file = new File(['config'], 'config.tar.gz', { type: 'application/gzip' })
+    const user = userEvent.setup()
 
-    await userEvent.upload(fileInput, file)
+    await user.upload(fileInput, file)
 
     const importButton = screen.getByRole('button', { name: /Import/i })
-    await userEvent.click(importButton)
+    await user.click(importButton)
 
     await waitFor(() => {
       expect(backupsApi.createBackup).toHaveBeenCalled()
