@@ -23,8 +23,11 @@ teardown() {
   rm -rf "$TMPREPO"
 }
 
-REPO_ROOT=$(cd "$BATS_TEST_DIRNAME/../../../" && pwd)
-SCRIPT="$REPO_ROOT/scripts/history-rewrite/validate_after_rewrite.sh"
+## Prefer deriving the script location from the test directory rather than hard-coding
+## repository root paths such as /projects/Charon. This is more portable across
+## environments and CI runners (e.g., forks where the repo path is different).
+SCRIPT_DIR=$(cd "$BATS_TEST_DIRNAME/.." && pwd -P)
+SCRIPT="$SCRIPT_DIR/validate_after_rewrite.sh"
 
 @test "validate_after_rewrite fails when backup branch is missing" {
   run bash "$SCRIPT"
