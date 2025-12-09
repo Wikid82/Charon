@@ -359,6 +359,18 @@ Phase 3 — Medium-term fixes (2-5 days)
 - Frontend: [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx) calls `pullAndApplyCrowdsecPreset` then falls back to local `writeCrowdsecFile` apply. Preset catalog merges backend list with [frontend/src/data/crowdsecPresets.ts](frontend/src/data/crowdsecPresets.ts). Errors 501/404 are surfaced as info to keep local apply working. Overview toggle/start/stop already wired to `startCrowdsec`/`stopCrowdsec`.
 - Docs: [docs/cerberus.md](docs/cerberus.md) still notes CrowdSec integration is a placeholder; no hub sync described.
 
+Recent updates (2025-12-09)
+--------------------------
+- Backed up and removed local `codeql-db*` directories from the working tree to `data/backups/codeql-db-backup-<timestamp>.tar.gz` to avoid indexer confusion and reduce working tree noise.
+- Added a pre-commit hook `scripts/pre-commit-hooks/block-codeql-db-commits.sh` and enabled it in `.pre-commit-config.yaml` to prevent committing `codeql-db` artifacts.
+- Added a repo health check and CI safety steps; ran `scripts/repo_health_check.sh` locally and confirmed it exits OK after directory removal.
+- Created a local backup: data/backups/codeql-db-backup-20251209T015533Z.tar.gz (not tracked).
+
+Next steps
+----------
+- Consider history cleaning if archived codeql DBs affect size or packs; recommend `git filter-repo` with the `--strip-blobs-bigger-than` option and a clear backup/rewrite plan.
+- Run `git gc --prune=now` and `git fsck --full` to clean garbage objects after a scripted history rewrite or large object removals.
+
 ## Incident Triage: CrowdSec preset pull/apply 502/500 (feature/beta-release)
 - Logs to pull first: backend app/GIN logs under `/app/data/logs/charon.log` (or `data/logs/charon.log` in dev) via [backend/cmd/api/main.go](backend/cmd/api/main.go); look for warnings "crowdsec preset pull failed" / "crowdsec preset apply failed" emitted in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go). Access logs will also show 502/500 for POST `/api/v1/admin/crowdsec/presets/pull` and `/apply`.
 - Routes and code paths: handlers `PullPreset` and `ApplyPreset` live in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go) and delegate to `HubService.Pull/Apply` in [backend/internal/crowdsec/hub_sync.go](backend/internal/crowdsec/hub_sync.go) with cache helpers in [backend/internal/crowdsec/hub_cache.go](backend/internal/crowdsec/hub_cache.go). Data dir used is `data/crowdsec` with cache under `data/crowdsec/hub_cache` from [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go).
