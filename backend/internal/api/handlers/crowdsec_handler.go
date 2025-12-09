@@ -39,10 +39,10 @@ type CommandExecutor interface {
 // RealCommandExecutor executes commands using os/exec.
 type RealCommandExecutor struct{}
 
-// Execute runs a command and returns its output
+// Execute runs a command and returns its combined output (stdout/stderr)
 func (r *RealCommandExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	return cmd.Output()
+	return cmd.CombinedOutput()
 }
 
 // CrowdsecHandler manages CrowdSec process and config imports.
@@ -53,6 +53,13 @@ type CrowdsecHandler struct {
 	BinPath  string
 	DataDir  string
 	Hub      *crowdsec.HubService
+}
+
+func mapCrowdsecStatus(err error, defaultCode int) int {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return http.StatusGatewayTimeout
+	}
+	return defaultCode
 }
 
 func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
@@ -470,8 +477,9 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	ctx := c.Request.Context()
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
-		logger.Log().WithError(err).WithField("slug", slug).Warn("crowdsec preset pull failed")
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		status := mapCrowdsecStatus(err, http.StatusBadGateway)
+		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -514,11 +522,12 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	ctx := c.Request.Context()
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
-		logger.Log().WithError(err).WithField("slug", slug).Warn("crowdsec preset apply failed")
+		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
+		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset apply failed")
 		if h.DB != nil {
 			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "backup": res.BackupPath})
+		c.JSON(status, gin.H{"error": err.Error(), "backup": res.BackupPath})
 		return
 	}
 

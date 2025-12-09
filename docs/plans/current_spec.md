@@ -14,6 +14,21 @@
 - Likely 500 on apply: backup rename fails, `cscli` install fails with no cache fallback (if pull never succeeded or cache expired/missing), cache read errors (`metadata.json`/`bundle.tgz` unreadable), tar extraction rejects symlinks/unsafe paths, or rollback after extract failure. Handler writes `CrowdsecPresetEvent` (if DB reachable) with backup path and returns 500 with `backup` hint.
 - Validation steps during triage: verify cache entry freshness (TTL 24h) via `metadata.json` timestamps; confirm `cscli hub install <slug>` succeeds manually; if cscli missing, ensure prior pull populated cache; test hub egress with curl to hub index and archive URLs; check file ownership/permissions on `data/crowdsec` and `data/crowdsec/hub_cache`; confirm log lines around warnings for exact error message; inspect backup directory to restore if partial apply.
 
+### Current incident: preset apply returning "Network Error" (feature/beta-release)
+- What we see: frontend reports axios "Network Error" while applying a preset. Backend logs do not yet show the apply warning, suggesting the client drops before an HTTP response arrives. Apply path runs `HubService.Apply` in [backend/internal/crowdsec/hub_sync.go](backend/internal/crowdsec/hub_sync.go) with a 15s context; pull uses a 10s HTTP client timeout and does not follow redirects. Axios flags a network error when the TCP connection is reset/timeout rather than when a 4xx/5xx is returned.
+- Probable roots to verify quickly:
+	- Hub index/preview/archives now redirect to another host; our HTTP client forbids redirects, so FetchIndex/Pull return an error and the handler responds 502 only after the hub timeout. Long hub connect attempts can hit the 10s client timeout, causing the upstream (Caddy) or browser to drop the socket and surface a network error.
+	- Runtime image may be missing `cscli` if the release archive layout changed; Dockerfile only moves the binaries when expected paths exist. Without cscli, Apply falls back to cache, but if Pull already failed, Apply exits with an error and no response body. Validate `cscli version` inside the running container built from feature/beta-release.
+	- Outbound egress/proxy: container must reach https://hub-data.crowdsec.net (default) from within the Docker network. Missing `HTTP(S)_PROXY`/`NO_PROXY` or a transparent MITM can cause TLS handshake or connection timeouts that the client reports as network errors.
+	- TLS/HTML responses: hub returning HTML (maintenance/Cloudflare) or a 3xx/302 to http is treated as an error (`hub index responded with HTML`), which becomes 502. If the redirect/HTML arrives after ~10s the browser may already have given up.
+	- Timeout budget: 10s pull / 15s apply may be too tight for hub downloads + cscli install. When the context cancels mid-stream, gin closes the connection and axios logs network error instead of an HTTP code.
+- Remediation plan (no code yet):
+	- Confirm cscli exists in the runtime image from [Dockerfile](Dockerfile) by running `cscli version` inside the failing container; if missing, adjust build or add a startup preflight that logs absence and forces HTTP hub path.
+	- Override HUB_BASE_URL to a known JSON endpoint (e.g., `https://hub-data.crowdsec.net/api/index.json`) when redirects occur, or point to an internal mirror reachable from the Docker network; document this in env examples.
+	- Ensure outbound 443 to hub-data is allowed or set `HTTP(S)_PROXY`/`NO_PROXY` on the container; retry pull/apply after validating `curl -v https://hub-data.crowdsec.net/api/index.json` inside the runtime.
+	- Consider raising pull/apply timeouts (and matching frontend request timeout) and log when contexts cancel so we return a 504/timeout JSON instead of a dropped socket.
+	- Capture docker logs for `charon-debug` during repro; look for `crowdsec preset pull/apply failed` warnings and any TLS/redirect messages from [backend/internal/crowdsec/hub_sync.go](backend/internal/crowdsec/hub_sync.go).
+
 ## Goal
 Implement real CrowdSec Hub preset sync + apply on backend (using cscli or direct hub index) with caching, validation, backups, rollback, and wire the UI to new endpoints so operators can preview/apply hub items with clear status/errors.
 

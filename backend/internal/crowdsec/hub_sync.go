@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +31,8 @@ const (
 	defaultHubArchivePath = "/%s.tgz"
 	defaultHubPreviewPath = "/%s.yaml"
 	maxArchiveSize        = int64(25 * 1024 * 1024) // 25MiB safety cap
+	defaultPullTimeout    = 25 * time.Second
+	defaultApplyTimeout   = 45 * time.Second
 )
 
 // HubIndexEntry represents a single hub catalog entry.
@@ -78,21 +82,46 @@ type HubService struct {
 
 // NewHubService constructs a HubService with sane defaults.
 func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubService {
-	clientTimeout := 10 * time.Second
+	pullTimeout := defaultPullTimeout
+	if raw := strings.TrimSpace(os.Getenv("HUB_PULL_TIMEOUT_SECONDS")); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			pullTimeout = time.Duration(secs) * time.Second
+		}
+	}
+
+	applyTimeout := defaultApplyTimeout
+	if raw := strings.TrimSpace(os.Getenv("HUB_APPLY_TIMEOUT_SECONDS")); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			applyTimeout = time.Duration(secs) * time.Second
+		}
+	}
+
 	return &HubService{
 		Exec:         exec,
 		Cache:        cache,
 		DataDir:      dataDir,
-		HTTPClient:   newHubHTTPClient(clientTimeout),
+		HTTPClient:   newHubHTTPClient(pullTimeout),
 		HubBaseURL:   normalizeHubBaseURL(os.Getenv("HUB_BASE_URL")),
-		PullTimeout:  clientTimeout,
-		ApplyTimeout: 15 * time.Second,
+		PullTimeout:  pullTimeout,
+		ApplyTimeout: applyTimeout,
 	}
 }
 
 func newHubHTTPClient(timeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{ // keep dials bounded to avoid hanging sockets
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: timeout,
+		ExpectContinueTimeout: 2 * time.Second,
+	}
+
 	return &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -105,6 +134,27 @@ func normalizeHubBaseURL(raw string) string {
 		return defaultHubBaseURL
 	}
 	return strings.TrimRight(trimmed, "/")
+}
+
+func buildIndexURL(base string) string {
+	normalized := normalizeHubBaseURL(base)
+	if strings.HasSuffix(strings.ToLower(normalized), ".json") {
+		return normalized
+	}
+	return strings.TrimRight(normalized, "/") + defaultHubIndexPath
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 // FetchIndex downloads the hub index. If the hub is unreachable, returns ErrCacheMiss.
@@ -197,11 +247,32 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	if s.HTTPClient == nil {
 		return HubIndex{}, fmt.Errorf("http client missing")
 	}
-	target := strings.TrimRight(s.HubBaseURL, "/") + defaultHubIndexPath
+
+	targets := uniqueStrings([]string{buildIndexURL(s.HubBaseURL), buildIndexURL(defaultHubBaseURL)})
+	var errs []error
+
+	for _, target := range targets {
+		idx, err := s.fetchIndexHTTPFromURL(ctx, target)
+		if err == nil {
+			return idx, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w", target, err))
+	}
+
+	if len(errs) == 1 {
+		return HubIndex{}, fmt.Errorf("fetch hub index: %w", errs[0])
+	}
+
+	return HubIndex{}, fmt.Errorf("fetch hub index: %w", errors.Join(errs...))
+}
+
+func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return HubIndex{}, err
 	}
+	req.Header.Set("Accept", "application/json")
+
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
 		return HubIndex{}, fmt.Errorf("fetch hub index: %w", err)
@@ -408,19 +479,19 @@ func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, er
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("request %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http %d", resp.StatusCode)
+		return nil, fmt.Errorf("http %d from %s", resp.StatusCode, url)
 	}
 	lr := io.LimitReader(resp.Body, maxArchiveSize+1024)
 	data, err := io.ReadAll(lr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s: %w", url, err)
 	}
 	if int64(len(data)) > maxArchiveSize {
-		return nil, fmt.Errorf("payload too large")
+		return nil, fmt.Errorf("payload too large from %s", url)
 	}
 	return data, nil
 }

@@ -212,6 +212,34 @@ func TestPullPresetHandlerHubError(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, w.Code)
 }
 
+func TestPullPresetHandlerTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+	hub.HubBaseURL = "http://example.com"
+	hub.HTTPClient = &http.Client{Transport: presetRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return nil, context.DeadlineExceeded
+	})}
+
+	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	h.Hub = hub
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	body, _ := json.Marshal(map[string]string{"slug": "crowdsecurity/demo"})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusGatewayTimeout, w.Code)
+	require.Contains(t, w.Body.String(), "deadline")
+}
+
 func TestGetCachedPresetNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
