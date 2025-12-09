@@ -12,6 +12,7 @@ git add -A
 git commit -m "Add dummy file" -q
 git checkout -b feature/test
 # set up stub git-filter-repo in PATH
+REPO_ROOT=$(cd "$(dirname "$0")/../../" && pwd)
 TMPBIN=$(mktemp -d)
 cat > "$TMPBIN/git-filter-repo" <<'SH'
 #!/usr/bin/env sh
@@ -24,14 +25,14 @@ SH
 chmod +x "$TMPBIN/git-filter-repo"
 export PATH="$TMPBIN:$PATH"
 # run clean_history.sh with dry-run
-/projects/Charon/scripts/history-rewrite/clean_history.sh --dry-run --paths 'backend/codeql-db' --strip-size 1
+"$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --dry-run --paths 'backend/codeql-db' --strip-size 1
 # run clean_history.sh with force should attempt to push branch then succeed (requires that remote exists)
-/projects/Charon/scripts/history-rewrite/clean_history.sh --force --paths 'backend/codeql-db' --strip-size 1 <<'IN'
+"$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --force --paths 'backend/codeql-db' --strip-size 1 <<'IN'
 I UNDERSTAND
 IN
 
 # test non-interactive with force
-/projects/Charon/scripts/history-rewrite/clean_history.sh --force --non-interactive --paths 'backend/codeql-db' --strip-size 1
+"$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --force --non-interactive --paths 'backend/codeql-db' --strip-size 1
 
 # cleanup
 rm -rf "$TMPREMOTE" "$TMPCLONE" "$TMPBIN"

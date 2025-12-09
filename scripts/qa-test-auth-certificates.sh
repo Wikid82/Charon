@@ -14,7 +14,9 @@ NC='\033[0m' # No Color
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 API_URL="${BASE_URL}/api/v1"
 COOKIE_FILE="/tmp/charon-test-cookies.txt"
-TEST_RESULTS="/projects/Charon/test-results/qa-auth-test-results.log"
+# Derive repository root dynamically so script works outside specific paths
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+TEST_RESULTS="$REPO_ROOT/test-results/qa-auth-test-results.log"
 
 # Clear previous results
 > "$TEST_RESULTS"
