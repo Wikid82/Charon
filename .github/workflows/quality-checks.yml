@@ -79,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          fetch-depth: 0
 
       - name: Repo health check
         run: |
@@ -91,13 +93,31 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Check if frontend was modified in PR
+        id: check-frontend
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          git fetch origin ${{ github.event.pull_request.base.ref }} --depth=1 || true
+          CHANGED=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD || true)
+          echo "Changed files:\n$CHANGED"
+          if echo "$CHANGED" | grep -q '^frontend/'; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install dependencies
         working-directory: frontend
+        if: ${{ github.event_name == 'push' || steps.check-frontend.outputs.frontend_changed == 'true' }}
         run: npm ci
 
       - name: Run frontend tests and coverage
         id: frontend-tests
         working-directory: ${{ github.workspace }}
+        if: ${{ github.event_name == 'push' || steps.check-frontend.outputs.frontend_changed == 'true' }}
         run: |
           bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
           exit ${PIPESTATUS[0]}
