@@ -371,6 +371,29 @@ Next steps
 - Consider history cleaning if archived codeql DBs affect size or packs; recommend `git filter-repo` with the `--strip-blobs-bigger-than` option and a clear backup/rewrite plan.
 - Run `git gc --prune=now` and `git fsck --full` to clean garbage objects after a scripted history rewrite or large object removals.
 
+History Rewrite Plan (if required)
+---------------------------------
+1. Confirm the set of blobs & paths that must be removed from history:
+  - `git rev-list --objects --all | sort -k2 | rg "codeql-db|codeql-db-"` and `git verify-pack -v .git/objects/pack/*.idx | sort -k3 -n | tail -n 300`.
+2. Create a safe snapshot & announce planned rewrite to maintainers:
+  - `git branch backup/main-YYYYMMDD` push to origin as a backup branch (do not delete yet).
+3. Run `git filter-repo` to remove the heavy blobs or paths:
+  - Example: `git filter-repo --invert-paths --paths codeql-db --paths backend/codeql-db --paths codeql-db-js --paths codeql-db-go`
+  - Or, `git filter-repo --strip-blobs-bigger-than 50M` to strip large blobs.
+4. Validate the repo after rewrite:
+  - `git count-objects -vH` shows pack-shrunk sizes
+  - Run CI checks locally: `backend: Go Test`, `Frontend build`, `pre-commit run --all-files`.
+5. Coordinate forced push & relay steps to contributors:
+  - `git push --force --all` and `git push --force --tags` (advertise to collaborators).
+  - Ask maintainers to rebase/force-pull their forks/branches.
+6. Ensure post-clean tasks:
+  - Add branch protection policy to block force pushes to `main` except when required with documented approvals.
+  - Create a short script & docs `scripts/repair_after_filter_repo.sh` for maintainers that describes rebase steps.
+
+Notes:
+- History rewrite is destructive; only do after explicit approval and scheduling during a low-impact window.
+- If the repo has widely used forks or CI jobs referencing old commit hashes, establish a temporary redirect communication plan.
+
 ## Incident Triage: CrowdSec preset pull/apply 502/500 (feature/beta-release)
 - Logs to pull first: backend app/GIN logs under `/app/data/logs/charon.log` (or `data/logs/charon.log` in dev) via [backend/cmd/api/main.go](backend/cmd/api/main.go); look for warnings "crowdsec preset pull failed" / "crowdsec preset apply failed" emitted in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go). Access logs will also show 502/500 for POST `/api/v1/admin/crowdsec/presets/pull` and `/apply`.
 - Routes and code paths: handlers `PullPreset` and `ApplyPreset` live in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go) and delegate to `HubService.Pull/Apply` in [backend/internal/crowdsec/hub_sync.go](backend/internal/crowdsec/hub_sync.go) with cache helpers in [backend/internal/crowdsec/hub_cache.go](backend/internal/crowdsec/hub_cache.go). Data dir used is `data/crowdsec` with cache under `data/crowdsec/hub_cache` from [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go).
