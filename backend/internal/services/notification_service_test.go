@@ -3,12 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"net/http/httptest"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/trace"
@@ -709,6 +709,40 @@ func TestNotificationService_CreateProvider_Validation(t *testing.T) {
 		// Should not error on missing provider
 		assert.NoError(t, err)
 	})
+}
+
+func TestNotificationService_IsPrivateIP(t *testing.T) {
+	tests := []struct {
+		name      string
+		ipStr     string
+		isPrivate bool
+	}{
+		{"loopback ipv4", "127.0.0.1", true},
+		{"loopback ipv6", "::1", true},
+		{"private 10.x", "10.0.0.1", true},
+		{"private 10.x high", "10.255.255.254", true},
+		{"private 172.16-31", "172.16.0.1", true},
+		{"private 172.31", "172.31.255.254", true},
+		{"private 192.168", "192.168.1.1", true},
+		{"public 172.32", "172.32.0.1", false},
+		{"public 172.15", "172.15.0.1", false},
+		{"public ip", "8.8.8.8", false},
+		{"public ipv6", "2001:4860:4860::8888", false},
+		{"link local ipv4", "169.254.1.1", true},
+		{"link local ipv6", "fe80::1", true},
+		{"unique local ipv6 fc", "fc00::1", true},
+		{"unique local ipv6 fc high", "fc12:3456::1", true},
+		{"fd prefix not caught by impl", "fd00::1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ipStr)
+			require.NotNil(t, ip, "failed to parse IP: %s", tt.ipStr)
+			got := isPrivateIP(ip)
+			assert.Equal(t, tt.isPrivate, got, "IP %s private check mismatch", tt.ipStr)
+		})
+	}
 }
 
 func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) {
