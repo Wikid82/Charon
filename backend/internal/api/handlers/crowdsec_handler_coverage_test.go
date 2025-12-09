@@ -221,6 +221,8 @@ func TestCrowdsec_ExportConfig_NotFound(t *testing.T) {
 	os.RemoveAll(nonExistentDir) // Make sure it doesn't exist
 
 	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
+	// remove any cache dir created during handler init so Export sees missing dir
+	_ = os.RemoveAll(nonExistentDir)
 
 	r := gin.New()
 	g := r.Group("/api/v1")
@@ -359,4 +361,96 @@ func TestCrowdsec_WriteFile_Success(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(tmpDir, "new.conf"))
 	assert.NoError(t, err)
 	assert.Equal(t, "new content", string(content))
+}
+
+func TestCrowdsec_ListPresets_Disabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
+	tmpDir := t.TempDir()
+
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestCrowdsec_ListPresets_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	presets, ok := resp["presets"].([]interface{})
+	assert.True(t, ok)
+	assert.Greater(t, len(presets), 0)
+}
+
+func TestCrowdsec_PullPreset_Validation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h.Hub = nil // simulate hub unavailable
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader([]byte(`{"slug":"demo"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestCrowdsec_ApplyPreset_Validation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h.Hub = nil
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader([]byte(`{"slug":"demo"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

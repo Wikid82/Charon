@@ -177,18 +177,22 @@ RUN mkdir -p /app/data/geoip && \
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
-# Install CrowdSec binary (default version can be overridden at build time)
-ARG CROWDSEC_VERSION=1.6.0
+# Install CrowdSec binary and CLI (default version can be overridden at build time)
+ARG CROWDSEC_VERSION=1.7.4
 # hadolint ignore=DL3018
 RUN apk add --no-cache curl tar gzip && \
     set -eux; \
-    URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-v${CROWDSEC_VERSION}-linux-musl.tar.gz"; \
+    URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz"; \
     curl -fSL "$URL" -o /tmp/crowdsec.tar.gz && \
-    mkdir -p /tmp/crowdsec && tar -xzf /tmp/crowdsec.tar.gz -C /tmp/crowdsec --strip-components=1 || true; \
-    if [ -f /tmp/crowdsec/crowdsec ]; then \
-        mv /tmp/crowdsec/crowdsec /usr/local/bin/crowdsec && chmod +x /usr/local/bin/crowdsec; \
+    mkdir -p /tmp/crowdsec && tar -xzf /tmp/crowdsec.tar.gz -C /tmp/crowdsec || true; \
+    if [ -f /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec ]; then \
+        mv /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec /usr/local/bin/crowdsec && chmod +x /usr/local/bin/crowdsec; \
     fi && \
-    rm -rf /tmp/crowdsec /tmp/crowdsec.tar.gz || true
+    if [ -f /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli ]; then \
+        mv /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli /usr/local/bin/cscli && chmod +x /usr/local/bin/cscli; \
+    fi && \
+    rm -rf /tmp/crowdsec /tmp/crowdsec.tar.gz && \
+    cscli version
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
