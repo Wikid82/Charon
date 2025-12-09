@@ -5,16 +5,20 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -48,16 +52,51 @@ type CrowdsecHandler struct {
 	CmdExec  CommandExecutor
 	BinPath  string
 	DataDir  string
+	Hub      *crowdsec.HubService
 }
 
 func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir string) *CrowdsecHandler {
+	cacheDir := filepath.Join(dataDir, "hub_cache")
+	cache, err := crowdsec.NewHubCache(cacheDir, 24*time.Hour)
+	if err != nil {
+		logger.Log().WithError(err).Warn("failed to init crowdsec hub cache")
+	}
+	hubSvc := crowdsec.NewHubService(&RealCommandExecutor{}, cache, dataDir)
 	return &CrowdsecHandler{
 		DB:       db,
 		Executor: executor,
 		CmdExec:  &RealCommandExecutor{},
 		BinPath:  binPath,
 		DataDir:  dataDir,
+		Hub:      hubSvc,
 	}
+}
+
+// isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
+func (h *CrowdsecHandler) isCerberusEnabled() bool {
+	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
+		var s models.Setting
+		if err := h.DB.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
+			v := strings.ToLower(strings.TrimSpace(s.Value))
+			return v == "true" || v == "1" || v == "yes"
+		}
+	}
+
+	if envVal, ok := os.LookupEnv("FEATURE_CERBERUS_ENABLED"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			return b
+		}
+		return envVal == "1"
+	}
+
+	if envVal, ok := os.LookupEnv("CERBERUS_ENABLED"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			return b
+		}
+		return envVal == "1"
+	}
+
+	return true
 }
 
 // Start starts the CrowdSec process.
@@ -326,6 +365,214 @@ func (h *CrowdsecHandler) WriteFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "written", "backup": backupDir})
 }
 
+// ListPresets returns the curated preset catalog when Cerberus is enabled.
+func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
+	if !h.isCerberusEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
+		return
+	}
+
+	type presetInfo struct {
+		crowdsec.Preset
+		Available   bool       `json:"available"`
+		Cached      bool       `json:"cached"`
+		CacheKey    string     `json:"cache_key,omitempty"`
+		Etag        string     `json:"etag,omitempty"`
+		RetrievedAt *time.Time `json:"retrieved_at,omitempty"`
+	}
+
+	result := map[string]*presetInfo{}
+	for _, p := range crowdsec.ListCuratedPresets() {
+		cp := p
+		result[p.Slug] = &presetInfo{Preset: cp, Available: true}
+	}
+
+	// Merge hub index when available
+	if h.Hub != nil {
+		ctx := c.Request.Context()
+		if idx, err := h.Hub.FetchIndex(ctx); err == nil {
+			for _, item := range idx.Items {
+				slug := strings.TrimSpace(item.Name)
+				if slug == "" {
+					continue
+				}
+				if _, ok := result[slug]; !ok {
+					result[slug] = &presetInfo{Preset: crowdsec.Preset{
+						Slug:        slug,
+						Title:       item.Title,
+						Summary:     item.Description,
+						Source:      "hub",
+						Tags:        []string{item.Type},
+						RequiresHub: true,
+					}, Available: true}
+				} else {
+					result[slug].Available = true
+				}
+			}
+		} else {
+			logger.Log().WithError(err).Warn("crowdsec hub index unavailable")
+		}
+	}
+
+	// Merge cache metadata
+	if h.Hub != nil && h.Hub.Cache != nil {
+		ctx := c.Request.Context()
+		if cached, err := h.Hub.Cache.List(ctx); err == nil {
+			for _, entry := range cached {
+				if _, ok := result[entry.Slug]; !ok {
+					result[entry.Slug] = &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
+				}
+				result[entry.Slug].Cached = true
+				result[entry.Slug].CacheKey = entry.CacheKey
+				result[entry.Slug].Etag = entry.Etag
+				if !entry.RetrievedAt.IsZero() {
+					val := entry.RetrievedAt
+					result[entry.Slug].RetrievedAt = &val
+				}
+			}
+		} else {
+			logger.Log().WithError(err).Warn("crowdsec hub cache list failed")
+		}
+	}
+
+	list := make([]presetInfo, 0, len(result))
+	for _, v := range result {
+		list = append(list, *v)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"presets": list})
+}
+
+// PullPreset downloads and caches a hub preset while returning a preview.
+func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
+	if !h.isCerberusEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
+		return
+	}
+
+	var payload struct {
+		Slug string `json:"slug"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	slug := strings.TrimSpace(payload.Slug)
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
+		return
+	}
+	if h.Hub == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub service unavailable"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	res, err := h.Hub.Pull(ctx, slug)
+	if err != nil {
+		logger.Log().WithError(err).WithField("slug", slug).Warn("crowdsec preset pull failed")
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":       "pulled",
+		"slug":         res.Meta.Slug,
+		"preview":      res.Preview,
+		"cache_key":    res.Meta.CacheKey,
+		"etag":         res.Meta.Etag,
+		"retrieved_at": res.Meta.RetrievedAt,
+		"source":       res.Meta.Source,
+	})
+}
+
+// ApplyPreset installs a pulled preset from cache or via cscli.
+func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
+	if !h.isCerberusEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
+		return
+	}
+
+	var payload struct {
+		Slug string `json:"slug"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	slug := strings.TrimSpace(payload.Slug)
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
+		return
+	}
+	if h.Hub == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub service unavailable"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	res, err := h.Hub.Apply(ctx, slug)
+	if err != nil {
+		logger.Log().WithError(err).WithField("slug", slug).Warn("crowdsec preset apply failed")
+		if h.DB != nil {
+			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "backup": res.BackupPath})
+		return
+	}
+
+	if h.DB != nil {
+		status := res.Status
+		if status == "" {
+			status = "applied"
+		}
+		slugVal := res.AppliedPreset
+		if slugVal == "" {
+			slugVal = slug
+		}
+		_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slugVal, Action: "apply", Status: status, CacheKey: res.CacheKey, BackupPath: res.BackupPath}).Error
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      res.Status,
+		"backup":      res.BackupPath,
+		"reload_hint": res.ReloadHint,
+		"used_cscli":  res.UsedCSCLI,
+		"cache_key":   res.CacheKey,
+		"slug":        res.AppliedPreset,
+	})
+}
+
+// GetCachedPreset returns cached preview for a slug when available.
+func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
+	if !h.isCerberusEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "cerberus disabled"})
+		return
+	}
+	if h.Hub == nil || h.Hub.Cache == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hub cache unavailable"})
+		return
+	}
+	ctx := c.Request.Context()
+	slug := strings.TrimSpace(c.Param("slug"))
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "slug required"})
+		return
+	}
+	preview, err := h.Hub.Cache.LoadPreview(ctx, slug)
+	if err != nil {
+		if errors.Is(err, crowdsec.ErrCacheMiss) || errors.Is(err, crowdsec.ErrCacheExpired) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "cache miss"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	meta, _ := h.Hub.Cache.Load(ctx, slug)
+	c.JSON(http.StatusOK, gin.H{"preview": preview, "cache_key": meta.CacheKey, "etag": meta.Etag})
+}
+
 // CrowdSecDecision represents a ban decision from CrowdSec
 type CrowdSecDecision struct {
 	ID        int64     `json:"id"`
@@ -479,6 +726,10 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/files", h.ListFiles)
 	rg.GET("/admin/crowdsec/file", h.ReadFile)
 	rg.POST("/admin/crowdsec/file", h.WriteFile)
+	rg.GET("/admin/crowdsec/presets", h.ListPresets)
+	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
+	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
+	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
