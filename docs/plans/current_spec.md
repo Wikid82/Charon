@@ -206,10 +206,15 @@ Phase 1 — Triage & evidence collection (2-3 days)
 Phase 2 — Short-term fixes & re-run (1-2 days)
 - Tasks:
   1. Add immediate `.gitignore` and `.gitattributes` protections for known artifacts.
-  2. Re-run GH Actions and index builds to check for improvement.
+  2. Add `scripts/repo_health_check.sh`, a `.github/workflows/repo-health.yml` workflow, and pre-commit LFS checks.
+  3. Re-run GH Actions and index builds to check for improvement.
 - Acceptance criteria:
+  - Repo health workflow runs on PRs and schedule; the health check succeeds or reports actionable items.
   - Index build does not fail due to size or missing LFS objects on re-run.
   - No unexpected artifacts are present in commits.
+  - Pre-commit hooks block large files that are not tracked by Git LFS.
+
+**Status:** Short-term fixes implemented (gitattributes, pre-commit LFS check, health script, scheduled workflow).
 
 Phase 3 — Medium-term fixes (2-5 days)
 - Tasks:
