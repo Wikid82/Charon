@@ -5,6 +5,7 @@ set -eu
 # Default values
 DRY_RUN=1
 FORCE=0
+NON_INTERACTIVE=0
 PATHS="backend/codeql-db,codeql-db,codeql-db-js,codeql-db-go"
 STRIP_SIZE=50
 
@@ -57,6 +58,8 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1; shift;;
     --force)
       DRY_RUN=0; FORCE=1; shift;;
+    --non-interactive)
+      NON_INTERACTIVE=1; shift;;
     --paths)
       PATHS="$2"; shift 2;;
     --strip-size)
@@ -70,16 +73,28 @@ done
 
 check_requirements
 
+# Reject shallow clones
+if git rev-parse --is-shallow-repository >/dev/null 2>&1 && [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+  echo "Shallow clone detected; fetch full history before rewriting history. Run: git fetch --unshallow or actions/checkout: fetch-depth: 0 in CI." | tee -a "$logfile"
+  exit 4
+fi
+
 current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "(detached)")
 if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
-  echo "Refusing to run on main/master branch. Switch to a feature branch and retry." | tee -a "$logfile"
-  exit 3
+  if [ "$FORCE" -ne 1 ]; then
+    echo "Refusing to run on main/master branch. Switch to a feature branch and retry. To force running on main/master set FORCE=1" | tee -a "$logfile"
+    exit 3
+  fi
+  echo "WARNING: Running on main/master as FORCE=1 is set." | tee -a "$logfile"
 fi
 
 backup_branch="backup/history-$(timestamp)"
 echo "Creating backup branch: $backup_branch" | tee -a "$logfile"
 git branch -f "$backup_branch" || true
-git push origin "$backup_branch" || echo "Warning: push failed, ensure remote origin exists and push manually." | tee -a "$logfile"
+if ! git push origin "$backup_branch" >/dev/null 2>&1; then
+  echo "Error: Failed to push backup branch $backup_branch to origin. Aborting." | tee -a "$logfile"
+  exit 5
+fi
 
 IFS=','; set -f
 paths_list=""
@@ -92,6 +107,12 @@ set +f; unset IFS
 echo "Paths targeted: $paths_list" | tee -a "$logfile"
 echo "Strip blobs bigger than: ${STRIP_SIZE}M" | tee -a "$logfile"
 
+# Ensure STRIP_SIZE is numeric
+if ! printf '%s\n' "$STRIP_SIZE" | grep -Eq '^[0-9]+$'; then
+  echo "Error: --strip-size must be a numeric value (MB). Got: $STRIP_SIZE" | tee -a "$logfile"
+  exit 6
+fi
+
 preview_removals() {
   echo "=== Preview: commits & blobs touching specified paths ===" | tee -a "$logfile"
   # List commits that touch the paths
@@ -103,11 +124,13 @@ preview_removals() {
 
   echo "=== Preview: objects in paths ===" | tee -a "$logfile"
   # List objects for the given paths
-  git rev-list --objects --all -- $paths_list | tee -a "$logfile" | awk '{print $1, $2}' | head -n 50 | tee -a "$logfile"
+  for p in $paths_list; do
+    git rev-list --objects --all -- "$p" | tee -a "$logfile" | awk '{print $1, $2}' | head -n 50 | tee -a "$logfile"
+  done
 
   echo "=== Example large objects (candidate for --strip-size) ===" | tee -a "$logfile"
   # List object sizes and show top N
-  git rev-list --objects --all | awk '{print $1}' | while read oid; do
+  git rev-list --objects --all | awk '{print $1}' | while read -r oid; do
     size=$(git cat-file -s "$oid" 2>/dev/null || true)
     if [ -n "$size" ] && [ "$size" -ge $((STRIP_SIZE * 1024 * 1024)) ]; then
       echo "$oid size=$size" | tee -a "$logfile"
@@ -129,17 +152,21 @@ fi
 
 echo "FORCE mode enabled - performing rewrite. This is destructive and will rewrite history." | tee -a "$logfile"
 
-echo "Confirm operation: Type 'I UNDERSTAND' to proceed:" | tee -a "$logfile"
-read -r confirmation
-if [ "$confirmation" != "I UNDERSTAND" ]; then
-  echo "Confirmation not provided. Aborting." | tee -a "$logfile"
-  exit 1
+if [ "$NON_INTERACTIVE" -eq 0 ]; then
+  echo "Confirm operation: Type 'I UNDERSTAND' to proceed:" | tee -a "$logfile"
+  read -r confirmation
+  if [ "$confirmation" != "I UNDERSTAND" ]; then
+    echo "Confirmation not provided. Aborting." | tee -a "$logfile"
+    exit 1
+  fi
+else
+  if [ "$FORCE" -ne 1 ]; then
+    echo "Error: Non-interactive mode requires FORCE=1 to proceed. Aborting." | tee -a "$logfile"
+    exit 1
+  fi
 fi
 
-if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
-  echo "Refusing to run filter-repo on main/master. Switch to a safe branch and retry." | tee -a "$logfile"
-  exit 1
-fi
+## No additional branch check here; earlier check prevents running on main/master unless FORCE=1
 
 # Build git-filter-repo arguments
 paths_args=""
@@ -153,12 +180,29 @@ echo "Running git filter-repo with: $paths_args --invert-paths --strip-blobs-big
 
 echo "Performing a local dry-run against a local clone before actual rewrite is strongly recommended." | tee -a "$logfile"
 
-git filter-repo --invert-paths $paths_args --strip-blobs-bigger-than ${STRIP_SIZE}M | tee -a "$logfile"
+ # shellcheck disable=SC2086
+set -- $paths_args
+git filter-repo --invert-paths "$@" --strip-blobs-bigger-than "${STRIP_SIZE}"M | tee -a "$logfile"
 
 echo "Rewrite complete. Running post-rewrite checks..." | tee -a "$logfile"
 git count-objects -vH | tee -a "$logfile"
 git fsck --full | tee -a "$logfile"
 git gc --aggressive --prune=now | tee -a "$logfile"
+
+# Backup tags list as a tarball and try to push tags to a backup namespace
+tags_tar="$logdir/tags-$(timestamp).tar.gz"
+tmp_tags_dir=$(mktemp -d)
+git for-each-ref --format='%(refname:short) %(objectname)' refs/tags > "$tmp_tags_dir/tags.txt"
+tar -C "$tmp_tags_dir" -czf "$tags_tar" . || echo "Warning: failed to create tag tarball" | tee -a "$logfile"
+rm -rf "$tmp_tags_dir"
+echo "Created tags tarball: $tags_tar" | tee -a "$logfile"
+
+echo "Attempting to push tags to origin under refs/backups/tags/*" | tee -a "$logfile"
+for t in $(git tag --list); do
+  if ! git push origin "refs/tags/$t:refs/backups/tags/$t" >/dev/null 2>&1; then
+    echo "Warning: pushing tag $t to refs/backups/tags/$t failed" | tee -a "$logfile"
+  fi
+done
 
 echo "REWRITE DONE. Next steps (manual):" | tee -a "$logfile"
 cat <<EOF | tee -a "$logfile"
