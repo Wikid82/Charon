@@ -43,6 +43,13 @@ repos:
         pass_filenames: false
         verbose: true
         always_run: true
+      - id: block-codeql-db-commits
+        name: Prevent committing CodeQL DB artifacts
+        entry: bash scripts/pre-commit-hooks/block-codeql-db-commits.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        always_run: true
 
       # === MANUAL/CI-ONLY HOOKS ===
       # These are slow and should only run on-demand or in CI
