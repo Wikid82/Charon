@@ -267,7 +267,7 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 }
 
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return HubIndex{}, err
 	}
@@ -437,7 +437,7 @@ func (s *HubService) findPreviewFile(data []byte) string {
 	if err != nil {
 		return ""
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 	tr := tar.NewReader(gr)
 	for {
 		hdr, err := tr.Next()
@@ -473,7 +473,7 @@ func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, er
 	if s.HTTPClient == nil {
 		return nil, fmt.Errorf("http client missing")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +594,7 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 	if err != nil {
 		return fmt.Errorf("gunzip: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	for {
