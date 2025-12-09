@@ -394,6 +394,38 @@ Notes:
 - History rewrite is destructive; only do after explicit approval and scheduling during a low-impact window.
 - If the repo has widely used forks or CI jobs referencing old commit hashes, establish a temporary redirect communication plan.
 
+History rewrite summary (safe workflow)
+-------------------------------------
+For repository history cleanup to remove committed CodeQL DBs or large blobs, the repo now contains a small set of tools under `scripts/history-rewrite` to help plan and safely execute this action. They are:
+
+- `scripts/history-rewrite/clean_history.sh` — Preview and optionally (with `--force`) run a git-filter-repo history rewrite. Default is `--dry-run` and the script creates a timestamped backup branch named `backup/history-YYYYMMDD-HHMMSS` before any destructive operations. The script logs operations to `data/backups/history_cleanup-YYYYMMDD-HHMMSS.log` and prints next-step instructions. Do NOT run `--force` on `main` or `master` and coordinate with maintainers before force-pushing.
+
+- `scripts/history-rewrite/preview_removals.sh` — Print commit/object lists and example large blobs relevant to the paths and strip size for verification.
+
+- `scripts/history-rewrite/validate_after_rewrite.sh` — Run `git fsck`, `git count-objects -vH`, `pre-commit` hooks, backend `go test ./...`, and frontend `npm run build` to verify the repository after a rewrite.
+
+Quick `clean_history.sh` usage examples
+-------------------------------------
+- Dry-run:
+  - `scripts/history-rewrite/clean_history.sh --dry-run --paths 'backend/codeql-db,codeql-db' --strip-size 50`
+  - This logs what would be removed without making any changes; review `data/backups/history_cleanup-*.log` for details.
+
+- Preview only:
+  - `scripts/history-rewrite/preview_removals.sh --paths 'backend/codeql-db,codeql-db' --strip-size 50`
+
+- Destructive rewrite (ONLY after approval):
+  - `scripts/history-rewrite/clean_history.sh --force --paths 'backend/codeql-db,codeql-db' --strip-size 50`
+  - It will create `backup/history-YYYYMMDD-HHMMSS`, prompt for explicit confirmation `I UNDERSTAND`, run `git filter-repo` locally, then run `git fsck` and `git gc`.
+  - After rewrite, do not auto-push; perform `git push --all --force` and `git push --tags --force` only after team approval.
+
+Warnings & notes
+----------------
+- The scripts only prepare and perform the rewrite locally; they will not force-push to remote unless you do so manually.
+- Avoid running `--force` on `main` or `master`. Use a feature branch or a controlled clone.
+- The rewrite is destructive; maintainers must rebase or re-clone after force-push.
+- Always verify with `scripts/history-rewrite/validate_after_rewrite.sh` before any force push.
+
+
 ## Incident Triage: CrowdSec preset pull/apply 502/500 (feature/beta-release)
 - Logs to pull first: backend app/GIN logs under `/app/data/logs/charon.log` (or `data/logs/charon.log` in dev) via [backend/cmd/api/main.go](backend/cmd/api/main.go); look for warnings "crowdsec preset pull failed" / "crowdsec preset apply failed" emitted in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go). Access logs will also show 502/500 for POST `/api/v1/admin/crowdsec/presets/pull` and `/apply`.
 - Routes and code paths: handlers `PullPreset` and `ApplyPreset` live in [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go) and delegate to `HubService.Pull/Apply` in [backend/internal/crowdsec/hub_sync.go](backend/internal/crowdsec/hub_sync.go) with cache helpers in [backend/internal/crowdsec/hub_cache.go](backend/internal/crowdsec/hub_cache.go). Data dir used is `data/crowdsec` with cache under `data/crowdsec/hub_cache` from [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go).
