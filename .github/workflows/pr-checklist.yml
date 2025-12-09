@@ -1,0 +1,25 @@
+name: PR Checklist Validation (History Rewrite)
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  validate:
+    name: Validate history-rewrite checklist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate PR checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({owner: context.repo.owner, repo: context.repo.repo, pull_number: context.issue.number});
+            const body = (pr.data && pr.data.body) || '';
+            const required = [ 'preview_removals.sh', 'data/backups', 'I will not run the destructive --force' ];
+            for (const r of required) {
+              if (!body.toLowerCase().includes(r.toLowerCase())) { core.setFailed('Missing required checklist item: '+r); return; }
+            }
+            core.info('PR checklist looks good');

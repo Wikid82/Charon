@@ -76,3 +76,8 @@ Post rewrite maintenance
 Communication & Approval
 ------------------------
 Open a PR with dry-run logs and `preview_removals` output, tag maintainers for approval before `--force` is used.
+
+CI automation
+-------------
+- A CI dry-run workflow `.github/workflows/dry-run-history-rewrite.yml` runs a non-destructive check that fails CI when banned history entries or large objects are found. It is triggered on PRs and a daily schedule.
+- A PR checklist template `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` and a checklist validator `.github/workflows/pr-checklist.yml` ensure contributors attach the preview output and backups before seeking approval.
