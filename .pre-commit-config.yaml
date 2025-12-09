@@ -36,6 +36,13 @@ repos:
         language: system
         files: '\.version$'
         pass_filenames: false
+      - id: check-lfs-large-files
+        name: Prevent large files that are not tracked by LFS
+        entry: bash scripts/pre-commit-hooks/check-lfs-for-large-files.sh
+        language: system
+        pass_filenames: false
+        verbose: true
+        always_run: true
 
       # === MANUAL/CI-ONLY HOOKS ===
       # These are slow and should only run on-demand or in CI
