@@ -6,20 +6,36 @@ on:
 
 jobs:
   validate:
-    name: Validate history-rewrite checklist
+    name: Validate history-rewrite checklist (conditional)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate PR checklist
+      - name: Validate PR checklist (only for history-rewrite changes)
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = await github.rest.pulls.get({owner: context.repo.owner, repo: context.repo.repo, pull_number: context.issue.number});
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = context.issue.number;
+            const pr = await github.rest.pulls.get({owner, repo, pull_number: prNumber});
             const body = (pr.data && pr.data.body) || '';
-            const required = [ 'preview_removals.sh', 'data/backups', 'I will not run the destructive --force' ];
-            for (const r of required) {
-              if (!body.toLowerCase().includes(r.toLowerCase())) { core.setFailed('Missing required checklist item: '+r); return; }
+
+            // Determine if this PR modifies history-rewrite related files
+            const filesResp = await github.rest.pulls.listFiles({ owner, repo, pull_number: prNumber });
+            const files = filesResp.data.map(f => f.filename.toLowerCase());
+            const relevant = files.some(fn => fn.startsWith('scripts/history-rewrite/') || fn.startsWith('docs/plans/history_rewrite.md') || fn.includes('history-rewrite'));
+            if (!relevant) {
+              core.info('No history-rewrite related files changed; skipping checklist validation.');
+              return;
             }
-            core.info('PR checklist looks good');
+
+            const required = [ 'preview_removals.sh', 'data/backups', "i will not run the destructive --force" ];
+            const missing = required.filter(r => !body.toLowerCase().includes(r.toLowerCase()));
+            if (missing.length > 0) {
+              // Post a comment to the PR with instructions for filling the checklist
+              const commentBody = `Hi! This PR touches history-rewrite artifacts and requires the checklist in .github/PULL_REQUEST_TEMPLATE/history-rewrite.md. The following items are missing in your PR body: ${missing.join(', ')}\n\nPlease update the PR description using the history-rewrite template and re-run checks.`;
+              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: commentBody });
+              core.setFailed('Missing required checklist items: ' + missing.join(', '));
+            }
