@@ -132,9 +132,9 @@ preview_removals() {
       label=$(printf '%s' "$line" | awk '{print $2}')
       type=$(git cat-file -t "$oid" 2>/dev/null || true)
       if [ "$type" = "blob" ]; then
-        echo "$oid $label" | tee -a "$logfile"
+        echo "$oid $label"
       else
-        echo "[${type^^}] $oid $label" | tee -a "$logfile"
+        echo "[${type^^}] $oid $label"
       fi
     done | head -n 50 | tee -a "$logfile"
   done
@@ -144,9 +144,9 @@ preview_removals() {
   git rev-list --objects --all | awk '{print $1}' | while read -r oid; do
     size=$(git cat-file -s "$oid" 2>/dev/null || true)
     if [ -n "$size" ] && [ "$size" -ge $((STRIP_SIZE * 1024 * 1024)) ]; then
-      echo "$oid size=$size" | tee -a "$logfile"
+      echo "$oid size=$size"
     fi
-  done | head -n 30
+  done | head -n 30 | tee -a "$logfile"
 }
 
 if [ "$DRY_RUN" -eq 1 ]; then
