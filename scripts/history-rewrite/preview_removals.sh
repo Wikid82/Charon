@@ -84,10 +84,20 @@ if [ "$FORMAT" = "json" ]; then
   done
   printf '],'
 else
-  echo "--- Objects in paths ---"
-  for p in $paths_list; do
-    git rev-list --objects --all -- "$p" | nl -ba | sed -n '1,100p'
-  done
+  echo "--- Objects in paths (blob objects shown; tags highlighted) ---"
+    for p in $paths_list; do
+      echo "Path: $p"
+      git rev-list --objects --all -- "$p" | while read -r line; do
+        oid=$(printf '%s' "$line" | awk '{print $1}')
+        label=$(printf '%s' "$line" | awk '{print $2}')
+        type=$(git cat-file -t "$oid" 2>/dev/null || true)
+        if [ "$type" = "blob" ]; then
+          echo "$oid  $label"
+        else
+          echo "[${type^^}] $oid  $label"
+        fi
+      done | nl -ba | sed -n '1,100p'
+    done
 fi
 
 echo "--- Example large objects larger than ${STRIP_SIZE}M ---"

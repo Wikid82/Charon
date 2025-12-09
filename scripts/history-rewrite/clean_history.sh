@@ -125,7 +125,17 @@ preview_removals() {
   echo "=== Preview: objects in paths ===" | tee -a "$logfile"
   # List objects for the given paths
   for p in $paths_list; do
-    git rev-list --objects --all -- "$p" | tee -a "$logfile" | awk '{print $1, $2}' | head -n 50 | tee -a "$logfile"
+    echo "Path: $p" | tee -a "$logfile"
+    git rev-list --objects --all -- "$p" | while read -r line; do
+      oid=$(printf '%s' "$line" | awk '{print $1}')
+      label=$(printf '%s' "$line" | awk '{print $2}')
+      type=$(git cat-file -t "$oid" 2>/dev/null || true)
+      if [ "$type" = "blob" ]; then
+        echo "$oid $label" | tee -a "$logfile"
+      else
+        echo "[${type^^}] $oid $label" | tee -a "$logfile"
+      fi
+    done | head -n 50 | tee -a "$logfile"
   done
 
   echo "=== Example large objects (candidate for --strip-size) ===" | tee -a "$logfile"

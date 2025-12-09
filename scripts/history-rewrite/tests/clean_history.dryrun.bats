@@ -4,6 +4,9 @@ setup() {
   TMPREPO=$(mktemp -d)
   cd "$TMPREPO"
   git init -q
+  # Set local git identity for test commits
+  git config user.email "test@example.com"
+  git config user.name "Test Runner"
   # create a directory that matches the paths to be pruned
   mkdir -p backend/codeql-db
   # add a large fake blob file
