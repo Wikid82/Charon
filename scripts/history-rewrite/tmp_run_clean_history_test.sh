@@ -12,7 +12,10 @@ git add -A
 git commit -m "Add dummy file" -q
 git checkout -b feature/test
 # set up stub git-filter-repo in PATH
-REPO_ROOT=$(cd "$(dirname "$0")/../../" && pwd)
+## Resolve the repo root based on the script file location (Bash-safe)
+# Use ${BASH_SOURCE[0]} instead of $0 to correctly resolve the script path even
+# when invoked from different PWDs or via sourced contexts.
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" && pwd -P)
 TMPBIN=$(mktemp -d)
 cat > "$TMPBIN/git-filter-repo" <<'SH'
 #!/usr/bin/env sh
@@ -25,6 +28,12 @@ SH
 chmod +x "$TMPBIN/git-filter-repo"
 export PATH="$TMPBIN:$PATH"
 # run clean_history.sh with dry-run
+# NOTE: Avoid hard-coded repo paths like /projects/Charon/
+# Use the dynamically-derived REPO_ROOT (above) or a relative path from this script
+# so this helper script runs correctly on other machines/CI environments.
+# Examples:
+#  "$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --dry-run ...
+#  "$(dirname "$0")/clean_history.sh" --dry-run ...
 "$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --dry-run --paths 'backend/codeql-db' --strip-size 1
 # run clean_history.sh with force should attempt to push branch then succeed (requires that remote exists)
 "$REPO_ROOT/scripts/history-rewrite/clean_history.sh" --force --paths 'backend/codeql-db' --strip-size 1 <<'IN'
