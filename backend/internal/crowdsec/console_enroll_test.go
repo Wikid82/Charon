@@ -19,11 +19,13 @@ type stubEnvExecutor struct {
 	err       error
 	callCount int
 	lastEnv   map[string]string
+	lastArgs  []string
 }
 
 func (s *stubEnvExecutor) ExecuteWithEnv(ctx context.Context, name string, args []string, env map[string]string) ([]byte, error) {
 	s.callCount++
 	s.lastEnv = env
+	s.lastArgs = args
 	return s.out, s.err
 }
 
@@ -118,4 +120,27 @@ func TestConsoleEnrollRejectsUnsafeInput(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, strings.ToLower(err.Error()), "invalid enrollment key")
 	require.Equal(t, 0, exec.callCount)
+}
+
+func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	// Even if tenant is provided in the request
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		Tenant:        "some-tenant-id",
+		AgentName:     "agent-one",
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusEnrolled, status.Status)
+
+	// Verify that --tenant is NOT passed to the command arguments
+	require.Equal(t, 1, exec.callCount)
+	require.NotContains(t, exec.lastArgs, "--tenant")
+	// Also verify that the tenant value itself is not passed as a standalone arg just in case
+	require.NotContains(t, exec.lastArgs, "some-tenant-id")
 }
