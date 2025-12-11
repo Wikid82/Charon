@@ -59,6 +59,7 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 
 ### 🕵️ Phase 3: QA & Security
   1. Edge Cases: {List specific scenarios to test}
+  2. Security: Run CodeQL and Trivy scans. Triage and fix any new errors or warnings.
 
 ### 📚 Phase 4: Documentation
   1. Files: Update docs/features.md.
