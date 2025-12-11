@@ -1,6 +1,0 @@
-{
-  "type": "module",
-  "dependencies": {
-    "tldts": "^7.0.19"
-  }
-}
