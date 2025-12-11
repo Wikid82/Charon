@@ -91,6 +91,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 nohup.out
+hub_index.json
+temp_index.json
+backend/temp_index.json
 
 # -----------------------------------------------------------------------------
 # Environment Files

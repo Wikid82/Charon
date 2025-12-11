@@ -241,6 +241,44 @@ func TestPullAcceptsNamespacedIndexEntry(t *testing.T) {
 	require.Contains(t, res.Preview, "namespaced preview")
 }
 
+func TestHubFallbackToMirrorOnForbidden(t *testing.T) {
+	cacheDir := t.TempDir()
+	dataDir := t.TempDir()
+	cache, err := NewHubCache(cacheDir, time.Hour)
+	require.NoError(t, err)
+
+	archive := makeTestArchive(t, map[string]string{"config.yaml": "mirror"})
+
+	hub := NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://primary.example.com"
+	hub.MirrorBaseURL = "http://mirror.example.com"
+	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "http://primary.example.com/api/index.json":
+			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
+		case "http://mirror.example.com/api/index.json":
+			body := `{"items":[{"name":"fallback/preset","title":"Fallback","etag":"etag-mirror"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		case "http://primary.example.com/fallback/preset.yaml":
+			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
+		case "http://mirror.example.com/fallback/preset.yaml":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("mirror preview")), Header: make(http.Header)}, nil
+		case "http://primary.example.com/fallback/preset.tgz":
+			return &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(strings.NewReader("blocked")), Header: make(http.Header)}, nil
+		case "http://mirror.example.com/fallback/preset.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+	})}
+
+	ctx := context.Background()
+	res, err := hub.Pull(ctx, "fallback/preset")
+	require.NoError(t, err)
+	require.Equal(t, "etag-mirror", res.Meta.Etag)
+	require.Contains(t, res.Preview, "mirror preview")
+}
+
 // TestApplyWithoutPullFails verifies that applying without pulling first fails with proper error.
 func TestApplyWithoutPullFails(t *testing.T) {
 	cacheDir := t.TempDir()

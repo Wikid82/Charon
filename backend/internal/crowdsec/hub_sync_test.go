@@ -158,6 +158,33 @@ func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
 	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", "https://hub-data.crowdsec.net/api/index.json"}, calls)
 }
 
+func TestFetchIndexFallsBackToMirrorOnForbidden(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub-data.crowdsec.net"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	calls := make([]string, 0)
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://hub-data.crowdsec.net/api/index.json":
+			return newResponse(http.StatusForbidden, ""), nil
+		case defaultHubMirrorBaseURL + "/.index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	idx, err := svc.FetchIndex(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Contains(t, calls, defaultHubMirrorBaseURL+"/.index.json")
+}
+
 func TestPullCachesPreview(t *testing.T) {
 	cacheDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "crowdsec")
@@ -317,6 +344,51 @@ func TestPullFallsBackToArchivePreview(t *testing.T) {
 	require.Contains(t, res.Preview, "title: demo")
 }
 
+func TestPullFallsBackToMirrorArchiveOnForbidden(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+
+	archiveBytes := makeTarGz(t, map[string]string{"config.yml": "foo: bar"})
+	svc := NewHubService(nil, cache, dataDir)
+	svc.HubBaseURL = "https://primary.example"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	calls := make([]string, 0)
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://primary.example/api/index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		case "https://primary.example/crowdsecurity/demo.tgz":
+			return newResponse(http.StatusForbidden, ""), nil
+		case "https://primary.example/crowdsecurity/demo.yaml":
+			return newResponse(http.StatusForbidden, ""), nil
+		case defaultHubMirrorBaseURL + "/.index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archiveBytes)), Header: make(http.Header)}, nil
+		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.yaml":
+			return newResponse(http.StatusOK, "mirror-preview"), nil
+		case defaultHubBaseURL + "/api/index.json":
+			return newResponse(http.StatusInternalServerError, ""), nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	require.NoError(t, err)
+	require.Contains(t, calls, defaultHubMirrorBaseURL+"/crowdsecurity/demo.tgz")
+	require.Equal(t, "mirror-preview", res.Preview)
+	require.FileExists(t, res.Meta.ArchivePath)
+}
+
 func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 	big := bytes.Repeat([]byte("a"), int(maxArchiveSize+10))
@@ -324,7 +396,7 @@ func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(big)), Header: make(http.Header)}, nil
 	})}
 
-	_, err := svc.fetchWithLimit(context.Background(), "http://example.com/large.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/large.tgz")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "payload too large")
 }
@@ -398,14 +470,14 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 
 func TestFetchPreviewRequiresURL(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
-	_, err := svc.fetchPreview(context.Background(), "")
+	_, err := svc.fetchPreview(context.Background(), nil)
 	require.Error(t, err)
 }
 
 func TestFetchWithLimitRequiresClient(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = nil
-	_, err := svc.fetchWithLimit(context.Background(), "http://example.com/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -455,7 +527,7 @@ func TestFetchWithLimitStatusError(t *testing.T) {
 		return newResponse(http.StatusNotFound, ""), nil
 	})}
 
-	_, err := svc.fetchWithLimit(context.Background(), "http://hub.example/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://hub.example/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -757,4 +829,19 @@ func TestCopyDir(t *testing.T) {
 	err = copyDir(fileNotDir, dstDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not a directory")
+}
+
+func TestFetchIndexHTTPAcceptsTextPlain(t *testing.T) {
+svc := NewHubService(nil, nil, t.TempDir())
+indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+resp := newResponse(http.StatusOK, indexBody)
+resp.Header.Set("Content-Type", "text/plain; charset=utf-8")
+return resp, nil
+})}
+
+idx, err := svc.fetchIndexHTTP(context.Background())
+require.NoError(t, err)
+require.Len(t, idx.Items, 1)
+require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
 }

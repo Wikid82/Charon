@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -53,6 +54,8 @@ type CrowdsecHandler struct {
 	BinPath  string
 	DataDir  string
 	Hub      *crowdsec.HubService
+	Console  *crowdsec.ConsoleEnrollmentService
+	Security *services.SecurityService
 }
 
 func ttlRemainingSeconds(now time.Time, retrievedAt time.Time, ttl time.Duration) *int64 {
@@ -82,6 +85,16 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		logger.Log().WithError(err).Warn("failed to init crowdsec hub cache")
 	}
 	hubSvc := crowdsec.NewHubService(&RealCommandExecutor{}, cache, dataDir)
+	consoleSecret := os.Getenv("CHARON_CONSOLE_ENCRYPTION_KEY")
+	if consoleSecret == "" {
+		consoleSecret = os.Getenv("CHARON_JWT_SECRET")
+	}
+	var securitySvc *services.SecurityService
+	var consoleSvc *crowdsec.ConsoleEnrollmentService
+	if db != nil {
+		securitySvc = services.NewSecurityService(db)
+		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
+	}
 	return &CrowdsecHandler{
 		DB:       db,
 		Executor: executor,
@@ -89,6 +102,8 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		BinPath:  binPath,
 		DataDir:  dataDir,
 		Hub:      hubSvc,
+		Console:  consoleSvc,
+		Security: securitySvc,
 	}
 }
 
@@ -117,6 +132,52 @@ func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	}
 
 	return true
+}
+
+// isConsoleEnrollmentEnabled toggles console enrollment via DB or env flag.
+func (h *CrowdsecHandler) isConsoleEnrollmentEnabled() bool {
+	const key = "feature.crowdsec.console_enrollment"
+	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
+		var s models.Setting
+		if err := h.DB.Where("key = ?", key).First(&s).Error; err == nil {
+			v := strings.ToLower(strings.TrimSpace(s.Value))
+			return v == "true" || v == "1" || v == "yes"
+		}
+	}
+
+	if envVal, ok := os.LookupEnv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			return b
+		}
+		return envVal == "1"
+	}
+
+	return false
+}
+
+func actorFromContext(c *gin.Context) string {
+	if id, ok := c.Get("userID"); ok {
+		return fmt.Sprintf("user:%v", id)
+	}
+	return "unknown"
+}
+
+func (h *CrowdsecHandler) hubEndpoints() []string {
+	if h.Hub == nil {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for _, e := range []string{h.Hub.HubBaseURL, h.Hub.MirrorBaseURL} {
+		if e == "" {
+			continue
+		}
+		set[e] = struct{}{}
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
 }
 
 // Start starts the CrowdSec process.
@@ -491,6 +552,20 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		return
 	}
 
+	// Check for curated preset that doesn't require hub
+	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "pulled",
+			"slug":         preset.Slug,
+			"preview":      "# Curated preset: " + preset.Title + "\n# " + preset.Summary,
+			"cache_key":    "curated-" + preset.Slug,
+			"etag":         "curated",
+			"retrieved_at": time.Now(),
+			"source":       "charon-curated",
+		})
+		return
+	}
+
 	ctx := c.Request.Context()
 	// Log cache directory before pull
 	if h.Hub != nil && h.Hub.Cache != nil {
@@ -507,7 +582,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
 		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
 		return
 	}
 
@@ -558,6 +633,29 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	// Check for curated preset that doesn't require hub
+	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
+		if h.DB != nil {
+			_ = h.DB.Create(&models.CrowdsecPresetEvent{
+				Slug:       slug,
+				Action:     "apply",
+				Status:     "applied",
+				CacheKey:   "curated-" + slug,
+				BackupPath: "",
+			}).Error
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "applied",
+			"backup":      "",
+			"reload_hint": true,
+			"used_cscli":  false,
+			"cache_key":   "curated-" + slug,
+			"slug":        slug,
+		})
+		return
+	}
+
 	ctx := c.Request.Context()
 
 	// Log cache status before apply
@@ -603,7 +701,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
 			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 		}
-		errorResponse := gin.H{"error": errorMsg}
+		errorResponse := gin.H{"error": errorMsg, "hub_endpoints": h.hubEndpoints()}
 		if res.BackupPath != "" {
 			errorResponse["backup"] = res.BackupPath
 		}
@@ -634,6 +732,82 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		"cache_key":   res.CacheKey,
 		"slug":        res.AppliedPreset,
 	})
+}
+
+// ConsoleEnroll enrolls the local engine with CrowdSec console.
+func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment unavailable"})
+		return
+	}
+
+	var payload struct {
+		EnrollmentKey string `json:"enrollment_key"`
+		Tenant        string `json:"tenant"`
+		AgentName     string `json:"agent_name"`
+		Force         bool   `json:"force"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	status, err := h.Console.Enroll(ctx, crowdsec.ConsoleEnrollRequest{
+		EnrollmentKey: payload.EnrollmentKey,
+		Tenant:        payload.Tenant,
+		AgentName:     payload.AgentName,
+		Force:         payload.Force,
+	})
+
+	if err != nil {
+		httpStatus := mapCrowdsecStatus(err, http.StatusBadGateway)
+		if strings.Contains(strings.ToLower(err.Error()), "progress") {
+			httpStatus = http.StatusConflict
+		} else if strings.Contains(strings.ToLower(err.Error()), "required") {
+			httpStatus = http.StatusBadRequest
+		}
+		logger.Log().WithError(err).WithField("tenant", payload.Tenant).WithField("agent", payload.AgentName).WithField("correlation_id", status.CorrelationID).Warn("crowdsec console enrollment failed")
+		if h.Security != nil {
+			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
+		}
+		resp := gin.H{"error": err.Error(), "status": status.Status}
+		if status.CorrelationID != "" {
+			resp["correlation_id"] = status.CorrelationID
+		}
+		c.JSON(httpStatus, resp)
+		return
+	}
+
+	if h.Security != nil {
+		_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_succeeded", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, status.Tenant, status.AgentName, status.CorrelationID)})
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// ConsoleStatus returns the current console enrollment status without secrets.
+func (h *CrowdsecHandler) ConsoleStatus(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment unavailable"})
+		return
+	}
+
+	status, err := h.Console.Status(c.Request.Context())
+	if err != nil {
+		logger.Log().WithError(err).Warn("failed to read console enrollment status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read enrollment status"})
+		return
+	}
+	c.JSON(http.StatusOK, status)
 }
 
 // GetCachedPreset returns cached preview for a slug when available.
@@ -834,6 +1008,8 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
 	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
+	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
+	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
