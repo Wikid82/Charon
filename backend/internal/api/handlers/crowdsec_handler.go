@@ -55,6 +55,19 @@ type CrowdsecHandler struct {
 	Hub      *crowdsec.HubService
 }
 
+func ttlRemainingSeconds(now time.Time, retrievedAt time.Time, ttl time.Duration) *int64 {
+	if retrievedAt.IsZero() || ttl <= 0 {
+		return nil
+	}
+	remaining := retrievedAt.Add(ttl).Sub(now)
+	if remaining < 0 {
+		var zero int64
+		return &zero
+	}
+	secs := int64(remaining.Seconds())
+	return &secs
+}
+
 func mapCrowdsecStatus(err error, defaultCode int) int {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return http.StatusGatewayTimeout
@@ -381,11 +394,12 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 
 	type presetInfo struct {
 		crowdsec.Preset
-		Available   bool       `json:"available"`
-		Cached      bool       `json:"cached"`
-		CacheKey    string     `json:"cache_key,omitempty"`
-		Etag        string     `json:"etag,omitempty"`
-		RetrievedAt *time.Time `json:"retrieved_at,omitempty"`
+		Available           bool       `json:"available"`
+		Cached              bool       `json:"cached"`
+		CacheKey            string     `json:"cache_key,omitempty"`
+		Etag                string     `json:"etag,omitempty"`
+		RetrievedAt         *time.Time `json:"retrieved_at,omitempty"`
+		TTLRemainingSeconds *int64     `json:"ttl_remaining_seconds,omitempty"`
 	}
 
 	result := map[string]*presetInfo{}
@@ -425,6 +439,8 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 	if h.Hub != nil && h.Hub.Cache != nil {
 		ctx := c.Request.Context()
 		if cached, err := h.Hub.Cache.List(ctx); err == nil {
+			cacheTTL := h.Hub.Cache.TTL()
+			now := time.Now().UTC()
 			for _, entry := range cached {
 				if _, ok := result[entry.Slug]; !ok {
 					result[entry.Slug] = &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
@@ -436,6 +452,7 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 					val := entry.RetrievedAt
 					result[entry.Slug].RetrievedAt = &val
 				}
+				result[entry.Slug].TTLRemainingSeconds = ttlRemainingSeconds(now, entry.RetrievedAt, cacheTTL)
 			}
 		} else {
 			logger.Log().WithError(err).Warn("crowdsec hub cache list failed")
@@ -581,7 +598,9 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		// Build detailed error response
 		errorMsg := err.Error()
 		// Add actionable guidance based on error type
-		if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
+		if errors.Is(err, crowdsec.ErrCacheMiss) || strings.Contains(errorMsg, "cache miss") {
+			errorMsg = "Preset cache missing or expired. Pull the preset again, then retry apply."
+		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
 			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 		}
 		errorResponse := gin.H{"error": errorMsg}
@@ -642,8 +661,20 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	meta, _ := h.Hub.Cache.Load(ctx, slug)
-	c.JSON(http.StatusOK, gin.H{"preview": preview, "cache_key": meta.CacheKey, "etag": meta.Etag})
+	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
+	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": metaErr.Error()})
+		return
+	}
+	cacheTTL := h.Hub.Cache.TTL()
+	now := time.Now().UTC()
+	c.JSON(http.StatusOK, gin.H{
+		"preview":               preview,
+		"cache_key":             meta.CacheKey,
+		"etag":                  meta.Etag,
+		"retrieved_at":          meta.RetrievedAt,
+		"ttl_remaining_seconds": ttlRemainingSeconds(now, meta.RetrievedAt, cacheTTL),
+	})
 }
 
 // CrowdSecDecision represents a ban decision from CrowdSec

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,6 +16,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+type stubExec struct {
+	responses map[string]error
+	calls     []string
+}
+
+func (s *stubExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := strings.Join(append([]string{name}, args...), " ")
+	s.calls = append(s.calls, cmd)
+	for key, err := range s.responses {
+		if strings.Contains(cmd, key) {
+			return nil, err
+		}
+	}
+	return []byte("ok"), nil
+}
 
 // TestPullThenApplyFlow verifies that pulling a preset and then applying it works correctly.
 func TestPullThenApplyFlow(t *testing.T) {
@@ -28,7 +45,7 @@ func TestPullThenApplyFlow(t *testing.T) {
 
 	// Create a test archive
 	archive := makeTestArchive(t, map[string]string{
-		"config.yaml": "test: config\nvalue: 123",
+		"config.yaml":   "test: config\nvalue: 123",
 		"profiles.yaml": "name: test",
 	})
 
@@ -113,6 +130,117 @@ func TestPullThenApplyFlow(t *testing.T) {
 	require.Contains(t, string(content), "test: config")
 }
 
+func TestApplyRepullsOnCacheMissAfterCSCLIFailure(t *testing.T) {
+	cacheDir := t.TempDir()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cache, err := NewHubCache(cacheDir, time.Hour)
+	require.NoError(t, err)
+
+	archive := makeTestArchive(t, map[string]string{"config.yaml": "test: repull"})
+
+	exec := &stubExec{responses: map[string]error{"install": fmt.Errorf("install failed")}}
+	hub := NewHubService(exec, cache, dataDir)
+	hub.HubBaseURL = "http://test.example.com"
+	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "http://test.example.com/api/index.json":
+			body := `{"items":[{"name":"test/preset","title":"Test","etag":"e1"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		case "http://test.example.com/test/preset.yaml":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview")), Header: make(http.Header)}, nil
+		case "http://test.example.com/test/preset.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+	})}
+
+	ctx := context.Background()
+	res, err := hub.Apply(ctx, "test/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.False(t, res.UsedCSCLI)
+	require.NotEmpty(t, res.CacheKey)
+
+	meta, loadErr := cache.Load(ctx, "test/preset")
+	require.NoError(t, loadErr)
+	require.Equal(t, res.CacheKey, meta.CacheKey)
+	require.FileExists(t, filepath.Join(dataDir, "config.yaml"))
+}
+
+func TestApplyRepullsOnCacheExpired(t *testing.T) {
+	cacheDir := t.TempDir()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cache, err := NewHubCache(cacheDir, 5*time.Millisecond)
+	require.NoError(t, err)
+
+	archive := makeTestArchive(t, map[string]string{"config.yaml": "test: expired"})
+	ctx := context.Background()
+	_, err = cache.Store(ctx, "expired/preset", "etag-old", "hub", "old", archive)
+	require.NoError(t, err)
+
+	// wait for expiration
+	time.Sleep(10 * time.Millisecond)
+
+	hub := NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.example.com"
+	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "http://test.example.com/api/index.json":
+			body := `{"items":[{"name":"expired/preset","title":"Expired","etag":"e2"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		case "http://test.example.com/expired/preset.yaml":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("preview new")), Header: make(http.Header)}, nil
+		case "http://test.example.com/expired/preset.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+	})}
+
+	res, err := hub.Apply(ctx, "expired/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.False(t, res.UsedCSCLI)
+
+	meta, loadErr := cache.Load(ctx, "expired/preset")
+	require.NoError(t, loadErr)
+	require.Equal(t, "e2", meta.Etag)
+	require.FileExists(t, filepath.Join(dataDir, "config.yaml"))
+}
+
+func TestPullAcceptsNamespacedIndexEntry(t *testing.T) {
+	cacheDir := t.TempDir()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cache, err := NewHubCache(cacheDir, time.Hour)
+	require.NoError(t, err)
+
+	archive := makeTestArchive(t, map[string]string{"config.yaml": "test: namespaced"})
+
+	hub := NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.example.com"
+	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "http://test.example.com/api/index.json":
+			body := `{"items":[{"name":"crowdsecurity/bot-mitigation-essentials","title":"Bot Mitigation Essentials","etag":"etag-bme"}]}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+		case "http://test.example.com/crowdsecurity/bot-mitigation-essentials.yaml":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("namespaced preview")), Header: make(http.Header)}, nil
+		case "http://test.example.com/crowdsecurity/bot-mitigation-essentials.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		}
+	})}
+
+	ctx := context.Background()
+	res, err := hub.Pull(ctx, "bot-mitigation-essentials")
+	require.NoError(t, err)
+	require.Equal(t, "bot-mitigation-essentials", res.Meta.Slug)
+	require.Equal(t, "etag-bme", res.Meta.Etag)
+	require.Contains(t, res.Preview, "namespaced preview")
+}
+
 // TestApplyWithoutPullFails verifies that applying without pulling first fails with proper error.
 func TestApplyWithoutPullFails(t *testing.T) {
 	cacheDir := t.TempDir()
@@ -123,14 +251,18 @@ func TestApplyWithoutPullFails(t *testing.T) {
 
 	// Create hub service without cscli (nil executor) and empty cache
 	hub := NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.example.com"
+	hub.HTTPClient = &http.Client{Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
 
 	ctx := context.Background()
 
 	// Try to apply without pulling first
 	_, err = hub.Apply(ctx, "nonexistent/preset")
 	require.Error(t, err, "Apply should fail without cache and without cscli")
-	require.Contains(t, err.Error(), "cscli unavailable", "Error should mention cscli unavailable")
-	require.Contains(t, err.Error(), "no cached preset", "Error should mention missing cache")
+	require.ErrorIs(t, err, ErrCacheMiss, "Error should expose cache miss for guidance")
+	require.Contains(t, err.Error(), "refresh cache", "Error should surface repull failure context")
 }
 
 // TestCacheExpiration verifies that expired cache is not used.

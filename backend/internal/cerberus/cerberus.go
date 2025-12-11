@@ -19,10 +19,10 @@ import (
 
 // Cerberus provides a lightweight facade for security checks (WAF, CrowdSec, ACL).
 type Cerberus struct {
-	cfg                 config.SecurityConfig
-	db                  *gorm.DB
-	accessSvc           *services.AccessListService
-	securityNotifySvc   *services.SecurityNotificationService
+	cfg               config.SecurityConfig
+	db                *gorm.DB
+	accessSvc         *services.AccessListService
+	securityNotifySvc *services.SecurityNotificationService
 }
 
 // New creates a new Cerberus instance
