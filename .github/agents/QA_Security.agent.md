@@ -60,6 +60,11 @@ When Trivy reports CVEs in container dependencies (especially Caddy transitive d
     -   Renovate will auto-PR when newer versions release.
 </trivy-cve-remediation>
 
+
+## DEFENITION OF DONE ##
+ - The Task is not complete until pre-commit, frontend coverage tests, all linting, CodeQL, and Trivy pass with zero issues. Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless if they are unrelated to the original task and severity. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
+
+
 <constraints>
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY the code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE".
