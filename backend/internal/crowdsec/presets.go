@@ -20,12 +20,12 @@ var curatedPresets = []Preset{
 		RequiresHub: false,
 	},
 	{
-		Slug:        "bot-mitigation-essentials",
+		Slug:        "crowdsecurity/base-http-scenarios",
 		Title:       "Bot Mitigation Essentials",
-		Summary:     "Core scenarios for bad bots and credential stuffing with minimal false positives.",
-		Source:      "charon-curated",
+		Summary:     "Core scenarios for bad bots and credential stuffing with minimal false positives (maps to base-http-scenarios).",
+		Source:      "hub",
 		Tags:        []string{"bots", "auth", "web"},
-		RequiresHub: false,
+		RequiresHub: true,
 	},
 	{
 		Slug:        "geolocation-aware",

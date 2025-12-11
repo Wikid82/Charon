@@ -2,6 +2,93 @@
 
 Note: This report documents a QA audit of the history-rewrite scripts. The scripts and tests live in `scripts/history-rewrite/` and the maintainer-facing plan and checklist are in `docs/plans/history_rewrite.md`.
 
+# QA Report: Frontend Verification (Dec 11, 2025 - Token UI changes)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Frontend verification after token UI changes (type-check + targeted CrowdSec spec).
+
+## Commands Executed
+- `cd frontend && npm run type-check`
+- `cd frontend && npm run test:ci -- CrowdSecConfig.spec.tsx`
+
+## Results
+- `npm run type-check` **Passed** — TypeScript check completed with no reported errors.
+- `npm run test:ci -- CrowdSecConfig.spec.tsx` **Passed** — 15/15 tests green in `CrowdSecConfig.spec.tsx`.
+
+## Observations
+- jsdom emitted `Not implemented: navigation to another Document` (expected, non-blocking).
+
+**Status:** ✅ PASS — Both frontend verification steps succeeded; no failing assertions.
+
+---
+
+# QA Report: Frontend Verification (Dec 11, 2025 - CrowdSec Enrollment UI)
+
+# QA Report: Frontend Verification Re-run (Dec 11, 2025 - CrowdSec Enrollment UI)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Re-run frontend verification to confirm fixes (type-check + targeted CrowdSec spec).
+
+## Commands Executed
+- `cd frontend && npm run type-check`
+- `cd frontend && npm run test:ci -- CrowdSecConfig.spec.tsx`
+
+## Results
+- `npm run type-check` **Passed** — TypeScript check completed with no reported errors.
+- `npm run test:ci -- CrowdSecConfig.spec.tsx` **Passed** — 15/15 tests green in `CrowdSecConfig.spec.tsx`.
+
+## Observations
+- jsdom emitted `Not implemented: navigation to another Document` (expected, non-blocking).
+
+**Status:** ✅ PASS — Both frontend verification steps succeeded; no failing assertions.
+
+---
+
+# QA Report: Frontend Verification (Dec 11, 2025 - CrowdSec Enrollment UI)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Frontend verification for latest CrowdSec enrollment UI changes (type-check + targeted spec run).
+
+## Commands Executed
+- `cd frontend && npm run type-check`
+- `cd frontend && npm run test:ci -- CrowdSecConfig.spec.tsx`
+
+## Results
+- `npm run type-check` **Passed** — TypeScript check completed with no reported errors.
+- `npm run test:ci -- CrowdSecConfig.spec.tsx` **Failed** — 2 failing tests:
+   - [CrowdSecConfig.spec.tsx](frontend/src/pages/__tests__/CrowdSecConfig.spec.tsx#L137-L139): expected validation errors for empty console enrollment submission, but no `[data-testid="console-enroll-error"]` elements rendered.
+   - [CrowdSecConfig.spec.tsx](frontend/src/pages/__tests__/CrowdSecConfig.spec.tsx#L190-L194): expected rotate button to become enabled after retry, but `console-rotate-btn` remained disabled.
+
+## Observations
+- Test run emitted jsdom warning `Not implemented: navigation to another Document` (non-blocking).
+
+**Status:** ❌ FAIL — Type-check passed; targeted CrowdSec enrollment spec has two failing cases as noted above.
+
+# QA Report: Backend Verification (Dec 11, 2025 - Latest Changes)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Backend verification requested post-latest changes (gofmt + full Go tests + targeted CrowdSec suite).
+
+## Commands Executed
+- `cd backend && gofmt -w .`
+- `cd backend && go test ./... -v`
+- `cd backend && go test ./internal/crowdsec/... -v`
+
+## Results
+- `gofmt` completed without errors.
+- `go test ./... -v` **Passed**. Packages green; no assertion failures observed.
+- `go test ./internal/crowdsec/... -v` **Passed**. CrowdSec cache/apply/pull flows exercised successfully.
+
+## Observations
+- CrowdSec tests emit expected informational logs (cache miss, backup rollback, hub fetch fallbacks) and transient "record not found" messages during in-memory setup; no failures.
+- Full suite otherwise quiet; no retries or skipped tests noted.
+
+**Status:** ✅ PASS — Backend formatting and regression tests completed successfully.
+
 # QA Report: Backend Verification (Dec 11, 2025)
 
 - **Date:** 2025-12-11
@@ -246,3 +333,23 @@ Duration   47.24s
 2) Re-run `npm run type-check` and `.venv/bin/pre-commit run --all-files` after fixes.
 
 **Status:** ❌ FAIL — Coverage passed, but TypeScript type-check (and pre-commit) failed; remediation required as above.
+
+# QA Report: Backend Verification (Dec 11, 2025 - CrowdSec Hub Mirror Fix)
+
+- **Date:** 2025-12-11
+- **QA Agent:** GitHub Copilot
+- **Scope:** Backend verification for CrowdSec hub mirror fix (raw index parsing and tarball wrapping logic).
+
+## Commands Executed
+- `cd backend && go test -v ./internal/crowdsec`
+
+## Results
+- `go test -v ./internal/crowdsec` **Passed**. All tests passed successfully.
+
+## Observations
+- **Mirror Fallback:** `TestHubFallbackToMirrorOnForbidden` and `TestFetchIndexFallsBackToMirrorOnForbidden` confirmed that the system falls back to the mirror when the primary hub is inaccessible (403/500).
+- **Raw Index Parsing:** `TestFetchIndexHTTPRejectsHTML` and `TestFetchIndexCSCLIParseError` exercise the index parsing logic, ensuring it handles unexpected content types (like HTML from a captive portal or error page) gracefully and attempts fallbacks.
+- **Tarball/Archive Handling:** `TestPullAcceptsNamespacedIndexEntry` and `TestPullFallsBackToMirrorArchiveOnForbidden` verify that the system can download and handle archives (tarballs) from the mirror, including namespaced entries.
+- **General Stability:** All other tests (cache expiration, eviction, apply flows) passed, indicating no regressions in the core CrowdSec functionality.
+
+**Status:** ✅ PASS — Backend tests verify the CrowdSec hub mirror fix and related logic.

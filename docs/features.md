@@ -158,12 +158,26 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 
 **Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
 
-### Configuration Packages
+### CrowdSec Integration
 
-- **Hub presets:** Pull presets from the CrowdSec Hub over HTTPS, use cache keys/ETags for faster repeat pulls, preview changes, then apply with an automatic backup and reload flag. Requires Cerberus to be enabled with admin scope; `cscli` is preferred for execution.
-- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
-- **Offline/curated:** If the Hub is unreachable or apply is not supported, curated/offline presets remain available.
-- **Validation:** Slugs are validated before apply. Hub errors surface cleanly (503 uses retry or cached data; 400 for bad slugs; apply failures prompt you to restore from the backup).
+**What it does:** Connects your Charon instance to the global CrowdSec network to share and receive threat intelligence.
+
+**Why you care:** Protects your server from IPs that are attacking other people, and lets you manage your security configuration easily.
+
+**Features:**
+
+- **Hub Presets:** Browse, search, and install security configurations from the CrowdSec Hub.
+  - **Search & Sort:** Easily find what you need with the new search bar and sorting options (by name, status, downloads).
+  - **One-Click Install:** Download and apply collections, parsers, and scenarios directly from the UI.
+  - **Smart Updates:** Checks for updates automatically using ETags to save bandwidth.
+  - **Safe Apply:** Automatically backs up your configuration before applying changes.
+
+- **Console Enrollment:** Connect your instance to the CrowdSec Console web interface.
+  - **Visual Dashboard:** See your alerts and decisions in a beautiful cloud dashboard.
+  - **Easy Setup:** Just click "Enroll" and paste your enrollment key. No command line needed.
+  - **Secure:** Uses a minimal-scope token that is stored securely.
+
+- **Live Decisions:** See exactly who is being blocked and why in real-time.
 ---
 
 ## \ud83d\udc33 Docker Integration

@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { getSecurityStatus } from '../api/security'
+import { getFeatureFlags } from '../api/featureFlags'
 import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision } from '../api/crowdsec'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { createBackup } from '../api/backups'
@@ -12,12 +13,15 @@ import { updateSetting } from '../api/settings'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { Shield, ShieldOff, Trash2 } from 'lucide-react'
+import { Shield, ShieldOff, Trash2, Search } from 'lucide-react'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
+import { useConsoleStatus, useEnrollConsole } from '../hooks/useConsoleEnrollment'
 
 export default function CrowdSecConfig() {
   const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
   const [file, setFile] = useState<File | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
@@ -34,6 +38,15 @@ export default function CrowdSecConfig() {
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
+  const { data: featureFlags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags })
+  const consoleEnrollmentEnabled = Boolean(featureFlags?.['feature.crowdsec.console_enrollment'])
+  const [enrollmentToken, setEnrollmentToken] = useState('')
+  const [consoleTenant, setConsoleTenant] = useState('')
+  const [consoleAgentName, setConsoleAgentName] = useState((typeof window !== 'undefined' && window.location?.hostname) || 'charon-agent')
+  const [consoleAck, setConsoleAck] = useState(false)
+  const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
+  const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
+  const enrollConsoleMutation = useEnrollConsole()
 
   const backupMutation = useMutation({ mutationFn: () => createBackup() })
   const importMutation = useMutation({
@@ -107,12 +120,50 @@ export default function CrowdSecConfig() {
     return CROWDSEC_PRESETS.map((preset) => ({ ...preset, requiresHub: false, available: true, cached: false, source: 'charon-curated' }))
   }, [presetsQuery.data])
 
+  const filteredPresets = useMemo(() => {
+    let result = [...presetCatalog]
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      result = result.filter(
+        (p) =>
+          p.title.toLowerCase().includes(query) ||
+          p.description?.toLowerCase().includes(query) ||
+          p.slug.toLowerCase().includes(query)
+      )
+    }
+
+    result.sort((a, b) => {
+      if (sortBy === 'alpha') {
+        return a.title.localeCompare(b.title)
+      }
+      if (sortBy === 'source') {
+        const sourceA = a.source || 'z'
+        const sourceB = b.source || 'z'
+        if (sourceA !== sourceB) return sourceA.localeCompare(sourceB)
+        return a.title.localeCompare(b.title)
+      }
+      return a.title.localeCompare(b.title)
+    })
+
+    return result
+  }, [presetCatalog, searchQuery, sortBy])
+
   useEffect(() => {
     if (!presetCatalog.length) return
     if (!selectedPresetSlug || !presetCatalog.some((preset) => preset.slug === selectedPresetSlug)) {
       setSelectedPresetSlug(presetCatalog[0].slug)
     }
   }, [presetCatalog, selectedPresetSlug])
+
+  useEffect(() => {
+    if (consoleStatusQuery.data?.agent_name) {
+      setConsoleAgentName((prev) => prev || consoleStatusQuery.data?.agent_name || prev)
+    }
+    if (consoleStatusQuery.data?.tenant) {
+      setConsoleTenant((prev) => prev || consoleStatusQuery.data?.tenant || prev)
+    }
+  }, [consoleStatusQuery.data?.agent_name, consoleStatusQuery.data?.tenant])
 
   const selectedPreset = presetCatalog.find((preset) => preset.slug === selectedPresetSlug)
   const selectedPresetRequiresHub = selectedPreset?.requiresHub ?? false
@@ -171,6 +222,67 @@ export default function CrowdSecConfig() {
     } catch (err) {
       const msg = isAxiosError(err) ? err.response?.data?.error || err.message : 'Failed to load cached preview'
       toast.error(msg)
+    }
+  }
+
+  const normalizedConsoleStatus = consoleStatusQuery.data?.status === 'failed' ? 'degraded' : consoleStatusQuery.data?.status || 'not_enrolled'
+  const isConsoleDegraded = normalizedConsoleStatus === 'degraded'
+  const isConsolePending = enrollConsoleMutation.isPending || normalizedConsoleStatus === 'enrolling'
+  const consoleStatusLabel = normalizedConsoleStatus.replace('_', ' ')
+  const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? 'Stored (masked)' : 'Not stored') : '—'
+  const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded'
+  const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
+
+  const sanitizeSecret = (msg: string) => msg.replace(/\b[A-Za-z0-9]{10,64}\b/g, '***')
+
+  const sanitizeErrorMessage = (err: unknown) => {
+    if (isAxiosError(err)) {
+      return sanitizeSecret(err.response?.data?.error || err.message)
+    }
+    if (err instanceof Error) return sanitizeSecret(err.message)
+    return 'Console enrollment failed'
+  }
+
+  const validateConsoleEnrollment = (options?: { allowMissingTenant?: boolean; requireAck?: boolean }) => {
+    const nextErrors: { token?: string; agent?: string; tenant?: string; ack?: string } = {}
+    if (!enrollmentToken.trim()) {
+      nextErrors.token = 'Enrollment token is required'
+    }
+    if (!consoleAgentName.trim()) {
+      nextErrors.agent = 'Agent name is required'
+    }
+    if (!consoleTenant.trim() && !options?.allowMissingTenant) {
+      nextErrors.tenant = 'Tenant / organization is required'
+    }
+    if (options?.requireAck && !consoleAck) {
+      nextErrors.ack = 'You must acknowledge the console data-sharing notice'
+    }
+    setConsoleErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  const submitConsoleEnrollment = async (force = false) => {
+    const allowMissingTenant = force && !consoleTenant.trim()
+    const requireAck = normalizedConsoleStatus === 'not_enrolled'
+    if (!validateConsoleEnrollment({ allowMissingTenant, requireAck })) return
+    const tenantValue = consoleTenant.trim() || consoleStatusQuery.data?.tenant || consoleAgentName || 'charon-agent'
+    try {
+      await enrollConsoleMutation.mutateAsync({
+        enrollment_key: enrollmentToken.trim(),
+        tenant: tenantValue,
+        agent_name: consoleAgentName.trim(),
+        force,
+      })
+      setConsoleErrors({})
+      setEnrollmentToken('')
+      if (!consoleTenant.trim()) {
+        setConsoleTenant(tenantValue)
+      }
+      toast.success(force ? 'Enrollment token rotated' : 'Enrollment submitted')
+    } catch (err) {
+      const message = sanitizeErrorMessage(err)
+      setConsoleErrors((prev) => ({ ...prev, submit: message }))
+      toast.error(message)
     }
   }
 
@@ -435,6 +547,129 @@ export default function CrowdSecConfig() {
         </div>
       </Card>
 
+      {consoleEnrollmentEnabled && (
+        <Card data-testid="console-enrollment-card">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="space-y-1">
+                <h3 className="text-md font-semibold">CrowdSec Console Enrollment</h3>
+                <p className="text-sm text-gray-400">Register this engine with the CrowdSec console using an enrollment key. This flow is opt-in.</p>
+                <p className="text-xs text-gray-500">
+                  Enrollment shares heartbeat metadata with crowdsec.net; secrets and configuration files are not sent.
+                  <a className="text-blue-400 hover:underline ml-1" href={consoleDocsHref} target="_blank" rel="noreferrer">View docs</a>
+                </p>
+              </div>
+              <div className="text-right text-sm text-gray-300 space-y-1">
+                <p className="font-semibold text-white capitalize" data-testid="console-status-label">Status: {consoleStatusLabel}</p>
+                <p className="text-xs text-gray-500">Last heartbeat: {consoleStatusQuery.data?.last_heartbeat_at ? new Date(consoleStatusQuery.data.last_heartbeat_at).toLocaleString() : '—'}</p>
+              </div>
+            </div>
+
+            {consoleStatusQuery.data?.last_error && (
+              <p className="text-xs text-yellow-300" data-testid="console-status-error">Last error: {sanitizeSecret(consoleStatusQuery.data.last_error)}</p>
+            )}
+            {consoleErrors.submit && (
+              <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.submit}</p>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="crowdsec.net enroll token"
+                type="password"
+                value={enrollmentToken}
+                onChange={(e) => setEnrollmentToken(e.target.value)}
+                placeholder="Paste token or cscli console enroll <token>"
+                helperText="Token is not displayed after submit. You may paste the full cscli command string."
+                error={consoleErrors.token}
+                errorTestId="console-enroll-error"
+                data-testid="console-enrollment-token"
+              />
+              <Input
+                label="Agent name"
+                value={consoleAgentName}
+                onChange={(e) => setConsoleAgentName(e.target.value)}
+                error={consoleErrors.agent}
+                errorTestId="console-enroll-error"
+                data-testid="console-agent-name"
+              />
+              <Input
+                label="Tenant / Organization"
+                value={consoleTenant}
+                onChange={(e) => setConsoleTenant(e.target.value)}
+                helperText="Shown in the console when grouping agents."
+                error={consoleErrors.tenant}
+                errorTestId="console-enroll-error"
+                data-testid="console-tenant"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-blue-500"
+                checked={consoleAck}
+                onChange={(e) => setConsoleAck(e.target.checked)}
+                disabled={isConsolePending}
+                data-testid="console-ack-checkbox"
+              />
+              <span className="text-sm text-gray-400">I understand this enrolls the engine with the CrowdSec console and shares heartbeat metadata.</span>
+            </div>
+            {consoleErrors.ack && <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.ack}</p>}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => submitConsoleEnrollment(false)}
+                disabled={isConsolePending}
+                isLoading={enrollConsoleMutation.isPending}
+                data-testid="console-enroll-btn"
+              >
+                Enroll
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => submitConsoleEnrollment(true)}
+                disabled={isConsolePending || !canRotateKey}
+                isLoading={enrollConsoleMutation.isPending}
+                data-testid="console-rotate-btn"
+              >
+                Rotate key
+              </Button>
+              {isConsoleDegraded && (
+                <Button
+                  variant="secondary"
+                  onClick={() => submitConsoleEnrollment(true)}
+                  disabled={isConsolePending}
+                  isLoading={enrollConsoleMutation.isPending}
+                  data-testid="console-retry-btn"
+                >
+                  Retry enrollment
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-400">
+              <div>
+                <p className="text-xs text-gray-500">Agent</p>
+                <p className="text-white">{consoleStatusQuery.data?.agent_name || consoleAgentName || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Tenant</p>
+                <p className="text-white">{consoleStatusQuery.data?.tenant || consoleTenant || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Enrollment token</p>
+                <p className="text-white" data-testid="console-token-state">{consoleTokenState}</p>
+              </div>
+              <div className="md:col-span-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                <span>Last attempt: {consoleStatusQuery.data?.last_attempt_at ? new Date(consoleStatusQuery.data.last_attempt_at).toLocaleString() : '—'}</span>
+                <span>Enrolled at: {consoleStatusQuery.data?.enrolled_at ? new Date(consoleStatusQuery.data.enrolled_at).toLocaleString() : '—'}</span>
+                {consoleStatusQuery.data?.correlation_id && <span>Correlation ID: {consoleStatusQuery.data.correlation_id}</span>}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card>
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -459,39 +694,77 @@ export default function CrowdSecConfig() {
 
       <Card>
         <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="space-y-1">
-              <h3 className="text-md font-semibold">CrowdSec Presets</h3>
-              <p className="text-sm text-gray-400">Select a curated preset, preview it, then apply with an automatic backup.</p>
+          <div className="space-y-1">
+            <h3 className="text-md font-semibold">CrowdSec Presets</h3>
+            <p className="text-sm text-gray-400">Select a curated preset, preview it, then apply with an automatic backup.</p>
+          </div>
+
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search presets..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <select
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                value={selectedPresetSlug}
-                onChange={(e) => setSelectedPresetSlug(e.target.value)}
-                data-testid="preset-select"
-              >
-                {presetCatalog.map((preset) => (
-                  <option key={preset.slug} value={preset.slug}>{preset.title}</option>
-                ))}
-              </select>
-              <Button
-                variant="secondary"
-                onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
-                disabled={!selectedPreset || pullPresetMutation.isPending}
-                isLoading={pullPresetMutation.isPending}
-              >
-                Pull Preview
-              </Button>
-              <Button
-                onClick={handleApplyPreset}
-                disabled={presetActionDisabled}
-                isLoading={isApplyingPreset}
-                data-testid="apply-preset-btn"
-              >
-                Apply Preset
-              </Button>
-            </div>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
+            >
+              <option value="alpha">Name (A-Z)</option>
+              <option value="source">Source</option>
+            </select>
+          </div>
+
+          <div className="border border-gray-700 rounded-lg max-h-60 overflow-y-auto bg-gray-900">
+            {filteredPresets.length > 0 ? (
+              filteredPresets.map((preset) => (
+                <div
+                  key={preset.slug}
+                  onClick={() => setSelectedPresetSlug(preset.slug)}
+                  className={`p-3 cursor-pointer hover:bg-gray-800 border-b border-gray-800 last:border-0 ${
+                    selectedPresetSlug === preset.slug ? 'bg-blue-900/20 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-medium text-white">{preset.title}</span>
+                    {preset.source && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        preset.source === 'charon-curated' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
+                      }`}>
+                        {preset.source === 'charon-curated' ? 'Curated' : 'Hub'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 line-clamp-1">{preset.description}</p>
+                </div>
+              ))
+            ) : (
+              <div className="p-4 text-center text-gray-500 text-sm">No presets found matching "{searchQuery}"</div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Button
+              variant="secondary"
+              onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
+              disabled={!selectedPreset || pullPresetMutation.isPending}
+              isLoading={pullPresetMutation.isPending}
+            >
+              Pull Preview
+            </Button>
+            <Button
+              onClick={handleApplyPreset}
+              disabled={presetActionDisabled}
+              isLoading={isApplyingPreset}
+              data-testid="apply-preset-btn"
+            >
+              Apply Preset
+            </Button>
           </div>
 
           {validationError && (
@@ -551,7 +824,7 @@ export default function CrowdSecConfig() {
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
                   <p>Status: {applyInfo.status || 'applied'}</p>
                   {applyInfo.backup && <p>Backup: {applyInfo.backup}</p>}
-                  {applyInfo.reloadHint && <p>Reload: {applyInfo.reloadHint}</p>}
+                  {applyInfo.reloadHint && <p>Reload: Required</p>}
                   {applyInfo.usedCscli !== undefined && <p>Method: {applyInfo.usedCscli ? 'cscli' : 'filesystem'}</p>}
                 </div>
               )}

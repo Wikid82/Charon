@@ -76,6 +76,22 @@ That's it. CrowdSec starts automatically and begins blocking bad IPs.
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
+### Enroll with CrowdSec Console (optional)
+
+1. Enable the feature flag `crowdsec_console_enrollment` (off by default) so the Console enrollment button appears in Cerberus → CrowdSec.
+2. Click **Enroll with CrowdSec Console** and follow the on-screen prompt to generate or paste the Console enrollment key. The flow requests only the minimal scope needed for the embedded agent.
+3. Charon stores the enrollment secret internally (not logged or echoed) and completes the handshake without requiring sudo or shell access.
+4. After enrollment, the Console status shows in the CrowdSec card; you can revoke from either side if needed.
+
+### Hub Presets (Configuration Packages)
+
+Charon lets you install security configurations (Collections, Parsers, Scenarios) directly from the CrowdSec Hub.
+
+- **Search & Sort:** Use the search bar to find specific packages (e.g., "wordpress", "nginx"). Sort by name, status, or popularity.
+- **One-Click Install:** Click "Install" on any package. Charon handles the download and configuration.
+- **Safe Apply:** Changes are applied safely. If something goes wrong, Charon can restore the previous configuration.
+- **Updates:** Charon checks for updates automatically. You'll see an "Update" button when a new version is available.
+
 ---
 
 ## WAF (Block Bad Behavior)
@@ -131,14 +147,6 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 3. Pick the country
 4. Assign to the targeted website
 
----
-
-## Configuration Packages
-
-- **Import/Export:** You can import or export Cerberus configuration packages; exports prompt you to confirm the filename before saving.
-- **Presets (CrowdSec Hub):** Pull presets from the CrowdSec Hub over HTTPS using cache keys/ETags, prefer `cscli` execution, and require Cerberus to be enabled with an admin-scoped session. Workflow: pull → preview → apply with an automatic backup and reload flag.
-- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
-- **Fallbacks:** If the Hub is unreachable (503 uses retry or cached data), curated/offline presets stay available; invalid slugs return a 400 with validation detail; apply failures remind you to restore from the backup; if apply is not supported (501), stay on curated/offline presets.
 
 ---
 
