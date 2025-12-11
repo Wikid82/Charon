@@ -94,10 +94,10 @@ type ConsoleEnrollmentService struct {
 }
 
 // NewConsoleEnrollmentService constructs a service using the supplied secret material for encryption.
-func NewConsoleEnrollmentService(db *gorm.DB, exec EnvCommandExecutor, dataDir, secret string) *ConsoleEnrollmentService {
+func NewConsoleEnrollmentService(db *gorm.DB, executor EnvCommandExecutor, dataDir, secret string) *ConsoleEnrollmentService {
 	return &ConsoleEnrollmentService{
 		db:      db,
-		exec:    exec,
+		exec:    executor,
 		dataDir: dataDir,
 		key:     deriveKey(secret),
 		nowFn:   time.Now,
@@ -172,9 +172,6 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	defer cancel()
 
 	args := []string{"console", "enroll", "--name", agent}
-	if tenant != "" {
-		args = append(args, "--tenant", tenant)
-	}
 
 	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("starting crowdsec console enrollment")
 	out, cmdErr := s.exec.ExecuteWithEnv(cmdCtx, "cscli", args, map[string]string{"CROWDSEC_CONSOLE_ENROLL_KEY": token})
