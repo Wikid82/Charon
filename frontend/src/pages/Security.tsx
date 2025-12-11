@@ -4,14 +4,15 @@ import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken, useRuleSets } from '../hooks/useSecurity'
-import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
+import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
 import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { LiveLogViewer } from '../components/LiveLogViewer'
+import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
 
 export default function Security() {
   const navigate = useNavigate()
@@ -22,6 +23,7 @@ export default function Security() {
   const { data: securityConfig } = useSecurityConfig()
   const { data: ruleSetsData } = useRuleSets()
   const [adminWhitelist, setAdminWhitelist] = useState<string>('')
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   useEffect(() => {
     if (securityConfig && securityConfig.config) {
       setAdminWhitelist(securityConfig.config.admin_whitelist || '')
@@ -79,19 +81,7 @@ export default function Security() {
 
   useEffect(() => { fetchCrowdsecStatus() }, [])
 
-  const handleCrowdsecExport = async () => {
-    const defaultName = buildCrowdsecExportFilename()
-    const filename = promptCrowdsecFilename(defaultName)
-    if (!filename) return
 
-    try {
-      const resp = await exportCrowdsecConfig()
-      downloadCrowdsecExport(resp, filename)
-      toast.success('CrowdSec configuration exported')
-    } catch {
-      toast.error('Failed to export CrowdSec configuration')
-    }
-  }
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -209,7 +199,14 @@ export default function Security() {
           <ShieldCheck className="w-8 h-8 text-green-500" />
           Cerberus Dashboard
         </h1>
-          <div/>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowNotificationSettings(true)}
+              disabled={!status.cerberus?.enabled}
+            >
+              Notification Settings
+            </Button>
         <Button
           variant="secondary"
           onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
@@ -218,6 +215,7 @@ export default function Security() {
           <ExternalLink className="w-4 h-4" />
           Documentation
         </Button>
+          </div>
       </div>
 
       <div className="mt-4 p-4 bg-gray-800 rounded-lg">
@@ -260,25 +258,7 @@ export default function Security() {
             {crowdsecStatus && (
               <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
             )}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full text-xs"
-                onClick={() => navigate('/tasks/logs?search=crowdsec')}
-                disabled={crowdsecControlsDisabled}
-              >
-                Logs
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full text-xs"
-                onClick={handleCrowdsecExport}
-                disabled={crowdsecControlsDisabled}
-              >
-                Export
-              </Button>
+            <div className="mt-4">
               <Button
                 variant="secondary"
                 size="sm"
@@ -445,6 +425,19 @@ export default function Security() {
           </div>
         </Card>
       </div>
+
+      {/* Live Activity Section */}
+      {status.cerberus?.enabled && (
+        <div className="mt-6">
+          <LiveLogViewer filters={{ source: 'cerberus' }} className="w-full" />
+        </div>
+      )}
+
+      {/* Notification Settings Modal */}
+      <SecurityNotificationSettingsModal
+        isOpen={showNotificationSettings}
+        onClose={() => setShowNotificationSettings(false)}
+      />
       </div>
     </>
   )

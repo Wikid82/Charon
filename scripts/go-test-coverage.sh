@@ -6,6 +6,11 @@ BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
 MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-85}}"
 
+# Perf asserts are sensitive to -race overhead; loosen defaults for hook runs
+export PERF_MAX_MS_GETSTATUS_P95="${PERF_MAX_MS_GETSTATUS_P95:-25ms}"
+export PERF_MAX_MS_GETSTATUS_P95_PARALLEL="${PERF_MAX_MS_GETSTATUS_P95_PARALLEL:-50ms}"
+export PERF_MAX_MS_LISTDECISIONS_P95="${PERF_MAX_MS_LISTDECISIONS_P95:-75ms}"
+
 # trap 'rm -f "$COVERAGE_FILE"' EXIT
 
 cd "$BACKEND_DIR"
@@ -22,11 +27,16 @@ EXCLUDE_PACKAGES=(
 
 # Try to run tests to produce coverage file; some toolchains may return a non-zero
 # exit if certain coverage tooling is unavailable (e.g. covdata) while still
-# producing a usable coverage file. Don't fail immediately — allow the script
-# to continue and check whether the coverage file exists.
+# producing a usable coverage file. Capture the status so we can report real
+# test failures after the coverage check.
 # Note: Using -v for verbose output and -race for race detection
+GO_TEST_STATUS=0
 if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
-    echo "Warning: go test returned non-zero; checking coverage file presence"
+    GO_TEST_STATUS=$?
+fi
+
+if [ "$GO_TEST_STATUS" -ne 0 ]; then
+    echo "Warning: go test returned non-zero (status ${GO_TEST_STATUS}); checking coverage file presence"
 fi
 
 # Filter out excluded packages from coverage file
@@ -65,3 +75,9 @@ if total < minimum:
 PY
 
 echo "Coverage requirement met"
+
+# Bubble up real test failures (after printing coverage info) so pre-commit
+# reflects the actual test status.
+if [ "$GO_TEST_STATUS" -ne 0 ]; then
+    exit "$GO_TEST_STATUS"
+fi

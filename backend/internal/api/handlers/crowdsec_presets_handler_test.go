@@ -301,7 +301,18 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "cscli unavailable")
+
+	// Verify response doesn't include backup field when no backup was created
+	var response map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	_, hasBackup := response["backup"]
+	require.False(t, hasBackup, "Response should not include 'backup' field when no backup was created")
+
+	// Verify improved error message guides user to pull preset first
+	errorMsg, ok := response["error"].(string)
+	require.True(t, ok, "error field should be a string")
+	require.Contains(t, errorMsg, "Pull the preset first", "error should guide user to pull preset")
+	require.Contains(t, errorMsg, "not cached", "error should indicate preset is not cached")
 
 	var events []models.CrowdsecPresetEvent
 	require.NoError(t, db.Find(&events).Error)

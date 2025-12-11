@@ -259,7 +259,73 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 **What you do:** Click "Logs" in the sidebar.
 
 ---
+## 🔴 Live Security Logs & Notifications
 
+**What it does:** Stream security events in real-time and get notified about critical threats.
+
+**Why you care:** See attacks as they happen, not hours later. Configure alerts for WAF blocks, ACL denials, and suspicious activity.
+
+### Live Log Viewer
+
+**Real-time streaming:** Watch security events appear instantly in the Cerberus Dashboard. Uses WebSocket technology to stream logs with zero delay.
+
+**What you see:**
+- WAF blocks (SQL injection attempts, XSS attacks, etc.)
+- CrowdSec decisions (blocked IPs and why)
+- Access control denials (geo-blocking, IP filtering)
+- Rate limit hits
+- All security-related events with full context
+
+**Controls:**
+- **Pause/Resume** — Stop the stream to examine specific entries
+- **Clear** — Remove old entries to focus on new activity
+- **Auto-scroll** — Automatically follows new entries (disable to scroll back)
+- **Filter** — Client-side filtering by level, source, or text search
+
+**Where to find it:** Cerberus → Dashboard → Live Activity section (bottom of page)
+
+**Query parameters:** The WebSocket endpoint supports server-side filtering:
+- `?level=error` — Only error-level logs
+- `?source=waf` — Only WAF-related events
+- `?source=cerberus` — All Cerberus security events
+
+### Notification System
+
+**What it does:** Sends alerts when security events match your configured criteria.
+
+**Where to configure:** Cerberus Dashboard → "Notification Settings" button (top-right)
+
+**Settings:**
+- **Enable/Disable** — Master toggle for all notifications
+- **Minimum Log Level** — Only notify for warnings and errors (ignore info/debug)
+- **Event Types:**
+  - WAF blocks (when the firewall stops an attack)
+  - ACL denials (when access control rules block a request)
+  - Rate limit hits (when traffic thresholds are exceeded)
+- **Webhook URL** — Send alerts to Discord, Slack, or custom integrations
+- **Email Recipients** — Comma-separated list of email addresses
+
+**Example use cases:**
+- Get a Slack message when your site is under attack
+- Email yourself when ACL rules block legitimate traffic (false positive alert)
+- Send all WAF blocks to your SIEM system for analysis
+
+**What you do:**
+1. Go to Cerberus Dashboard
+2. Click "Notification Settings"
+3. Enable notifications
+4. Set minimum level to "warn" or "error"
+5. Choose which event types to monitor
+6. Add your webhook URL or email addresses
+7. Save
+
+**Technical details:**
+- Notifications respect the minimum log level (e.g., only send errors)
+- Webhook payloads include full event context (IP, request details, rule matched)
+- Email delivery requires SMTP configuration (future feature)
+- Webhook retries with exponential backoff on failure
+
+---
 ## \ud83d\udcbe Backup & Restore
 
 **What it does:** Saves a copy of your configuration before destructive changes.

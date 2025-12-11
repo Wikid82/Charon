@@ -134,25 +134,7 @@ describe('Security page', () => {
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith('security.acl.enabled', 'true', 'security', 'bool'))
   })
 
-  it('calls export endpoint when clicking Export', async () => {
-    const status: SecurityStatus = {
-      cerberus: { enabled: true },
-      crowdsec: { enabled: true, mode: 'local' as const, api_url: '' },
-      waf: { enabled: false, mode: 'disabled' as const },
-      rate_limit: { enabled: false },
-      acl: { enabled: false },
-    }
-    vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
-    const blob = new Blob(['dummy'])
-    vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(blob)
-    vi.spyOn(window, 'prompt').mockReturnValue('crowdsec-export')
-
-    renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Cerberus Dashboard')).toBeInTheDocument())
-    const exportBtn = screen.getByText('Export')
-    await userEvent.click(exportBtn)
-    await waitFor(() => expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled())
-  })
+  // Export button is in CrowdSecConfig component, not Security page
 
   it('calls start/stop endpoints for CrowdSec via toggle', async () => {
     const user = userEvent.setup()

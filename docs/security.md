@@ -241,6 +241,168 @@ Allows friends to access, blocks obvious threat countries.
 
 ---
 
+## Live Security Monitoring
+
+### Live Log Viewer
+
+**What it does:** Stream security events in real-time directly in the Cerberus Dashboard.
+
+**Where to find it:** Cerberus → Dashboard → Scroll to "Live Activity" section
+
+**What you'll see:**
+- Real-time WAF blocks and detections
+- CrowdSec decisions as they happen
+- ACL denials (geo-blocking, IP filtering)
+- Rate limiting events
+- All Cerberus security activity
+
+**Controls:**
+- **Pause** — Stop the stream to examine specific events
+- **Clear** — Remove old entries from the display
+- **Auto-scroll** — Automatically follow new events
+- **Filter** — Search logs by text, level, or source
+
+**How to use it:**
+
+1. Open Cerberus Dashboard
+2. Scroll to the Live Activity section
+3. Watch events appear in real-time
+4. Click "Pause" to stop streaming and review events
+5. Use the filter box to search for specific IPs, rules, or messages
+6. Click "Clear" to remove old entries
+
+**Technical details:**
+- Uses WebSocket for real-time streaming (no polling)
+- Keeps last 500 entries by default (configurable)
+- Server-side filtering reduces bandwidth
+- Automatic reconnection on disconnect
+
+### Security Notifications
+
+**What it does:** Sends alerts when critical security events occur.
+
+**Why you care:** Get immediate notification of attacks or suspicious activity without watching the dashboard 24/7.
+
+#### Configure Notifications
+
+1. Go to **Cerberus Dashboard**
+2. Click **"Notification Settings"** button (top-right)
+3. Configure your preferences:
+
+**Basic Settings:**
+- **Enable Notifications** — Master toggle
+- **Minimum Log Level** — Choose: debug, info, warn, or error
+  - `error` — Only critical events (recommended)
+  - `warn` — Important warnings and errors
+  - `info` — Normal operations plus warnings/errors
+  - `debug` — Everything (very noisy, not recommended)
+
+**Event Types:**
+- **WAF Blocks** — Notify when firewall blocks an attack
+- **ACL Denials** — Notify when access control rules block requests
+- **Rate Limit Hits** — Notify when traffic thresholds are exceeded
+
+**Delivery Methods:**
+- **Webhook URL** — Send to Discord, Slack, or custom integrations
+- **Email Recipients** — Comma-separated email addresses (requires SMTP setup)
+
+#### Webhook Integration
+
+**Security considerations:**
+
+1. **Use HTTPS webhooks only** — Never send security alerts over unencrypted HTTP
+2. **Validate webhook endpoints** — Ensure the URL is correct before saving
+3. **Protect webhook secrets** — If your webhook requires authentication, use environment variables
+4. **Rate limiting** — Charon does NOT rate-limit webhook calls; configure your webhook provider to handle bursts
+5. **Sensitive data** — Webhook payloads may contain IP addresses, request URIs, and user agents
+
+**Supported platforms:**
+- Discord (use webhook URL from Server Settings → Integrations)
+- Slack (create incoming webhook in Slack Apps)
+- Microsoft Teams (use incoming webhook connector)
+- Custom HTTPS endpoints (any server that accepts POST requests)
+
+**Webhook payload example:**
+
+```json
+{
+  "event_type": "waf_block",
+  "severity": "error",
+  "timestamp": "2025-12-09T10:30:45Z",
+  "message": "WAF blocked SQL injection attempt",
+  "details": {
+    "ip": "203.0.113.42",
+    "rule_id": "942100",
+    "request_uri": "/api/users?id=1' OR '1'='1",
+    "user_agent": "curl/7.68.0"
+  }
+}
+```
+
+**Discord webhook format:**
+
+Charon automatically formats notifications for Discord:
+
+```json
+{
+  "embeds": [{
+    "title": "🛡️ WAF Block",
+    "description": "SQL injection attempt blocked",
+    "color": 15158332,
+    "fields": [
+      { "name": "IP Address", "value": "203.0.113.42", "inline": true },
+      { "name": "Rule", "value": "942100", "inline": true },
+      { "name": "URI", "value": "/api/users?id=1' OR '1'='1" }
+    ],
+    "timestamp": "2025-12-09T10:30:45Z"
+  }]
+}
+```
+
+**Testing your webhook:**
+
+1. Add your webhook URL in Notification Settings
+2. Save the settings
+3. Trigger a test event (try accessing a blocked URL)
+4. Check your Discord/Slack channel for the notification
+
+**Troubleshooting webhooks:**
+- No notifications? Check webhook URL is correct and HTTPS
+- Wrong format? Verify your platform's webhook documentation
+- Too many notifications? Increase minimum log level to "error" only
+- Notifications delayed? Check your network connection and firewall rules
+
+### Log Privacy Considerations
+
+**What's logged:**
+- IP addresses of blocked requests
+- Request URIs and query parameters
+- User-Agent strings
+- Rule IDs that triggered blocks
+- Timestamps of security events
+
+**What's NOT logged:**
+- Request bodies (POST data)
+- Authentication credentials
+- Session cookies
+- Response bodies
+
+**Privacy best practices:**
+
+1. **Filter logs before sharing** — Remove sensitive IPs or URIs before sharing logs externally
+2. **Secure webhook endpoints** — Use HTTPS and authenticate webhook requests
+3. **Respect GDPR** — IP addresses are personal data in some jurisdictions
+4. **Retention policy** — Live logs are kept for the current session only (not persisted to disk)
+5. **Access control** — Only authenticated users can access live logs (when auth is implemented)
+
+**Compliance notes:**
+- Live log streaming does NOT persist logs to disk
+- Logs are only stored in memory during active WebSocket sessions
+- Notification webhooks send log data to third parties (Discord, Slack)
+- Email notifications may contain sensitive data
+
+---
+
 ## Turn It Off
 
 If security is causing problems:

@@ -250,4 +250,27 @@ describe('CrowdSecConfig', () => {
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Method: cscli')
     // reloadHint is a boolean and renders as empty/true - just verify the info section exists
   })
+
+  it('shows improved error message when preset is not cached', async () => {
+    const axiosError = {
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          error: 'CrowdSec preset not cached. Pull the preset first by clicking \'Pull Preview\', then try applying again.',
+        },
+      },
+      message: 'Request failed',
+    } as AxiosError
+
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError)
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    const applyBtn = await screen.findByTestId('apply-preset-btn')
+    await userEvent.click(applyBtn)
+
+    await waitFor(() => expect(screen.getByTestId('preset-validation-error')).toBeInTheDocument())
+    expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('Preset must be pulled before applying')
+  })
 })

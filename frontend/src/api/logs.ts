@@ -66,3 +66,68 @@ export const downloadLog = (filename: string) => {
   // but for now we assume relative path works with the proxy setup
   window.location.href = `/api/v1/logs/${filename}/download`;
 };
+
+export interface LiveLogEntry {
+  level: string;
+  timestamp: string;
+  message: string;
+  source?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface LiveLogFilter {
+  level?: string;
+  source?: string;
+}
+
+/**
+ * Connects to the live logs WebSocket endpoint.
+ * Returns a function to close the connection.
+ */
+export const connectLiveLogs = (
+  filters: LiveLogFilter,
+  onMessage: (log: LiveLogEntry) => void,
+  onOpen?: () => void,
+  onError?: (error: Event) => void,
+  onClose?: () => void
+): (() => void) => {
+  const params = new URLSearchParams();
+  if (filters.level) params.append('level', filters.level);
+  if (filters.source) params.append('source', filters.source);
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
+
+  console.log('Connecting to WebSocket:', wsUrl);
+  const ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    console.log('WebSocket connection established');
+    onOpen?.();
+  };
+
+  ws.onmessage = (event: MessageEvent) => {
+    try {
+      const log = JSON.parse(event.data) as LiveLogEntry;
+      onMessage(log);
+    } catch (err) {
+      console.error('Failed to parse log message:', err);
+    }
+  };
+
+  ws.onerror = (error: Event) => {
+    console.error('WebSocket error:', error);
+    onError?.(error);
+  };
+
+  ws.onclose = (event: CloseEvent) => {
+    console.log('WebSocket connection closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+    onClose?.();
+  };
+
+  return () => {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  };
+};

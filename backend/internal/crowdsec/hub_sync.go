@@ -361,10 +361,15 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 		previewText = s.peekFirstYAML(archiveBytes)
 	}
 
+	logger.Log().WithField("slug", cleanSlug).WithField("etag", entry.Etag).WithField("archive_size", len(archiveBytes)).WithField("preview_size", len(previewText)).Info("storing preset in cache")
+
 	cachedMeta, err := s.Cache.Store(pullCtx, cleanSlug, entry.Etag, "hub", previewText, archiveBytes)
 	if err != nil {
-		return PullResult{}, err
+		logger.Log().WithError(err).WithField("slug", cleanSlug).Error("failed to store preset in cache")
+		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
+
+	logger.Log().WithField("slug", cachedMeta.Slug).WithField("cache_key", cachedMeta.CacheKey).WithField("archive_path", cachedMeta.ArchivePath).WithField("preview_path", cachedMeta.PreviewPath).Info("preset successfully cached")
 
 	return PullResult{Meta: cachedMeta, Preview: previewText}, nil
 }
@@ -391,10 +396,12 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	}
 
 	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
-	result.BackupPath = backupPath
 	if err := s.backupExisting(backupPath); err != nil {
+		// Only set BackupPath if backup was actually created
 		return result, fmt.Errorf("backup: %w", err)
 	}
+	// Set BackupPath only after successful backup
+	result.BackupPath = backupPath
 
 	// Try cscli first
 	if hasCS {
@@ -498,12 +505,16 @@ func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, er
 
 func (s *HubService) loadCacheMeta(ctx context.Context, slug string) (CachedPreset, error) {
 	if s.Cache == nil {
+		logger.Log().WithField("slug", slug).Error("cache unavailable for apply")
 		return CachedPreset{}, fmt.Errorf("cache unavailable for manual apply")
 	}
+	logger.Log().WithField("slug", slug).Debug("attempting to load cached preset metadata")
 	meta, err := s.Cache.Load(ctx, slug)
 	if err != nil {
-		return CachedPreset{}, err
+		logger.Log().WithError(err).WithField("slug", slug).Warn("failed to load cached preset metadata")
+		return CachedPreset{}, fmt.Errorf("load cache for %s: %w", slug, err)
 	}
+	logger.Log().WithField("slug", meta.Slug).WithField("cache_key", meta.CacheKey).WithField("archive_path", meta.ArchivePath).Info("successfully loaded cached preset metadata")
 	return meta, nil
 }
 
@@ -563,9 +574,26 @@ func (s *HubService) backupExisting(backupPath string) error {
 	if _, err := os.Stat(s.DataDir); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err := os.Rename(s.DataDir, backupPath); err != nil {
-		return err
+
+	// First try rename for performance (atomic operation)
+	if err := os.Rename(s.DataDir, backupPath); err == nil {
+		return nil
 	}
+
+	// If rename fails (e.g., device busy, cross-device), use copy approach
+	logger.Log().WithField("data_dir", s.DataDir).WithField("backup_path", backupPath).Info("rename failed; using copy-based backup")
+
+	// Create backup directory
+	if err := os.MkdirAll(backupPath, 0o755); err != nil {
+		return fmt.Errorf("mkdir backup: %w", err)
+	}
+
+	// Copy directory contents recursively
+	if err := copyDir(s.DataDir, backupPath); err != nil {
+		_ = os.RemoveAll(backupPath)
+		return fmt.Errorf("copy backup: %w", err)
+	}
+
 	return nil
 }
 
@@ -646,6 +674,67 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 		}
 	}
 	return nil
+}
+
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("src is not a directory")
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("read dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := os.MkdirAll(dstPath, 0o755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", dstPath, err)
+			}
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open src: %w", err)
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("stat src: %w", err)
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return fmt.Errorf("create dst: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+
+	return dstFile.Sync()
 }
 
 // peekFirstYAML attempts to extract the first YAML snippet for preview purposes.

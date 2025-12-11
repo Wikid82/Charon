@@ -1,276 +1,194 @@
-History Rewrite: Address Copilot Suggestions (PR #336)
-===================================================
+# Frontend Coverage Boost — CrowdSecConfig to 100%
+**Date**: December 10, 2025
+**Goal**: Drive frontend coverage past the target with zero dead branches, prioritizing a full sweep of [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx) while honoring the broader [frontend_coverage_boost](docs/plans/frontend_coverage_boost.md) roadmap.
 
-Summary
--------
-- PR #336 introduced history-rewrite tooling, documentation, and a CI dry-run workflow to detect unwanted large blobs and CodeQL DB artifacts in repository history.
-- Copilot left suggestions on the PR asserting a number of robustness, testing, validation, and safety improvements.
-- This spec documents how to resolve those suggestions, lists the impacted files and functions, and provides an implementation & QA plan.
+---
 
-Copilot Suggestions (Short Summary)
-----------------------------------
-- Improve `validate_after_rewrite.sh` to use a defined `backup_branch` variable and fail gracefully when missing.
-- Harden `clean_history.sh` and `preview_removals.sh` to handle shallow clones, tags, and refs, validate `git-filter-repo` args, and double-check backups (include tags & annotated refs).
-- Add automated script unit tests (shell) for the scripts (preview/dry-run/validate) to make them testable and CI-friendly.
-- Add a CI job to run these script tests (e.g., `bats-core`) and trap shallow clones early.
-- Expand pre-commit and `.gitignore` coverage (include `data/backups`), validate `backup_branch` push, and refuse running filter-repo on `main`/`master` or non-existent remotes.
-- Add more detailed PR checklist validation (tags, backup branch pushed) and update docs/examples.
+## Mission and Targets
+- Elevate overall frontend coverage (statements/branches/functions) by executing the existing coverage boost plan, with CrowdSec flows as the flagship effort.
+- Achieve **100% statement/branch coverage** for CrowdSecConfig and lock in regression-proof harnesses for presets, imports/exports, mode toggles, file edits, and ban/unban flows.
+- Keep test count lean by maximizing branch coverage per test; prefer RTL plus mocked API clients over heavy integration scaffolding.
 
-Files Changed / Impacted
-------------------------
-Core scripts and CI currently touched by PR #336 and Copilot suggestions (primary targets):
-- scripts/history-rewrite/clean_history.sh
-  - Functions: `check_requirements`, `timestamp`, `preview_removals` block, local `backup_branch` creation.
-  - Behaviors to harden: shallow clone handling; ensure backup branch pushed to remote and tags backed up; refuse to run on `main`/`master`; confirm `git-filter-repo` args are validated; ensure remote tag backup.
-- scripts/history-rewrite/preview_removals.sh
-  - Behaviors to add: more structured preview output (json or delimited), detect shallow clone and warn, add checks for tags & refs.
-- scripts/history-rewrite/validate_after_rewrite.sh
-  - Fix bug: `backup_branch` referenced but not set, add env variable or accept `--backup-branch` argument; verify pre-commit location; exit non-zero on failures.
-- scripts/ci/dry_run_history_rewrite.sh
-  - Add shallow clone detection and early fail with instructions to fetch full history; ensure `git rev-list` does not grow too large on very large repositories (timeout or cap); fail on conditions.
-- .github/workflows/dry-run-history-rewrite.yml
-  - Behavior: run the new tests; ensure fetch-depth 0; add `bats` runner step or `shellcheck` runner.
-- .github/workflows/pr-checklist.yml
-  - Behavior: enhance validation of PR body for additional checklist items: ensure `data/backups` log is attached, `tags` backup statement, and maintainers ack for forced rewrite.
-- .github/PULL_REQUEST_TEMPLATE/history-rewrite.md
-  - Behavior: update the checklist with new checks for tags and `data/backups/` and note `validate_after_rewrite.sh` will fail if not present.
-- .gitignore
-  - Add `data/backups/` to `.gitignore` to ensure backup logs are not accidentally committed.
-- .pre-commit-config.yaml
-  - Add a new `block-data-backups-commit` hook to prevent accidental commits to `data/backups`.
+## Surface Map for CrowdSecConfig (must-cover branches)
+- **Data gating**: loading, `error`, missing `status`, missing `status.crowdsec`, disabled mode banner, and local mode rendering.
+- **Mode toggle**: `handleModeToggle` success vs mutation error (toast path) with `data-testid="crowdsec-mode-toggle"` disabled state while pending.
+- **Import/Export**: `handleExport` success/failure (toast), `handleImport` with/without file, backup mutation errors surfaced via `importMutation.onError`.
+- **Preset lifecycle**: initial `useEffect` slug selection, `pullPresetMutation` success (preview/meta set), 400 validation (`preset-validation-error`), 503 hub offline (`preset-hub-unavailable` plus cached preview button), generic failure message, `getCrowdsecPresetCache` fallback path.
+- **Apply paths**: backend apply success (sets `preset-apply-info`), 501 fallback to `applyPresetLocally` (sets status and local toast), 400 validation error, 503 hub unavailable, missing cache error (`Preset must be pulled...`), generic failure with backup in payload, disabled button logic (`presetActionDisabled`).
+- **Local apply helper**: missing preset, missing target file, empty preview/content, success path that writes via `writeCrowdsecFile` and refreshes file list.
+- **Preset preview UI**: meta display, warning, cached preview button, source/etag fields, render when catalog empty.
+- **File editor**: `handleReadFile` sets `selectedPath` and loads content, `handleSaveFile` with backup and write success, close button resets state, textarea `onChange` updates state.
+- **Banned IPs**: disabled mode message, loading, error, empty state, populated table rendering, `Ban IP` modal open/submit success/error, `Unban` confirmation flow success/error.
+- **Status overlay messaging**: `getMessage()` branches for each pending mutation (pull/apply/import/write/mode/ban/unban) to assert correct `ConfigReloadOverlay` messaging.
 
-Potential Secondary Impact (best-guess; confirm):
-- scripts/pre-commit-hooks/block-codeql-db-commits.sh (might need to be more strict): extend to check codeql-db-* and codeql-*.sarif patterns.
-- scripts/ci/dry_run_history_rewrite.sh invocation in `.github/workflows/dry-run-history-rewrite.yml`: adjust to ensure `fetch-depth: 0` is set and that `git` is non-shallow.
+## Phases (minimize request count)
+### Phase 1 — Harness and fixtures
+- Add a focused RTL harness for CrowdSec pages (e.g., [frontend/src/pages/__tests__/CrowdSecConfig.test.tsx](frontend/src/pages/__tests__/CrowdSecConfig.test.tsx)) with a reusable `renderWithQueryClient` helper to isolate cache per test.
+- Mock API layers (`getSecurityStatus`, `listCrowdsecPresets`, `pullCrowdsecPreset`, `applyCrowdsecPreset`, `getCrowdsecPresetCache`, `listCrowdsecFiles`, `readCrowdsecFile`, `writeCrowdsecFile`, `listCrowdsecDecisions`, `banIP`, `unbanIP`, `exportCrowdsecConfig`, `importCrowdsecConfig`, `createBackup`, `updateSetting`) via vi.fn/MSW to drive branches deterministically.
+- Create lightweight fixture data: security status (disabled/local), preset catalogs (hub available/unavailable, cached), decisions list (empty/populated), file lists, preset previews.
 
-Implementation Plan (Phases)
---------------------------
-PHASE 1 — Script Hardening (2-4 days)
-- Goals: fix functional bugs, add validation checks, handle edge cases (shallow clones, tag preservation), make scripts idempotent and testable.
-- Tasks:
-  1. Update `scripts/history-rewrite/validate_after_rewrite.sh`:
-     - Add a command-line argument or `ENV` for `--backup-branch` and fallback to reading `backup_branch` from the log in `data/backups` if present.
-     - Ensure it sets `backup_branch` correctly or exits with a clear message.
-     - Ensure it currently fails the build on any reported issues (non-zero exit when pre-commit fails in CI mode).
-  2. Update `scripts/history-rewrite/clean_history.sh`:
-     - Detect shallow clones (if `git rev-parse --is-shallow-repository` returns true) and fail with instructions to `git fetch --unshallow`.
-     - When creating `backup_branch`, also include tag backups: `git tag -l | xargs -n1 -I{} git tag -l -n {}...` and push tags to `origin` into `backup/tags/history-YYYY...` namespace OR save them to `data/backups/tags-*.tar`.
-     - Validate `git-filter-repo` args are valid—use `git filter-repo --help` to confirm that provided `--strip-blobs-bigger-than` args are numbers and `--paths` exist in repo for the dry-run case.
-     - Ensure `backup_branch` is pushed successfully, otherwise abort.
-     - Make `read -r confirmation` explicit with `--` or a short timeout to avoid interactive hang; in scripts launched via terminal, interactive fallback is acceptable, but in CI this should not be used. Add `--non-interactive` to skip confirmation in CI with an explicit flag and require maintainers to pass `FORCE=1` in env to proceed.
-  3. Update `scripts/history-rewrite/preview_removals.sh`:
-     - Add structured `--format` option with `text` (default) and `json` for CI parsing; include commit oids, paths, and sizes in the output.
-     - Detect & warn if the repo is shallow.
-  4. Add a `scripts/history-rewrite/check_refs.sh` helper:
-     - Print current branches, tags, and any remotes pointing to objects in the paths to be removed.
-     - Output a tarball `data/backups/tags-YYYYMMDD.tar` with tag refs.
+### Phase 2 — CrowdSecConfig 100% coverage
+Execute targeted tests hitting every branch listed in the surface map:
+- **Gatekeeper states**: render loading, error, no status, missing `crowdsec`, disabled mode messaging, local mode happy path base render.
+- **Mode toggle**: assert success toast and invalidation, and error toast path (simulate thrown error) with switch disabled while pending.
+- **Import/Export**: success export download invocation; import with file triggers backup plus import mutations; no-file guard; import error toast from `onError`.
+- **Presets**: initial preset selection when `selectedPresetSlug` is empty; pull success populates preview/meta; hub 503 shows `preset-hub-unavailable` and cached preview button; validation 400 sets `preset-validation-error`; generic failure sets `preset-status`; cached preview load path toggles `hubUnavailable` false.
+- **Apply**: backend success populates `preset-apply-info` (backup/reload/usedCscli fields); backend 501 falls back to `applyPresetLocally` and sets status/local toast; backend 400 validation error path; backend 503 hub unavailable path; missing cache error path setting validation message; generic failure with backup path; button disabled when hub offline plus preset requires hub.
+- **Local apply helper**: guard when no preset selected; guard when no target file; guard when preview missing; success writes file, updates `applyInfo` with cacheKey, refreshes list, sets `selectedPath` and `fileContent`.
+- **File editor**: list select loads content; save triggers backup plus write success; close resets state; textarea change updates state.
+- **Banned IPs**: disabled mode message; loading spinner; error rendering; empty state; populated table row render (IP/Reason/Duration/Created/Source/Actions); unban confirm modal flows to success; ban modal opens, disables submit until IP entered, success toast path.
+- **Overlay messaging**: drive each mutation pending flag (pull/apply/import/write/mode/ban/unban) to assert `ConfigReloadOverlay` message/submessage selections.
 
-PHASE 2 — Testing & Automation (2-3 days)
-- Goals: Add script unit tests and CI steps to run them; add a validation pipeline for maintainers to use.
-- Tasks:
-  1. Add `bats-core` test harness inside `scripts/history-rewrite/tests/`.
-     - `scripts/history-rewrite/tests/preview_removals.bats` — tests ensuring the preview prints commits and objects for specified paths.
-     - `scripts/history-rewrite/tests/clean_history.dryrun.bats` — tests that `--dry-run` exits non-zero when repo contains banned paths and that `--force` requires confirmation.
-     - `scripts/history-rewrite/tests/validate_after_rewrite.bats` — tests that `validate_after_rewrite.sh` uses `--backup-branch` and fails with the correct non-zero codes when `backup_branch` is missing.
-  2. Add a `ci/scripts/test-history-rewrite.yml` workflow to run bats tests in CI and to fail early on shallow clones or missing tools.
-  3. Add a script-level `shellcheck` pass and a `bash` minimal lint step; use `shellcheck` GitHub Action or pre-commit hook.
+- Add the high-yield tests from the roadmap to lift overall coverage: [frontend/src/api/notifications.ts](frontend/src/api/notifications.ts), [frontend/src/api/logs.ts](frontend/src/api/logs.ts), [frontend/src/api/users.ts](frontend/src/api/users.ts), [frontend/src/pages/SMTPSettings.tsx](frontend/src/pages/SMTPSettings.tsx), [frontend/src/components/LiveLogViewer.tsx](frontend/src/components/LiveLogViewer.tsx), [frontend/src/pages/UsersPage.tsx](frontend/src/pages/UsersPage.tsx), [frontend/src/pages/Security.tsx](frontend/src/pages/Security.tsx), [frontend/src/pages/Dashboard.tsx](frontend/src/pages/Dashboard.tsx), [frontend/src/components/Layout.tsx](frontend/src/components/Layout.tsx) (plus any remaining Summary/FeatureFlagProvider items if present).
+- Apply the deflake strategies noted for SMTP and ensure React Query caches are reset between tests.
 
-PHASE 3 — PR Pipeline & Pre-commit (1-2 days)
-- Goals: Prevent accidental destructive runs and accidental commits of generated backups.
-- Tasks:
-  1. Update the PR template `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` adding checklist items: tag backups, confirm `data/backups` tarball included, confirm remote pushed backup branch and tags, optional `CI verification output` from `preview_removals --format json`.
-  2. Update `.github/workflows/pr-checklist.yml` to validate: presence of `preview_removals` output in PR body, a check that `data/backups` is attached, and additional keywords like `tag backup` and `backup branch pushed`.
-  3. Add `.pre-commit-config.yaml` hook to block commits to `data/backups` and ensure `data/backups` is added to `.gitignore`.
-  4. Add `scripts/pre-commit-hooks/validate-backup-branch.sh` which verifies that `backup_branch` exists and points to the expected ref(s).
+## Test Data and Techniques
+- Favor MSW or vi.fn stubs with per-test response shaping to toggle status codes (200/400/501/503) and payloads for presets/decisions/files.
+- Use `await screen.findBy...` to avoid race conditions with async queries; keep real timers unless code relies on timers.
+- Spy on `toast.success/error/info` to assert side effects without leaking state across tests.
+- For downloads, mock `downloadCrowdsecExport` and `promptCrowdsecFilename` to avoid touching the filesystem while still asserting call arguments.
 
-PHASE 4 — Docs, QA & Rollout (1-2 days)
-- Goals: Update docs, add reproducible tests, and provide QA instructions and rollback strategies.
-- Tasks:
-  1. Update `docs/plans/history_rewrite.md` to include:
-     - `backup_branch` naming and tagging policy
-     - `data/backups` layout, e.g., `metadata.json`, `tags.tar.gz`, `log` paths
-     - Example `preview_removals --format json` output for PR inclusion
-  2. Add `docs/plans/current_spec.md` (this file) containing the execution plan and timeline estimate.
-  3. QA steps: run `clean_history.sh --dry-run`, `preview_removals.sh` with `--format json` for PR attachments, then proceed with `--force` only after maintainers confirm window; verify via `validate_after_rewrite.sh` and CI.
+## Commands and Checks
+- `cd frontend && npm test -- --runInBand --watch=false` for focused iterations on new specs.
+- `cd frontend && npm run coverage` (or `vitest run --coverage`) to verify 100% on CrowdSecConfig and >=85% overall before merging.
+- `cd frontend && npm run type-check` to ensure new test utils respect types.
 
-PHASE 5 — Post-Deploy & Maintenance (1 day)
-- Run `git gc` and prune on mirrors; notify downstream consumers; update CI mirrors and caches. Verify repository size decreased within expected tolerance.
+## File Hygiene Notes
+- [.gitignore](.gitignore): already excludes [frontend/coverage](frontend/coverage) and [frontend/test-results](frontend/test-results); no change needed for the new specs or fixtures.
+- [.dockerignore](.dockerignore): keeps docs and tests out of the image; safe to leave as-is for this plan.
+- [.codecov.yml](.codecov.yml): coverage target at 75% is looser than our goal but fine; ignore patterns keep tests out of reports without harming source coverage—no update required.
+- [Dockerfile](Dockerfile): no frontend testing impact; no adjustments needed for this coverage work.
 
-Unit & Integration Tests (Files & Functions)
--------------------------------------------
-Add these test files to `scripts/history-rewrite/tests/`.
-Unit test harness: `bats-core` recommended; tests should run without network and create ephemeral local repositories.
+## Risks and Mitigations
+- **Async flakiness**: mitigate with `findBy` queries and isolated QueryClient per test.
+- **Mutation overlap**: ensure one mutation pending flag is exercised per test to avoid ambiguous overlay assertions.
+- **Fixture drift**: store preset/file/decision fixtures near tests to keep intent visible; update when API shapes evolve.
 
-- `scripts/history-rewrite/tests/preview_removals.bats`:
-  - test_preview_detects_banned_commits()
-  - test_preview_detects_large_blob_sizes()
-  - test_preview_outputs_json_when_requested()
+## Definition of Done (for this effort)
+- All CrowdSecConfig branches covered (100% statements/branches/functions) with deterministic RTL tests.
+- Remaining coverage boost items from the roadmap implemented or queued with clear owners.
+- Frontend test suite passes locally; coverage report confirms lift; no ignores or Docker/git hygiene regressions introduced.
+go test -coverprofile=handlers_full.cover ./internal/api/handlers -v
+go tool cover -func=handlers_full.cover | grep total
 
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats`:
-  - test_dry_run_exits_success_when_no_banned_paths()
-  - test_dry_run_reports_banned_commits()
-  - test_force_requires_confirmation() — simulate interactive confirmation or set `FORCE=1` with `--non-interactive` flag to test non-interactive usage.
-  - test_refuse_on_main_branch() — ensures script refuses to run on `main`/`master`.
+# HTML report
+go tool cover -html=handlers_full.cover -o handlers_coverage.html
 
-- `scripts/history-rewrite/tests/validate_after_rewrite.bats`:
-  - test_validate_fails_when_backup_branch_missing()
-  - test_validate_passes_when_backup_branch_provided_and_all_checks_clear()
-  - test_validate_populates_log_and_error_when_precommit_fails()
-
-Integration test (bash / simulated repository): a test that acts as a small git repo containing a `backend/codeql-db` folder and a large fake blob.
-- `scripts/history-rewrite/tests/integration_clean_history.bats`:
-  - test_integration_end_to_end_preview_then_dry_run(): create a local repo, add a large file under `backend/codeql-db`, commit it, run `preview_removals` to capture output, ensure `clean_history.sh --dry-run` detects it, then run `clean_history.sh --force` but only after backing up repo; verify `git rev-list` no longer returns commits for that path.
-
-Exact tests & names (for maintainers' convenience):
-- `scripts/history-rewrite/tests/preview_removals.bats::test_preview_detects_banned_commits`
-- `scripts/history-rewrite/tests/preview_removals.bats::test_preview_outputs_json`
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats::test_dry_run_reports_banned_commits`
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats::test_force_requires_confirmation`
-- `scripts/history-rewrite/tests/validate_after_rewrite.bats::test_validate_fails_when_backup_branch_missing`
-- `scripts/history-rewrite/tests/integration_clean_history.bats::test_integration_end_to_end_preview_then_dry_run`
-
-CI & Pre-commit Changes
------------------------
-- Add `data/backups/` to `.gitignore` (to avoid accidental commits of backup logs) and ensure `scripts` produce readable `data/backups` logs that can be attached to PRs.
-- Add a new pre-commit hook `scripts/pre-commit-hooks/block-data-backups-commit.sh` to block user commits of `data/backups` and `data/backups/*` (mirror `block-codeql-db-commits.sh`).
-- Add `shellcheck` to the pre-commit config or add a `scripts/ci/shellcheck_history_rewrite.yml` workflow that ensures scripts pass style checks.
-- Create a new CI workflow: `.github/workflows/history-rewrite-tests.yml`
-  - Steps: Checkout with `fetch-depth: 0`, install bats-core via apt or package manager, run the `bats` tests, run `shellcheck` for scripts, and run `scripts/ci/dry_run_history_rewrite.sh`.
-- Update existing `.github/workflows/dry-run-history-rewrite.yml` to:
-  - Ensure `fetch-depth: 0` in `actions/checkout` is set (already the case), and fail early for shallow clones; add a `shellcheck` step and `bats` tests step.
-
-Potential Regressions & Rollback Strategies
--------------------------------------------
-- Regressions:
-  - Accidental removal of unrelated history entries due to incorrect `--paths` or `--invert-paths` usage.
-  - Loss of tags or refs if not properly backed up and pushed to a safe place before rewrite.
-  - CI breakage from new pre-commit hooks or failing `bats` tests.
-  - Developer pipelines or forks could break from forced `--all --force` push if they do not follow the rollback steps.
-
-- Mitigations & Rollback:
-  - **Always create backups**: `backup_branch` and `backup/tags/history-YYYYMMDD` tarball stored outside the working repo (S3/GitHub release) prior to any `--force` push.
-  - Maintain a simple rollback command sequence in the docs:
-    - `git checkout -b restore/DATE backup/history-YYYYMMDD-HHMMSS`
-    - `git push origin restore/DATE` and create a PR to restore the history (or directly replace refs on the remote as maintainers decide)
-  - Keep the `data/backups/` tarball outside the repo in a known remote location (this will also help recovery if the `backup_branch` is not visible).
-  - Ensure CI `dry-run` workflow is fully functional and fails on shallow clones so maintainers must re-run with a proper clone.
-  - Add a section in `docs/plans/history_rewrite.md` to show commands to restore tags if they were mistakenly deleted.
-
-Backwards Compatibility & Maintainers' Notes
--------------------------------------------
-- The scripts must remain POSIX-compliant where pragmatic; use `/bin/sh` for portability.
-- Avoid automatic `git push --all --force` from scripts; maintainers must perform final coordinated push.
-- Scripts will remain safe by default (`--dry-run` or interactive) with `--force` and explicit `I UNDERSTAND` confirmation for destructive operations.
-
-Timeline Estimate (Rough)
-------------------------
-- Script hardening: 2-4 days
-- Tests & CI: 2-3 days
-- PR pipeline updates & pre-commit hooks: 1-2 days
-- Docs, QA & rollout ( manual coordination): 1-2 days
-- Total: 6-11 business days (one-to-two weeks), may vary with availability of maintainers and CR feedback.
-
-Deployment Checklist for Maintainers
-----------------------------------
-Before scheduling a destructive rewrite:
-1. Verify all `bats` tests in `scripts/history-rewrite/tests` pass on CI.
-2. Ensure backup branches and tags are pushed to `origin` (and optionally exported to external storage like an S3 bucket).
-3. Confirm the PR uses `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` and the PR automation passes.
-4. Run full `scripts/history-rewrite/clean_history.sh --dry-run` and `scripts/history-rewrite/preview_removals.sh --format json` locally and attach outputs to the PR.
-5. Have at least two maintainers approve the destructive rewrite before pushing `git push --all --force`.
-
-Development checklist
----------------------
- - [ ] Implement described script and validation changes.
- - [ ] Add `bats` tests and `history-rewrite` test CI workflow.
- - [ ] Add `data/backups/` to `.gitignore` and add pre-commit hooks to block accidental commits.
- - [ ] Update `pr-checklist.yml` to include tag-backup checks, backup logs, and PR content checks.
- - [ ] Add maintainers' docs and rollback examples.
-
-Follow-ups / Outstanding Questions (ask maintainers)
---------------------------------------------------
-- Should `data/backups` remain inside repo (but ignored) or be offloaded to a remote store before the rewrite?
-- Should `clean_history.sh` create an optional tarball of `refs` and `tags` and push to `origin/backups/` or an alternate remote repository for longer term storage?
-- For CI (bats) tests: do we want to install `bats-core` in the main CI image, or depend on an apt install in the `history-rewrite-tests` workflow?
-- Is `git-filter-repo` present on official runner images or should we install it in the CI workflow each time? (script currently exits with `Please install git-filter-repo` advisory.)
-
-Appendix: Example `bats` Test Skeleton (preview_removals)
-------------------------------------------------------
-You can start implementing the tests with `bats` like the following skeleton:
-
-```
-#!/usr/bin/env bats
-
-setup() {
-  repo_dir="$(mktemp -d)"
-  cd "$repo_dir"
-  git init -q
-  mkdir -p backend/codeql-db
-  echo "largefile" > backend/codeql-db/big.txt
-  git add -A
-  git commit -m "feat: add dummy codeql-db file" || exit 1
-}
-
-teardown() {
-  rm -rf "$repo_dir"
-}
-
-@test "preview_removals reports commits in path" {
-  run sh /workspace/scripts/history-rewrite/preview_removals.sh --paths 'backend/codeql-db' --strip-size 1
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Commits touching specified paths"* ]]
-}
+# Pre-commit (includes all checks)
+cd /projects/Charon
+.venv/bin/pre-commit run --all-files
 ```
 
-This same pattern can be reused to spawn a test repository and run `clean_history.sh --dry-run`, `validate_after_rewrite.sh` and assert expected outputs and exit codes.
+---
 
-Done.
-# Investigation and Remediation Plan: CI Failures on feature/beta-release
+## Part 7: Risk Assessment
 
-## 1. Incident Summary
-**Issue**: CI builds failing on `feature/beta-release`.
-**Symptoms**:
-- Frontend build fails due to missing module `../data/crowdsecPresets`.
-- Backend coverage check fails (likely due to missing tests or artifacts).
-- Docker build fails.
-**Root Cause Identified**:
-- The file `frontend/src/data/crowdsecPresets.ts` exists locally but was **ignored by git** due to an overly broad pattern in `.gitignore`.
-- The pattern `data/` in `.gitignore` (intended for the root `data/` directory) accidentally matched `frontend/src/data/`.
+### Technical Risks
 
-## 2. Diagnosis Details
-- **Local Environment**: The file `frontend/src/data/crowdsecPresets.ts` was present, so local `npm run build` and `npm run test:ci` passed.
-- **CI Environment**: The file was missing because it was not committed.
-- **Git Ignore Analysis**:
-  - `.gitignore` contained `data/` under "Caddy Runtime Data".
-  - This pattern matches any directory named `data` anywhere in the tree.
-  - It matched `frontend/src/data/`, causing `crowdsecPresets.ts` to be ignored.
+**Risk 1: WebSocket Testing Complexity**
+- Impact: High
+- Probability: Medium
+- Mitigation: Use httptest.Server + real WebSocket library (proven approach)
+- Fallback: Simplify tests, accept lower coverage
 
-## 3. Remediation Steps
-1.  **Fix `.gitignore`**:
-    - Change `data/` to `/data/` to anchor it to the project root.
-    - Change `frontend/frontend/` to `/frontend/frontend/` for safety.
-2.  **Add Missing File**:
-    - Force add or add `frontend/src/data/crowdsecPresets.ts` after fixing `.gitignore`.
-3.  **Verify**:
-    - Run `git check-ignore` to ensure the file is no longer ignored.
-    - Run local build/test to ensure no regressions.
+**Risk 2: Timing-Dependent Tests**
+- Impact: Medium (flaky tests)
+- Probability: Medium
+- Mitigation: Use reduced ticker intervals for testing or mock time
+- Fallback: Accept longer test execution time
 
-## 4. Verification Results
-- **Local Tests**:
-  - Backend Coverage: 85.4% (Pass)
-  - Frontend Tests: 70 files passed (Pass)
-  - Frontend Coverage: 85.97% (Pass)
-  - Build: Passed
-- **Git Status**:
-  - `frontend/src/data/crowdsecPresets.ts` is now staged for commit.
-  - `.gitignore` is modified and staged.
+**Risk 3: Goroutine Leaks**
+- Impact: Medium
+- Probability: Low
+- Mitigation: Proper defer cleanup, verify with runtime.NumGoroutine()
+- Fallback: Use goleak library if needed
 
-## 5. Next Actions
-- Commit the changes with message: `fix: resolve CI failures by unignoring frontend data files`.
-- Push to `feature/beta-release`.
-- Monitor the next CI run.
+**Risk 4: Coverage Target Not Met**
+- Impact: Medium
+- Probability: Low
+- Mitigation: Secondary tests (Part 2) already planned
+- Fallback: Adjust target or add more test cases
 
-## 6. Future Prevention
-- Use anchored paths (starting with `/`) in `.gitignore` for root-level directories.
-- Check `git status` for unexpected ignored files when adding new directories.
-- Add a pre-commit check or CI step to verify that all imported modules exist in the git tree (though `tsc` in CI does this, the issue was the discrepancy between local and CI).
+### Configuration Review
+
+**Files Checked**:
+- `.codecov.yml`: Target 75% (below our 85% goal) - No changes needed ✓
+- `.gitignore`: Excludes `*.cover`, `*.html`, test artifacts - No changes needed ✓
+- `.dockerignore`: Excludes test files properly - No changes needed ✓
+
+**Conclusion**: No configuration changes required.
+
+---
+
+## Part 8: Success Criteria
+
+### Required
+- [ ] LogsWebSocketHandler coverage ≥ 85%
+- [ ] Overall handler coverage ≥ 85%
+- [ ] All tests pass consistently
+- [ ] No goroutine leaks
+- [ ] Pre-commit checks pass
+- [ ] CI/CD pipeline passes
+
+### Optional
+- [ ] Secondary handler coverage improved
+- [ ] HTML coverage report generated
+- [ ] Documentation updated
+- [ ] Code review approved
+
+---
+
+## Part 9: File Reference
+
+### Files to Create
+1. `backend/internal/api/handlers/logs_ws_test_utils.go` - WebSocket testing utilities
+2. `backend/internal/api/handlers/logs_ws_comprehensive_test.go` - Main test suite (18 tests)
+3. `backend/internal/api/handlers/settings_handler_smtp_test.go` - SMTP config tests (optional)
+
+### Files to Modify
+1. `backend/internal/api/handlers/security_notifications_test.go` - Add error path tests (optional)
+2. `backend/internal/api/handlers/logs_handler_test.go` or create `logs_handler_coverage_test.go` (optional)
+
+### Files to Reference
+1. `backend/internal/api/handlers/logs_ws.go` - Implementation under test
+2. `backend/internal/logger/logger.go` - BroadcastHook dependency
+3. `backend/internal/logger/logger_test.go` - Logger testing patterns
+4. `backend/internal/api/handlers/proxy_host_handler_test.go` - Test setup patterns
+
+---
+
+## Appendix: Test Case Summary
+
+| # | Test Name | Category | Est. Coverage | Lines |
+|---|-----------|----------|---------------|-------|
+| 1 | SuccessfulConnection | Happy Path | 5% | 10 |
+| 2 | ReceiveLogEntries | Happy Path | 10% | 15 |
+| 3 | PingKeepalive | Happy Path | 5% | 8 |
+| 4 | LevelFilter | Filters | 8% | 12 |
+| 5 | SourceFilter | Filters | 8% | 12 |
+| 6 | CombinedFilters | Filters | 5% | 8 |
+| 7 | CaseInsensitiveFilters | Filters | 3% | 5 |
+| 8 | UpgradeFailure | Error Paths | 5% | 8 |
+| 9 | ClientDisconnect | Error Paths | 8% | 12 |
+| 10 | WriteJSONFailure | Error Paths | 6% | 10 |
+| 11 | ChannelClosed | Error Paths | 5% | 8 |
+| 12 | PingWriteFailure | Error Paths | 4% | 6 |
+| 13 | MultipleConnections | Concurrency | 3% | 5 |
+| 14 | HighVolumeLogging | Concurrency | 3% | 5 |
+| 15 | EmptyLogFields | Edge Cases | 3% | 5 |
+| 16 | SubscriberIDUniqueness | Edge Cases | 2% | 3 |
+| 17 | WithRealLogger | Integration | 4% | 6 |
+| 18 | ConnectionLifecycle | Integration | 3% | 5 |
+| **Total** | | | **~85%** | **~90** |
+
+---
+
+## Document Metadata
+
+**Author**: GitHub Copilot
+**Date**: December 10, 2025
+**Version**: 1.0
+**Status**: Ready for Implementation
+**Estimated Effort**: 2-3 days
+**Expected Coverage Gain**: +1.5% to +2.0%
+**Target Achievement Probability**: 95%+

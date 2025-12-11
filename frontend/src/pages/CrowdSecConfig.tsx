@@ -328,13 +328,22 @@ export default function CrowdSecConfig() {
           return
         }
 
+        const errorMsg = err.response?.data?.error || err.message
         const backupPath = (err.response?.data as { backup?: string })?.backup
-        if (backupPath) {
-          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
-          toast.error(`Apply failed. Restore from backup at ${backupPath}`)
+
+        // Check if error is due to missing cache
+        if (errorMsg.includes('not cached') || errorMsg.includes('Pull the preset first')) {
+          toast.error(errorMsg)
+          setValidationError('Preset must be pulled before applying. Click "Pull Preview" first.')
           return
         }
-        toast.error(err.response?.data?.error || err.message)
+
+        if (backupPath) {
+          setApplyInfo({ status: 'failed', backup: backupPath, cacheKey: presetMeta?.cacheKey })
+          toast.error(`Apply failed: ${errorMsg}. Backup created at ${backupPath}`)
+          return
+        }
+        toast.error(`Apply failed: ${errorMsg}`)
       } else {
         toast.error('Failed to apply preset')
       }
