@@ -639,3 +639,122 @@ func TestFindPreviewFileFromArchive(t *testing.T) {
 		require.Empty(t, preview)
 	})
 }
+
+func TestApplyWithCopyBasedBackup(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "existing.txt"), []byte("old data"), 0o644))
+
+	// Create subdirectory with files
+	subDir := filepath.Join(dataDir, "subdir")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
+
+	archive := makeTarGz(t, map[string]string{"new/config.yaml": "new: config"})
+	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
+	require.NoError(t, err)
+
+	svc := NewHubService(nil, cache, dataDir)
+
+	res, err := svc.Apply(context.Background(), "test/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.NotEmpty(t, res.BackupPath)
+
+	// Verify backup was created with copy-based approach
+	require.FileExists(t, filepath.Join(res.BackupPath, "existing.txt"))
+	require.FileExists(t, filepath.Join(res.BackupPath, "subdir", "nested.txt"))
+
+	// Verify new config was applied
+	require.FileExists(t, filepath.Join(dataDir, "new", "config.yaml"))
+}
+
+func TestBackupExistingHandlesDeviceBusy(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := dataDir + ".backup.test"
+
+	// Even if rename fails, copy-based backup should work
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(backupPath, "file.txt"))
+}
+
+func TestCopyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcFile := filepath.Join(tmpDir, "source.txt")
+	dstFile := filepath.Join(tmpDir, "dest.txt")
+
+	// Create source file
+	content := []byte("test file content")
+	require.NoError(t, os.WriteFile(srcFile, content, 0o644))
+
+	// Test successful copy
+	err := copyFile(srcFile, dstFile)
+	require.NoError(t, err)
+	require.FileExists(t, dstFile)
+
+	// Verify content
+	dstContent, err := os.ReadFile(dstFile)
+	require.NoError(t, err)
+	require.Equal(t, content, dstContent)
+
+	// Test copy non-existent file
+	err = copyFile(filepath.Join(tmpDir, "nonexistent.txt"), dstFile)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "open src")
+
+	// Test copy to invalid destination
+	err = copyFile(srcFile, filepath.Join(tmpDir, "nonexistent", "dest.txt"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create dst")
+}
+
+func TestCopyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "source")
+	dstDir := filepath.Join(tmpDir, "dest")
+
+	// Create source directory structure
+	require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("file1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("file2"), 0o644))
+
+	// Create destination directory
+	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+	// Test successful copy
+	err := copyDir(srcDir, dstDir)
+	require.NoError(t, err)
+
+	// Verify files were copied
+	require.FileExists(t, filepath.Join(dstDir, "file1.txt"))
+	require.FileExists(t, filepath.Join(dstDir, "subdir", "file2.txt"))
+
+	// Verify content
+	content1, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("file1"), content1)
+
+	content2, err := os.ReadFile(filepath.Join(dstDir, "subdir", "file2.txt"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("file2"), content2)
+
+	// Test copy non-existent directory
+	err = copyDir(filepath.Join(tmpDir, "nonexistent"), dstDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stat src")
+
+	// Test copy file as directory (should fail)
+	fileNotDir := filepath.Join(tmpDir, "file.txt")
+	require.NoError(t, os.WriteFile(fileNotDir, []byte("test"), 0o644))
+	err = copyDir(fileNotDir, dstDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a directory")
+}

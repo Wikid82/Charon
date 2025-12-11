@@ -83,14 +83,35 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := NewSecurityService(db)
 
+	// Test creating new ruleset
 	rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: "rule: 1"}
 	err := svc.UpsertRuleSet(rs)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, rs.UUID)
+	assert.False(t, rs.LastUpdated.IsZero())
+
+	// Test updating existing ruleset
+	rs.Content = "rule: 2"
+	rs.Mode = "updated"
+	err = svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
 
 	list, err := svc.ListRuleSets()
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(list), 1)
 	assert.Equal(t, "owasp-crs", list[0].Name)
+	assert.Equal(t, "rule: 2", list[0].Content)
+	assert.Equal(t, "updated", list[0].Mode)
+
+	// Test nil ruleset
+	err = svc.UpsertRuleSet(nil)
+	assert.NoError(t, err)
+
+	// Test ruleset without name
+	invalidRuleset := &models.SecurityRuleSet{Content: "test"}
+	err = svc.UpsertRuleSet(invalidRuleset)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "name required")
 }
 
 func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
@@ -291,4 +312,42 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	ok, err := svc.VerifyBreakGlassToken("default", token)
 	assert.NoError(t, err)
 	assert.True(t, ok)
+}
+
+func TestSecurityService_LogAudit(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Test logging valid audit entry
+	audit := &models.SecurityAudit{
+		Action:  "login_success",
+		Actor:   "admin",
+		Details: "User admin logged in from 192.168.1.100",
+	}
+	err := svc.LogAudit(audit)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, audit.UUID)
+	assert.False(t, audit.CreatedAt.IsZero())
+
+	// Verify audit was stored
+	var stored models.SecurityAudit
+	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "login_success", stored.Action)
+	assert.Equal(t, "admin", stored.Actor)
+
+	// Test logging nil audit (should not error)
+	err = svc.LogAudit(nil)
+	assert.NoError(t, err)
+
+	// Test audit with pre-filled UUID
+	audit2 := &models.SecurityAudit{
+		UUID:    "custom-uuid-123",
+		Action:  "config_change",
+		Actor:   "admin",
+		Details: "Security settings updated",
+	}
+	err = svc.LogAudit(audit2)
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-uuid-123", audit2.UUID)
 }

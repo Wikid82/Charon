@@ -179,6 +179,22 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 	assert.Equal(t, false, resp["configured"])
 }
 
+func TestSettingsHandler_GetSMTPConfig_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, db := setupSettingsHandlerWithMail(t)
+	sqlDB, _ := db.DB()
+	_ = sqlDB.Close()
+
+	router := gin.New()
+	router.GET("/settings/smtp", handler.GetSMTPConfig)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings/smtp", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)

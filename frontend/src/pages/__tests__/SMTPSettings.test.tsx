@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import SMTPSettings from '../SMTPSettings'
 import * as smtpApi from '../../api/smtp'
+import { toast } from '../../utils/toast'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 
 // Mock API
 vi.mock('../../api/smtp', () => ({
@@ -14,32 +14,24 @@ vi.mock('../../api/smtp', () => ({
   sendTestEmail: vi.fn(),
 }))
 
-const createQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  })
-
-const renderWithProviders = (ui: React.ReactNode) => {
-  const queryClient = createQueryClient()
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>
-  )
-}
+vi.mock('../../utils/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}))
 
 describe('SMTPSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(toast.success).mockClear()
+    vi.mocked(toast.error).mockClear()
   })
 
   it('renders loading state initially', () => {
     vi.mocked(smtpApi.getSMTPConfig).mockReturnValue(new Promise(() => {}))
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     // Should show loading spinner
     expect(document.querySelector('.animate-spin')).toBeTruthy()
@@ -56,7 +48,7 @@ describe('SMTPSettings', () => {
       configured: true,
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     // Wait for the form to populate with data
     await waitFor(() => {
@@ -84,7 +76,7 @@ describe('SMTPSettings', () => {
       configured: false,
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
       expect(screen.getByText('SMTP Not Configured')).toBeTruthy()
@@ -105,7 +97,7 @@ describe('SMTPSettings', () => {
       message: 'SMTP configuration saved successfully',
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('smtp.gmail.com')).toBeTruthy()
@@ -140,7 +132,7 @@ describe('SMTPSettings', () => {
       message: 'Connection successful',
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
       expect(screen.getByText('Test Connection')).toBeTruthy()
@@ -165,7 +157,7 @@ describe('SMTPSettings', () => {
       configured: true,
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
       expect(screen.getByText('Send Test Email')).toBeTruthy()
@@ -189,7 +181,7 @@ describe('SMTPSettings', () => {
       message: 'Email sent',
     })
 
-    renderWithProviders(<SMTPSettings />)
+    renderWithQueryClient(<SMTPSettings />)
 
     await waitFor(() => {
       expect(screen.getByText('Send Test Email')).toBeTruthy()
@@ -204,6 +196,89 @@ describe('SMTPSettings', () => {
 
     await waitFor(() => {
       expect(smtpApi.sendTestEmail).toHaveBeenCalledWith({ to: 'test@test.com' })
+    })
+  })
+
+  it('surfaces backend validation errors on save', async () => {
+    vi.mocked(smtpApi.getSMTPConfig).mockResolvedValue({
+      host: '',
+      port: 587,
+      username: '',
+      password: '',
+      from_address: '',
+      encryption: 'starttls',
+      configured: false,
+    })
+    vi.mocked(smtpApi.updateSMTPConfig).mockRejectedValue({ response: { data: { error: 'invalid host' } } })
+
+    renderWithQueryClient(<SMTPSettings />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByPlaceholderText('smtp.gmail.com')).toBeInTheDocument())
+    await user.type(screen.getByPlaceholderText('smtp.gmail.com'), 'bad.host')
+    await user.type(screen.getByPlaceholderText('Charon <no-reply@example.com>'), 'ops@example.com')
+
+    await user.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('invalid host')
+    })
+  })
+
+  it('disables test connection until required fields are set and shows error toast on failure', async () => {
+    vi.mocked(smtpApi.getSMTPConfig).mockResolvedValue({
+      host: '',
+      port: 587,
+      username: '',
+      password: '',
+      from_address: '',
+      encryption: 'starttls',
+      configured: false,
+    })
+    vi.mocked(smtpApi.testSMTPConnection).mockRejectedValue({ response: { data: { error: 'cannot connect' } } })
+
+    renderWithQueryClient(<SMTPSettings />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Test Connection')).toBeInTheDocument())
+
+    // Button should start disabled until host and from address are provided
+    expect(screen.getByRole('button', { name: 'Test Connection' })).toBeDisabled()
+
+    await user.type(screen.getByPlaceholderText('smtp.gmail.com'), 'smtp.acme.local')
+    await user.type(screen.getByPlaceholderText('Charon <no-reply@example.com>'), 'from@acme.local')
+
+    await user.click(screen.getByRole('button', { name: 'Test Connection' }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('cannot connect')
+    })
+  })
+
+  it('handles test email failures and keeps input value intact', async () => {
+    vi.mocked(smtpApi.getSMTPConfig).mockResolvedValue({
+      host: 'smtp.example.com',
+      port: 587,
+      username: 'user@example.com',
+      password: '********',
+      from_address: 'noreply@example.com',
+      encryption: 'starttls',
+      configured: true,
+    })
+    vi.mocked(smtpApi.sendTestEmail).mockRejectedValue({ response: { data: { error: 'smtp unreachable' } } })
+
+    renderWithQueryClient(<SMTPSettings />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Send Test Email')).toBeInTheDocument())
+    const input = screen.getByPlaceholderText('recipient@example.com') as HTMLInputElement
+    await user.type(input, 'keepme@example.com')
+
+    await user.click(screen.getByRole('button', { name: /Send Test/i }))
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('smtp unreachable')
+      expect(input.value).toBe('keepme@example.com')
     })
   })
 })

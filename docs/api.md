@@ -611,6 +611,207 @@ POST /remote-servers/:uuid/test
 
 ---
 
+### Live Logs & Notifications
+
+#### Stream Live Logs (WebSocket)
+
+Connect to a WebSocket stream of live security logs. This endpoint uses WebSocket protocol for real-time bidirectional communication.
+
+```http
+GET /api/v1/logs/live
+Upgrade: websocket
+```
+
+**Query Parameters:**
+- `level` (optional) - Filter by log level. Values: `debug`, `info`, `warn`, `error`
+- `source` (optional) - Filter by log source. Values: `cerberus`, `waf`, `crowdsec`, `acl`
+
+**WebSocket Connection:**
+```javascript
+const ws = new WebSocket('ws://localhost:8080/api/v1/logs/live?source=cerberus&level=error');
+
+ws.onmessage = (event) => {
+  const logEntry = JSON.parse(event.data);
+  console.log(logEntry);
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+  console.log('Connection closed');
+};
+```
+
+**Message Format:**
+
+Each message received from the WebSocket is a JSON-encoded `LogEntry`:
+
+```json
+{
+  "level": "error",
+  "message": "WAF blocked request from 203.0.113.42",
+  "timestamp": "2025-12-09T10:30:45Z",
+  "source": "waf",
+  "fields": {
+    "ip": "203.0.113.42",
+    "rule_id": "942100",
+    "request_uri": "/api/users?id=1' OR '1'='1",
+    "severity": "CRITICAL"
+  }
+}
+```
+
+**Field Descriptions:**
+- `level` - Log severity: `debug`, `info`, `warn`, `error`
+- `message` - Human-readable log message
+- `timestamp` - ISO 8601 timestamp (RFC3339 format)
+- `source` - Component that generated the log (e.g., `cerberus`, `waf`, `crowdsec`)
+- `fields` - Additional structured data specific to the event type
+
+**Connection Lifecycle:**
+- Server sends a ping every 30 seconds to keep connection alive
+- Client should respond to pings or connection may timeout
+- Server closes connection if client stops reading
+- Client can close connection by calling `ws.close()`
+
+**Error Handling:**
+- If upgrade fails, returns HTTP 400 with error message
+- Authentication required (when auth is implemented)
+- Rate limiting applies (when rate limiting is implemented)
+
+**Example: Filter for critical WAF events only**
+```javascript
+const ws = new WebSocket('ws://localhost:8080/api/v1/logs/live?source=waf&level=error');
+```
+
+---
+
+#### Get Notification Settings
+
+Retrieve current security notification settings.
+
+```http
+GET /api/v1/security/notifications/settings
+```
+
+**Response 200:**
+```json
+{
+  "enabled": true,
+  "min_log_level": "warn",
+  "notify_waf_blocks": true,
+  "notify_acl_denials": true,
+  "notify_rate_limit_hits": false,
+  "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX",
+  "email_recipients": "admin@example.com,security@example.com"
+}
+```
+
+**Field Descriptions:**
+- `enabled` - Master toggle for all notifications
+- `min_log_level` - Minimum severity to trigger notifications. Values: `debug`, `info`, `warn`, `error`
+- `notify_waf_blocks` - Send notifications for WAF blocking events
+- `notify_acl_denials` - Send notifications for ACL denial events
+- `notify_rate_limit_hits` - Send notifications for rate limit violations
+- `webhook_url` (optional) - URL to POST webhook notifications (Discord, Slack, etc.)
+- `email_recipients` (optional) - Comma-separated list of email addresses
+
+**Response 404:**
+```json
+{
+  "error": "Notification settings not configured"
+}
+```
+
+---
+
+#### Update Notification Settings
+
+Update security notification settings. All fields are optional—only provided fields are updated.
+
+```http
+PUT /api/v1/security/notifications/settings
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "enabled": true,
+  "min_log_level": "error",
+  "notify_waf_blocks": true,
+  "notify_acl_denials": false,
+  "notify_rate_limit_hits": false,
+  "webhook_url": "https://discord.com/api/webhooks/123456789/abcdefgh",
+  "email_recipients": "alerts@example.com"
+}
+```
+
+**All fields optional:**
+- `enabled` (boolean) - Enable/disable all notifications
+- `min_log_level` (string) - Must be one of: `debug`, `info`, `warn`, `error`
+- `notify_waf_blocks` (boolean) - Toggle WAF block notifications
+- `notify_acl_denials` (boolean) - Toggle ACL denial notifications
+- `notify_rate_limit_hits` (boolean) - Toggle rate limit notifications
+- `webhook_url` (string) - Webhook endpoint URL
+- `email_recipients` (string) - Comma-separated email addresses
+
+**Response 200:**
+```json
+{
+  "message": "Settings updated successfully"
+}
+```
+
+**Response 400:**
+```json
+{
+  "error": "Invalid min_log_level. Must be one of: debug, info, warn, error"
+}
+```
+
+**Response 500:**
+```json
+{
+  "error": "Failed to update settings"
+}
+```
+
+**Example: Enable notifications for critical errors only**
+```bash
+curl -X PUT http://localhost:8080/api/v1/security/notifications/settings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "min_log_level": "error",
+    "notify_waf_blocks": true,
+    "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  }'
+```
+
+**Webhook Payload Format:**
+
+When notifications are triggered, Charon sends a POST request to the configured webhook URL:
+
+```json
+{
+  "event_type": "waf_block",
+  "severity": "error",
+  "timestamp": "2025-12-09T10:30:45Z",
+  "message": "WAF blocked SQL injection attempt",
+  "details": {
+    "ip": "203.0.113.42",
+    "rule_id": "942100",
+    "request_uri": "/api/users?id=1' OR '1'='1",
+    "user_agent": "curl/7.68.0"
+  }
+}
+```
+
+---
+
 ### Import Workflow
 
 #### Check Import Status

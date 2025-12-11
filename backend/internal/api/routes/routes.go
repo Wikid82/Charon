@@ -48,6 +48,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.Notification{},
 		&models.NotificationProvider{},
 		&models.NotificationTemplate{},
+		&models.NotificationConfig{},
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
 		&models.UptimeHost{},
@@ -150,6 +151,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/logs", logsHandler.List)
 		protected.GET("/logs/:filename", logsHandler.Read)
 		protected.GET("/logs/:filename/download", logsHandler.Download)
+		protected.GET("/logs/live", handlers.LogsWebSocketHandler)
+
+		// Security Notification Settings
+		securityNotificationService := services.NewSecurityNotificationService(db)
+		securityNotificationHandler := handlers.NewSecurityNotificationHandler(securityNotificationService)
+		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
+		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
 
 		// Settings
 		settingsHandler := handlers.NewSettingsHandler(db)

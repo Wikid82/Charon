@@ -71,6 +71,27 @@ Note: This report documents a QA audit of the history-rewrite scripts. The scrip
 **Conclusion**
 - The main history-rewrite scripts are working as designed, with safety checks for destructive operations. The test suite found and exposed issues in the script invocation and shellcheck warnings, which are resolved by the changes above. I recommend adding additional Bats tests for `clean_history.sh` and `preview_removals.sh`, and adding CI validations for `git-filter-repo` and pre-commit installations.
 
+# QA Report: Re-run Type Check & Pre-commit (Dec 11, 2025)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Requested rerun of frontend type-check and full pre-commit hook suite on current branch.
+
+## Commands Executed
+- `cd frontend && npm run type-check` → **Passed** (tsc --noEmit)
+- `.venv/bin/pre-commit run --all-files` → **Passed**
+
+## Results
+- Frontend TypeScript check completed without errors.
+- Pre-commit suite completed successfully:
+   - Backend unit tests and coverage gate **met** at **86.5%** (requirement ≥85%).
+   - Go Vet, version tag check, frontend lint (fix) and TS check all **passed**.
+   - Known skips: MailService integration and SaveSMTPConfig concurrent tests (expected skips in current suite).
+
+## Observations
+- Coverage output includes verbose service-level logs (e.g., missing tables in in-memory SQLite) that are expected in isolated test harnesses; no failing assertions observed.
+- No follow-up actions required from this rerun.
+
 # QA Report: Final QA After Presets.ts Fix & Coverage Increase (feature/beta-release)
 
 **Date:** December 9, 2025 - 00:57 UTC
@@ -172,3 +193,34 @@ Duration   47.24s
 ---
 
 **Status:** ✅ QA PASS — All requested commands succeeded; coverage gate met at **85.4%** (requirement: ≥85%)
+
+# QA Report: Frontend Coverage & Type Check (post-coverage changes)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** DoD QA after frontend coverage changes on current branch.
+
+## Commands Executed
+- `cd frontend && npm run coverage` → **Failed** (script not defined). Switched to available coverage script.
+- `cd frontend && npm run test:coverage` → **Passed**. 82 files / 691 tests (2 skipped); coverage: statements 89.99%, branches 79.19%, functions 84.72%, lines 91.08%. WebSocket connection warnings observed in security-related specs but tests completed.
+- `cd frontend && npm run type-check` → **Failed** (TypeScript errors in tests).
+- `.venv/bin/pre-commit run --all-files` → **Failed** (frontend-type-check hook surfaced same TS errors). Other hooks (Go tests/coverage/vet, lint, version check) passed; Go coverage reported at 86.5% (>=85% gate).
+
+## Failures
+- TypeScript type-check errors (also block pre-commit):
+   - `global` not defined and `Array.at` not available in target lib: [frontend/src/api/logs.test.ts](frontend/src/api/logs.test.ts#L53) and [frontend/src/api/logs.test.ts](frontend/src/api/logs.test.ts#L112).
+   - Unused import and mock return types typed as `void`: [frontend/src/pages/__tests__/CrowdSecConfig.coverage.test.tsx](frontend/src/pages/__tests__/CrowdSecConfig.coverage.test.tsx#L2) and mocked API calls returning `{}` at [L73-L78](frontend/src/pages/__tests__/CrowdSecConfig.coverage.test.tsx#L73-L78).
+   - Toast mocks missing `mockClear`: [frontend/src/pages/__tests__/SMTPSettings.test.tsx](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L27-L28) and [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx#L98-L99).
+
+## Observations
+- Coverage run succeeded despite numerous WebSocket warning logs during security/live-log specs; no test failures.
+- Pre-commit hook summary indicates coverage gate met (86.5%) and backend/unit hooks are green; only frontend type-check blocks.
+
+## Remediation Needed
+1) Update tests to satisfy TypeScript:
+    - Use `globalThis` or declare `global` for WebSocket mocks and avoid `Array.at` or bump target lib in [frontend/src/api/logs.test.ts](frontend/src/api/logs.test.ts#L53).
+    - Remove unused `render` import and return appropriate values (e.g., `undefined`/`void 0`) in mocked API responses in [frontend/src/pages/__tests__/CrowdSecConfig.coverage.test.tsx](frontend/src/pages/__tests__/CrowdSecConfig.coverage.test.tsx#L2-L78).
+    - Treat toast functions as mocks (e.g., `vi.spyOn(toast, 'success')`) before calling `.mockClear()` in [frontend/src/pages/__tests__/SMTPSettings.test.tsx](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L27-L28) and [frontend/src/pages/__tests__/UsersPage.test.tsx](frontend/src/pages/__tests__/UsersPage.test.tsx#L98-L99).
+2) Re-run `npm run type-check` and `.venv/bin/pre-commit run --all-files` after fixes.
+
+**Status:** ❌ FAIL — Coverage passed, but TypeScript type-check (and pre-commit) failed; remediation required as above.

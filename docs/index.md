@@ -14,8 +14,7 @@
 
 ## �️ Security (Optional)
 
-**[Security Features](security.md)** — Block bad guys, bad countries, or bad behavior
-**[Testing SSL Certificates](acme-staging.md)** — Practice without hitting limits
+**[Security Features](security.md)** — Block bad guys, bad countries, or bad behavior**[Live Logs & Notifications](live-logs-guide.md)** — Real-time security monitoring and alerts**[Testing SSL Certificates](acme-staging.md)** — Practice without hitting limits
 
 ---
 

@@ -475,12 +475,34 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	// Log cache directory before pull
+	if h.Hub != nil && h.Hub.Cache != nil {
+		cacheDir := filepath.Join(h.DataDir, "hub_cache")
+		logger.Log().WithField("cache_dir", cacheDir).WithField("slug", slug).Info("attempting to pull preset")
+		if stat, err := os.Stat(cacheDir); err == nil {
+			logger.Log().WithField("cache_dir_mode", stat.Mode()).WithField("cache_dir_writable", stat.Mode().Perm()&0o200 != 0).Debug("cache directory exists")
+		} else {
+			logger.Log().WithError(err).Warn("cache directory stat failed")
+		}
+	}
+
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
 		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Verify cache was actually stored
+	logger.Log().WithField("slug", res.Meta.Slug).WithField("cache_key", res.Meta.CacheKey).WithField("archive_path", res.Meta.ArchivePath).WithField("preview_path", res.Meta.PreviewPath).Info("preset pulled and cached successfully")
+
+	// Verify files exist on disk
+	if _, err := os.Stat(res.Meta.ArchivePath); err != nil {
+		logger.Log().WithError(err).WithField("archive_path", res.Meta.ArchivePath).Error("cached archive file not found after pull")
+	}
+	if _, err := os.Stat(res.Meta.PreviewPath); err != nil {
+		logger.Log().WithError(err).WithField("preview_path", res.Meta.PreviewPath).Error("cached preview file not found after pull")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -520,14 +542,56 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+
+	// Log cache status before apply
+	if h.Hub != nil && h.Hub.Cache != nil {
+		cacheDir := filepath.Join(h.DataDir, "hub_cache")
+		logger.Log().WithField("cache_dir", cacheDir).WithField("slug", slug).Info("attempting to apply preset")
+
+		// Check if cached
+		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
+			logger.Log().WithField("slug", slug).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
+			// Verify files still exist
+			if _, err := os.Stat(cached.ArchivePath); err != nil {
+				logger.Log().WithError(err).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
+			}
+			if _, err := os.Stat(cached.PreviewPath); err != nil {
+				logger.Log().WithError(err).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
+			}
+		} else {
+			logger.Log().WithError(err).WithField("slug", slug).Warn("preset not found in cache before apply")
+			// List what's actually in the cache
+			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
+				slugs := make([]string, len(entries))
+				for i, e := range entries {
+					slugs[i] = e.Slug
+				}
+				logger.Log().WithField("cached_slugs", slugs).Info("current cache contents")
+			}
+		}
+	}
+
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset apply failed")
+		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).WithField("backup_path", res.BackupPath).WithField("cache_key", res.CacheKey).Warn("crowdsec preset apply failed")
 		if h.DB != nil {
 			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
 		}
-		c.JSON(status, gin.H{"error": err.Error(), "backup": res.BackupPath})
+		// Build detailed error response
+		errorMsg := err.Error()
+		// Add actionable guidance based on error type
+		if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
+			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
+		}
+		errorResponse := gin.H{"error": errorMsg}
+		if res.BackupPath != "" {
+			errorResponse["backup"] = res.BackupPath
+		}
+		if res.CacheKey != "" {
+			errorResponse["cache_key"] = res.CacheKey
+		}
+		c.JSON(status, errorResponse)
 		return
 	}
 

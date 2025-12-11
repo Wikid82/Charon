@@ -1,8 +1,11 @@
+// Package cerberus provides lightweight security checks (WAF, ACL, CrowdSec) with notification support.
 package cerberus
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -16,17 +19,19 @@ import (
 
 // Cerberus provides a lightweight facade for security checks (WAF, CrowdSec, ACL).
 type Cerberus struct {
-	cfg       config.SecurityConfig
-	db        *gorm.DB
-	accessSvc *services.AccessListService
+	cfg                 config.SecurityConfig
+	db                  *gorm.DB
+	accessSvc           *services.AccessListService
+	securityNotifySvc   *services.SecurityNotificationService
 }
 
 // New creates a new Cerberus instance
 func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 	return &Cerberus{
-		cfg:       cfg,
-		db:        db,
-		accessSvc: services.NewAccessListService(db),
+		cfg:               cfg,
+		db:                db,
+		accessSvc:         services.NewAccessListService(db),
+		securityNotifySvc: services.NewSecurityNotificationService(db),
 	}
 }
 
@@ -84,6 +89,21 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 						"query":    ctx.Request.URL.RawQuery,
 					}).Warn("WAF blocked request")
 					metrics.IncWAFBlocked()
+
+					// Send security notification
+					_ = c.securityNotifySvc.Send(context.Background(), models.SecurityEvent{
+						EventType: "waf_block",
+						Severity:  "warn",
+						Message:   "WAF blocked suspicious request",
+						ClientIP:  ctx.ClientIP(),
+						Path:      ctx.Request.URL.Path,
+						Timestamp: time.Now(),
+						Metadata: map[string]interface{}{
+							"query": ctx.Request.URL.RawQuery,
+							"mode":  c.cfg.WAFMode,
+						},
+					})
+
 					ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
 					return
 				}
@@ -112,6 +132,20 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 					}
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
+						// Send security notification
+						_ = c.securityNotifySvc.Send(context.Background(), models.SecurityEvent{
+							EventType: "acl_deny",
+							Severity:  "warn",
+							Message:   "Access control list blocked request",
+							ClientIP:  clientIP,
+							Path:      ctx.Request.URL.Path,
+							Timestamp: time.Now(),
+							Metadata: map[string]interface{}{
+								"acl_name": acl.Name,
+								"acl_id":   acl.ID,
+							},
+						})
+
 						ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
 						return
 					}

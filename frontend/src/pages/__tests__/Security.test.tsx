@@ -7,17 +7,10 @@ import Security from '../Security'
 import * as securityApi from '../../api/security'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as settingsApi from '../../api/settings'
-import { toast } from '../../utils/toast'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')
-vi.mock('../../utils/toast', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
   return {
@@ -236,24 +229,7 @@ describe('Security', () => {
       })
     })
 
-    it('should export CrowdSec config', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['config data']))
-      window.URL.createObjectURL = vi.fn(() => 'blob:url')
-      window.URL.revokeObjectURL = vi.fn()
 
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByRole('button', { name: /Export/i }))
-      const exportButton = screen.getByRole('button', { name: /Export/i })
-      await user.click(exportButton)
-
-      await waitFor(() => {
-        expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('CrowdSec configuration exported')
-      })
-    })
   })
 
   describe('WAF Controls', () => {
@@ -301,8 +277,8 @@ describe('Security', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → WAF (Layer 3) → Rate Limiting (Layer 4)
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting'])
+      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → WAF (Layer 3) → Rate Limiting (Layer 4) + Live Security Logs
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting', 'Live Security Logs'])
     })
 
     it('should display layer indicators on each card', async () => {

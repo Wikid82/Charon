@@ -31,6 +31,28 @@ func newTestCertificateService(dataDir string, db *gorm.DB) *CertificateService 
 	}
 }
 
+func TestNewCertificateService(t *testing.T) {
+	tmpDir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+
+	// Create the certificates directory
+	certDir := filepath.Join(tmpDir, "certificates")
+	require.NoError(t, os.MkdirAll(certDir, 0o755))
+
+	// Test service creation
+	svc := NewCertificateService(tmpDir, db)
+	assert.NotNil(t, svc)
+	assert.Equal(t, tmpDir, svc.dataDir)
+	assert.Equal(t, db, svc.db)
+	assert.Equal(t, 5*time.Minute, svc.scanTTL)
+
+	// Give the background goroutine time to complete
+	time.Sleep(100 * time.Millisecond)
+}
+
 func generateTestCert(t *testing.T, domain string, expiry time.Time) []byte {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
