@@ -52,6 +52,11 @@ func NewHubCache(baseDir string, ttl time.Duration) (*HubCache, error) {
 	return &HubCache{baseDir: baseDir, ttl: ttl, nowFn: time.Now}, nil
 }
 
+// TTL returns the configured time-to-live for cached entries.
+func (c *HubCache) TTL() time.Duration {
+	return c.ttl
+}
+
 // Store writes the bundle archive and preview to disk and returns the cache metadata.
 func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string, archive []byte) (CachedPreset, error) {
 	if err := ctx.Err(); err != nil {

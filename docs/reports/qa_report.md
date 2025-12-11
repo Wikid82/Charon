@@ -2,6 +2,28 @@
 
 Note: This report documents a QA audit of the history-rewrite scripts. The scripts and tests live in `scripts/history-rewrite/` and the maintainer-facing plan and checklist are in `docs/plans/history_rewrite.md`.
 
+# QA Report: Backend Verification (Dec 11, 2025)
+
+- **Date:** 2025-12-11
+- **QA Agent:** QA_Automation
+- **Scope:** Backend regression verification per request (gofmt + full Go tests + targeted CrowdSec apply/pull tests).
+
+## Commands Executed
+- `cd backend && gofmt -w .`
+- `cd backend && go test ./... -v`
+- `cd backend && go test ./internal/crowdsec/... -v`
+
+## Results
+- `gofmt` completed without errors.
+- `go test ./... -v` **Passed**. All packages succeeded; noisy but expected SQLite "record not found" logs appeared during in-memory test setup. Longest runtime segment was `internal/services` (~28s) due to uptime checks.
+- `go test ./internal/crowdsec/... -v` **Passed**. All CrowdSec pull/apply/cache tests green; cache refresh and rollback paths covered.
+
+## Observations
+- The full suite emits informational logs (certificate and uptime services) and expected skips for SMTP integration; no assertion failures.
+- CrowdSec tests exercised backup rollback, cache-miss repull, and apply-from-cache flows; no regressions observed.
+
+**Status:** ✅ PASS — Backend formatting and regression tests completed successfully.
+
 - **Date**: 2025-12-09
 - **Author**: QA_Security (Automated checks)
 

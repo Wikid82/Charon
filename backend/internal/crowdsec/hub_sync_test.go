@@ -468,8 +468,8 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	svc := NewHubService(nil, nil, dataDir)
 	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "cscli unavailable")
-	require.Empty(t, res.BackupPath)
+	require.Contains(t, err.Error(), "cache unavailable")
+	require.NotEmpty(t, res.BackupPath)
 	require.Equal(t, "failed", res.Status)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
@@ -501,9 +501,9 @@ func TestNormalizeHubBaseURL(t *testing.T) {
 
 func TestBuildIndexURL(t *testing.T) {
 	tests := []struct {
-		name  string
-		base  string
-		want  string
+		name string
+		base string
+		want string
 	}{
 		{"empty base uses default", "", defaultHubBaseURL + defaultHubIndexPath},
 		{"standard base appends path", "https://hub.crowdsec.net", "https://hub.crowdsec.net" + defaultHubIndexPath},

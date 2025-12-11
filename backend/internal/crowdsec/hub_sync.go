@@ -341,13 +341,15 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 		return PullResult{}, fmt.Errorf("preset not found in hub")
 	}
 
+	entrySlug := firstNonEmpty(entry.Name, cleanSlug)
+
 	archiveURL := entry.DownloadURL
 	if archiveURL == "" {
-		archiveURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubArchivePath, cleanSlug)
+		archiveURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubArchivePath, entrySlug)
 	}
 	previewURL := entry.PreviewURL
 	if previewURL == "" {
-		previewURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubPreviewPath, cleanSlug)
+		previewURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubPreviewPath, entrySlug)
 	}
 
 	archiveBytes, err := s.fetchWithLimit(pullCtx, archiveURL)
@@ -389,11 +391,6 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		result.CacheKey = meta.CacheKey
 	}
 	hasCS := s.hasCSCLI(applyCtx)
-	if !hasCS && metaErr != nil {
-		msg := "cscli unavailable and no cached preset; pull the preset or install cscli"
-		result.ErrorMessage = msg
-		return result, errors.New(msg)
-	}
 
 	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
 	if err := s.backupExisting(backupPath); err != nil {
@@ -416,10 +413,16 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	}
 
 	if metaErr != nil {
-		_ = s.rollback(backupPath)
-		msg := fmt.Sprintf("load cache: %v", metaErr)
-		result.ErrorMessage = msg
-		return result, errors.New(msg)
+		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, metaErr)
+		if refreshErr != nil {
+			_ = s.rollback(backupPath)
+			logger.Log().WithError(refreshErr).WithField("slug", cleanSlug).WithField("backup_path", backupPath).Warn("cache refresh failed; rolled back backup")
+			msg := fmt.Sprintf("load cache for %s: %v", cleanSlug, refreshErr)
+			result.ErrorMessage = msg
+			return result, fmt.Errorf("load cache for %s: %w", cleanSlug, refreshErr)
+		}
+		meta = refreshed
+		result.CacheKey = meta.CacheKey
 	}
 
 	archive, err := os.ReadFile(meta.ArchivePath)
@@ -518,12 +521,69 @@ func (s *HubService) loadCacheMeta(ctx context.Context, slug string) (CachedPres
 	return meta, nil
 }
 
+func (s *HubService) refreshCache(ctx context.Context, slug string, metaErr error) (CachedPreset, error) {
+	if !errors.Is(metaErr, ErrCacheMiss) && !errors.Is(metaErr, ErrCacheExpired) {
+		return CachedPreset{}, metaErr
+	}
+	if errors.Is(metaErr, ErrCacheExpired) && s.Cache != nil {
+		if err := s.Cache.Evict(ctx, slug); err != nil {
+			logger.Log().WithError(err).WithField("slug", slug).Warn("failed to evict expired cache before refresh")
+		}
+	}
+	logger.Log().WithError(metaErr).WithField("slug", slug).Info("attempting to repull preset after cache load failure")
+	refreshed, pullErr := s.Pull(ctx, slug)
+	if pullErr != nil {
+		return CachedPreset{}, fmt.Errorf("%w: refresh cache: %v", metaErr, pullErr)
+	}
+	return refreshed.Meta, nil
+}
+
 func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
 	for _, i := range idx.Items {
 		if i.Name == slug || i.Title == slug {
 			return i, true
 		}
 	}
+
+	normalized := strings.TrimSpace(slug)
+	if normalized == "" {
+		return HubIndexEntry{}, false
+	}
+
+	if !strings.Contains(normalized, "/") {
+		namespaced := "crowdsecurity/" + normalized
+		var candidate HubIndexEntry
+		found := false
+		for _, i := range idx.Items {
+			if i.Name == namespaced || i.Title == namespaced || strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
+				if found {
+					return HubIndexEntry{}, false
+				}
+				candidate = i
+				found = true
+			}
+		}
+		if found {
+			return candidate, true
+		}
+	}
+
+	var suffixCandidate HubIndexEntry
+	foundSuffix := false
+	for _, i := range idx.Items {
+		if strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
+			if foundSuffix {
+				return HubIndexEntry{}, false
+			}
+			suffixCandidate = i
+			foundSuffix = true
+		}
+	}
+
+	if foundSuffix {
+		return suffixCandidate, true
+	}
+
 	return HubIndexEntry{}, false
 }
 

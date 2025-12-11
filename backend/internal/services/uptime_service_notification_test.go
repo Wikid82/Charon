@@ -12,24 +12,24 @@ import (
 )
 
 func TestUptimeService_sendRecoveryNotification(t *testing.T) {
-    t.Parallel()
+	t.Parallel()
 
-    db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
-    require.NoError(t, err)
-    require.NoError(t, db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}))
+	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}))
 
-    ns := NewNotificationService(db)
-    svc := NewUptimeService(db, ns)
+	ns := NewNotificationService(db)
+	svc := NewUptimeService(db, ns)
 
-    monitor := models.UptimeMonitor{Name: "API Server", URL: "https://api.example.com"}
+	monitor := models.UptimeMonitor{Name: "API Server", URL: "https://api.example.com"}
 
-    svc.sendRecoveryNotification(monitor, "5m")
+	svc.sendRecoveryNotification(monitor, "5m")
 
-    var notifications []models.Notification
-    require.NoError(t, db.Find(&notifications).Error)
+	var notifications []models.Notification
+	require.NoError(t, db.Find(&notifications).Error)
 
-    require.Len(t, notifications, 1)
-    assert.Contains(t, notifications[0].Title, "API Server")
-    assert.Contains(t, notifications[0].Message, "Downtime: 5m")
-    assert.Equal(t, models.NotificationTypeSuccess, notifications[0].Type)
+	require.Len(t, notifications, 1)
+	assert.Contains(t, notifications[0].Title, "API Server")
+	assert.Contains(t, notifications[0].Message, "Downtime: 5m")
+	assert.Equal(t, models.NotificationTypeSuccess, notifications[0].Type)
 }

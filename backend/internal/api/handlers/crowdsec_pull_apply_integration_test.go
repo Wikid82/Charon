@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +121,10 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 
 	// Empty cache, no cscli
 	hub := crowdsec.NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.hub"
+	hub.HTTPClient = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
 
 	db := OpenTestDB(t)
 	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
@@ -143,9 +149,56 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 	require.NoError(t, err)
 
 	errorMsg := errorResult["error"].(string)
-	require.Contains(t, errorMsg, "not cached", "Error should mention preset not cached")
-	require.Contains(t, errorMsg, "Pull", "Error should guide user to pull first")
+	require.Contains(t, errorMsg, "Preset cache missing", "Error should mention preset not cached")
+	require.Contains(t, errorMsg, "Pull the preset", "Error should guide user to pull first")
 	t.Log("Proper error message returned:", errorMsg)
+}
+
+func TestApplyRollbackWhenCacheMissingAndRepullFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cacheDir := t.TempDir()
+	dataRoot := t.TempDir()
+	dataDir := filepath.Join(dataRoot, "crowdsec")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	originalFile := filepath.Join(dataDir, "config.yaml")
+	require.NoError(t, os.WriteFile(originalFile, []byte("original"), 0o644))
+
+	cache, err := crowdsec.NewHubCache(cacheDir, time.Hour)
+	require.NoError(t, err)
+
+	hub := crowdsec.NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.hub"
+	hub.HTTPClient = &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		// Force repull failure
+		return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+
+	db := OpenTestDB(t)
+	handler := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", dataDir)
+	handler.Hub = hub
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	handler.RegisterRoutes(g)
+
+	applyPayload, _ := json.Marshal(map[string]string{"slug": "missing/preset"})
+	applyReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(applyPayload))
+	applyReq.Header.Set("Content-Type", "application/json")
+	applyResp := httptest.NewRecorder()
+	r.ServeHTTP(applyResp, applyReq)
+
+	require.Equal(t, http.StatusInternalServerError, applyResp.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(applyResp.Body.Bytes(), &body))
+	require.NotEmpty(t, body["backup"], "backup path should be returned for rollback traceability")
+	require.Contains(t, body["error"], "Preset cache missing", "error should guide user to repull")
+
+	// Original file should remain after rollback
+	data, readErr := os.ReadFile(originalFile)
+	require.NoError(t, readErr)
+	require.Equal(t, "original", string(data))
 }
 
 func makePresetTarGz(t *testing.T, files map[string]string) []byte {

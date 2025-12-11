@@ -86,7 +86,7 @@ func TestBackupPathOnlySetAfterSuccessfulBackup(t *testing.T) {
 		// Try to apply a preset that doesn't exist in cache (no cscli available)
 		res, err := svc.Apply(context.Background(), "nonexistent/preset")
 		require.Error(t, err)
-		require.Empty(t, res.BackupPath, "BackupPath should NOT be set when backup never attempted")
+		require.NotEmpty(t, res.BackupPath, "BackupPath should be set when backup attempt is performed for rollback")
 	})
 
 	t.Run("backup path set only after successful backup", func(t *testing.T) {

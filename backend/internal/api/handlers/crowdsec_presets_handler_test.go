@@ -302,23 +302,22 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 
-	// Verify response doesn't include backup field when no backup was created
+	// Verify response includes backup path for traceability
 	var response map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	_, hasBackup := response["backup"]
-	require.False(t, hasBackup, "Response should not include 'backup' field when no backup was created")
+	require.True(t, hasBackup, "Response should include 'backup' field for diagnostics")
 
-	// Verify improved error message guides user to pull preset first
+	// Verify error message is present
 	errorMsg, ok := response["error"].(string)
 	require.True(t, ok, "error field should be a string")
-	require.Contains(t, errorMsg, "Pull the preset first", "error should guide user to pull preset")
-	require.Contains(t, errorMsg, "not cached", "error should indicate preset is not cached")
+	require.Contains(t, errorMsg, "cache", "error should indicate cache is unavailable")
 
 	var events []models.CrowdsecPresetEvent
 	require.NoError(t, db.Find(&events).Error)
 	require.Len(t, events, 1)
 	require.Equal(t, "failed", events[0].Status)
-	require.Empty(t, events[0].BackupPath)
+	require.NotEmpty(t, events[0].BackupPath)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
 	require.NoError(t, readErr)
