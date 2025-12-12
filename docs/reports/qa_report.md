@@ -206,3 +206,92 @@ The WAF to Coraza rename has been successfully implemented:
 - ✅ All pre-commit hooks pass
 
 **QA Approval:** ✅ Approved for merge
+
+---
+
+## Rate Limiter Test Infrastructure QA
+
+**Date**: December 12, 2025
+**Scope**: Rate limiter integration test infrastructure verification
+
+### Files Verified
+
+| File | Status |
+|------|--------|
+| `scripts/rate_limit_integration.sh` | ✅ PASS |
+| `backend/integration/rate_limit_integration_test.go` | ✅ PASS |
+| `.vscode/tasks.json` | ✅ PASS |
+
+### Validation Results
+
+#### 1. Shell Script: `rate_limit_integration.sh`
+
+**Syntax Check**: `bash -n scripts/rate_limit_integration.sh`
+
+- **Result**: ✅ No syntax errors detected
+
+**ShellCheck Static Analysis**: `shellcheck --severity=warning`
+
+- **Result**: ✅ No warnings or errors
+
+**File Permissions**:
+
+- **Result**: ✅ Executable (`-rwxr-xr-x`)
+- **File Type**: Bourne-Again shell script, UTF-8 text
+
+**Security Review**:
+
+- ✅ Uses `set -euo pipefail` for strict error handling
+- ✅ Uses `$(...)` for command substitution (not backticks)
+- ✅ Proper quoting around variables
+- ✅ Cleanup trap function properly defined
+- ✅ Error handler (`on_failure`) captures debug info
+- ✅ Temporary files cleaned up in cleanup function
+- ✅ No hardcoded secrets or credentials
+- ✅ Uses `mktemp` for temporary cookie file
+
+#### 2. Go Integration Test: `rate_limit_integration_test.go`
+
+**Build Verification**: `go build -tags=integration ./integration/...`
+
+- **Result**: ✅ Compiles successfully
+
+**Code Review**:
+
+- ✅ Proper build tag: `//go:build integration`
+- ✅ Backward-compatible build tag: `// +build integration`
+- ✅ Uses `t.Parallel()` for concurrent test execution
+- ✅ Context timeout of 10 minutes (appropriate for rate limit window tests)
+- ✅ Captures combined output for debugging
+- ✅ Validates key assertions in script output
+
+#### 3. VS Code Tasks: `tasks.json`
+
+**JSON Validation**: Strip JSONC comments, parse as JSON
+
+- **Result**: ✅ Valid JSON structure
+
+**New Tasks Verified**:
+
+| Task Label | Command | Status |
+|------------|---------|--------|
+| `Rate Limit: Run Integration Script` | `bash ./scripts/rate_limit_integration.sh` | ✅ Valid |
+| `Rate Limit: Run Integration Go Test` | `go test -tags=integration ./integration -run TestRateLimitIntegration -v` | ✅ Valid |
+
+### Issues Found
+
+**None** - All files pass syntax validation and security review.
+
+### Recommendations
+
+1. **Documentation**: Consider adding inline comments to the Go test explaining the expected test flow for future maintainers.
+
+2. **Timeout Tuning**: The 10-minute timeout in the Go test is generous. If tests consistently complete faster, consider reducing to 5 minutes.
+
+3. **CI Integration**: Ensure the integration tests are properly gated in CI/CD pipelines to avoid running on every commit (Docker dependency).
+
+### Rate Limiter Infrastructure Summary
+
+The rate limiter test infrastructure has been verified and is **ready for use**. All three files pass syntax validation, compile/parse correctly, and follow security best practices.
+
+**Overall Status**: ✅ **APPROVED**
