@@ -4,7 +4,7 @@ Charon includes **Cerberus**, a security system that protects your websites. It'
 
 You can disable it in **System Settings → Optional Features** if you don't need it, or configure it using this guide. The sidebar now shows **Cerberus → Dashboard**; the page header reads **Cerberus Dashboard**.
 
-Want the quick reference? See https://wikid82.github.io/charon/security.
+Want the quick reference? See <https://wikid82.github.io/charon/security>.
 
 ---
 
@@ -151,7 +151,6 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 3. Pick the country
 4. Assign to the targeted website
 
-
 ---
 
 ## Certificate Management Security
@@ -159,23 +158,26 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 **What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
 
 **How it works:**
+
 - Certificates cannot be deleted while in use by proxy hosts (conflict error)
 - Automatic backup is created before any certificate deletion
 - Authentication required (when auth is implemented)
 
 **Backup & Recovery:**
+
 - Every certificate deletion triggers an automatic backup
 - Find backups in the "Backups" page
 - Restore from backup if you accidentally delete the wrong certificate
 
 **Best Practice:**
+
 - Review which proxy hosts use a certificate before deleting it
 - When deleting proxy hosts, use the cleanup prompt to delete orphaned certificates
 - Keep custom certificates you might reuse later
 
 ---
 
-## Don't Lock Yourself Out!
+## Don't Lock Yourself Out
 
 **Problem:** If you turn on security and misconfigure it, you might block yourself.
 
@@ -262,6 +264,7 @@ Allows friends to access, blocks obvious threat countries.
 **Where to find it:** Cerberus → Dashboard → Scroll to "Live Activity" section
 
 **What you'll see:**
+
 - Real-time WAF blocks and detections
 - CrowdSec decisions as they happen
 - ACL denials (geo-blocking, IP filtering)
@@ -269,6 +272,7 @@ Allows friends to access, blocks obvious threat countries.
 - All Cerberus security activity
 
 **Controls:**
+
 - **Pause** — Stop the stream to examine specific events
 - **Clear** — Remove old entries from the display
 - **Auto-scroll** — Automatically follow new events
@@ -284,6 +288,7 @@ Allows friends to access, blocks obvious threat countries.
 6. Click "Clear" to remove old entries
 
 **Technical details:**
+
 - Uses WebSocket for real-time streaming (no polling)
 - Keeps last 500 entries by default (configurable)
 - Server-side filtering reduces bandwidth
@@ -302,6 +307,7 @@ Allows friends to access, blocks obvious threat countries.
 3. Configure your preferences:
 
 **Basic Settings:**
+
 - **Enable Notifications** — Master toggle
 - **Minimum Log Level** — Choose: debug, info, warn, or error
   - `error` — Only critical events (recommended)
@@ -310,11 +316,13 @@ Allows friends to access, blocks obvious threat countries.
   - `debug` — Everything (very noisy, not recommended)
 
 **Event Types:**
+
 - **WAF Blocks** — Notify when firewall blocks an attack
 - **ACL Denials** — Notify when access control rules block requests
 - **Rate Limit Hits** — Notify when traffic thresholds are exceeded
 
 **Delivery Methods:**
+
 - **Webhook URL** — Send to Discord, Slack, or custom integrations
 - **Email Recipients** — Comma-separated email addresses (requires SMTP setup)
 
@@ -329,6 +337,7 @@ Allows friends to access, blocks obvious threat countries.
 5. **Sensitive data** — Webhook payloads may contain IP addresses, request URIs, and user agents
 
 **Supported platforms:**
+
 - Discord (use webhook URL from Server Settings → Integrations)
 - Slack (create incoming webhook in Slack Apps)
 - Microsoft Teams (use incoming webhook connector)
@@ -379,6 +388,7 @@ Charon automatically formats notifications for Discord:
 4. Check your Discord/Slack channel for the notification
 
 **Troubleshooting webhooks:**
+
 - No notifications? Check webhook URL is correct and HTTPS
 - Wrong format? Verify your platform's webhook documentation
 - Too many notifications? Increase minimum log level to "error" only
@@ -387,6 +397,7 @@ Charon automatically formats notifications for Discord:
 ### Log Privacy Considerations
 
 **What's logged:**
+
 - IP addresses of blocked requests
 - Request URIs and query parameters
 - User-Agent strings
@@ -394,6 +405,7 @@ Charon automatically formats notifications for Discord:
 - Timestamps of security events
 
 **What's NOT logged:**
+
 - Request bodies (POST data)
 - Authentication credentials
 - Session cookies
@@ -408,6 +420,7 @@ Charon automatically formats notifications for Discord:
 5. **Access control** — Only authenticated users can access live logs (when auth is implemented)
 
 **Compliance notes:**
+
 - Live log streaming does NOT persist logs to disk
 - Logs are only stored in memory during active WebSocket sessions
 - Notification webhooks send log data to third parties (Discord, Slack)
@@ -459,6 +472,7 @@ No. Use what you need:
 ### What We Protect Against
 
 **Web Application Exploits:**
+
 - ✅ SQL Injection (SQLi) — even zero-days using SQL syntax
 - ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
 - ✅ Remote Code Execution (RCE) — command injection patterns

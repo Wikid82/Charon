@@ -13,6 +13,7 @@ http://localhost:8080/api/v1
 🚧 Authentication is not yet implemented. All endpoints are currently public.
 
 Future authentication will use JWT tokens:
+
 ```http
 Authorization: Bearer <token>
 ```
@@ -60,6 +61,7 @@ GET /metrics
 ```
 
 No authentication required. Primary WAF metrics:
+
 ```text
 charon_waf_requests_total
 charon_waf_blocked_total
@@ -77,6 +79,7 @@ GET /health
 ```
 
 **Response 200:**
+
 ```json
 {
   "status": "ok"
@@ -88,23 +91,30 @@ GET /health
 ### Security Suite (Cerberus)
 
 #### Status
+
 ```http
 GET /security/status
 ```
+
 Returns enabled flag plus modes for each module.
 
 #### Get Global Security Config
+
 ```http
 GET /security/config
 ```
+
 Response 200 (no config yet): `{ "config": null }`
 
 #### Upsert Global Security Config
+
 ```http
 POST /security/config
 Content-Type: application/json
 ```
+
 Request Body (example):
+
 ```json
 {
   "name": "default",
@@ -115,60 +125,79 @@ Request Body (example):
   "waf_rules_source": "owasp-crs-local"
 }
 ```
+
 Response 200: `{ "config": { ... } }`
 
 #### Enable Cerberus
+
 ```http
 POST /security/enable
 ```
+
 Payload (optional break-glass token):
+
 ```json
 { "break_glass_token": "abcd1234" }
 ```
 
 #### Disable Cerberus
+
 ```http
 POST /security/disable
 ```
+
 Payload (required if not localhost):
+
 ```json
 { "break_glass_token": "abcd1234" }
 ```
 
 #### Generate Break-Glass Token
+
 ```http
 POST /security/breakglass/generate
 ```
+
 Response 200: `{ "token": "plaintext-token-once" }`
 
 #### List Security Decisions
+
 ```http
 GET /security/decisions?limit=50
 ```
+
 Response 200: `{ "decisions": [ ... ] }`
 
 #### Create Manual Decision
+
 ```http
 POST /security/decisions
 Content-Type: application/json
 ```
+
 Payload:
+
 ```json
 { "ip": "203.0.113.5", "action": "block", "details": "manual temporary block" }
 ```
 
 #### List Rulesets
+
 ```http
 GET /security/rulesets
 ```
+
 Response 200: `{ "rulesets": [ ... ] }`
 
 #### Upsert Ruleset
+
 ```http
 POST /security/rulesets
 Content-Type: application/json
 ```
+
 Payload:
+
 ```json
 {
   "name": "owasp-crs-quick",
@@ -177,12 +206,15 @@ Payload:
   "content": "# raw rules"
 }
 ```
+
 Response 200: `{ "ruleset": { ... } }`
 
 #### Delete Ruleset
+
 ```http
 DELETE /security/rulesets/:id
 ```
+
 Response 200: `{ "deleted": true }`
 
 ---
@@ -196,6 +228,7 @@ GET /certificates
 ```
 
 **Response 200:**
+
 ```json
 [
   {
@@ -218,11 +251,13 @@ Content-Type: multipart/form-data
 ```
 
 **Request Body:**
+
 - `name` (required) - Certificate name
 - `certificate_file` (required) - Certificate file (.crt or .pem)
 - `key_file` (required) - Private key file (.key or .pem)
 
 **Response 201:**
+
 ```json
 {
   "id": 1,
@@ -242,9 +277,11 @@ DELETE /certificates/:id
 ```
 
 **Parameters:**
+
 - `id` (path) - Certificate ID (numeric)
 
 **Response 200:**
+
 ```json
 {
   "message": "certificate deleted"
@@ -252,6 +289,7 @@ DELETE /certificates/:id
 ```
 
 **Response 400:**
+
 ```json
 {
   "error": "invalid id"
@@ -259,6 +297,7 @@ DELETE /certificates/:id
 ```
 
 **Response 409:**
+
 ```json
 {
   "error": "certificate is in use by one or more proxy hosts"
@@ -266,6 +305,7 @@ DELETE /certificates/:id
 ```
 
 **Response 500:**
+
 ```json
 {
   "error": "failed to delete certificate"
@@ -285,6 +325,7 @@ GET /proxy-hosts
 ```
 
 **Response 200:**
+
 ```json
 [
   {
@@ -314,9 +355,11 @@ GET /proxy-hosts/:uuid
 ```
 
 **Parameters:**
+
 - `uuid` (path) - Proxy host UUID
 
 **Response 200:**
+
 ```json
 {
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
@@ -333,6 +376,7 @@ GET /proxy-hosts/:uuid
 ```
 
 **Response 404:**
+
 ```json
 {
   "error": "Proxy host not found"
@@ -347,6 +391,7 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "domain": "new.example.com",
@@ -365,11 +410,13 @@ Content-Type: application/json
 ```
 
 **Required Fields:**
+
 - `domain` - Domain name(s), comma-separated
 - `forward_host` - Target hostname or IP
 - `forward_port` - Target port number
 
 **Optional Fields:**
+
 - `forward_scheme` - Default: `"http"`
 - `ssl_forced` - Default: `false`
 - `http2_support` - Default: `true`
@@ -381,6 +428,7 @@ Content-Type: application/json
 - `remote_server_id` - Default: `null`
 
 **Response 201:**
+
 ```json
 {
   "uuid": "550e8400-e29b-41d4-a716-446655440001",
@@ -394,6 +442,7 @@ Content-Type: application/json
 ```
 
 **Response 400:**
+
 ```json
 {
   "error": "domain is required"
@@ -408,9 +457,11 @@ Content-Type: application/json
 ```
 
 **Parameters:**
+
 - `uuid` (path) - Proxy host UUID
 
 **Request Body:** (all fields optional)
+
 ```json
 {
   "domain": "updated.example.com",
@@ -420,6 +471,7 @@ Content-Type: application/json
 ```
 
 **Response 200:**
+
 ```json
 {
   "uuid": "550e8400-e29b-41d4-a716-446655440000",
@@ -437,11 +489,13 @@ DELETE /proxy-hosts/:uuid
 ```
 
 **Parameters:**
+
 - `uuid` (path) - Proxy host UUID
 
 **Response 204:** No content
 
 **Response 404:**
+
 ```json
 {
   "error": "Proxy host not found"
@@ -459,9 +513,11 @@ GET /remote-servers
 ```
 
 **Query Parameters:**
+
 - `enabled` (optional) - Filter by enabled status (`true` or `false`)
 
 **Response 200:**
+
 ```json
 [
   {
@@ -486,9 +542,11 @@ GET /remote-servers/:uuid
 ```
 
 **Parameters:**
+
 - `uuid` (path) - Remote server UUID
 
 **Response 200:**
+
 ```json
 {
   "uuid": "660e8400-e29b-41d4-a716-446655440000",
@@ -509,6 +567,7 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "name": "Production API",
@@ -520,15 +579,18 @@ Content-Type: application/json
 ```
 
 **Required Fields:**
+
 - `name` - Server name
 - `host` - Hostname or IP
 - `port` - Port number
 
 **Optional Fields:**
+
 - `provider` - One of: `generic`, `docker`, `kubernetes`, `aws`, `gcp`, `azure` (default: `generic`)
 - `enabled` - Default: `true`
 
 **Response 201:**
+
 ```json
 {
   "uuid": "660e8400-e29b-41d4-a716-446655440001",
@@ -550,6 +612,7 @@ Content-Type: application/json
 ```
 
 **Request Body:** (all fields optional)
+
 ```json
 {
   "name": "Updated Name",
@@ -559,6 +622,7 @@ Content-Type: application/json
 ```
 
 **Response 200:**
+
 ```json
 {
   "uuid": "660e8400-e29b-41d4-a716-446655440000",
@@ -586,9 +650,11 @@ POST /remote-servers/:uuid/test
 ```
 
 **Parameters:**
+
 - `uuid` (path) - Remote server UUID
 
 **Response 200:**
+
 ```json
 {
   "reachable": true,
@@ -598,6 +664,7 @@ POST /remote-servers/:uuid/test
 ```
 
 **Response 200 (unreachable):**
+
 ```json
 {
   "reachable": false,
@@ -623,10 +690,12 @@ Upgrade: websocket
 ```
 
 **Query Parameters:**
+
 - `level` (optional) - Filter by log level. Values: `debug`, `info`, `warn`, `error`
 - `source` (optional) - Filter by log source. Values: `cerberus`, `waf`, `crowdsec`, `acl`
 
 **WebSocket Connection:**
+
 ```javascript
 const ws = new WebSocket('ws://localhost:8080/api/v1/logs/live?source=cerberus&level=error');
 
@@ -664,6 +733,7 @@ Each message received from the WebSocket is a JSON-encoded `LogEntry`:
 ```
 
 **Field Descriptions:**
+
 - `level` - Log severity: `debug`, `info`, `warn`, `error`
 - `message` - Human-readable log message
 - `timestamp` - ISO 8601 timestamp (RFC3339 format)
@@ -671,17 +741,20 @@ Each message received from the WebSocket is a JSON-encoded `LogEntry`:
 - `fields` - Additional structured data specific to the event type
 
 **Connection Lifecycle:**
+
 - Server sends a ping every 30 seconds to keep connection alive
 - Client should respond to pings or connection may timeout
 - Server closes connection if client stops reading
 - Client can close connection by calling `ws.close()`
 
 **Error Handling:**
+
 - If upgrade fails, returns HTTP 400 with error message
 - Authentication required (when auth is implemented)
 - Rate limiting applies (when rate limiting is implemented)
 
 **Example: Filter for critical WAF events only**
+
 ```javascript
 const ws = new WebSocket('ws://localhost:8080/api/v1/logs/live?source=waf&level=error');
 ```
@@ -697,6 +770,7 @@ GET /api/v1/security/notifications/settings
 ```
 
 **Response 200:**
+
 ```json
 {
   "enabled": true,
@@ -710,6 +784,7 @@ GET /api/v1/security/notifications/settings
 ```
 
 **Field Descriptions:**
+
 - `enabled` - Master toggle for all notifications
 - `min_log_level` - Minimum severity to trigger notifications. Values: `debug`, `info`, `warn`, `error`
 - `notify_waf_blocks` - Send notifications for WAF blocking events
@@ -719,6 +794,7 @@ GET /api/v1/security/notifications/settings
 - `email_recipients` (optional) - Comma-separated list of email addresses
 
 **Response 404:**
+
 ```json
 {
   "error": "Notification settings not configured"
@@ -737,6 +813,7 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "enabled": true,
@@ -750,6 +827,7 @@ Content-Type: application/json
 ```
 
 **All fields optional:**
+
 - `enabled` (boolean) - Enable/disable all notifications
 - `min_log_level` (string) - Must be one of: `debug`, `info`, `warn`, `error`
 - `notify_waf_blocks` (boolean) - Toggle WAF block notifications
@@ -759,6 +837,7 @@ Content-Type: application/json
 - `email_recipients` (string) - Comma-separated email addresses
 
 **Response 200:**
+
 ```json
 {
   "message": "Settings updated successfully"
@@ -766,6 +845,7 @@ Content-Type: application/json
 ```
 
 **Response 400:**
+
 ```json
 {
   "error": "Invalid min_log_level. Must be one of: debug, info, warn, error"
@@ -773,6 +853,7 @@ Content-Type: application/json
 ```
 
 **Response 500:**
+
 ```json
 {
   "error": "Failed to update settings"
@@ -780,6 +861,7 @@ Content-Type: application/json
 ```
 
 **Example: Enable notifications for critical errors only**
+
 ```bash
 curl -X PUT http://localhost:8080/api/v1/security/notifications/settings \
   -H "Content-Type: application/json" \
@@ -823,6 +905,7 @@ GET /import/status
 ```
 
 **Response 200 (no session):**
+
 ```json
 {
   "has_pending": false
@@ -830,6 +913,7 @@ GET /import/status
 ```
 
 **Response 200 (active session):**
+
 ```json
 {
   "has_pending": true,
@@ -852,6 +936,7 @@ GET /import/preview
 ```
 
 **Response 200:**
+
 ```json
 {
   "hosts": [
@@ -876,6 +961,7 @@ GET /import/preview
 ```
 
 **Response 404:**
+
 ```json
 {
   "error": "No active import session"
@@ -892,6 +978,7 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "content": "example.com {\n    reverse_proxy localhost:8080\n}",
@@ -900,12 +987,15 @@ Content-Type: application/json
 ```
 
 **Required Fields:**
+
 - `content` - Caddyfile content
 
 **Optional Fields:**
+
 - `filename` - Original filename (default: `"Caddyfile"`)
 
 **Response 201:**
+
 ```json
 {
   "session": {
@@ -918,6 +1008,7 @@ Content-Type: application/json
 ```
 
 **Response 400:**
+
 ```json
 {
   "error": "content is required"
@@ -934,6 +1025,7 @@ Content-Type: application/json
 ```
 
 **Request Body:**
+
 ```json
 {
   "session_uuid": "770e8400-e29b-41d4-a716-446655440000",
@@ -945,15 +1037,18 @@ Content-Type: application/json
 ```
 
 **Required Fields:**
+
 - `session_uuid` - Active import session UUID
 - `resolutions` - Map of domain to resolution strategy
 
 **Resolution Strategies:**
+
 - `"keep"` - Keep existing configuration, skip import
 - `"overwrite"` - Replace existing with imported configuration
 - `"skip"` - Same as keep
 
 **Response 200:**
+
 ```json
 {
   "imported": 2,
@@ -963,6 +1058,7 @@ Content-Type: application/json
 ```
 
 **Response 400:**
+
 ```json
 {
   "error": "Invalid session or unresolved conflicts"
@@ -978,6 +1074,7 @@ DELETE /import/cancel?session_uuid=770e8400-e29b-41d4-a716-446655440000
 ```
 
 **Query Parameters:**
+
 - `session_uuid` - Active import session UUID
 
 **Response 204:** No content
@@ -989,6 +1086,7 @@ DELETE /import/cancel?session_uuid=770e8400-e29b-41d4-a716-446655440000
 🚧 Rate limiting is not yet implemented.
 
 Future rate limits:
+
 - 100 requests per minute per IP
 - 1000 requests per hour per IP
 
@@ -997,6 +1095,7 @@ Future rate limits:
 🚧 Pagination is not yet implemented.
 
 Future pagination:
+
 ```http
 GET /proxy-hosts?page=1&per_page=20
 ```
@@ -1006,6 +1105,7 @@ GET /proxy-hosts?page=1&per_page=20
 🚧 Advanced filtering is not yet implemented.
 
 Future filtering:
+
 ```http
 GET /proxy-hosts?enabled=true&sort=created_at&order=desc
 ```
@@ -1015,6 +1115,7 @@ GET /proxy-hosts?enabled=true&sort=created_at&order=desc
 🚧 Webhooks are not yet implemented.
 
 Future webhook events:
+
 - `proxy_host.created`
 - `proxy_host.updated`
 - `proxy_host.deleted`
@@ -1074,5 +1175,6 @@ test_result = requests.post(f'{API_BASE}/remote-servers/{uuid}/test').json()
 ## Support
 
 For API issues or questions:
-- GitHub Issues: https://github.com/Wikid82/charon/issues
-- Discussions: https://github.com/Wikid82/charon/discussions
+
+- GitHub Issues: <https://github.com/Wikid82/charon/issues>
+- Discussions: <https://github.com/Wikid82/charon/discussions>

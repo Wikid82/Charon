@@ -63,7 +63,7 @@ if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
 fi
 
 # Start Caddy in the background with initial empty config
-echo '{"apps":{}}' > /config/caddy.json
+echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
 caddy run --config /config/caddy.json &
 CADDY_PID=$!

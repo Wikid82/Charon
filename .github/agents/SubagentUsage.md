@@ -3,6 +3,7 @@
 This helper provides the Management agent with templates to create robust and repeatable `runSubagent` calls.
 
 1) Basic runSubagent Template
+
 ```
 runSubagent({
   prompt: "<Clear, short instruction for the subagent>",
@@ -19,6 +20,7 @@ runSubagent({
 ```
 
 2) Orchestration Checklist (Management)
+
 - Validate: `plan_file` exists and contains a `Handoff Contract` JSON.
 - Kickoff: call `Planning` to create the plan if not present.
 - Run: execute `Backend Dev` then `Frontend Dev` sequentially.
@@ -26,6 +28,7 @@ runSubagent({
 - Return: a JSON summary with `subagent_results`, `overall_status`, and aggregated artifacts.
 
 3) Return Contract that all subagents must return
+
 ```
 {
   "changed_files": ["path/to/file1", "path/to/file2"],
@@ -37,10 +40,12 @@ runSubagent({
 ```
 
 4) Error Handling
+
 - On a subagent failure, the Management agent must capture `tests.output` and decide to retry (1 retry maximum), or request a revert/rollback.
 - Clearly mark the `status` as `failed`, and include `errors` and `failing_tests` in the `summary`.
 
 5) Example: Run a full Feature Implementation
+
 ```
 // 1. Planning
 runSubagent({ description: "Planning", prompt: "<generate plan>", metadata: { plan_file: "docs/plans/current_spec.md" } })

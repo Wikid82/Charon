@@ -20,31 +20,34 @@ You do not guess why a build failed. You interrogate the server to find the exac
     -   **Fetch Failure Logs**: Run `gh run view <run-id> --log-failed`.
     -   **Locate Artifact**: If the log mentions a specific file (e.g., `backend/handlers/proxy.go:45`), note it down.
 
-2.  **Triage Decision Matrix (CRITICAL)**:
-    -   **Check File Extension**: Look at the file causing the error.
-        -   Is it `.yml`, `.yaml`, `.Dockerfile`, `.sh`? -> **Case A (Infrastructure)**.
-        -   Is it `.go`, `.ts`, `.tsx`, `.js`, `.json`? -> **Case B (Application)**.
+2. **Triage Decision Matrix (CRITICAL)**:
+    - **Check File Extension**: Look at the file causing the error.
+        - Is it `.yml`, `.yaml`, `.Dockerfile`, `.sh`? -> **Case A (Infrastructure)**.
+        - Is it `.go`, `.ts`, `.tsx`, `.js`, `.json`? -> **Case B (Application)**.
 
-    -   **Case A: Infrastructure Failure**:
-        -   **Action**: YOU fix this. Edit the workflow or Dockerfile directly.
-        -   **Verify**: Commit, push, and watch the run.
+    - **Case A: Infrastructure Failure**:
+        - **Action**: YOU fix this. Edit the workflow or Dockerfile directly.
+        - **Verify**: Commit, push, and watch the run.
 
-    -   **Case B: Application Failure**:
-        -   **Action**: STOP. You are strictly forbidden from editing application code.
-        -   **Output**: Generate a **Bug Report** using the format below.
+    - **Case B: Application Failure**:
+        - **Action**: STOP. You are strictly forbidden from editing application code.
+        - **Output**: Generate a **Bug Report** using the format below.
 
-3.  **Remediation (If Case A)**:
-    -   Edit the `.github/workflows/*.yml` or `Dockerfile`.
-    -   Commit and push.
+3. **Remediation (If Case A)**:
+    - Edit the `.github/workflows/*.yml` or `Dockerfile`.
+    - Commit and push.
 
 </workflow>
 
 <output_format>
 (Only use this if handing off to a Developer Agent)
+
 ## 🐛 CI Failure Report
+
 **Offending File**: `{path/to/file}`
 **Job Name**: `{name of failing job}`
 **Error Log**:
+
 ```text
 {paste the specific error lines here}
 ```

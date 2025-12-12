@@ -20,6 +20,7 @@ type SecurityConfig struct {
 	WAFLearning        bool      `json:"waf_learning"`
 	WAFParanoiaLevel   int       `json:"waf_paranoia_level" gorm:"default:1"` // 1-4, OWASP CRS paranoia level
 	WAFExclusions      string    `json:"waf_exclusions" gorm:"type:text"`     // JSON array of rule exclusions
+	RateLimitMode       string    `json:"rate_limit_mode"`                       // "disabled", "enabled"
 	RateLimitEnable     bool      `json:"rate_limit_enable"`
 	RateLimitBurst      int       `json:"rate_limit_burst"`
 	RateLimitRequests   int       `json:"rate_limit_requests"`

@@ -130,6 +130,7 @@ The new regression tests verify the pull-then-apply workflow:
 **File:** [.vscode/tasks.json](../../.vscode/tasks.json)
 
 Two new tasks added:
+
 - `Lint: Markdownlint` - Check markdown files
 - `Lint: Markdownlint Fix` - Auto-fix markdown issues
 

@@ -88,6 +88,7 @@ interface ImportSuccessModalProps {
 ```
 
 **Design Pattern:** Follow existing modal patterns from:
+
 - [ImportSitesModal.tsx](../../../frontend/src/components/ImportSitesModal.tsx) - Portal/overlay structure
 - [CertificateCleanupDialog.tsx](../../../frontend/src/components/dialogs/CertificateCleanupDialog.tsx) - Form submission pattern
 
@@ -210,6 +211,7 @@ In [Dashboard.tsx](../../../frontend/src/pages/Dashboard.tsx#L43-L47), the certi
 ### Certificate Provisioning Detection
 
 Certificates are provisioned by Caddy automatically. A host is "pending" if:
+
 - `ProxyHost.certificate_id` is NULL
 - `ProxyHost.ssl_forced` is true (expects a cert)
 - No matching certificate exists in the certificates list

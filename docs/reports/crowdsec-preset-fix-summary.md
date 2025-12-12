@@ -5,11 +5,13 @@
 ### 1. Added Comprehensive Logging
 
 **Files Modified:**
+
 - `backend/internal/crowdsec/hub_cache.go` - Added logging to cache Store/Load operations
 - `backend/internal/crowdsec/hub_sync.go` - Added logging to Pull/Apply flows
 - `backend/internal/api/handlers/crowdsec_handler.go` - Added detailed logging to HTTP handlers
 
 **Logging Added:**
+
 - Cache directory checks and creation
 - File storage operations with paths and sizes
 - Cache lookup operations (hits/misses)
@@ -22,11 +24,13 @@
 Improved user-facing error messages to be more actionable:
 
 **Before:**
+
 ```
 "cscli unavailable and no cached preset; pull the preset or install cscli"
 ```
 
 **After:**
+
 ```
 "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 ```
@@ -34,12 +38,14 @@ Improved user-facing error messages to be more actionable:
 ### 3. Added File Verification
 
 After pull operations, the system now:
+
 - Verifies archive file exists on disk
 - Verifies preview file exists on disk
 - Logs warnings if files are missing
 - Provides detailed paths for manual inspection
 
 Before apply operations, the system now:
+
 - Checks if preset is cached
 - Verifies cached files still exist
 - Lists all cached presets if requested one is missing
@@ -48,6 +54,7 @@ Before apply operations, the system now:
 ### 4. Created Comprehensive Tests
 
 **New Test Files:**
+
 1. `backend/internal/crowdsec/hub_pull_apply_test.go`
    - `TestPullThenApplyFlow` - End-to-end pull→apply test
    - `TestApplyWithoutPullFails` - Verify error when cache missing
@@ -67,6 +74,7 @@ Before apply operations, the system now:
 ## How It Works
 
 ### Pull Operation Flow
+
 ```
 1. Frontend: POST /admin/crowdsec/presets/pull {slug: "test/preset"}
    ↓
@@ -92,6 +100,7 @@ Before apply operations, the system now:
 ```
 
 ### Apply Operation Flow
+
 ```
 1. Frontend: POST /admin/crowdsec/presets/apply {slug: "test/preset"}
    ↓
@@ -183,28 +192,36 @@ time="2025-12-10T00:00:15Z" level=warning msg="crowdsec preset apply failed"
 ### If Pull Succeeds But Apply Fails
 
 1. **Check the logs** for pull operation:
+
    ```
    grep "preset successfully stored" logs.txt
    ```
+
    Should show the archive_path and cache_key.
 
 2. **Verify files exist**:
+
    ```bash
    ls -la data/hub_cache/
    ls -la data/hub_cache/{slug}/
    ```
+
    Should see: `bundle.tgz`, `preview.yaml`, `metadata.json`
 
 3. **Check file permissions**:
+
    ```bash
    stat data/hub_cache/{slug}/bundle.tgz
    ```
+
    Should be readable by the application user.
 
 4. **Check logs during apply**:
+
    ```
    grep "preset found in cache" logs.txt
    ```
+
    If you see "preset not found in cache" instead, check:
    - Is the slug exactly the same?
    - Did the cache files get deleted?
@@ -219,11 +236,13 @@ time="2025-12-10T00:00:15Z" level=warning msg="crowdsec preset apply failed"
 If logs show "preset successfully stored" but files don't exist:
 
 1. Check disk space:
+
    ```bash
    df -h /data
    ```
 
 2. Check directory permissions:
+
    ```bash
    ls -ld data/hub_cache/
    ```

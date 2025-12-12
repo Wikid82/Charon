@@ -36,6 +36,7 @@ const pendingCount = sslHosts.length - hostsWithCerts.length
 2. **Custom certificates**: Only when a user uploads a custom certificate is it stored in `ssl_certificates` table and linked via `certificate_id` on the proxy host.
 
 3. **Backend evidence** - From [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go#L70-L73):
+
    ```go
    // Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
    ```
@@ -46,6 +47,7 @@ const pendingCount = sslHosts.length - hostsWithCerts.length
 ### The Actual Bug
 
 When a user has:
+
 - 14 proxy hosts with `ssl_forced: true`
 - All 14 hosts have ACME-managed certificates (Let's Encrypt/ZeroSSL)
 - **None** of these hosts have `certificate_id` set (because ACME certs don't use this field)
@@ -111,11 +113,12 @@ const pendingCount = pendingHosts.length
 | File | Change |
 |------|--------|
 | [frontend/src/components/CertificateStatusCard.tsx](../../frontend/src/components/CertificateStatusCard.tsx) | Update pending detection logic to match by domain |
-| [frontend/src/components/__tests__/CertificateStatusCard.test.tsx](../../frontend/src/components/__tests__/CertificateStatusCard.test.tsx) | Update tests for new domain-matching logic |
+| [frontend/src/components/**tests**/CertificateStatusCard.test.tsx](../../frontend/src/components/__tests__/CertificateStatusCard.test.tsx) | Update tests for new domain-matching logic |
 
 ### No Backend Changes Required
 
 The backend already provides:
+
 - `ProxyHost.domain_names` - comma-separated list of domains
 - `Certificate.domain` - the domain(s) covered by the certificate
 
@@ -227,6 +230,7 @@ The existing tests rely on `certificate_id` for determining "pending" status. We
 **File:** `frontend/src/components/__tests__/CertificateStatusCard.test.tsx`
 
 #### Tests to Keep (Unchanged)
+
 - `shows total certificate count`
 - `shows valid certificate count`
 - `shows expiring count when certificates are expiring`
@@ -240,6 +244,7 @@ The existing tests rely on `certificate_id` for determining "pending" status. We
 #### Tests to Update
 
 **Remove** tests that check `certificate_id` directly:
+
 - `shows pending indicator when hosts lack certificates` - needs domain matching
 - `shows plural for multiple pending hosts` - needs domain matching
 - `hides pending indicator when all hosts have certificates` - needs domain matching

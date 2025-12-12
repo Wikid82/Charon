@@ -1,6 +1,7 @@
 # Live Logs & Notifications User Guide
 
 **Quick links:**
+
 - [Overview](#overview)
 - [Accessing Live Logs](#accessing-live-logs)
 - [Configuring Notifications](#configuring-notifications)
@@ -15,6 +16,7 @@
 Charon's Live Logs & Notifications feature gives you real-time visibility into security events. See attacks as they happen, not hours later. Get notified immediately when critical threats are detected.
 
 **What you get:**
+
 - \u2705 Real-time security event streaming
 - \u2705 Configurable notifications (webhooks, email)
 - \u2705 Client-side and server-side filtering
@@ -45,6 +47,7 @@ You'll see a terminal-like interface showing real-time security events.
 ### What You'll See
 
 Each log entry shows:
+
 - **Timestamp** \u2014 When the event occurred (ISO 8601 format)
 - **Level** \u2014 Severity: debug, info, warn, error
 - **Source** \u2014 Component that generated the event (waf, crowdsec, acl)
@@ -52,6 +55,7 @@ Each log entry shows:
 - **Details** \u2014 Structured data (IP addresses, rule IDs, request URIs)
 
 **Example log entry:**
+
 ```
 [2025-12-09T10:30:45Z] ERROR [waf] WAF blocked SQL injection attempt
   IP: 203.0.113.42
@@ -73,9 +77,11 @@ Each log entry shows:
 ### Step 2: Basic Configuration
 
 **Enable Notifications:**
+
 - Toggle the master switch to enable alerts
 
 **Set Minimum Log Level:**
+
 - Choose the minimum severity that triggers notifications
 - **Recommended:** Start with `error` to avoid alert fatigue
 - Options:
@@ -103,11 +109,13 @@ Select which types of security events trigger notifications:
 ### Step 4: Add Delivery Methods
 
 **Webhook URL (recommended):**
+
 - Paste your Discord/Slack webhook URL
 - Must be HTTPS (HTTP not allowed for security)
 - Format: `https://hooks.slack.com/services/...` or `https://discord.com/api/webhooks/...`
 
 **Email Recipients (future feature):**
+
 - Comma-separated list: `admin@example.com, security@example.com`
 - Requires SMTP configuration (not yet implemented)
 
@@ -137,6 +145,7 @@ The Live Log Viewer includes built-in filtering:
    - Filter by component (WAF, CrowdSec, ACL)
 
 **Example:** To see only WAF errors from a specific IP:
+
 - Type `203.0.113.42` in the search box
 - Click the \"ERROR\" badge
 - Results update instantly
@@ -146,16 +155,19 @@ The Live Log Viewer includes built-in filtering:
 For better performance with high-volume logs, use server-side filtering:
 
 **Via URL parameters:**
+
 - `?level=error` \u2014 Only error-level logs
 - `?source=waf` \u2014 Only WAF-related events
 - `?source=cerberus` \u2014 All Cerberus security events
 
 **Example:** To connect directly with filters:
+
 ```javascript
 const ws = new WebSocket('ws://localhost:8080/api/v1/logs/live?level=error&source=waf');
 ```
 
 **When to use server-side filtering:**
+
 - Reduces bandwidth usage
 - Better performance under heavy load
 - Useful for automated monitoring scripts
@@ -188,6 +200,7 @@ Trigger a security event (e.g., try to access a blocked URL) and check your Disc
 **Discord message format:**
 
 Charon sends formatted Discord embeds:
+
 - \ud83d\udee1\ufe0f Icon and title based on event type
 - Color-coded severity (red for errors, yellow for warnings)
 - Structured fields (IP, Rule, URI)
@@ -197,7 +210,7 @@ Charon sends formatted Discord embeds:
 
 **Step 1: Create Slack Incoming Webhook**
 
-1. Go to https://api.slack.com/apps
+1. Go to <https://api.slack.com/apps>
 2. Click **Create New App** \u2192 **From scratch**
 3. Name it \"Charon Security\" and select your workspace
 4. Click **Incoming Webhooks** \u2192 Toggle **Activate Incoming Webhooks**
@@ -214,6 +227,7 @@ Charon sends formatted Discord embeds:
 **Slack message format:**
 
 Charon sends JSON payloads compatible with Slack's message format:
+
 ```json
 {
   "text": "WAF Block: SQL injection attempt blocked",
@@ -230,6 +244,7 @@ Charon sends JSON payloads compatible with Slack's message format:
 ### Custom Webhooks
 
 **Requirements:**
+
 - Must accept POST requests
 - Must use HTTPS (HTTP not supported)
 - Should return 2xx status code on success
@@ -254,6 +269,7 @@ Charon sends JSON POST requests:
 ```
 
 **Headers:**
+
 ```
 Content-Type: application/json
 User-Agent: Charon/1.0
@@ -283,11 +299,13 @@ app.post('/charon-webhook', (req, res) => {
 ### Pause/Resume
 
 **Pause:**
+
 - Click the **\"Pause\"** button to stop streaming
 - Useful for examining specific events
 - New logs are buffered but not displayed
 
 **Resume:**
+
 - Click **\"Resume\"** to continue streaming
 - Buffered logs appear instantly
 
@@ -300,10 +318,12 @@ app.post('/charon-webhook', (req, res) => {
 ### Auto-Scroll
 
 **Enabled (default):**
+
 - Viewer automatically scrolls to show latest entries
 - New logs always visible
 
 **Disabled:**
+
 - Scroll back to review older entries
 - Auto-scroll pauses automatically when you scroll up
 - Resumes when you scroll back to the bottom
@@ -315,11 +335,13 @@ app.post('/charon-webhook', (req, res) => {
 ### No Logs Appearing
 
 **Check Cerberus status:**
+
 1. Go to **Cerberus Dashboard**
 2. Verify Cerberus is enabled
 3. Check that at least one security feature is active (WAF, CrowdSec, or ACL)
 
 **Check browser console:**
+
 1. Open Developer Tools (F12)
 2. Look for WebSocket connection errors
 3. Common issues:
@@ -328,10 +350,12 @@ app.post('/charon-webhook', (req, res) => {
    - CORS error \u2192 Check allowed origins configuration
 
 **Check filters:**
+
 - Clear all filters (search box and level/source badges)
 - Server-side filters in URL parameters may be too restrictive
 
 **Generate test events:**
+
 - Try accessing a URL with SQL injection pattern: `https://yoursite.com/api?id=1' OR '1'='1`
 - Enable WAF in \"Block\" mode to see blocks
 - Check CrowdSec is running to see decision logs
@@ -339,15 +363,18 @@ app.post('/charon-webhook', (req, res) => {
 ### WebSocket Disconnects
 
 **Symptoms:**
+
 - Logs stop appearing
 - \"Disconnected\" message shows
 
 **Causes:**
+
 - Network interruption
 - Server restart
 - Idle timeout (rare\u2014ping keeps connection alive)
 
 **Solution:**
+
 - Live Log Viewer automatically reconnects
 - If it doesn't, refresh the page
 - Check network connectivity
@@ -355,27 +382,33 @@ app.post('/charon-webhook', (req, res) => {
 ### Notifications Not Sending
 
 **Check notification settings:**
+
 1. Open **Notification Settings**
 2. Verify **Enable Notifications** is toggled on
 3. Check **Minimum Log Level** isn't too restrictive
 4. Verify at least one event type is enabled
 
 **Check webhook URL:**
+
 - Must be HTTPS (HTTP not supported)
 - Test the URL directly with `curl`:
+
   ```bash
   curl -X POST https://your-webhook-url \
     -H "Content-Type: application/json" \
     -d '{"test": "message"}'
   ```
+
 - Check webhook provider's documentation for correct format
 
 **Check event severity:**
+
 - If minimum level is \"error\", only errors trigger notifications
 - Lower to \"warn\" or \"info\" to see more notifications
 - Generate a test error event to verify
 
 **Check logs:**
+
 - Look for webhook delivery errors in Charon logs
 - Common errors:
   - Connection timeout \u2192 Webhook URL unreachable
@@ -385,32 +418,39 @@ app.post('/charon-webhook', (req, res) => {
 ### Too Many Notifications
 
 **Solution 1: Increase minimum log level**
+
 - Change from \"info\" to \"warn\" or \"error\"
 - Reduces notification volume significantly
 
 **Solution 2: Disable noisy event types**
+
 - Disable \"Rate Limit Hits\" if you don't need them
 - Keep only \"WAF Blocks\" and \"ACL Denials\"
 
 **Solution 3: Use server-side filtering**
+
 - Filter by source (e.g., only WAF blocks)
 - Filter by level (e.g., only errors)
 
 **Solution 4: Rate limiting (future feature)**
+
 - Charon will support rate-limited notifications
 - Example: Maximum 10 notifications per minute
 
 ### Logs Missing Information
 
 **Incomplete log entries:**
+
 - Check that the source component is logging all necessary fields
 - Update to latest Charon version (fields may have been added)
 
 **Timestamps in wrong timezone:**
+
 - All timestamps are UTC (ISO 8601 / RFC3339 format)
 - Convert to your local timezone in your webhook handler if needed
 
 **IP addresses showing as localhost:**
+
 - Check reverse proxy configuration
 - Ensure `X-Forwarded-For` or `X-Real-IP` headers are set
 
@@ -561,6 +601,6 @@ ws.onmessage = (event) => {
 
 ## Need Help?
 
-- **GitHub Issues:** https://github.com/Wikid82/charon/issues
-- **Discussions:** https://github.com/Wikid82/charon/discussions
-- **Documentation:** https://wikid82.github.io/charon/
+- **GitHub Issues:** <https://github.com/Wikid82/charon/issues>
+- **Discussions:** <https://github.com/Wikid82/charon/discussions>
+- **Documentation:** <https://wikid82.github.io/charon/>

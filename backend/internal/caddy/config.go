@@ -25,6 +25,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	logFile := filepath.Join(logDir, "access.log")
 
 	config := &Config{
+		Admin: &AdminConfig{
+			Listen: "0.0.0.0:2019", // Bind to all interfaces for container access
+		},
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
 				"access": {
@@ -1006,23 +1009,15 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 		return nil, nil
 	}
 
-	// Calculate burst: use configured value, or default to 20% of requests (min 1)
-	burst := secCfg.RateLimitBurst
-	if burst <= 0 {
-		burst = secCfg.RateLimitRequests / 5
-		if burst < 1 {
-			burst = 1
-		}
-	}
-
 	// Build the base rate_limit handler using caddy-ratelimit format
+	// Note: The caddy-ratelimit module uses a sliding window algorithm
+	// and does not have a separate burst parameter
 	rateLimitHandler := Handler{"handler": "rate_limit"}
 	rateLimitHandler["rate_limits"] = map[string]interface{}{
 		"static": map[string]interface{}{
 			"key":        "{http.request.remote.host}",
 			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
 			"max_events": secCfg.RateLimitRequests,
-			"burst":      burst,
 		},
 	}
 

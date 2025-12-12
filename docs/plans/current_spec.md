@@ -52,93 +52,93 @@ cd backend && go get github.com/oschwald/geoip2-golang
 package services
 
 import (
-	"errors"
-	"net"
-	"sync"
+ "errors"
+ "net"
+ "sync"
 
-	"github.com/oschwald/geoip2-golang"
+ "github.com/oschwald/geoip2-golang"
 )
 
 var (
-	ErrGeoIPDatabaseNotLoaded = errors.New("geoip database not loaded")
-	ErrInvalidIP              = errors.New("invalid IP address")
-	ErrCountryNotFound        = errors.New("country not found for IP")
+ ErrGeoIPDatabaseNotLoaded = errors.New("geoip database not loaded")
+ ErrInvalidIP              = errors.New("invalid IP address")
+ ErrCountryNotFound        = errors.New("country not found for IP")
 )
 
 // GeoIPService provides IP-to-country lookups using MaxMind GeoLite2.
 type GeoIPService struct {
-	mu     sync.RWMutex
-	db     *geoip2.Reader
-	dbPath string
+ mu     sync.RWMutex
+ db     *geoip2.Reader
+ dbPath string
 }
 
 // NewGeoIPService creates a new GeoIPService and loads the database.
 func NewGeoIPService(dbPath string) (*GeoIPService, error) {
-	svc := &GeoIPService{dbPath: dbPath}
-	if err := svc.Load(); err != nil {
-		return nil, err
-	}
-	return svc, nil
+ svc := &GeoIPService{dbPath: dbPath}
+ if err := svc.Load(); err != nil {
+  return nil, err
+ }
+ return svc, nil
 }
 
 // Load opens or reloads the GeoIP database.
 func (s *GeoIPService) Load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+ s.mu.Lock()
+ defer s.mu.Unlock()
 
-	if s.db != nil {
-		s.db.Close()
-	}
+ if s.db != nil {
+  s.db.Close()
+ }
 
-	db, err := geoip2.Open(s.dbPath)
-	if err != nil {
-		return err
-	}
-	s.db = db
-	return nil
+ db, err := geoip2.Open(s.dbPath)
+ if err != nil {
+  return err
+ }
+ s.db = db
+ return nil
 }
 
 // Close releases the database resources.
 func (s *GeoIPService) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.db != nil {
-		return s.db.Close()
-	}
-	return nil
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ if s.db != nil {
+  return s.db.Close()
+ }
+ return nil
 }
 
 // LookupCountry returns the ISO 3166-1 alpha-2 country code for an IP.
 func (s *GeoIPService) LookupCountry(ipStr string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+ s.mu.RLock()
+ defer s.mu.RUnlock()
 
-	if s.db == nil {
-		return "", ErrGeoIPDatabaseNotLoaded
-	}
+ if s.db == nil {
+  return "", ErrGeoIPDatabaseNotLoaded
+ }
 
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return "", ErrInvalidIP
-	}
+ ip := net.ParseIP(ipStr)
+ if ip == nil {
+  return "", ErrInvalidIP
+ }
 
-	record, err := s.db.Country(ip)
-	if err != nil {
-		return "", err
-	}
+ record, err := s.db.Country(ip)
+ if err != nil {
+  return "", err
+ }
 
-	if record.Country.IsoCode == "" {
-		return "", ErrCountryNotFound
-	}
+ if record.Country.IsoCode == "" {
+  return "", ErrCountryNotFound
+ }
 
-	return record.Country.IsoCode, nil
+ return record.Country.IsoCode, nil
 }
 
 // IsLoaded returns true if the database is loaded.
 func (s *GeoIPService) IsLoaded() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.db != nil
+ s.mu.RLock()
+ defer s.mu.RUnlock()
+ return s.db != nil
 }
 ```
 
@@ -150,8 +150,8 @@ func (s *GeoIPService) IsLoaded() bool {
 
 ```go
 type AccessListService struct {
-	db       *gorm.DB
-	geoipSvc *GeoIPService  // NEW
+ db       *gorm.DB
+ geoipSvc *GeoIPService  // NEW
 }
 ```
 
@@ -159,15 +159,15 @@ type AccessListService struct {
 
 ```go
 func NewAccessListService(db *gorm.DB) *AccessListService {
-	return &AccessListService{
-		db:       db,
-		geoipSvc: nil, // Will be set via SetGeoIPService
-	}
+ return &AccessListService{
+  db:       db,
+  geoipSvc: nil, // Will be set via SetGeoIPService
+ }
 }
 
 // SetGeoIPService attaches a GeoIP service for country lookups.
 func (s *AccessListService) SetGeoIPService(geoipSvc *GeoIPService) {
-	s.geoipSvc = geoipSvc
+ s.geoipSvc = geoipSvc
 }
 ```
 
@@ -176,55 +176,55 @@ func (s *AccessListService) SetGeoIPService(geoipSvc *GeoIPService) {
 ```go
 // TestIP tests if an IP address would be allowed/blocked by the access list
 func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
-	acl, err := s.GetByID(aclID)
-	if err != nil {
-		return false, "", err
-	}
+ acl, err := s.GetByID(aclID)
+ if err != nil {
+  return false, "", err
+ }
 
-	if !acl.Enabled {
-		return true, "Access list is disabled - all traffic allowed", nil
-	}
+ if !acl.Enabled {
+  return true, "Access list is disabled - all traffic allowed", nil
+ }
 
-	ip := net.ParseIP(ipAddress)
-	if ip == nil {
-		return false, "", ErrInvalidIPAddress
-	}
+ ip := net.ParseIP(ipAddress)
+ if ip == nil {
+  return false, "", ErrInvalidIPAddress
+ }
 
-	// Handle geo-based ACLs
-	if strings.HasPrefix(acl.Type, "geo_") {
-		if s.geoipSvc == nil {
-			return true, "GeoIP service not available - allowing by default", nil
-		}
+ // Handle geo-based ACLs
+ if strings.HasPrefix(acl.Type, "geo_") {
+  if s.geoipSvc == nil {
+   return true, "GeoIP service not available - allowing by default", nil
+  }
 
-		countryCode, err := s.geoipSvc.LookupCountry(ipAddress)
-		if err != nil {
-			// If lookup fails, allow with warning
-			return true, fmt.Sprintf("GeoIP lookup failed: %v - allowing by default", err), nil
-		}
+  countryCode, err := s.geoipSvc.LookupCountry(ipAddress)
+  if err != nil {
+   // If lookup fails, allow with warning
+   return true, fmt.Sprintf("GeoIP lookup failed: %v - allowing by default", err), nil
+  }
 
-		// Parse country codes from ACL
-		allowedCodes := make(map[string]bool)
-		for _, code := range strings.Split(acl.CountryCodes, ",") {
-			allowedCodes[strings.TrimSpace(strings.ToUpper(code))] = true
-		}
+  // Parse country codes from ACL
+  allowedCodes := make(map[string]bool)
+  for _, code := range strings.Split(acl.CountryCodes, ",") {
+   allowedCodes[strings.TrimSpace(strings.ToUpper(code))] = true
+  }
 
-		isInList := allowedCodes[countryCode]
+  isInList := allowedCodes[countryCode]
 
-		if acl.Type == "geo_whitelist" {
-			if isInList {
-				return true, fmt.Sprintf("Allowed by geo whitelist: IP from %s", countryCode), nil
-			}
-			return false, fmt.Sprintf("Blocked: IP from %s not in geo whitelist", countryCode), nil
-		}
+  if acl.Type == "geo_whitelist" {
+   if isInList {
+    return true, fmt.Sprintf("Allowed by geo whitelist: IP from %s", countryCode), nil
+   }
+   return false, fmt.Sprintf("Blocked: IP from %s not in geo whitelist", countryCode), nil
+  }
 
-		// geo_blacklist
-		if isInList {
-			return false, fmt.Sprintf("Blocked by geo blacklist: IP from %s", countryCode), nil
-		}
-		return true, fmt.Sprintf("Allowed: IP from %s not in geo blacklist", countryCode), nil
-	}
+  // geo_blacklist
+  if isInList {
+   return false, fmt.Sprintf("Blocked by geo blacklist: IP from %s", countryCode), nil
+  }
+  return true, fmt.Sprintf("Allowed: IP from %s not in geo blacklist", countryCode), nil
+ }
 
-	// ... rest of existing IP/CIDR logic unchanged ...
+ // ... rest of existing IP/CIDR logic unchanged ...
 }
 ```
 
@@ -234,30 +234,30 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 
 ```go
 import (
-	"os"
-	// ...
+ "os"
+ // ...
 )
 
 // In server initialization:
 geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
 if geoipPath == "" {
-	geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
+ geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
 }
 
 var geoipSvc *services.GeoIPService
 if _, err := os.Stat(geoipPath); err == nil {
-	geoipSvc, err = services.NewGeoIPService(geoipPath)
-	if err != nil {
-		logger.Log().WithError(err).Warn("Failed to load GeoIP database, geo-blocking will be unavailable")
-	} else {
-		logger.Log().Info("GeoIP database loaded successfully")
-	}
+ geoipSvc, err = services.NewGeoIPService(geoipPath)
+ if err != nil {
+  logger.Log().WithError(err).Warn("Failed to load GeoIP database, geo-blocking will be unavailable")
+ } else {
+  logger.Log().Info("GeoIP database loaded successfully")
+ }
 }
 
 // Pass to AccessListService
 accessListSvc := services.NewAccessListService(db)
 if geoipSvc != nil {
-	accessListSvc.SetGeoIPService(geoipSvc)
+ accessListSvc.SetGeoIPService(geoipSvc)
 }
 ```
 
@@ -268,15 +268,15 @@ if geoipSvc != nil {
 ```go
 // ReloadGeoIP reloads the GeoIP database from disk
 func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
-	if h.geoipSvc == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "GeoIP service not initialized"})
-		return
-	}
-	if err := h.geoipSvc.Load(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reload: %v", err)})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "GeoIP database reloaded"})
+ if h.geoipSvc == nil {
+  c.JSON(http.StatusServiceUnavailable, gin.H{"error": "GeoIP service not initialized"})
+  return
+ }
+ if err := h.geoipSvc.Load(); err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reload: %v", err)})
+  return
+ }
+ c.JSON(http.StatusOK, gin.H{"message": "GeoIP database reloaded"})
 }
 ```
 
@@ -288,39 +288,39 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 
 ```go
 func TestGeoIPService_LookupCountry(t *testing.T) {
-	// Skip if no test database available
-	testDBPath := os.Getenv("TEST_GEOIP_DB_PATH")
-	if testDBPath == "" {
-		t.Skip("TEST_GEOIP_DB_PATH not set")
-	}
+ // Skip if no test database available
+ testDBPath := os.Getenv("TEST_GEOIP_DB_PATH")
+ if testDBPath == "" {
+  t.Skip("TEST_GEOIP_DB_PATH not set")
+ }
 
-	svc, err := NewGeoIPService(testDBPath)
-	require.NoError(t, err)
-	defer svc.Close()
+ svc, err := NewGeoIPService(testDBPath)
+ require.NoError(t, err)
+ defer svc.Close()
 
-	tests := []struct {
-		name    string
-		ip      string
-		wantCC  string
-		wantErr bool
-	}{
-		{"Google DNS", "8.8.8.8", "US", false},
-		{"Cloudflare", "1.1.1.1", "AU", false}, // May vary
-		{"Invalid IP", "not-an-ip", "", true},
-		{"Private IP", "192.168.1.1", "", true}, // No country
-	}
+ tests := []struct {
+  name    string
+  ip      string
+  wantCC  string
+  wantErr bool
+ }{
+  {"Google DNS", "8.8.8.8", "US", false},
+  {"Cloudflare", "1.1.1.1", "AU", false}, // May vary
+  {"Invalid IP", "not-an-ip", "", true},
+  {"Private IP", "192.168.1.1", "", true}, // No country
+ }
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cc, err := svc.LookupCountry(tt.ip)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.wantCC, cc)
-			}
-		})
-	}
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   cc, err := svc.LookupCountry(tt.ip)
+   if tt.wantErr {
+    assert.Error(t, err)
+   } else {
+    assert.NoError(t, err)
+    assert.Equal(t, tt.wantCC, cc)
+   }
+  })
+ }
 }
 ```
 
@@ -368,38 +368,39 @@ if (result.reason.includes("IP from")) {
 ```go
 // buildRateLimitHandler returns a rate-limit handler using the caddy-ratelimit module.
 func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
-	if secCfg == nil {
-		return nil, nil
-	}
-	if secCfg.RateLimitRequests <= 0 || secCfg.RateLimitWindowSec <= 0 {
-		return nil, nil
-	}
+ if secCfg == nil {
+  return nil, nil
+ }
+ if secCfg.RateLimitRequests <= 0 || secCfg.RateLimitWindowSec <= 0 {
+  return nil, nil
+ }
 
-	// Calculate burst: if not set, default to 20% of requests
-	burst := secCfg.RateLimitBurst
-	if burst <= 0 {
-		burst = secCfg.RateLimitRequests / 5
-		if burst < 1 {
-			burst = 1
-		}
-	}
+ // Calculate burst: if not set, default to 20% of requests
+ burst := secCfg.RateLimitBurst
+ if burst <= 0 {
+  burst = secCfg.RateLimitRequests / 5
+  if burst < 1 {
+   burst = 1
+  }
+ }
 
-	// caddy-ratelimit format with burst support
-	h := Handler{"handler": "rate_limit"}
-	h["rate_limits"] = map[string]interface{}{
-		"static": map[string]interface{}{
-			"key":        "{http.request.remote.host}",
-			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
-			"max_events": secCfg.RateLimitRequests,
-			// NOTE: caddy-ratelimit doesn't have a direct "burst" param,
-			// but we can use distributed rate limiting or adjust max_events
-		},
-	}
-	return h, nil
+ // caddy-ratelimit format with burst support
+ h := Handler{"handler": "rate_limit"}
+ h["rate_limits"] = map[string]interface{}{
+  "static": map[string]interface{}{
+   "key":        "{http.request.remote.host}",
+   "window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
+   "max_events": secCfg.RateLimitRequests,
+   // NOTE: caddy-ratelimit doesn't have a direct "burst" param,
+   // but we can use distributed rate limiting or adjust max_events
+  },
+ }
+ return h, nil
 }
 ```
 
 > **Note:** The `caddy-ratelimit` module by mholt doesn't have a direct burst parameter. Consider:
+>
 > 1. Using a sliding window algorithm (already default)
 > 2. Implementing burst via separate zone for initial requests
 > 3. Document limitation in UI
@@ -410,8 +411,8 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 
 ```go
 type SecurityConfig struct {
-	// ... existing fields ...
-	RateLimitBypassList string `json:"rate_limit_bypass_list" gorm:"type:text"` // Comma-separated CIDRs
+ // ... existing fields ...
+ RateLimitBypassList string `json:"rate_limit_bypass_list" gorm:"type:text"` // Comma-separated CIDRs
 }
 ```
 
@@ -419,43 +420,43 @@ type SecurityConfig struct {
 
 ```go
 func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
-	// ... existing validation ...
+ // ... existing validation ...
 
-	h := Handler{"handler": "rate_limit"}
+ h := Handler{"handler": "rate_limit"}
 
-	// Build zone configuration
-	zone := map[string]interface{}{
-		"key":        "{http.request.remote.host}",
-		"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
-		"max_events": secCfg.RateLimitRequests,
-	}
+ // Build zone configuration
+ zone := map[string]interface{}{
+  "key":        "{http.request.remote.host}",
+  "window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
+  "max_events": secCfg.RateLimitRequests,
+ }
 
-	h["rate_limits"] = map[string]interface{}{"static": zone}
+ h["rate_limits"] = map[string]interface{}{"static": zone}
 
-	// If bypass list is configured, wrap in a subroute that skips for those IPs
-	if secCfg.RateLimitBypassList != "" {
-		bypassCIDRs := parseBypassList(secCfg.RateLimitBypassList)
-		if len(bypassCIDRs) > 0 {
-			return Handler{
-				"handler": "subroute",
-				"routes": []map[string]interface{}{
-					{
-						// Skip rate limiting for bypass IPs
-						"match": []map[string]interface{}{
-							{"remote_ip": map[string]interface{}{"ranges": bypassCIDRs}},
-						},
-						"terminal": false, // Continue to proxy handler
-					},
-					{
-						// Apply rate limiting for all others
-						"handle": []Handler{h},
-					},
-				},
-			}, nil
-		}
-	}
+ // If bypass list is configured, wrap in a subroute that skips for those IPs
+ if secCfg.RateLimitBypassList != "" {
+  bypassCIDRs := parseBypassList(secCfg.RateLimitBypassList)
+  if len(bypassCIDRs) > 0 {
+   return Handler{
+    "handler": "subroute",
+    "routes": []map[string]interface{}{
+     {
+      // Skip rate limiting for bypass IPs
+      "match": []map[string]interface{}{
+       {"remote_ip": map[string]interface{}{"ranges": bypassCIDRs}},
+      },
+      "terminal": false, // Continue to proxy handler
+     },
+     {
+      // Apply rate limiting for all others
+      "handle": []Handler{h},
+     },
+    },
+   }, nil
+  }
+ }
 
-	return h, nil
+ return h, nil
 }
 
 #### 2.3 Rate Limiting — Test Plan (Detailed)
@@ -478,92 +479,92 @@ Goal: Verify the following behavior:
 
 2.3.2 Unit Tests (fast, run in CI pre-merge)
 - File: `backend/internal/caddy/config_test.go`
-	- `TestGenerateConfig_WithRateLimitBypassList`
-		- Input: call `GenerateConfig` with `secCfg` set with `RateLimitEnable:true` and `RateLimitBypassList:"10.0.0.0/8,127.0.0.1/32"`; include one host.
-		- Assertions:
-			- The generated `Config` contains a route with `handler:"subroute"` or a `rate_limit` handler containing the bypass CIDRs (CIDRs found in JSON output).
-			- `RateLimitHandler` contains `rate_limits` map and `static` zone.
-	- `TestBuildRateLimitHandler_KeyIsRemoteHost`
-		- Input: `secCfg` with valid values.
-		- Assertions: the static zone `key` is `{http.request.remote.host}`.
-	- `TestBuildRateLimitHandler_DefaultBurstAndMax` (already present) and `TestParseBypassCIDRs` (existing) remain required.
+ - `TestGenerateConfig_WithRateLimitBypassList`
+  - Input: call `GenerateConfig` with `secCfg` set with `RateLimitEnable:true` and `RateLimitBypassList:"10.0.0.0/8,127.0.0.1/32"`; include one host.
+  - Assertions:
+   - The generated `Config` contains a route with `handler:"subroute"` or a `rate_limit` handler containing the bypass CIDRs (CIDRs found in JSON output).
+   - `RateLimitHandler` contains `rate_limits` map and `static` zone.
+ - `TestBuildRateLimitHandler_KeyIsRemoteHost`
+  - Input: `secCfg` with valid values.
+  - Assertions: the static zone `key` is `{http.request.remote.host}`.
+ - `TestBuildRateLimitHandler_DefaultBurstAndMax` (already present) and `TestParseBypassCIDRs` (existing) remain required.
 
 2.3.3 Integration Tests (CI gated, Docker required)
 We will add a scripted integration test to run inside CI or locally with Docker. The test will:
-	- Start the `charon:local` image (build if not present) in a detached container named `charon-debug`.
-	- Create a simple HTTP backend (httpbin/kennethreitz/httpbin) called `ratelimit-backend` (or `httpbin`).
-	- Create a proxy host `ratelimit.local` pointing to the backend via the Charon API (use /api/v1/proxy-hosts).
-	- Set `SecurityConfig` (POST /api/v1/security/config) with short windows for speed, e.g.:
-		```json
-		{"name":"default","enabled":true,"rate_limit_enable":true,"rate_limit_requests":3,"rate_limit_window_sec":10,"rate_limit_burst":1}
-		```
-	- Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
-	- Execute the runtime checks:
-		- Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
-		- The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
-		- On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
-		- Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
+ - Start the `charon:local` image (build if not present) in a detached container named `charon-debug`.
+ - Create a simple HTTP backend (httpbin/kennethreitz/httpbin) called `ratelimit-backend` (or `httpbin`).
+ - Create a proxy host `ratelimit.local` pointing to the backend via the Charon API (use /api/v1/proxy-hosts).
+ - Set `SecurityConfig` (POST /api/v1/security/config) with short windows for speed, e.g.:
+  ```json
+  {"name":"default","enabled":true,"rate_limit_enable":true,"rate_limit_requests":3,"rate_limit_window_sec":10,"rate_limit_burst":1}
+  ```
+ - Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
+ - Execute the runtime checks:
+  - Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
+  - The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
+  - On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
+  - Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
 
-	- Bypass List Validation:
-		- Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
+ - Bypass List Validation:
+  - Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
 
-	- Multi-IP Isolation:
-		- Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
+ - Multi-IP Isolation:
+  - Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
 
-	- X-Forwarded-For behavior (Confirm remote.host is used as key):
-		- Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
+ - X-Forwarded-For behavior (Confirm remote.host is used as key):
+  - Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
 
-	- Test Example (Shell Snippet to assert headers)
-		```bash
-		# Single request driver - check headers
-		curl -s -D - -o /dev/null -H "Host: ratelimit.local" http://localhost/post
-		# Expect headers: X-RateLimit-Limit: 3, X-RateLimit-Remaining: <number>
-		```
+ - Test Example (Shell Snippet to assert headers)
+  ```bash
+  # Single request driver - check headers
+  curl -s -D - -o /dev/null -H "Host: ratelimit.local" http://localhost/post
+  # Expect headers: X-RateLimit-Limit: 3, X-RateLimit-Remaining: <number>
+  ```
 
-	- Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
+ - Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
 
-	- Manage flaky behavior:
-		- Retry a couple times and log Caddy admin API output on failure for debugging.
+ - Manage flaky behavior:
+  - Retry a couple times and log Caddy admin API output on failure for debugging.
 +
 2.3.4 E2E Tests (Longer, optional)
 - Create `scripts/rate_limit_e2e.sh` which spins up the same environment but runs broader scenarios:
-	- High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
-	- Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
-	- SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
+ - High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
+ - Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
+ - SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
 
 2.3.5 Mock/Stub Guidance
 - IP Addresses
-	- Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
-	- For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
+ - Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
+ - For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
 - X-Forwarded-For
-	- Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
+ - Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
 - Timing Windows
-	- Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
+ - Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
 
 2.3.6 Test Data and Assertions (Explicit)
 - Unit Test: `TestBuildRateLimitHandler_ValidConfig`
-	- Input: secCfg{Requests:100, WindowSec:60, Burst:25}
-	- Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
+ - Input: secCfg{Requests:100, WindowSec:60, Burst:25}
+ - Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
 
 - Integration Test: `TestRateLimit_Enforcement_Basic`
-	- Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
-	- Actions: Send 4 rapid requests using client container
-	- Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
-	- Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
+ - Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
+ - Actions: Send 4 rapid requests using client container
+ - Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
+ - Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
 
 - Integration Test: `TestRateLimit_BypassList_SkipsLimit`
-	- Input: Same as above + `RateLimitBypassList` contains client IP CIDR
-	- Expected outputs: All requests 200 (no 429)
+ - Input: Same as above + `RateLimitBypassList` contains client IP CIDR
+ - Expected outputs: All requests 200 (no 429)
 
 - Integration Test: `TestRateLimit_MultiClient_Isolation`
-	- Input: As above
-	- Actions: Client A sends 3 requests, Client B sends 3 requests
-	- Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
+ - Input: As above
+ - Actions: Client A sends 3 requests, Client B sends 3 requests
+ - Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
 
 - Integration Test: `TestRateLimit_Window_Reset`
-	- Input: As above
-	- Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
-	- Expected: New request is 200 again
+ - Input: As above
+ - Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
+ - Expected: New request is 200 again
 
 2.3.7 Test Harness - Example Go Integration Test
 Use the same approach as `backend/integration/coraza_integration_test.go`, run the script and check output for expected messages. Example test file: `backend/integration/rate_limit_integration_test.go`:
@@ -575,52 +576,56 @@ Use the same approach as `backend/integration/coraza_integration_test.go`, run t
 package integration
 
 import (
-		"context"
-		"os/exec"
-		"strings"
-		"testing"
-		"time"
+  "context"
+  "os/exec"
+  "strings"
+  "testing"
+  "time"
 )
 
 func TestRateLimitIntegration(t *testing.T) {
-		t.Parallel()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "bash", "./scripts/rate_limit_integration.sh")
-		out, err := cmd.CombinedOutput()
-		t.Logf("rate_limit_integration script output:\n%s", string(out))
-		if err != nil {
-				t.Fatalf("rate_limit integration failed: %v", err)
-		}
-		if !strings.Contains(string(out), "Rate limit enforcement succeeded") {
-				t.Fatalf("unexpected script output, rate limiting assertion not found")
-		}
+  t.Parallel()
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+  defer cancel()
+  cmd := exec.CommandContext(ctx, "bash", "./scripts/rate_limit_integration.sh")
+  out, err := cmd.CombinedOutput()
+  t.Logf("rate_limit_integration script output:\n%s", string(out))
+  if err != nil {
+    t.Fatalf("rate_limit integration failed: %v", err)
+  }
+  if !strings.Contains(string(out), "Rate limit enforcement succeeded") {
+    t.Fatalf("unexpected script output, rate limiting assertion not found")
+  }
 }
 ```
 
 2.3.8 CI and Pre-commit Hooks
+
 - Add an integration CI job that runs the Docker-based script and the integration `go` test suite in a separate job to avoid blocking unit test runs on tools requiring Docker. Use a job matrix with `services: docker` and timeouts set appropriately.
 - Do not add integration scripts to pre-commit (too heavy); keep pre-commit focused on `go fmt`, `go vet`, `go test ./...` (unit tests), `npm test`, and lint rules.
 - Use the workspace `tasks.json` to add a `Coraza: Run Integration Script` style task for rate limit integration that mirrors `scripts/coraza_integration.sh`.
 
 2.3.9 .gitignore / .codecov.yml / Dockerfile changes
+
 - .gitignore
-	- Add `test-results/rate_limit/` to avoid committing local script logs.
-	- Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
+ 	- Add `test-results/rate_limit/` to avoid committing local script logs.
+ 	- Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
 - .codecov.yml
-	- Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
+ 	- Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
 - .dockerignore
-	- Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
+ 	- Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
 - Dockerfile
-	- Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
+ 	- Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
 
 2.3.10 Prioritization
+
 - P0: Integration test `TestRateLimit_Enforcement_Basic` (high confidence: verifies actual runtime limit enforcement and header presence)
 - P1: Unit tests verifying config building (`TestGenerateConfig_WithRateLimitBypassList`, `TestBuildRateLimitHandler_KeyIsRemoteHost`) and API tests for `POST /security/config` handling rate limit fields
 - P2: Integration tests for bypass list, multi-client isolation, window reset
 - P3: E2E tests for UI configuration of rate limiting and long-running stress tests
 
 2.3.11 Next Steps
+
 - Implement `scripts/rate_limit_integration.sh` and `backend/integration/rate_limit_integration_test.go` following `coraza_integration.sh` as the blueprint.
 - Add unit tests to `backend/internal/caddy/config_test.go` and API handler tests in `backend/internal/api/handlers/security_ratelimit_test.go`.
 - Add Docker network helpers and ensure `docker run --ip` is used to control client IPs during integration.
@@ -630,28 +635,28 @@ func TestRateLimitIntegration(t *testing.T) {
 
 This test plan should serve as a complete specification for testing rate limiting behavior across unit, integration, and E2E tiers. The next iteration will include scripted test implementations and Jenkins/GHA job snippets for CI.
 
-
 func parseBypassList(list string) []string {
-	var cidrs []string
-	for _, part := range strings.Split(list, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		// Validate CIDR
-		if _, _, err := net.ParseCIDR(part); err == nil {
-			cidrs = append(cidrs, part)
-		} else if net.ParseIP(part) != nil {
-			// Single IP - convert to /32 or /128
-			if strings.Contains(part, ":") {
-				cidrs = append(cidrs, part+"/128")
-			} else {
-				cidrs = append(cidrs, part+"/32")
-			}
-		}
-	}
-	return cidrs
+ var cidrs []string
+ for _, part := range strings.Split(list, ",") {
+  part = strings.TrimSpace(part)
+  if part == "" {
+   continue
+  }
+  // Validate CIDR
+  if_, _, err := net.ParseCIDR(part); err == nil {
+   cidrs = append(cidrs, part)
+  } else if net.ParseIP(part) != nil {
+   // Single IP - convert to /32 or /128
+   if strings.Contains(part, ":") {
+    cidrs = append(cidrs, part+"/128")
+   } else {
+    cidrs = append(cidrs, part+"/32")
+   }
+  }
+ }
+ return cidrs
 }
+
 ```
 
 ##### 2.2.3 Add Preset Templates
@@ -661,41 +666,41 @@ func parseBypassList(list string) []string {
 ```go
 // GetRateLimitPresets returns predefined rate limit configurations
 func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
-	presets := []map[string]interface{}{
-		{
-			"id":          "standard",
-			"name":        "Standard Web",
-			"description": "Balanced protection for general web applications",
-			"requests":    100,
-			"window_sec":  60,
-			"burst":       20,
-		},
-		{
-			"id":          "api",
-			"name":        "API Protection",
-			"description": "Stricter limits for API endpoints",
-			"requests":    30,
-			"window_sec":  60,
-			"burst":       10,
-		},
-		{
-			"id":          "login",
-			"name":        "Login Protection",
-			"description": "Aggressive protection against brute-force",
-			"requests":    5,
-			"window_sec":  300,
-			"burst":       2,
-		},
-		{
-			"id":          "relaxed",
-			"name":        "High Traffic",
-			"description": "Higher limits for trusted, high-traffic apps",
-			"requests":    500,
-			"window_sec":  60,
-			"burst":       100,
-		},
-	}
-	c.JSON(http.StatusOK, gin.H{"presets": presets})
+ presets := []map[string]interface{}{
+  {
+   "id":          "standard",
+   "name":        "Standard Web",
+   "description": "Balanced protection for general web applications",
+   "requests":    100,
+   "window_sec":  60,
+   "burst":       20,
+  },
+  {
+   "id":          "api",
+   "name":        "API Protection",
+   "description": "Stricter limits for API endpoints",
+   "requests":    30,
+   "window_sec":  60,
+   "burst":       10,
+  },
+  {
+   "id":          "login",
+   "name":        "Login Protection",
+   "description": "Aggressive protection against brute-force",
+   "requests":    5,
+   "window_sec":  300,
+   "burst":       2,
+  },
+  {
+   "id":          "relaxed",
+   "name":        "High Traffic",
+   "description": "Higher limits for trusted, high-traffic apps",
+   "requests":    500,
+   "window_sec":  60,
+   "burst":       100,
+  },
+ }
+ c.JSON(http.StatusOK, gin.H{"presets": presets})
 }
 ```
 
@@ -731,26 +736,26 @@ Add preset dropdown and bypass list input (see implementation details in fronten
 
 ```go
 func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
-	secCfg := &models.SecurityConfig{
-		RateLimitRequests:  100,
-		RateLimitWindowSec: 60,
-		RateLimitBurst:     25,
-	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
-	require.NotNil(t, h)
-	// Verify burst is used in config
+ secCfg := &models.SecurityConfig{
+  RateLimitRequests:  100,
+  RateLimitWindowSec: 60,
+  RateLimitBurst:     25,
+ }
+ h, err := buildRateLimitHandler(nil, secCfg)
+ require.NoError(t, err)
+ require.NotNil(t, h)
+ // Verify burst is used in config
 }
 
 func TestBuildRateLimitHandler_BypassList(t *testing.T) {
-	secCfg := &models.SecurityConfig{
-		RateLimitRequests:    100,
-		RateLimitWindowSec:   60,
-		RateLimitBypassList:  "10.0.0.0/8,192.168.1.1",
-	}
-	h, err := buildRateLimitHandler(nil, secCfg)
-	require.NoError(t, err)
-	// Verify subroute structure with bypass
+ secCfg := &models.SecurityConfig{
+  RateLimitRequests:    100,
+  RateLimitWindowSec:   60,
+  RateLimitBypassList:  "10.0.0.0/8,192.168.1.1",
+ }
+ h, err := buildRateLimitHandler(nil, secCfg)
+ require.NoError(t, err)
+ // Verify subroute structure with bypass
 }
 ```
 
@@ -789,35 +794,35 @@ func TestBuildRateLimitHandler_BypassList(t *testing.T) {
 // buildCrowdSecHandler returns a CrowdSec bouncer handler.
 // See: https://github.com/hslatman/caddy-crowdsec-bouncer
 func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
-	if !crowdsecEnabled {
-		return nil, nil
-	}
+ if !crowdsecEnabled {
+  return nil, nil
+ }
 
-	h := Handler{"handler": "crowdsec"}
+ h := Handler{"handler": "crowdsec"}
 
-	// API URL (required)
-	apiURL := "http://localhost:8080"
-	if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
-		apiURL = secCfg.CrowdSecAPIURL
-	}
-	h["api_url"] = apiURL
+ // API URL (required)
+ apiURL := "http://localhost:8080"
+ if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
+  apiURL = secCfg.CrowdSecAPIURL
+ }
+ h["api_url"] = apiURL
 
-	// API Key (from environment or config)
-	apiKey := os.Getenv("CROWDSEC_API_KEY")
-	if apiKey == "" && secCfg != nil {
-		// Could store encrypted in DB - for now use env var
-	}
-	if apiKey != "" {
-		h["api_key"] = apiKey
-	}
+ // API Key (from environment or config)
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey == "" && secCfg != nil {
+  // Could store encrypted in DB - for now use env var
+ }
+ if apiKey != "" {
+  h["api_key"] = apiKey
+ }
 
-	// Ticker interval for decision sync (default 30s)
-	h["ticker_interval"] = "30s"
+ // Ticker interval for decision sync (default 30s)
+ h["ticker_interval"] = "30s"
 
-	// Enable streaming mode for real-time updates
-	h["enable_streaming"] = true
+ // Enable streaming mode for real-time updates
+ h["enable_streaming"] = true
 
-	return h, nil
+ return h, nil
 }
 ```
 
@@ -830,45 +835,45 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 package crowdsec
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
-	"os/exec"
-	"time"
+ "bytes"
+ "encoding/json"
+ "fmt"
+ "net/http"
+ "os"
+ "os/exec"
+ "time"
 )
 
 // EnsureBouncerRegistered registers the Caddy bouncer with local CrowdSec LAPI.
 func EnsureBouncerRegistered(lapiURL string) (string, error) {
-	// Check if already registered
-	apiKey := os.Getenv("CROWDSEC_API_KEY")
-	if apiKey != "" {
-		return apiKey, nil
-	}
+ // Check if already registered
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey != "" {
+  return apiKey, nil
+ }
 
-	// Use cscli to register bouncer
-	cmd := exec.Command("cscli", "bouncers", "add", "caddy-bouncer", "-o", "raw")
-	output, err := cmd.Output()
-	if err != nil {
-		// May already exist, try to get existing key
-		return "", fmt.Errorf("failed to register bouncer: %w", err)
-	}
+ // Use cscli to register bouncer
+ cmd := exec.Command("cscli", "bouncers", "add", "caddy-bouncer", "-o", "raw")
+ output, err := cmd.Output()
+ if err != nil {
+  // May already exist, try to get existing key
+  return "", fmt.Errorf("failed to register bouncer: %w", err)
+ }
 
-	apiKey = string(bytes.TrimSpace(output))
-	return apiKey, nil
+ apiKey = string(bytes.TrimSpace(output))
+ return apiKey, nil
 }
 
 // CheckLAPIHealth verifies CrowdSec LAPI is responding.
 func CheckLAPIHealth(lapiURL string) bool {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(lapiURL + "/v1/decisions")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	// 401 is expected without auth, but means LAPI is up
-	return resp.StatusCode == 401 || resp.StatusCode == 200
+ client := &http.Client{Timeout: 5 * time.Second}
+ resp, err := client.Get(lapiURL + "/v1/decisions")
+ if err != nil {
+  return false
+ }
+ defer resp.Body.Close()
+ // 401 is expected without auth, but means LAPI is up
+ return resp.StatusCode == 401 || resp.StatusCode == 200
 }
 ```
 
@@ -882,8 +887,8 @@ The actual blocking is handled by the Caddy CrowdSec bouncer plugin. However, we
 // In Middleware(), after ACL check:
 // CrowdSec logging (actual blocking is done by Caddy bouncer)
 if c.cfg.CrowdSecMode == "local" {
-	// Log that CrowdSec is active (blocking happens at Caddy layer)
-	logger.Log().WithField("client_ip", ctx.ClientIP()).Debug("Request evaluated by CrowdSec bouncer")
+ // Log that CrowdSec is active (blocking happens at Caddy layer)
+ logger.Log().WithField("client_ip", ctx.ClientIP()).Debug("Request evaluated by CrowdSec bouncer")
 }
 ```
 
@@ -894,31 +899,31 @@ if c.cfg.CrowdSecMode == "local" {
 ```go
 // GetCrowdSecDecisions returns recent decisions from CrowdSec LAPI
 func (h *CrowdSecHandler) GetDecisions(c *gin.Context) {
-	lapiURL := os.Getenv("CROWDSEC_LAPI_URL")
-	if lapiURL == "" {
-		lapiURL = "http://localhost:8080"
-	}
+ lapiURL := os.Getenv("CROWDSEC_LAPI_URL")
+ if lapiURL == "" {
+  lapiURL = "http://localhost:8080"
+ }
 
-	apiKey := os.Getenv("CROWDSEC_API_KEY")
-	if apiKey == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "CrowdSec API key not configured"})
-		return
-	}
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey == "" {
+  c.JSON(http.StatusServiceUnavailable, gin.H{"error": "CrowdSec API key not configured"})
+  return
+ }
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", lapiURL+"/v1/decisions", nil)
-	req.Header.Set("X-Api-Key", apiKey)
+ client := &http.Client{Timeout: 10 * time.Second}
+ req, _ := http.NewRequest("GET", lapiURL+"/v1/decisions", nil)
+ req.Header.Set("X-Api-Key", apiKey)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to CrowdSec LAPI"})
-		return
-	}
-	defer resp.Body.Close()
+ resp, err := client.Do(req)
+ if err != nil {
+  c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to CrowdSec LAPI"})
+  return
+ }
+ defer resp.Body.Close()
 
-	var decisions []map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&decisions)
-	c.JSON(http.StatusOK, gin.H{"decisions": decisions})
+ var decisions []map[string]interface{}
+ json.NewDecoder(resp.Body).Decode(&decisions)
+ c.JSON(http.StatusOK, gin.H{"decisions": decisions})
 }
 ```
 
@@ -971,13 +976,13 @@ const { data: decisions } = useQuery({
 
 ```go
 func TestCheckLAPIHealth(t *testing.T) {
-	// Mock server test
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized) // Expected without auth
-	}))
-	defer ts.Close()
+ // Mock server test
+ ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  w.WriteHeader(http.StatusUnauthorized) // Expected without auth
+ }))
+ defer ts.Close()
 
-	assert.True(t, CheckLAPIHealth(ts.URL))
+ assert.True(t, CheckLAPIHealth(ts.URL))
 }
 ```
 
@@ -1004,72 +1009,72 @@ func TestCheckLAPIHealth(t *testing.T) {
 ```go
 // buildWAFHandler returns a WAF handler (Coraza) configuration.
 func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
-	if !wafEnabled {
-		return nil, nil
-	}
+ if !wafEnabled {
+  return nil, nil
+ }
 
-	// Check per-host WAF toggle
-	if host != nil && host.WAFDisabled {
-		return nil, nil
-	}
+ // Check per-host WAF toggle
+ if host != nil && host.WAFDisabled {
+  return nil, nil
+ }
 
-	// Build directives
-	var directives strings.Builder
+ // Build directives
+ var directives strings.Builder
 
-	// Base configuration
-	directives.WriteString("SecRuleEngine On\n")
-	directives.WriteString("SecRequestBodyAccess On\n")
-	directives.WriteString("SecResponseBodyAccess Off\n")
+ // Base configuration
+ directives.WriteString("SecRuleEngine On\n")
+ directives.WriteString("SecRequestBodyAccess On\n")
+ directives.WriteString("SecResponseBodyAccess Off\n")
 
-	// Paranoia level (1-4, default 1)
-	paranoiaLevel := 1
-	if secCfg != nil && secCfg.WAFParanoiaLevel > 0 && secCfg.WAFParanoiaLevel <= 4 {
-		paranoiaLevel = secCfg.WAFParanoiaLevel
-	}
-	directives.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel))
+ // Paranoia level (1-4, default 1)
+ paranoiaLevel := 1
+ if secCfg != nil && secCfg.WAFParanoiaLevel > 0 && secCfg.WAFParanoiaLevel <= 4 {
+  paranoiaLevel = secCfg.WAFParanoiaLevel
+ }
+ directives.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel))
 
-	// Mode: block or monitor
-	if secCfg != nil && secCfg.WAFMode == "monitor" {
-		directives.WriteString("SecRuleEngine DetectionOnly\n")
-	}
+ // Mode: block or monitor
+ if secCfg != nil && secCfg.WAFMode == "monitor" {
+  directives.WriteString("SecRuleEngine DetectionOnly\n")
+ }
 
-	// Include ruleset files
-	for _, rs := range rulesets {
-		if path, ok := rulesetPaths[rs.Name]; ok && path != "" {
-			directives.WriteString(fmt.Sprintf("Include %s\n", path))
-		}
-	}
+ // Include ruleset files
+ for _, rs := range rulesets {
+  if path, ok := rulesetPaths[rs.Name]; ok && path != "" {
+   directives.WriteString(fmt.Sprintf("Include %s\n", path))
+  }
+ }
 
-	// Apply exclusions
-	if secCfg != nil && secCfg.WAFExclusions != "" {
-		var exclusions []WAFExclusion
-		if err := json.Unmarshal([]byte(secCfg.WAFExclusions), &exclusions); err == nil {
-			for _, ex := range exclusions {
-				// Generate SecRuleRemoveById or SecRuleUpdateTargetById
-				if ex.RuleID > 0 {
-					if ex.Target != "" {
-						directives.WriteString(fmt.Sprintf("SecRuleUpdateTargetById %d \"!%s\"\n", ex.RuleID, ex.Target))
-					} else {
-						directives.WriteString(fmt.Sprintf("SecRuleRemoveById %d\n", ex.RuleID))
-					}
-				}
-			}
-		}
-	}
+ // Apply exclusions
+ if secCfg != nil && secCfg.WAFExclusions != "" {
+  var exclusions []WAFExclusion
+  if err := json.Unmarshal([]byte(secCfg.WAFExclusions), &exclusions); err == nil {
+   for _, ex := range exclusions {
+    // Generate SecRuleRemoveById or SecRuleUpdateTargetById
+    if ex.RuleID > 0 {
+     if ex.Target != "" {
+      directives.WriteString(fmt.Sprintf("SecRuleUpdateTargetById %d \"!%s\"\n", ex.RuleID, ex.Target))
+     } else {
+      directives.WriteString(fmt.Sprintf("SecRuleRemoveById %d\n", ex.RuleID))
+     }
+    }
+   }
+  }
+ }
 
-	h := Handler{
-		"handler":    "waf",
-		"directives": directives.String(),
-	}
+ h := Handler{
+  "handler":    "waf",
+  "directives": directives.String(),
+ }
 
-	return h, nil
+ return h, nil
 }
 
 // WAFExclusion represents a rule exclusion for false positives
 type WAFExclusion struct {
-	RuleID      int    `json:"rule_id"`
-	Target      string `json:"target,omitempty"`       // e.g., "ARGS:password"
-	Description string `json:"description,omitempty"`
+ RuleID      int    `json:"rule_id"`
+ Target      string `json:"target,omitempty"`       // e.g., "ARGS:password"
+ Description string `json:"description,omitempty"`
 }
 ```
 
@@ -1079,8 +1084,8 @@ type WAFExclusion struct {
 
 ```go
 type ProxyHost struct {
-	// ... existing fields ...
-	WAFDisabled bool `json:"waf_disabled" gorm:"default:false"` // Override global WAF
+ // ... existing fields ...
+ WAFDisabled bool `json:"waf_disabled" gorm:"default:false"` // Override global WAF
 }
 ```
 
@@ -1090,9 +1095,9 @@ type ProxyHost struct {
 
 ```go
 type SecurityConfig struct {
-	// ... existing fields ...
-	WAFParanoiaLevel int    `json:"waf_paranoia_level" gorm:"default:1"` // 1-4
-	WAFExclusions    string `json:"waf_exclusions" gorm:"type:text"`     // JSON array of exclusions
+ // ... existing fields ...
+ WAFParanoiaLevel int    `json:"waf_paranoia_level" gorm:"default:1"` // 1-4
+ WAFExclusions    string `json:"waf_exclusions" gorm:"type:text"`     // JSON array of exclusions
 }
 ```
 
@@ -1106,11 +1111,11 @@ The current `<script>` check is misleading. Replace with proper logging:
 // WAF is handled by Coraza at the Caddy layer
 // Log WAF status for debugging
 if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
-	logger.Log().WithFields(map[string]interface{}{
-		"source":    "waf",
-		"mode":      c.cfg.WAFMode,
-		"client_ip": ctx.ClientIP(),
-	}).Debug("Request subject to WAF inspection")
+ logger.Log().WithFields(map[string]interface{}{
+  "source":    "waf",
+  "mode":      c.cfg.WAFMode,
+  "client_ip": ctx.ClientIP(),
+ }).Debug("Request subject to WAF inspection")
 }
 ```
 
@@ -1121,52 +1126,52 @@ if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
 ```go
 // GetWAFExclusions returns current WAF rule exclusions
 func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
-	cfg, err := h.svc.Get()
-	if err != nil && err != services.ErrSecurityConfigNotFound {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get config"})
-		return
-	}
+ cfg, err := h.svc.Get()
+ if err != nil && err != services.ErrSecurityConfigNotFound {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get config"})
+  return
+ }
 
-	var exclusions []WAFExclusion
-	if cfg != nil && cfg.WAFExclusions != "" {
-		json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
-	}
-	c.JSON(http.StatusOK, gin.H{"exclusions": exclusions})
+ var exclusions []WAFExclusion
+ if cfg != nil && cfg.WAFExclusions != "" {
+  json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
+ }
+ c.JSON(http.StatusOK, gin.H{"exclusions": exclusions})
 }
 
 // AddWAFExclusion adds a rule exclusion
 func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
-	var exclusion WAFExclusion
-	if err := c.ShouldBindJSON(&exclusion); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
-		return
-	}
+ var exclusion WAFExclusion
+ if err := c.ShouldBindJSON(&exclusion); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+  return
+ }
 
-	cfg, _ := h.svc.Get()
-	if cfg == nil {
-		cfg = &models.SecurityConfig{Name: "default"}
-	}
+ cfg, _ := h.svc.Get()
+ if cfg == nil {
+  cfg = &models.SecurityConfig{Name: "default"}
+ }
 
-	var exclusions []WAFExclusion
-	if cfg.WAFExclusions != "" {
-		json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
-	}
+ var exclusions []WAFExclusion
+ if cfg.WAFExclusions != "" {
+  json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
+ }
 
-	exclusions = append(exclusions, exclusion)
-	data, _ := json.Marshal(exclusions)
-	cfg.WAFExclusions = string(data)
+ exclusions = append(exclusions, exclusion)
+ data, _ := json.Marshal(exclusions)
+ cfg.WAFExclusions = string(data)
 
-	if err := h.svc.Upsert(cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save"})
-		return
-	}
+ if err := h.svc.Upsert(cfg); err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save"})
+  return
+ }
 
-	// Apply to Caddy
-	if h.caddyManager != nil {
-		h.caddyManager.ApplyConfig(c.Request.Context())
-	}
+ // Apply to Caddy
+ if h.caddyManager != nil {
+  h.caddyManager.ApplyConfig(c.Request.Context())
+ }
 
-	c.JSON(http.StatusOK, gin.H{"exclusion": exclusion})
+ c.JSON(http.StatusOK, gin.H{"exclusion": exclusion})
 }
 ```
 
@@ -1183,6 +1188,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 **File:** `frontend/src/pages/WafConfig.tsx`
 
 Add:
+
 1. Paranoia level selector (1-4 with descriptions)
 2. Exclusions management panel
 3. Per-host override indicator
@@ -1231,37 +1237,37 @@ const PARANOIA_LEVELS = [
 
 ```go
 func TestBuildWAFHandler_ParanoiaLevel(t *testing.T) {
-	secCfg := &models.SecurityConfig{
-		WAFMode:          "block",
-		WAFParanoiaLevel: 2,
-	}
-	h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
-	require.NoError(t, err)
-	directives := h["directives"].(string)
-	assert.Contains(t, directives, "tx.paranoia_level=2")
+ secCfg := &models.SecurityConfig{
+  WAFMode:          "block",
+  WAFParanoiaLevel: 2,
+ }
+ h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ directives := h["directives"].(string)
+ assert.Contains(t, directives, "tx.paranoia_level=2")
 }
 
 func TestBuildWAFHandler_Exclusions(t *testing.T) {
-	exclusions := []WAFExclusion{
-		{RuleID: 942100, Description: "SQL injection false positive"},
-	}
-	data, _ := json.Marshal(exclusions)
-	secCfg := &models.SecurityConfig{
-		WAFMode:       "block",
-		WAFExclusions: string(data),
-	}
-	h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
-	require.NoError(t, err)
-	directives := h["directives"].(string)
-	assert.Contains(t, directives, "SecRuleRemoveById 942100")
+ exclusions := []WAFExclusion{
+  {RuleID: 942100, Description: "SQL injection false positive"},
+ }
+ data, _ := json.Marshal(exclusions)
+ secCfg := &models.SecurityConfig{
+  WAFMode:       "block",
+  WAFExclusions: string(data),
+ }
+ h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ directives := h["directives"].(string)
+ assert.Contains(t, directives, "SecRuleRemoveById 942100")
 }
 
 func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
-	host := &models.ProxyHost{WAFDisabled: true}
-	secCfg := &models.SecurityConfig{WAFMode: "block"}
-	h, err := buildWAFHandler(host, nil, nil, secCfg, true)
-	require.NoError(t, err)
-	assert.Nil(t, h)
+ host := &models.ProxyHost{WAFDisabled: true}
+ secCfg := &models.SecurityConfig{WAFMode: "block"}
+ h, err := buildWAFHandler(host, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ assert.Nil(t, h)
 }
 ```
 
