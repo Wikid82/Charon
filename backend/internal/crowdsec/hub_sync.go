@@ -531,6 +531,18 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 	}
 	hasCS := s.hasCSCLI(applyCtx)
 
+	// Read archive into memory BEFORE backup, since cache is inside DataDir.
+	// If we backup first, the archive path becomes invalid (file moved).
+	var archive []byte
+	var archiveReadErr error
+	if metaErr == nil {
+		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
+		if archiveReadErr != nil {
+			logger.Log().WithError(archiveReadErr).WithField("archive_path", meta.ArchivePath).
+				Warn("failed to read cached archive before backup")
+		}
+	}
+
 	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
 	if err := s.backupExisting(backupPath); err != nil {
 		// Only set BackupPath if backup was actually created
@@ -551,8 +563,13 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		logger.Log().WithField("slug", cleanSlug).WithError(cscliErr).Warn("cscli install failed; attempting cache fallback")
 	}
 
-	if metaErr != nil {
-		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, metaErr)
+	// Handle cache miss OR failed archive read - need to refresh cache
+	if metaErr != nil || archiveReadErr != nil {
+		originalErr := metaErr
+		if originalErr == nil {
+			originalErr = archiveReadErr
+		}
+		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, originalErr)
 		if refreshErr != nil {
 			_ = s.rollback(backupPath)
 			logger.Log().WithError(refreshErr).WithField("slug", cleanSlug).WithField("backup_path", backupPath).Warn("cache refresh failed; rolled back backup")
@@ -562,13 +579,16 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		}
 		meta = refreshed
 		result.CacheKey = meta.CacheKey
+
+		// Re-read archive from the newly refreshed cache location
+		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
+		if archiveReadErr != nil {
+			_ = s.rollback(backupPath)
+			return result, fmt.Errorf("read archive after refresh: %w", archiveReadErr)
+		}
 	}
 
-	archive, err := os.ReadFile(meta.ArchivePath)
-	if err != nil {
-		_ = s.rollback(backupPath)
-		return result, fmt.Errorf("read archive: %w", err)
-	}
+	// Use pre-loaded archive bytes
 	if err := s.extractTarGz(applyCtx, archive, s.DataDir); err != nil {
 		_ = s.rollback(backupPath)
 		return result, fmt.Errorf("extract: %w", err)
