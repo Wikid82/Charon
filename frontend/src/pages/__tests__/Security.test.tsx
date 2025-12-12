@@ -232,39 +232,7 @@ describe('Security', () => {
 
   })
 
-  describe('WAF Controls', () => {
-    it('should change WAF mode', async () => {
-      const user = userEvent.setup()
-      const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
-      const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByTestId('waf-mode-select'))
-      const select = screen.getByTestId('waf-mode-select')
-      await user.selectOptions(select, 'monitor')
-
-      await waitFor(() => expect(mockMutate).toHaveBeenCalledWith({ name: 'default', waf_mode: 'monitor' }))
-    })
-
-    it('should change WAF ruleset', async () => {
-      const user = userEvent.setup()
-      const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
-      const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByTestId('waf-ruleset-select'))
-      const select = screen.getByTestId('waf-ruleset-select')
-      await user.selectOptions(select, 'OWASP CRS')
-
-      await waitFor(() => expect(mockMutate).toHaveBeenCalledWith({ name: 'default', waf_rules_source: 'OWASP CRS' }))
-    })
-  })
+  // Note: WAF Controls tests removed - dropdowns moved to dedicated WAF config page (/security/waf)
 
   describe('Card Order (Pipeline Sequence)', () => {
     it('should render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting', async () => {
@@ -277,8 +245,8 @@ describe('Security', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → WAF (Layer 3) → Rate Limiting (Layer 4) + Live Security Logs
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting', 'Live Security Logs'])
+      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → Coraza (Layer 3) → Rate Limiting (Layer 4) + Live Security Logs
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Live Security Logs'])
     })
 
     it('should display layer indicators on each card', async () => {

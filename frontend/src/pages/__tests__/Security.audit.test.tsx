@@ -284,7 +284,7 @@ describe('Security Page - QA Security Audit', () => {
       // All 4 cards should be present
       expect(screen.getByText('CrowdSec')).toBeInTheDocument()
       expect(screen.getByText('Access Control')).toBeInTheDocument()
-      expect(screen.getByText('WAF (Coraza)')).toBeInTheDocument()
+      expect(screen.getByText('Coraza')).toBeInTheDocument()
       expect(screen.getByText('Rate Limiting')).toBeInTheDocument()
     })
   })
@@ -301,17 +301,6 @@ describe('Security Page - QA Security Audit', () => {
       expect(screen.getByTestId('toggle-acl')).toBeInTheDocument()
       expect(screen.getByTestId('toggle-waf')).toBeInTheDocument()
       expect(screen.getByTestId('toggle-rate-limit')).toBeInTheDocument()
-    })
-
-    it('WAF controls have proper test IDs when enabled', async () => {
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
-
-      expect(screen.getByTestId('waf-mode-select')).toBeInTheDocument()
-      expect(screen.getByTestId('waf-ruleset-select')).toBeInTheDocument()
     })
 
     it('CrowdSec controls surface primary actions when enabled', async () => {
@@ -341,7 +330,7 @@ describe('Security Page - QA Security Audit', () => {
       const cardNames = cards.map(card => card.textContent)
 
       // Spec requirement from current_spec.md plus Live Security Logs feature
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting', 'Live Security Logs'])
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Live Security Logs'])
     })
 
     it('layer indicators match spec descriptions', async () => {
