@@ -458,6 +458,179 @@ func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig
 	return h, nil
 }
 
+#### 2.3 Rate Limiting — Test Plan (Detailed)
+
+**Summary:** This section contains a complete test plan to validate rate limiting configuration generation and runtime enforcement in Charon. Tests are grouped into Unit, Integration and E2E categories and prioritize quick unit coverage and high-impact integration tests.
+
+Goal: Verify the following behavior:
+- The `RateLimitBurst`, `RateLimitRequests`, `RateLimitWindowSec` and `RateLimitBypassList` fields are used by `buildRateLimitHandler` and emitted into the Caddy JSON configuration.
+- The Caddy `rate_limit` handler configuration uses `{http.request.remote.host}` as the key.
+- Bypass IPs are excluded from rate limiting by creating a subroute with `remote_ip` matcher.
+- At runtime, Caddy enforces limits, returns `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `Retry-After` headers (or documented equivalents), and resets counters after the configured window.
+- The plugin behaves correctly across multiple client IPs and respects bypass lists.
+
+-----
+
+2.3.1 Files to Add / Edit
+- New scripts: `scripts/rate_limit_integration.sh` (shell integration test), `scripts/rate_limit_e2e.sh` (optional extended tests).
+- New integration test: `backend/integration/rate_limit_integration_test.go` (go test wrapper runs script).
+- Unit tests to add/edit: `backend/internal/caddy/config_test.go` (add `TestGenerateConfig_WithRateLimitBypassList` and `TestBuildRateLimitHandler_KeyIsRemoteHost`), `backend/internal/api/handlers/security_ratelimit_test.go` (validate API fields persist & UpdateConfig accepts rate_limit fields).
+
+2.3.2 Unit Tests (fast, run in CI pre-merge)
+- File: `backend/internal/caddy/config_test.go`
+	- `TestGenerateConfig_WithRateLimitBypassList`
+		- Input: call `GenerateConfig` with `secCfg` set with `RateLimitEnable:true` and `RateLimitBypassList:"10.0.0.0/8,127.0.0.1/32"`; include one host.
+		- Assertions:
+			- The generated `Config` contains a route with `handler:"subroute"` or a `rate_limit` handler containing the bypass CIDRs (CIDRs found in JSON output).
+			- `RateLimitHandler` contains `rate_limits` map and `static` zone.
+	- `TestBuildRateLimitHandler_KeyIsRemoteHost`
+		- Input: `secCfg` with valid values.
+		- Assertions: the static zone `key` is `{http.request.remote.host}`.
+	- `TestBuildRateLimitHandler_DefaultBurstAndMax` (already present) and `TestParseBypassCIDRs` (existing) remain required.
+
+2.3.3 Integration Tests (CI gated, Docker required)
+We will add a scripted integration test to run inside CI or locally with Docker. The test will:
+	- Start the `charon:local` image (build if not present) in a detached container named `charon-debug`.
+	- Create a simple HTTP backend (httpbin/kennethreitz/httpbin) called `ratelimit-backend` (or `httpbin`).
+	- Create a proxy host `ratelimit.local` pointing to the backend via the Charon API (use /api/v1/proxy-hosts).
+	- Set `SecurityConfig` (POST /api/v1/security/config) with short windows for speed, e.g.:
+		```json
+		{"name":"default","enabled":true,"rate_limit_enable":true,"rate_limit_requests":3,"rate_limit_window_sec":10,"rate_limit_burst":1}
+		```
+	- Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
+	- Execute the runtime checks:
+		- Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
+		- The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
+		- On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
+		- Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
+
+	- Bypass List Validation:
+		- Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
+
+	- Multi-IP Isolation:
+		- Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
+
+	- X-Forwarded-For behavior (Confirm remote.host is used as key):
+		- Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
+
+	- Test Example (Shell Snippet to assert headers)
+		```bash
+		# Single request driver - check headers
+		curl -s -D - -o /dev/null -H "Host: ratelimit.local" http://localhost/post
+		# Expect headers: X-RateLimit-Limit: 3, X-RateLimit-Remaining: <number>
+		```
+
+	- Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
+
+	- Manage flaky behavior:
+		- Retry a couple times and log Caddy admin API output on failure for debugging.
++
+2.3.4 E2E Tests (Longer, optional)
+- Create `scripts/rate_limit_e2e.sh` which spins up the same environment but runs broader scenarios:
+	- High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
+	- Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
+	- SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
+
+2.3.5 Mock/Stub Guidance
+- IP Addresses
+	- Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
+	- For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
+- X-Forwarded-For
+	- Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
+- Timing Windows
+	- Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
+
+2.3.6 Test Data and Assertions (Explicit)
+- Unit Test: `TestBuildRateLimitHandler_ValidConfig`
+	- Input: secCfg{Requests:100, WindowSec:60, Burst:25}
+	- Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
+
+- Integration Test: `TestRateLimit_Enforcement_Basic`
+	- Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
+	- Actions: Send 4 rapid requests using client container
+	- Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
+	- Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
+
+- Integration Test: `TestRateLimit_BypassList_SkipsLimit`
+	- Input: Same as above + `RateLimitBypassList` contains client IP CIDR
+	- Expected outputs: All requests 200 (no 429)
+
+- Integration Test: `TestRateLimit_MultiClient_Isolation`
+	- Input: As above
+	- Actions: Client A sends 3 requests, Client B sends 3 requests
+	- Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
+
+- Integration Test: `TestRateLimit_Window_Reset`
+	- Input: As above
+	- Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
+	- Expected: New request is 200 again
+
+2.3.7 Test Harness - Example Go Integration Test
+Use the same approach as `backend/integration/coraza_integration_test.go`, run the script and check output for expected messages. Example test file: `backend/integration/rate_limit_integration_test.go`:
+
+```go
+//go:build integration
+// +build integration
+
+package integration
+
+import (
+		"context"
+		"os/exec"
+		"strings"
+		"testing"
+		"time"
+)
+
+func TestRateLimitIntegration(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "bash", "./scripts/rate_limit_integration.sh")
+		out, err := cmd.CombinedOutput()
+		t.Logf("rate_limit_integration script output:\n%s", string(out))
+		if err != nil {
+				t.Fatalf("rate_limit integration failed: %v", err)
+		}
+		if !strings.Contains(string(out), "Rate limit enforcement succeeded") {
+				t.Fatalf("unexpected script output, rate limiting assertion not found")
+		}
+}
+```
+
+2.3.8 CI and Pre-commit Hooks
+- Add an integration CI job that runs the Docker-based script and the integration `go` test suite in a separate job to avoid blocking unit test runs on tools requiring Docker. Use a job matrix with `services: docker` and timeouts set appropriately.
+- Do not add integration scripts to pre-commit (too heavy); keep pre-commit focused on `go fmt`, `go vet`, `go test ./...` (unit tests), `npm test`, and lint rules.
+- Use the workspace `tasks.json` to add a `Coraza: Run Integration Script` style task for rate limit integration that mirrors `scripts/coraza_integration.sh`.
+
+2.3.9 .gitignore / .codecov.yml / Dockerfile changes
+- .gitignore
+	- Add `test-results/rate_limit/` to avoid committing local script logs.
+	- Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
+- .codecov.yml
+	- Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
+- .dockerignore
+	- Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
+- Dockerfile
+	- Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
+
+2.3.10 Prioritization
+- P0: Integration test `TestRateLimit_Enforcement_Basic` (high confidence: verifies actual runtime limit enforcement and header presence)
+- P1: Unit tests verifying config building (`TestGenerateConfig_WithRateLimitBypassList`, `TestBuildRateLimitHandler_KeyIsRemoteHost`) and API tests for `POST /security/config` handling rate limit fields
+- P2: Integration tests for bypass list, multi-client isolation, window reset
+- P3: E2E tests for UI configuration of rate limiting and long-running stress tests
+
+2.3.11 Next Steps
+- Implement `scripts/rate_limit_integration.sh` and `backend/integration/rate_limit_integration_test.go` following `coraza_integration.sh` as the blueprint.
+- Add unit tests to `backend/internal/caddy/config_test.go` and API handler tests in `backend/internal/api/handlers/security_ratelimit_test.go`.
+- Add Docker network helpers and ensure `docker run --ip` is used to control client IPs during integration.
+- Run all new tests locally (Docker required) and in CI. Add integration job to GitHub Actions with `runs-on: ubuntu-latest`, `services: docker` and appropriate timeouts.
+
+-----
+
+This test plan should serve as a complete specification for testing rate limiting behavior across unit, integration, and E2E tiers. The next iteration will include scripted test implementations and Jenkins/GHA job snippets for CI.
+
+
 func parseBypassList(list string) []string {
 	var cidrs []string
 	for _, part := range strings.Split(list, ",") {
