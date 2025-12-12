@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -390,6 +391,7 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 	secCfg := &models.SecurityConfig{
 		RateLimitRequests:  100,
 		RateLimitWindowSec: 60,
+		RateLimitBurst:     25,
 	}
 	h, err := buildRateLimitHandler(nil, secCfg)
 	require.NoError(t, err)
@@ -409,6 +411,7 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 	require.Equal(t, "{http.request.remote.host}", staticZone["key"])
 	require.Equal(t, "60s", staticZone["window"])
 	require.Equal(t, 100, staticZone["max_events"])
+	require.Equal(t, 25, staticZone["burst"])
 }
 
 func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
@@ -416,6 +419,7 @@ func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
 	secCfg := &models.SecurityConfig{
 		RateLimitRequests:  30,
 		RateLimitWindowSec: 10,
+		RateLimitBurst:     5,
 	}
 	h, err := buildRateLimitHandler(nil, secCfg)
 	require.NoError(t, err)
@@ -433,6 +437,7 @@ func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
 	require.Contains(t, s, `"key":"{http.request.remote.host}"`)
 	require.Contains(t, s, `"window":"10s"`)
 	require.Contains(t, s, `"max_events":30`)
+	require.Contains(t, s, `"burst":5`)
 }
 
 func TestGenerateConfig_WithRateLimiting(t *testing.T) {
@@ -477,4 +482,533 @@ func TestGenerateConfig_WithRateLimiting(t *testing.T) {
 		}
 	}
 	require.True(t, foundRateLimit, "rate_limit handler should be present")
+}
+
+func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
+	// Verify that configured burst value is used
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     50,
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Handler should be a plain rate_limit (no bypass list)
+	require.Equal(t, "rate_limit", h["handler"])
+
+	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	require.True(t, ok)
+	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	require.True(t, ok)
+
+	// Verify burst is set to the configured value
+	require.Equal(t, 50, staticZone["burst"])
+}
+
+func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
+	// Verify that default burst is calculated as 20% of requests when not set
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     0, // Not set
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	require.True(t, ok)
+	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	require.True(t, ok)
+
+	// Default burst should be 20% of 100 = 20
+	require.Equal(t, 20, staticZone["burst"])
+
+	// Test with small requests value (burst should be at least 1)
+	secCfg2 := &models.SecurityConfig{
+		RateLimitRequests:  3,
+		RateLimitWindowSec: 60,
+		RateLimitBurst:     0,
+	}
+	h2, err := buildRateLimitHandler(nil, secCfg2)
+	require.NoError(t, err)
+	require.NotNil(t, h2)
+
+	rateLimits2, ok := h2["rate_limits"].(map[string]interface{})
+	require.True(t, ok)
+	staticZone2, ok := rateLimits2["static"].(map[string]interface{})
+	require.True(t, ok)
+
+	// 3 / 5 = 0, so burst should default to 1
+	require.Equal(t, 1, staticZone2["burst"])
+}
+
+func TestBuildRateLimitHandler_BypassList(t *testing.T) {
+	// Verify bypass list creates subroute structure
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:   100,
+		RateLimitWindowSec:  60,
+		RateLimitBurst:      20,
+		RateLimitBypassList: "10.0.0.0/8, 192.168.1.0/24",
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Handler should be a subroute when bypass list is configured
+	require.Equal(t, "subroute", h["handler"])
+
+	// Marshal to JSON for easy inspection
+	b, err := json.Marshal(h)
+	require.NoError(t, err)
+	s := string(b)
+
+	// Verify subroute contains bypass IPs
+	require.Contains(t, s, "10.0.0.0/8")
+	require.Contains(t, s, "192.168.1.0/24")
+	require.Contains(t, s, "remote_ip")
+	require.Contains(t, s, "rate_limit")
+}
+
+func TestBuildRateLimitHandler_BypassList_PlainIPs(t *testing.T) {
+	// Verify plain IPs are converted to CIDRs
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:   100,
+		RateLimitWindowSec:  60,
+		RateLimitBurst:      20,
+		RateLimitBypassList: "10.0.0.1, 192.168.1.1",
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	require.Equal(t, "subroute", h["handler"])
+
+	b, err := json.Marshal(h)
+	require.NoError(t, err)
+	s := string(b)
+
+	// Plain IPs should be converted to /32 CIDRs
+	require.Contains(t, s, "10.0.0.1/32")
+	require.Contains(t, s, "192.168.1.1/32")
+}
+
+func TestBuildRateLimitHandler_BypassList_InvalidEntries(t *testing.T) {
+	// Verify invalid entries are ignored
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:   100,
+		RateLimitWindowSec:  60,
+		RateLimitBurst:      20,
+		RateLimitBypassList: "invalid, 10.0.0.0/8, also-invalid",
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	require.Equal(t, "subroute", h["handler"])
+
+	b, err := json.Marshal(h)
+	require.NoError(t, err)
+	s := string(b)
+
+	// Only valid CIDR should be present
+	require.Contains(t, s, "10.0.0.0/8")
+	require.NotContains(t, s, "invalid")
+	require.NotContains(t, s, "also-invalid")
+}
+
+func TestBuildRateLimitHandler_BypassList_Empty(t *testing.T) {
+	// Verify empty bypass list returns plain rate_limit handler
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:   100,
+		RateLimitWindowSec:  60,
+		RateLimitBurst:      20,
+		RateLimitBypassList: "",
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Should be plain rate_limit, not subroute
+	require.Equal(t, "rate_limit", h["handler"])
+}
+
+func TestBuildRateLimitHandler_BypassList_AllInvalid(t *testing.T) {
+	// Verify all-invalid bypass list returns plain rate_limit handler
+	secCfg := &models.SecurityConfig{
+		RateLimitRequests:   100,
+		RateLimitWindowSec:  60,
+		RateLimitBurst:      20,
+		RateLimitBypassList: "invalid, also-invalid, not-an-ip",
+	}
+	h, err := buildRateLimitHandler(nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	// Should be plain rate_limit since no valid CIDRs
+	require.Equal(t, "rate_limit", h["handler"])
+}
+
+func TestParseBypassCIDRs(t *testing.T) {
+	// Test various inputs
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"empty", "", nil},
+		{"single_cidr", "10.0.0.0/8", []string{"10.0.0.0/8"}},
+		{"multiple_cidrs", "10.0.0.0/8, 192.168.0.0/16", []string{"10.0.0.0/8", "192.168.0.0/16"}},
+		{"plain_ipv4", "10.0.0.1", []string{"10.0.0.1/32"}},
+		{"plain_ipv6", "::1", []string{"::1/128"}},
+		{"mixed", "10.0.0.0/8, 192.168.1.1, invalid", []string{"10.0.0.0/8", "192.168.1.1/32"}},
+		{"with_spaces", " 10.0.0.0/8 , , 192.168.0.0/16 ", []string{"10.0.0.0/8", "192.168.0.0/16"}},
+		{"all_invalid", "invalid, bad-ip", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseBypassCIDRs(tt.input)
+			if tt.expected == nil {
+				require.Nil(t, result)
+			} else {
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestBuildWAFHandler_ParanoiaLevel verifies paranoia level is correctly set in directives
+func TestBuildWAFHandler_ParanoiaLevel(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+
+	tests := []struct {
+		name           string
+		paranoiaLevel  int
+		expectedLevel  int
+		expectedEngine string
+	}{
+		{"level_1_default", 0, 1, "On"},
+		{"level_1_explicit", 1, 1, "On"},
+		{"level_2", 2, 2, "On"},
+		{"level_3", 3, 3, "On"},
+		{"level_4_max", 4, 4, "On"},
+		{"level_invalid_high", 5, 1, "On"}, // Invalid falls back to 1
+		{"level_invalid_neg", -1, 1, "On"}, // Invalid falls back to 1
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secCfg := &models.SecurityConfig{
+				WAFMode:          "block",
+				WAFParanoiaLevel: tt.paranoiaLevel,
+				WAFRulesSource:   "owasp-crs",
+			}
+
+			h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
+			require.NoError(t, err)
+			require.NotNil(t, h)
+			require.Equal(t, "waf", h["handler"])
+
+			directives := h["directives"].(string)
+			require.Contains(t, directives, "SecRuleEngine On")
+			require.Contains(t, directives, "SecRequestBodyAccess On")
+			require.Contains(t, directives, "tx.paranoia_level="+strconv.Itoa(tt.expectedLevel))
+		})
+	}
+}
+
+// TestBuildWAFHandler_Exclusions verifies SecRuleRemoveById directives are generated
+func TestBuildWAFHandler_Exclusions(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+
+	// Test exclusions without targets (full rule removal)
+	exclusionsJSON := `[{"rule_id":942100,"description":"SQL Injection rule"},{"rule_id":941100}]`
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+		WAFExclusions:  exclusionsJSON,
+	}
+
+	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	directives := h["directives"].(string)
+	require.Contains(t, directives, "SecRuleRemoveById 942100")
+	require.Contains(t, directives, "SecRuleRemoveById 941100")
+}
+
+// TestBuildWAFHandler_ExclusionsWithTarget verifies SecRuleUpdateTargetById directives
+func TestBuildWAFHandler_ExclusionsWithTarget(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+
+	// Test exclusions with targets (partial rule exclusion)
+	exclusionsJSON := `[{"rule_id":942100,"target":"ARGS:password"},{"rule_id":941100,"target":"ARGS:content"}]`
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+		WAFExclusions:  exclusionsJSON,
+	}
+
+	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	directives := h["directives"].(string)
+	require.Contains(t, directives, `SecRuleUpdateTargetById 942100 "!ARGS:password"`)
+	require.Contains(t, directives, `SecRuleUpdateTargetById 941100 "!ARGS:content"`)
+}
+
+// TestBuildWAFHandler_PerHostDisabled verifies returns nil when host.WAFDisabled is true
+func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	// Host with WAF disabled
+	host := &models.ProxyHost{
+		UUID:        "test-uuid",
+		WAFDisabled: true,
+	}
+
+	h, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
+	require.NoError(t, err)
+	require.Nil(t, h, "WAF handler should be nil when host.WAFDisabled is true")
+
+	// Host with WAF enabled (default)
+	host2 := &models.ProxyHost{
+		UUID:        "test-uuid-2",
+		WAFDisabled: false,
+	}
+
+	h2, err := buildWAFHandler(host2, rulesets, rulesetPaths, secCfg, true)
+	require.NoError(t, err)
+	require.NotNil(t, h2, "WAF handler should not be nil when host.WAFDisabled is false")
+}
+
+// TestBuildWAFHandler_MonitorMode verifies DetectionOnly when mode is "monitor"
+func TestBuildWAFHandler_MonitorMode(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+
+	// Monitor mode
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "monitor",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, true)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	directives := h["directives"].(string)
+	require.Contains(t, directives, "SecRuleEngine DetectionOnly")
+	require.NotContains(t, directives, "SecRuleEngine On")
+
+	// Block mode
+	secCfg2 := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	h2, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
+	require.NoError(t, err)
+	require.NotNil(t, h2)
+
+	directives2 := h2["directives"].(string)
+	require.Contains(t, directives2, "SecRuleEngine On")
+	require.NotContains(t, directives2, "SecRuleEngine DetectionOnly")
+}
+
+// TestBuildWAFHandler_GlobalDisabled verifies handler returns nil when globally disabled
+func TestBuildWAFHandler_GlobalDisabled(t *testing.T) {
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+
+	// WAF disabled via wafEnabled flag
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	h, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg, false)
+	require.NoError(t, err)
+	require.Nil(t, h)
+
+	// WAF disabled via SecurityConfig.WAFMode
+	secCfg2 := &models.SecurityConfig{
+		WAFMode:        "disabled",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	h2, err := buildWAFHandler(nil, rulesets, rulesetPaths, secCfg2, true)
+	require.NoError(t, err)
+	require.Nil(t, h2)
+}
+
+// TestBuildWAFHandler_NoRuleset verifies handler returns nil when no ruleset available
+// WAF without rules is essentially a no-op, so we return nil.
+func TestBuildWAFHandler_NoRuleset(t *testing.T) {
+	// Empty rulesets and ruleset paths
+	secCfg := &models.SecurityConfig{
+		WAFMode: "block",
+	}
+
+	h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
+	require.NoError(t, err)
+	require.Nil(t, h, "WAF handler should be nil when no ruleset is available")
+}
+
+// TestParseWAFExclusions verifies exclusion parsing from JSON
+func TestParseWAFExclusions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []WAFExclusion
+	}{
+		{
+			name:     "empty",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:  "single_exclusion",
+			input: `[{"rule_id":942100}]`,
+			expected: []WAFExclusion{
+				{RuleID: 942100},
+			},
+		},
+		{
+			name:  "multiple_exclusions",
+			input: `[{"rule_id":942100,"description":"SQL Injection"},{"rule_id":941100,"target":"ARGS:password"}]`,
+			expected: []WAFExclusion{
+				{RuleID: 942100, Description: "SQL Injection"},
+				{RuleID: 941100, Target: "ARGS:password"},
+			},
+		},
+		{
+			name:     "invalid_json",
+			input:    `invalid json`,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseWAFExclusions(tt.input)
+			if tt.expected == nil {
+				require.Nil(t, result)
+			} else {
+				require.Equal(t, len(tt.expected), len(result))
+				for i, e := range tt.expected {
+					require.Equal(t, e.RuleID, result[i].RuleID)
+					require.Equal(t, e.Target, result[i].Target)
+					require.Equal(t, e.Description, result[i].Description)
+				}
+			}
+		})
+	}
+}
+
+// TestGenerateConfig_WithWAFPerHostDisabled verifies per-host WAF toggle in full config generation
+func TestGenerateConfig_WithWAFPerHostDisabled(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "uuid-waf-enabled",
+			DomainNames: "waf-enabled.example.com",
+			ForwardHost: "app1",
+			ForwardPort: 8080,
+			Enabled:     true,
+			WAFDisabled: false,
+		},
+		{
+			UUID:        "uuid-waf-disabled",
+			DomainNames: "waf-disabled.example.com",
+			ForwardHost: "app2",
+			ForwardPort: 8081,
+			Enabled:     true,
+			WAFDisabled: true,
+		},
+	}
+
+	rulesetPaths := map[string]string{
+		"owasp-crs": "/etc/caddy/rules/owasp-crs.conf",
+	}
+	rulesets := []models.SecurityRuleSet{
+		{Name: "owasp-crs"},
+	}
+	secCfg := &models.SecurityConfig{
+		WAFMode:        "block",
+		WAFRulesSource: "owasp-crs",
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, secCfg)
+	require.NoError(t, err)
+	require.NotNil(t, config.Apps.HTTP)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	require.Len(t, server.Routes, 2)
+
+	// Check waf-enabled host has WAF handler
+	var wafEnabledRoute, wafDisabledRoute *Route
+	for _, route := range server.Routes {
+		if len(route.Match) > 0 && len(route.Match[0].Host) > 0 {
+			if route.Match[0].Host[0] == "waf-enabled.example.com" {
+				wafEnabledRoute = route
+			} else if route.Match[0].Host[0] == "waf-disabled.example.com" {
+				wafDisabledRoute = route
+			}
+		}
+	}
+
+	// WAF-enabled route should have WAF handler
+	require.NotNil(t, wafEnabledRoute)
+	foundWAF := false
+	for _, h := range wafEnabledRoute.Handle {
+		if h["handler"] == "waf" {
+			foundWAF = true
+			break
+		}
+	}
+	require.True(t, foundWAF, "WAF handler should be present for waf-enabled host")
+
+	// WAF-disabled route should NOT have WAF handler
+	require.NotNil(t, wafDisabledRoute)
+	for _, h := range wafDisabledRoute.Handle {
+		require.NotEqual(t, "waf", h["handler"], "WAF handler should NOT be present for waf-disabled host")
+	}
 }

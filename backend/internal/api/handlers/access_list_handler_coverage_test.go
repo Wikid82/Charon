@@ -7,11 +7,36 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestAccessListHandler_SetGeoIPService(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.AccessList{})
+
+	handler := NewAccessListHandler(db)
+
+	// Test setting GeoIP service
+	geoipSvc := &services.GeoIPService{}
+	handler.SetGeoIPService(geoipSvc)
+
+	// No error or panic means success - the function is a simple setter
+	// We can't easily verify the internal state, but we can verify it doesn't panic
+}
+
+func TestAccessListHandler_SetGeoIPService_Nil(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.AccessList{})
+
+	handler := NewAccessListHandler(db)
+
+	// Test setting nil GeoIP service (should not panic)
+	handler.SetGeoIPService(nil)
+}
 
 func TestAccessListHandler_Get_InvalidID(t *testing.T) {
 	router, _ := setupAccessListTestRouter(t)
@@ -249,4 +274,25 @@ func TestAccessListHandler_TestIP_LocalNetworkOnly(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAccessListHandler_TestIP_InternalError(t *testing.T) {
+	// Create DB without migrating AccessList to cause internal error
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	// Don't migrate - this causes a "no such table" error which is an internal error
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	handler := NewAccessListHandler(db)
+	router.POST("/access-lists/:id/test", handler.TestIP)
+
+	body := []byte(`{"ip_address":"192.168.1.1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/access-lists/1/test", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 since table doesn't exist (internal error, not ErrAccessListNotFound)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

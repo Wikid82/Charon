@@ -186,3 +186,298 @@ func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
 	// Also verify that the tenant value itself is not passed as a standalone arg just in case
 	require.NotContains(t, exec.lastArgs(), "some-tenant-id")
 }
+
+// ============================================
+// SecureCommandExecutor Tests
+// ============================================
+
+func TestSecureCommandExecutorExecuteWithEnv(t *testing.T) {
+	// Skip this test if not on a system with echo command
+	exec := &SecureCommandExecutor{}
+	ctx := context.Background()
+
+	t.Run("executes command successfully", func(t *testing.T) {
+		output, err := exec.ExecuteWithEnv(ctx, "echo", []string{"hello"}, nil)
+		require.NoError(t, err)
+		require.Contains(t, string(output), "hello")
+	})
+
+	t.Run("passes environment variables", func(t *testing.T) {
+		output, err := exec.ExecuteWithEnv(ctx, "sh", []string{"-c", "echo $TEST_VAR"}, map[string]string{"TEST_VAR": "test_value"})
+		require.NoError(t, err)
+		require.Contains(t, string(output), "test_value")
+	})
+
+	t.Run("handles empty env map", func(t *testing.T) {
+		output, err := exec.ExecuteWithEnv(ctx, "echo", []string{"no-env"}, map[string]string{})
+		require.NoError(t, err)
+		require.Contains(t, string(output), "no-env")
+	})
+
+	t.Run("handles command failure", func(t *testing.T) {
+		_, err := exec.ExecuteWithEnv(ctx, "false", nil, nil)
+		require.Error(t, err)
+	})
+
+	t.Run("handles context timeout", func(t *testing.T) {
+		ctxTimeout, cancel := context.WithTimeout(ctx, time.Nanosecond)
+		defer cancel()
+		time.Sleep(time.Millisecond) // ensure timeout
+
+		_, err := exec.ExecuteWithEnv(ctxTimeout, "sleep", []string{"10"}, nil)
+		require.Error(t, err)
+	})
+}
+
+// ============================================
+// formatEnv Tests
+// ============================================
+
+func TestFormatEnv(t *testing.T) {
+	t.Run("formats single env var", func(t *testing.T) {
+		result := formatEnv(map[string]string{"KEY": "value"})
+		require.Len(t, result, 1)
+		require.Equal(t, "KEY=value", result[0])
+	})
+
+	t.Run("formats multiple env vars", func(t *testing.T) {
+		result := formatEnv(map[string]string{
+			"KEY1": "value1",
+			"KEY2": "value2",
+		})
+		require.Len(t, result, 2)
+		require.Contains(t, result, "KEY1=value1")
+		require.Contains(t, result, "KEY2=value2")
+	})
+
+	t.Run("handles empty map", func(t *testing.T) {
+		result := formatEnv(map[string]string{})
+		require.Nil(t, result)
+	})
+
+	t.Run("handles nil map", func(t *testing.T) {
+		result := formatEnv(nil)
+		require.Nil(t, result)
+	})
+
+	t.Run("handles special characters", func(t *testing.T) {
+		result := formatEnv(map[string]string{"KEY": "value with spaces"})
+		require.Len(t, result, 1)
+		require.Equal(t, "KEY=value with spaces", result[0])
+	})
+}
+
+// ============================================
+// ConsoleEnrollmentService.Status Tests
+// ============================================
+
+func TestConsoleEnrollmentStatus(t *testing.T) {
+	t.Run("returns not_enrolled for new service", func(t *testing.T) {
+		db := openConsoleTestDB(t)
+		exec := &stubEnvExecutor{}
+		svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+		status, err := svc.Status(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, consoleStatusNotEnrolled, status.Status)
+	})
+
+	t.Run("returns enrolled status after enrollment", func(t *testing.T) {
+		db := openConsoleTestDB(t)
+		exec := &stubEnvExecutor{}
+		svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+		// First enroll
+		_, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{
+			EnrollmentKey: "abc123def4g",
+			AgentName:     "test-agent",
+		})
+		require.NoError(t, err)
+
+		// Then check status
+		status, err := svc.Status(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, consoleStatusEnrolled, status.Status)
+		require.Equal(t, "test-agent", status.AgentName)
+		require.True(t, status.KeyPresent)
+		require.NotNil(t, status.EnrolledAt)
+	})
+
+	t.Run("returns failed status after failed enrollment", func(t *testing.T) {
+		db := openConsoleTestDB(t)
+		exec := &stubEnvExecutor{
+			responses: []struct {
+				out []byte
+				err error
+			}{
+				{out: nil, err: nil},                                    // capi register success
+				{out: []byte("error"), err: fmt.Errorf("enroll failed")}, // enroll failure
+			},
+		}
+		svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+		// Attempt enrollment (will fail)
+		_, _ = svc.Enroll(context.Background(), ConsoleEnrollRequest{
+			EnrollmentKey: "abc123def4g",
+			AgentName:     "test-agent",
+		})
+
+		// Check status
+		status, err := svc.Status(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, consoleStatusFailed, status.Status)
+		require.NotEmpty(t, status.LastError)
+	})
+}
+
+// ============================================
+// deriveKey Tests
+// ============================================
+
+func TestDeriveKey(t *testing.T) {
+	t.Run("derives consistent key", func(t *testing.T) {
+		key1 := deriveKey("secret")
+		key2 := deriveKey("secret")
+		require.Equal(t, key1, key2)
+	})
+
+	t.Run("derives different keys for different secrets", func(t *testing.T) {
+		key1 := deriveKey("secret1")
+		key2 := deriveKey("secret2")
+		require.NotEqual(t, key1, key2)
+	})
+
+	t.Run("uses default for empty secret", func(t *testing.T) {
+		key := deriveKey("")
+		require.Len(t, key, 32) // SHA-256 output
+	})
+}
+
+// ============================================
+// normalizeEnrollmentKey Tests
+// ============================================
+
+func TestNormalizeEnrollmentKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  string
+		expectErr bool
+	}{
+		{
+			name:     "valid raw key",
+			input:    "abc123def4g",
+			expected: "abc123def4g",
+		},
+		{
+			name:     "full command with sudo",
+			input:    "sudo cscli console enroll abc123def4g",
+			expected: "abc123def4g",
+		},
+		{
+			name:     "full command without sudo",
+			input:    "cscli console enroll abc123def4g",
+			expected: "abc123def4g",
+		},
+		{
+			name:     "key with whitespace",
+			input:    "  abc123def4g  ",
+			expected: "abc123def4g",
+		},
+		{
+			name:      "empty key",
+			input:     "",
+			expectErr: true,
+		},
+		{
+			name:      "only whitespace",
+			input:     "   ",
+			expectErr: true,
+		},
+		{
+			name:      "invalid format",
+			input:     "invalid key format here",
+			expectErr: true,
+		},
+		{
+			name:      "injection attempt",
+			input:     "abc123; rm -rf /",
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := normalizeEnrollmentKey(tc.input)
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.expected, result)
+			}
+		})
+	}
+}
+
+// ============================================
+// redactSecret Tests
+// ============================================
+
+func TestRedactSecret(t *testing.T) {
+	t.Run("redacts secret from message", func(t *testing.T) {
+		result := redactSecret("Error: invalid token secretKEY123", "secretKEY123")
+		require.Equal(t, "Error: invalid token <redacted>", result)
+	})
+
+	t.Run("handles empty secret", func(t *testing.T) {
+		result := redactSecret("Error message", "")
+		require.Equal(t, "Error message", result)
+	})
+
+	t.Run("handles secret not in message", func(t *testing.T) {
+		result := redactSecret("Error message", "secret")
+		require.Equal(t, "Error message", result)
+	})
+
+	t.Run("redacts multiple occurrences", func(t *testing.T) {
+		result := redactSecret("Token ABC123 failed, please retry with ABC123", "ABC123")
+		require.Equal(t, "Token <redacted> failed, please retry with <redacted>", result)
+	})
+}
+
+// ============================================
+// Encryption Tests
+// ============================================
+
+func TestEncryptDecrypt(t *testing.T) {
+	db := openConsoleTestDB(t)
+	svc := NewConsoleEnrollmentService(db, &stubEnvExecutor{}, t.TempDir(), "test-secret")
+
+	t.Run("encrypts and decrypts successfully", func(t *testing.T) {
+		original := "sensitive-enrollment-key"
+		encrypted, err := svc.encrypt(original)
+		require.NoError(t, err)
+		require.NotEqual(t, original, encrypted)
+
+		decrypted, err := svc.decrypt(encrypted)
+		require.NoError(t, err)
+		require.Equal(t, original, decrypted)
+	})
+
+	t.Run("handles empty string", func(t *testing.T) {
+		encrypted, err := svc.encrypt("")
+		require.NoError(t, err)
+		require.Empty(t, encrypted)
+
+		decrypted, err := svc.decrypt("")
+		require.NoError(t, err)
+		require.Empty(t, decrypted)
+	})
+
+	t.Run("different encryptions produce different ciphertext", func(t *testing.T) {
+		original := "test-key"
+		encrypted1, _ := svc.encrypt(original)
+		encrypted2, _ := svc.encrypt(original)
+		require.NotEqual(t, encrypted1, encrypted2, "encryptions should use different nonces")
+	})
+}

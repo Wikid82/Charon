@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -844,4 +845,345 @@ idx, err := svc.fetchIndexHTTP(context.Background())
 require.NoError(t, err)
 require.Len(t, idx.Items, 1)
 require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+}
+
+// ============================================
+// emptyDir Tests
+// ============================================
+
+func TestEmptyDir(t *testing.T) {
+	t.Run("empties directory with files", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("content2"), 0o644))
+
+		err := emptyDir(dir)
+		require.NoError(t, err)
+
+		// Directory should still exist
+		require.DirExists(t, dir)
+
+		// But be empty
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("empties directory with subdirectories", func(t *testing.T) {
+		dir := t.TempDir()
+		subDir := filepath.Join(dir, "subdir")
+		require.NoError(t, os.MkdirAll(subDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
+
+		err := emptyDir(dir)
+		require.NoError(t, err)
+
+		require.DirExists(t, dir)
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("handles non-existent directory", func(t *testing.T) {
+		err := emptyDir(filepath.Join(t.TempDir(), "nonexistent"))
+		require.NoError(t, err, "should not error on non-existent directory")
+	})
+
+	t.Run("handles empty directory", func(t *testing.T) {
+		dir := t.TempDir()
+		err := emptyDir(dir)
+		require.NoError(t, err)
+		require.DirExists(t, dir)
+	})
+}
+
+// ============================================
+// extractTarGz Tests
+// ============================================
+
+func TestExtractTarGz(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	t.Run("extracts valid archive", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{
+			"file1.txt":        "content1",
+			"subdir/file2.txt": "content2",
+		})
+
+		err := svc.extractTarGz(context.Background(), archive, targetDir)
+		require.NoError(t, err)
+
+		require.FileExists(t, filepath.Join(targetDir, "file1.txt"))
+		require.FileExists(t, filepath.Join(targetDir, "subdir", "file2.txt"))
+
+		content1, err := os.ReadFile(filepath.Join(targetDir, "file1.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "content1", string(content1))
+	})
+
+	t.Run("rejects path traversal", func(t *testing.T) {
+		targetDir := t.TempDir()
+
+		// Create malicious archive with path traversal
+		buf := &bytes.Buffer{}
+		gw := gzip.NewWriter(buf)
+		tw := tar.NewWriter(gw)
+
+		hdr := &tar.Header{Name: "../escape.txt", Mode: 0o644, Size: 7}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write([]byte("escaped"))
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+		require.NoError(t, gw.Close())
+
+		err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsafe path")
+	})
+
+	t.Run("rejects symlinks", func(t *testing.T) {
+		targetDir := t.TempDir()
+
+		buf := &bytes.Buffer{}
+		gw := gzip.NewWriter(buf)
+		tw := tar.NewWriter(gw)
+
+		hdr := &tar.Header{
+			Name:     "symlink",
+			Mode:     0o777,
+			Size:     0,
+			Typeflag: tar.TypeSymlink,
+			Linkname: "/etc/passwd",
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		require.NoError(t, tw.Close())
+		require.NoError(t, gw.Close())
+
+		err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "symlinks not allowed")
+	})
+
+	t.Run("handles corrupted gzip", func(t *testing.T) {
+		targetDir := t.TempDir()
+		err := svc.extractTarGz(context.Background(), []byte("not a gzip"), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "gunzip")
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{"file.txt": "content"})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		err := svc.extractTarGz(ctx, archive, targetDir)
+		require.Error(t, err)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("creates nested directories", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{
+			"a/b/c/deep.txt": "deep content",
+		})
+
+		err := svc.extractTarGz(context.Background(), archive, targetDir)
+		require.NoError(t, err)
+
+		require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "deep.txt"))
+	})
+}
+
+// ============================================
+// backupExisting Tests
+// ============================================
+
+func TestBackupExisting(t *testing.T) {
+	t.Run("handles non-existent directory", func(t *testing.T) {
+		dataDir := filepath.Join(t.TempDir(), "nonexistent")
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := dataDir + ".backup"
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+		require.NoDirExists(t, backupPath)
+	})
+
+	t.Run("creates backup of existing directory", func(t *testing.T) {
+		dataDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("config data"), 0o644))
+
+		subDir := filepath.Join(dataDir, "subdir")
+		require.NoError(t, os.MkdirAll(subDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested data"), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := filepath.Join(t.TempDir(), "backup")
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+
+		// Verify backup exists
+		require.FileExists(t, filepath.Join(backupPath, "config.txt"))
+		require.FileExists(t, filepath.Join(backupPath, "subdir", "nested.txt"))
+	})
+
+	t.Run("backup contents match original", func(t *testing.T) {
+		dataDir := t.TempDir()
+		originalContent := "important config"
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte(originalContent), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := filepath.Join(t.TempDir(), "backup")
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+
+		backupContent, err := os.ReadFile(filepath.Join(backupPath, "config.txt"))
+		require.NoError(t, err)
+		require.Equal(t, originalContent, string(backupContent))
+	})
+}
+
+// ============================================
+// rollback Tests
+// ============================================
+
+func TestRollback(t *testing.T) {
+	t.Run("rollback with backup", func(t *testing.T) {
+		parentDir := t.TempDir()
+		dataDir := filepath.Join(parentDir, "data")
+		backupPath := filepath.Join(parentDir, "backup")
+
+		// Create backup first
+		require.NoError(t, os.MkdirAll(backupPath, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(backupPath, "backed_up.txt"), []byte("backup content"), 0o644))
+
+		// Create data dir with different content
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "current.txt"), []byte("current content"), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback(backupPath)
+		require.NoError(t, err)
+
+		// Data dir should now have backup contents
+		require.FileExists(t, filepath.Join(dataDir, "backed_up.txt"))
+		// Backup path should no longer exist (renamed to dataDir)
+		require.NoDirExists(t, backupPath)
+	})
+
+	t.Run("rollback with empty backup path", func(t *testing.T) {
+		dataDir := t.TempDir()
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback("")
+		require.NoError(t, err)
+	})
+
+	t.Run("rollback with non-existent backup", func(t *testing.T) {
+		dataDir := t.TempDir()
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback(filepath.Join(t.TempDir(), "nonexistent"))
+		require.NoError(t, err)
+	})
+}
+
+// ============================================
+// hubHTTPError Tests
+// ============================================
+
+func TestHubHTTPErrorError(t *testing.T) {
+	t.Run("error with inner error", func(t *testing.T) {
+		inner := errors.New("connection refused")
+		err := hubHTTPError{
+			url:        "https://hub.example.com/index.json",
+			statusCode: 503,
+			inner:      inner,
+			fallback:   true,
+		}
+
+		msg := err.Error()
+		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "503")
+		require.Contains(t, msg, "connection refused")
+	})
+
+	t.Run("error without inner error", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com/index.json",
+			statusCode: 404,
+			inner:      nil,
+			fallback:   false,
+		}
+
+		msg := err.Error()
+		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "404")
+		require.NotContains(t, msg, "nil")
+	})
+}
+
+func TestHubHTTPErrorUnwrap(t *testing.T) {
+	t.Run("unwrap returns inner error", func(t *testing.T) {
+		inner := errors.New("underlying error")
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 500,
+			inner:      inner,
+		}
+
+		unwrapped := err.Unwrap()
+		require.Equal(t, inner, unwrapped)
+	})
+
+	t.Run("unwrap returns nil when no inner", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 500,
+			inner:      nil,
+		}
+
+		unwrapped := err.Unwrap()
+		require.Nil(t, unwrapped)
+	})
+
+	t.Run("errors.Is works through Unwrap", func(t *testing.T) {
+		inner := context.Canceled
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 0,
+			inner:      inner,
+		}
+
+		// errors.Is should work through Unwrap chain
+		require.True(t, errors.Is(err, context.Canceled))
+	})
+}
+
+func TestHubHTTPErrorCanFallback(t *testing.T) {
+	t.Run("returns true when fallback is true", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 503,
+			fallback:   true,
+		}
+
+		require.True(t, err.CanFallback())
+	})
+
+	t.Run("returns false when fallback is false", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 404,
+			fallback:   false,
+		}
+
+		require.False(t, err.CanFallback())
+	})
 }
