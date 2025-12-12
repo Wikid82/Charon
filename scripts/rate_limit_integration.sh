@@ -83,11 +83,11 @@ on_failure() {
     echo ""
 
     echo "=== Security Config in API ==="
-    curl -s http://localhost:8080/api/v1/security/config 2>/dev/null || echo "Could not retrieve security config"
+    curl -s http://localhost:8280/api/v1/security/config 2>/dev/null || echo "Could not retrieve security config"
     echo ""
 
     echo "=== Proxy Hosts ==="
-    curl -s http://localhost:8080/api/v1/proxy-hosts 2>/dev/null | head -50 || echo "Could not retrieve proxy hosts"
+    curl -s http://localhost:8280/api/v1/proxy-hosts 2>/dev/null | head -50 || echo "Could not retrieve proxy hosts"
     echo ""
 
     echo "=============================================="
@@ -150,7 +150,7 @@ echo "Starting Charon container..."
 docker run -d --name ${CONTAINER_NAME} \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network containers_default \
-    -p 8180:80 -p 8143:443 -p 8080:8080 -p 2119:2019 \
+    -p 8180:80 -p 8143:443 -p 8280:8080 -p 2119:2019 \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
@@ -166,7 +166,7 @@ docker run -d --name ${CONTAINER_NAME} \
 
 echo "Waiting for Charon API to be ready..."
 for i in {1..30}; do
-    if curl -s -f http://localhost:8080/api/v1/ >/dev/null 2>&1; then
+    if curl -s -f http://localhost:8280/api/v1/ >/dev/null 2>&1; then
         echo "✓ Charon API is ready"
         break
     fi
@@ -207,12 +207,12 @@ echo "Registering admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123","name":"Rate Limit Tester"}' \
-    http://localhost:8080/api/v1/auth/register >/dev/null 2>&1 || true
+    http://localhost:8280/api/v1/auth/register >/dev/null 2>&1 || true
 
 curl -s -X POST -H "Content-Type: application/json" \
     -d '{"email":"ratelimit@example.local","password":"password123"}' \
     -c ${TMP_COOKIE} \
-    http://localhost:8080/api/v1/auth/login >/dev/null
+    http://localhost:8280/api/v1/auth/login >/dev/null
 
 echo "✓ Authentication complete"
 
@@ -236,7 +236,7 @@ EOF
 CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \
     -d "${PROXY_HOST_PAYLOAD}" \
     -b ${TMP_COOKIE} \
-    http://localhost:8080/api/v1/proxy-hosts)
+    http://localhost:8280/api/v1/proxy-hosts)
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
 
 if [ "$CREATE_STATUS" = "201" ]; then
@@ -266,7 +266,7 @@ EOF
 curl -s -X POST -H "Content-Type: application/json" \
     -d "${SEC_CFG_PAYLOAD}" \
     -b ${TMP_COOKIE} \
-    http://localhost:8080/api/v1/security/config >/dev/null
+    http://localhost:8280/api/v1/security/config >/dev/null
 
 echo "✓ Rate limiting configured"
 
@@ -375,13 +375,13 @@ echo ""
 
 # Remove test proxy host from database
 echo "Removing test proxy host from database..."
-INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | \
+INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/proxy-hosts | \
     grep -o '"uuid":"[^"]*"[^}]*"domain_names":"'${TEST_DOMAIN}'"' | head -n1 | \
     grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 
 if [ -n "$INTEGRATION_UUID" ]; then
     curl -s -X DELETE -b ${TMP_COOKIE} \
-        "http://localhost:8080/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
+        "http://localhost:8280/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
     echo "✓ Deleted test proxy host ${INTEGRATION_UUID}"
 fi
 
