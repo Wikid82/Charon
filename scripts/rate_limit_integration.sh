@@ -42,7 +42,7 @@ verify_rate_limit_config() {
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(curl -s http://localhost:2019/config 2>/dev/null || echo "")
+        caddy_config=$(curl -s http://localhost:2119/config 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -79,7 +79,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    curl -s http://localhost:2019/config 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    curl -s http://localhost:2119/config 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -150,7 +150,7 @@ echo "Starting Charon container..."
 docker run -d --name ${CONTAINER_NAME} \
     --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
     --network containers_default \
-    -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 \
+    -p 8180:80 -p 8143:443 -p 8080:8080 -p 2119:2019 \
     -e CHARON_ENV=development \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
@@ -291,7 +291,7 @@ echo "Sending ${RATE_LIMIT_REQUESTS} rapid requests (should all return 200)..."
 
 SUCCESS_COUNT=0
 for i in $(seq 1 ${RATE_LIMIT_REQUESTS}); do
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${TEST_DOMAIN}" http://localhost/get)
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
     if [ "$RESPONSE" = "200" ]; then
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         echo "  Request $i: HTTP $RESPONSE ✓"
@@ -314,7 +314,7 @@ echo ""
 echo "Sending request ${RATE_LIMIT_REQUESTS}+1 (should return 429 Too Many Requests)..."
 
 # Capture headers too for Retry-After check
-BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost/get)
+BLOCKED_RESPONSE=$(curl -s -D - -o /dev/null -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
 BLOCKED_STATUS=$(echo "$BLOCKED_RESPONSE" | head -1 | grep -o '[0-9]\{3\}' | head -1)
 
 if [ "$BLOCKED_STATUS" = "429" ]; then
@@ -347,7 +347,7 @@ echo "Waiting for rate limit window to reset (${RATE_LIMIT_WINDOW_SEC} seconds +
 sleep $((RATE_LIMIT_WINDOW_SEC + 2))
 
 echo "Sending request after window reset (should return 200)..."
-RESET_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${TEST_DOMAIN}" http://localhost/get)
+RESET_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${TEST_DOMAIN}" http://localhost:8180/get)
 
 if [ "$RESET_RESPONSE" = "200" ]; then
     echo "  ✓ Request allowed after window reset (HTTP 200)"
