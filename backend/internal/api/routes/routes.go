@@ -253,6 +253,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
 		protected.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
 
+		// Ensure uptime feature flag exists to avoid record-not-found logs
+		defaultUptime := models.Setting{Key: "feature.uptime.enabled", Value: "true", Type: "bool", Category: "feature"}
+		if err := db.Where(models.Setting{Key: defaultUptime.Key}).Attrs(defaultUptime).FirstOrCreate(&defaultUptime).Error; err != nil {
+			logger.Log().WithError(err).Warn("Failed to ensure uptime feature flag default")
+		}
+
 		// Start background checker (every 1 minute)
 		go func() {
 			// Wait a bit for server to start

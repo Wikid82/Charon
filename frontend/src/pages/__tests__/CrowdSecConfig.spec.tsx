@@ -215,8 +215,9 @@ describe('CrowdSecConfig', () => {
     const select = screen.getByTestId('crowdsec-file-select')
     await userEvent.selectOptions(select, 'conf.d/a.conf')
     await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('conf.d/a.conf'))
-    // ensure textarea populated
-    const textarea = screen.getByRole('textbox')
+    // ensure textarea populated - use getAllByRole and filter for textarea (not the search input)
+    const textareas = screen.getAllByRole('textbox')
+    const textarea = textareas.find(el => el.tagName.toLowerCase() === 'textarea')!
     expect(textarea).toHaveValue('rule1')
     // edit and save
     await userEvent.clear(textarea)
@@ -319,9 +320,9 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-  const select = await screen.findByTestId('preset-select')
-  await waitFor(() => expect(screen.getByText('Hub Only')).toBeInTheDocument())
-  await userEvent.selectOptions(select, 'hub-only')
+  // Wait for presets to load and click on the preset card
+  const presetCard = await screen.findByText('Hub Only')
+  await userEvent.click(presetCard)
 
     await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
 

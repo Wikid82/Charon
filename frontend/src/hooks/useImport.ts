@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   uploadCaddyfile,
@@ -6,13 +7,18 @@ import {
   cancelImport,
   getImportStatus,
   ImportSession,
-  ImportPreview
+  ImportPreview,
+  ImportCommitResult,
 } from '../api/import';
 
 export const QUERY_KEY = ['import-session'];
 
 export function useImport() {
   const queryClient = useQueryClient();
+  // Track when commit has succeeded to disable preview fetching
+  const [commitSucceeded, setCommitSucceeded] = useState(false);
+  // Store the commit result for display in success modal
+  const [commitResult, setCommitResult] = useState<ImportCommitResult | null>(null);
 
   // Poll for status if we think there's an active session
   const statusQuery = useQuery({
@@ -31,7 +37,10 @@ export function useImport() {
   const previewQuery = useQuery({
     queryKey: ['import-preview'],
     queryFn: getImportPreview,
-    enabled: !!statusQuery.data?.has_pending && (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending' || statusQuery.data?.session?.state === 'transient'),
+    // Only enable when there's an active session AND commit hasn't just succeeded
+    enabled: !!statusQuery.data?.has_pending &&
+      (statusQuery.data?.session?.state === 'reviewing' || statusQuery.data?.session?.state === 'pending' || statusQuery.data?.session?.state === 'transient') &&
+      !commitSucceeded,
   });
 
   const uploadMutation = useMutation({
@@ -48,9 +57,15 @@ export function useImport() {
       if (!sessionId) throw new Error("No active session");
       return commitImport(sessionId, resolutions, names);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // Store the commit result for display in success modal
+      setCommitResult(result);
+      // Mark commit as succeeded to prevent preview refetch (which would 404)
+      setCommitSucceeded(true);
+      // Remove preview cache entirely to prevent 404 refetch after commit
+      // (the session no longer exists, so preview endpoint returns 404)
+      queryClient.removeQueries({ queryKey: ['import-preview'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: ['import-preview'] });
       // Also invalidate proxy hosts as they might have changed
       queryClient.invalidateQueries({ queryKey: ['proxy-hosts'] });
     },
@@ -59,18 +74,29 @@ export function useImport() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelImport(),
     onSuccess: () => {
+      // Remove preview cache entirely to prevent 404 refetch after cancel
+      queryClient.removeQueries({ queryKey: ['import-preview'] });
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: ['import-preview'] });
     },
   });
+
+  const clearCommitResult = () => {
+    setCommitResult(null);
+    setCommitSucceeded(false);
+  };
 
   return {
     session: statusQuery.data?.session || null,
     preview: previewQuery.data || null,
     loading: statusQuery.isLoading || uploadMutation.isPending || commitMutation.isPending || cancelMutation.isPending,
-    error: (statusQuery.error || previewQuery.error || uploadMutation.error || commitMutation.error || cancelMutation.error)
-      ? ((statusQuery.error || previewQuery.error || uploadMutation.error || commitMutation.error || cancelMutation.error) as Error).message
+    // Only include previewQuery.error if there's an active session and commit hasn't succeeded
+    // (404 expected when no session or after commit)
+    error: (statusQuery.error || (previewQuery.error && statusQuery.data?.has_pending && !commitSucceeded) || uploadMutation.error || commitMutation.error || cancelMutation.error)
+      ? ((statusQuery.error || (previewQuery.error && statusQuery.data?.has_pending && !commitSucceeded ? previewQuery.error : null) || uploadMutation.error || commitMutation.error || cancelMutation.error) as Error)?.message
       : null,
+    commitSuccess: commitSucceeded,
+    commitResult,
+    clearCommitResult,
     upload: uploadMutation.mutateAsync,
     commit: (resolutions: Record<string, string>, names: Record<string, string>) =>
       commitMutation.mutateAsync({ resolutions, names }),
@@ -78,4 +104,4 @@ export function useImport() {
   };
 }
 
-export type { ImportSession, ImportPreview };
+export type { ImportSession, ImportPreview, ImportCommitResult };

@@ -108,6 +108,33 @@ When you disable a feature:
 
 ---
 
+## 📊 Dashboard
+
+### Certificate Status Card
+
+**What it does:** Displays a real-time overview of all your SSL certificates directly on the Dashboard.
+
+**Why you care:** Know at a glance if any certificates need attention—expired, expiring soon, or still provisioning.
+
+**What you see:**
+- **Certificate Breakdown** — Visual count of certificates by status:
+  - ✅ Valid certificates (healthy, not expiring soon)
+  - ⚠️ Expiring certificates (within 30 days)
+  - 🧪 Staging certificates (for testing)
+  - ❌ Expired certificates (need immediate attention)
+- **Pending Indicator** — Shows when certificates are being provisioned with a progress bar
+- **Auto-Refresh** — Card automatically updates during certificate provisioning
+
+**How it works:**
+- The card polls for certificate status changes during active provisioning
+- Progress bar shows visual feedback while Let's Encrypt/ZeroSSL issues certificates
+- Once all certificates are ready, auto-refresh stops to save resources
+
+**What you do:** Check the Dashboard after adding new hosts to monitor certificate provisioning. If you see pending certificates, the system is working—just wait a moment for issuance to complete.
+
+
+---
+
 ## \ud83d\udee1\ufe0f Security (Optional)
 
 Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready. The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
@@ -210,6 +237,21 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 **What you do:** Click "Import," paste your Caddyfile, review the results, click "Import."
 
 **[Detailed Import Guide](import-guide.md)**
+
+### Import Success Modal
+
+**What it does:** After importing a Caddyfile, displays a detailed summary modal showing exactly what happened.
+
+**Why you care:** Know immediately how your import went—no guessing or digging through logs.
+
+**What you see:**
+- **Hosts Created** — New proxy hosts that were added to your configuration
+- **Hosts Updated** — Existing hosts that were modified with new settings
+- **Hosts Skipped** — Entries that weren't imported (duplicates or unsupported)
+- **Certificate Guidance** — Instructions for SSL certificate provisioning
+- **Quick Navigation** — Buttons to go directly to Dashboard or Proxy Hosts
+
+**What you do:** Review the summary after each import. If hosts were skipped, check the details to understand why. Use the navigation buttons to proceed with your workflow.
 
 ---
 

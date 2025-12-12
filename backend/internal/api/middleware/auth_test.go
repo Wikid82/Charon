@@ -127,6 +127,29 @@ func TestAuthMiddleware_ValidToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestAuthMiddleware_PrefersAuthorizationHeader(t *testing.T) {
+	authService := setupAuthService(t)
+	user, _ := authService.Register("header@example.com", "password", "Header User")
+	token, _ := authService.GenerateToken(user)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(AuthMiddleware(authService))
+	r.GET("/test", func(c *gin.Context) {
+		userID, _ := c.Get("userID")
+		assert.Equal(t, user.ID, userID)
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "stale"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	authService := setupAuthService(t)
 

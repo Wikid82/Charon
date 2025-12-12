@@ -32,13 +32,32 @@ func isProduction() bool {
 	return env == "production" || env == "prod"
 }
 
+func requestScheme(c *gin.Context) string {
+	if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
+		// Honor first entry in a comma-separated header
+		parts := strings.Split(proto, ",")
+		return strings.ToLower(strings.TrimSpace(parts[0]))
+	}
+	if c.Request != nil && c.Request.TLS != nil {
+		return "https"
+	}
+	if c.Request != nil && c.Request.URL != nil && c.Request.URL.Scheme != "" {
+		return strings.ToLower(c.Request.URL.Scheme)
+	}
+	return "http"
+}
+
 // setSecureCookie sets an auth cookie with security best practices
 // - HttpOnly: prevents JavaScript access (XSS protection)
-// - Secure: only sent over HTTPS (in production)
-// - SameSite=Strict: prevents CSRF attacks
+// - Secure: derived from request scheme to allow HTTP/IP logins when needed
+// - SameSite: Strict for HTTPS, Lax for HTTP/IP to allow forward-auth redirects
 func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
-	secure := isProduction()
+	scheme := requestScheme(c)
+	secure := isProduction() && scheme == "https"
 	sameSite := http.SameSiteStrictMode
+	if scheme != "https" {
+		sameSite = http.SameSiteLaxMode
+	}
 
 	// Use the host without port for domain
 	domain := ""
@@ -78,7 +97,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Set secure cookie (HttpOnly, Secure in prod, SameSite=Strict)
+	// Set secure cookie (scheme-aware) and return token for header fallback
 	setSecureCookie(c, "auth_token", token, 3600*24)
 
 	c.JSON(http.StatusOK, gin.H{"token": token})

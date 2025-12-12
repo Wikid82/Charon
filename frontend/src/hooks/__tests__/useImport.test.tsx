@@ -127,6 +127,7 @@ describe('useImport', () => {
     vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
     vi.mocked(api.commitImport).mockImplementation(async () => {
       isCommitted = true
+      return { created: 0, updated: 0, skipped: 0, errors: [] }
     })
 
     const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
@@ -237,5 +238,111 @@ describe('useImport', () => {
     await waitFor(() => {
       expect(result.current.error).toBe('Commit failed')
     })
+  })
+
+  it('captures and exposes commit result on success', async () => {
+    const mockSession = {
+      id: 'session-5',
+      state: 'reviewing' as const,
+      created_at: '2025-01-18T10:00:00Z',
+      updated_at: '2025-01-18T10:00:00Z',
+    }
+
+    const mockResponse = {
+      session: mockSession,
+      preview: { hosts: [], conflicts: [], errors: [] },
+    }
+
+    const mockCommitResult = {
+      created: 3,
+      updated: 1,
+      skipped: 2,
+      errors: [],
+    }
+
+    let isCommitted = false
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
+    vi.mocked(api.getImportStatus).mockImplementation(async () => {
+      if (isCommitted) return { has_pending: false }
+      return { has_pending: true, session: mockSession }
+    })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
+    vi.mocked(api.commitImport).mockImplementation(async () => {
+      isCommitted = true
+      return mockCommitResult
+    })
+
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
+
+    await act(async () => {
+      await result.current.upload('test')
+    })
+
+    await waitFor(() => {
+      expect(result.current.session).toEqual(mockSession)
+    })
+
+    await act(async () => {
+      await result.current.commit({}, {})
+    })
+
+    expect(result.current.commitResult).toEqual(mockCommitResult)
+    expect(result.current.commitSuccess).toBe(true)
+  })
+
+  it('clears commit result when clearCommitResult is called', async () => {
+    const mockSession = {
+      id: 'session-6',
+      state: 'reviewing' as const,
+      created_at: '2025-01-18T10:00:00Z',
+      updated_at: '2025-01-18T10:00:00Z',
+    }
+
+    const mockResponse = {
+      session: mockSession,
+      preview: { hosts: [], conflicts: [], errors: [] },
+    }
+
+    const mockCommitResult = {
+      created: 2,
+      updated: 0,
+      skipped: 0,
+      errors: [],
+    }
+
+    let isCommitted = false
+    vi.mocked(api.uploadCaddyfile).mockResolvedValue(mockResponse)
+    vi.mocked(api.getImportStatus).mockImplementation(async () => {
+      if (isCommitted) return { has_pending: false }
+      return { has_pending: true, session: mockSession }
+    })
+    vi.mocked(api.getImportPreview).mockResolvedValue(mockResponse)
+    vi.mocked(api.commitImport).mockImplementation(async () => {
+      isCommitted = true
+      return mockCommitResult
+    })
+
+    const { result } = renderHook(() => useImport(), { wrapper: createWrapper() })
+
+    await act(async () => {
+      await result.current.upload('test')
+    })
+
+    await waitFor(() => {
+      expect(result.current.session).toEqual(mockSession)
+    })
+
+    await act(async () => {
+      await result.current.commit({}, {})
+    })
+
+    expect(result.current.commitResult).toEqual(mockCommitResult)
+
+    act(() => {
+      result.current.clearCommitResult()
+    })
+
+    expect(result.current.commitResult).toBeNull()
+    expect(result.current.commitSuccess).toBe(false)
   })
 })

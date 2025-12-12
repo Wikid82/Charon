@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -58,6 +59,39 @@ func TestAuthHandler_Login(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "token")
+}
+
+func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	os.Setenv("CHARON_ENV", "production")
+	defer os.Unsetenv("CHARON_ENV")
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "https://example.com/login", http.NoBody)
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	c := cookies[0]
+	assert.True(t, c.Secure)
+	assert.Equal(t, http.SameSiteStrictMode, c.SameSite)
+}
+
+func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	req := httptest.NewRequest("POST", "http://192.0.2.10/login", http.NoBody)
+	req.Header.Set("X-Forwarded-Proto", "http")
+	ctx.Request = req
+
+	setSecureCookie(ctx, "auth_token", "abc", 60)
+	cookies := recorder.Result().Cookies()
+	require.Len(t, cookies, 1)
+	c := cookies[0]
+	assert.False(t, c.Secure)
+	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
 }
 
 func TestAuthHandler_Login_Errors(t *testing.T) {

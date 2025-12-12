@@ -20,6 +20,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -327,7 +328,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		}
 		defer func() {
 			if err := f.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", path)
+				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", util.SanitizeForLog(path))
 			}
 		}()
 
@@ -570,7 +571,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	// Log cache directory before pull
 	if h.Hub != nil && h.Hub.Cache != nil {
 		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", cacheDir).WithField("slug", slug).Info("attempting to pull preset")
+		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to pull preset")
 		if stat, err := os.Stat(cacheDir); err == nil {
 			logger.Log().WithField("cache_dir_mode", stat.Mode()).WithField("cache_dir_writable", stat.Mode().Perm()&0o200 != 0).Debug("cache directory exists")
 		} else {
@@ -581,7 +582,7 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
-		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
 		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
 		return
 	}
@@ -661,11 +662,11 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	// Log cache status before apply
 	if h.Hub != nil && h.Hub.Cache != nil {
 		cacheDir := filepath.Join(h.DataDir, "hub_cache")
-		logger.Log().WithField("cache_dir", cacheDir).WithField("slug", slug).Info("attempting to apply preset")
+		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to apply preset")
 
 		// Check if cached
 		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
-			logger.Log().WithField("slug", slug).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
 			// Verify files still exist
 			if _, err := os.Stat(cached.ArchivePath); err != nil {
 				logger.Log().WithError(err).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
@@ -674,7 +675,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 				logger.Log().WithError(err).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
 			}
 		} else {
-			logger.Log().WithError(err).WithField("slug", slug).Warn("preset not found in cache before apply")
+			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
 			// List what's actually in the cache
 			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
 				slugs := make([]string, len(entries))
@@ -689,7 +690,7 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).WithField("backup_path", res.BackupPath).WithField("cache_key", res.CacheKey).Warn("crowdsec preset apply failed")
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", h.Hub.HubBaseURL).WithField("backup_path", res.BackupPath).WithField("cache_key", res.CacheKey).Warn("crowdsec preset apply failed")
 		if h.DB != nil {
 			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
 		}
@@ -771,7 +772,7 @@ func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
 		} else if strings.Contains(strings.ToLower(err.Error()), "required") {
 			httpStatus = http.StatusBadRequest
 		}
-		logger.Log().WithError(err).WithField("tenant", payload.Tenant).WithField("agent", payload.AgentName).WithField("correlation_id", status.CorrelationID).Warn("crowdsec console enrollment failed")
+		logger.Log().WithError(err).WithField("tenant", util.SanitizeForLog(payload.Tenant)).WithField("agent", util.SanitizeForLog(payload.AgentName)).WithField("correlation_id", status.CorrelationID).Warn("crowdsec console enrollment failed")
 		if h.Security != nil {
 			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
 		}
@@ -970,7 +971,7 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 	}
 	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions add")
+		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban IP"})
 		return
 	}
@@ -996,7 +997,7 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	}
 	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions delete")
+		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions delete")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban IP"})
 		return
 	}

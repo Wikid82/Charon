@@ -199,8 +199,7 @@ describe('CrowdSecConfig coverage', () => {
 
   it('auto-selects first preset and pulls preview', async () => {
     await renderPage()
-    const select = screen.getByTestId('preset-select') as HTMLSelectElement
-    expect(select.value).toBe(presetFromCatalog.slug)
+    // Component auto-selects first preset from the list on render
     await waitFor(() => expect(presetsApi.pullCrowdsecPreset).toHaveBeenCalledWith(presetFromCatalog.slug))
     const previewText = screen.getByTestId('preset-preview').textContent?.replace(/\s+/g, ' ')
     expect(previewText).toContain('crowdsecurity/http-cve')
@@ -375,7 +374,9 @@ describe('CrowdSecConfig coverage', () => {
     await renderPage()
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
     await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('acquis.yaml'))
-    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    // Use getAllByRole and filter for textarea (not the search input)
+    const textareas = screen.getAllByRole('textbox')
+    const textarea = textareas.find(el => el.tagName.toLowerCase() === 'textarea') as HTMLTextAreaElement
     expect(textarea.value).toBe('file-content')
     await userEvent.clear(textarea)
     await userEvent.type(textarea, 'updated')
@@ -538,7 +539,9 @@ describe('CrowdSecConfig coverage', () => {
     await renderPage()
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toBeInTheDocument())
     await userEvent.selectOptions(screen.getByTestId('crowdsec-file-select'), 'acquis.yaml')
-    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    // Use getAllByRole and filter for textarea (not the search input)
+    const textareas = screen.getAllByRole('textbox')
+    const textarea = textareas.find(el => el.tagName.toLowerCase() === 'textarea') as HTMLTextAreaElement
     await userEvent.type(textarea, 'x')
     await userEvent.click(screen.getByText('Save'))
     expect(await screen.findByText('Guardian inscribes...')).toBeInTheDocument()

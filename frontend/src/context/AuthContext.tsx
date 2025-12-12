@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode, type FC } from 'react';
-import client from '../api/client';
+import client, { setAuthToken } from '../api/client';
 import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
@@ -9,9 +9,14 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        const stored = localStorage.getItem('charon_auth_token');
+        if (stored) {
+          setAuthToken(stored);
+        }
         const response = await client.get('/auth/me');
         setUser(response.data);
       } catch {
+        setAuthToken(null);
         setUser(null);
       } finally {
         setIsLoading(false);
@@ -21,14 +26,18 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     checkAuth();
   }, []);
 
-  const login = async () => {
-    // Token is stored in cookie by backend, but we might want to store it in memory or trigger a re-fetch
-    // Actually, if backend sets cookie, we just need to fetch /auth/me
+  const login = async (token?: string) => {
+    if (token) {
+      localStorage.setItem('charon_auth_token', token);
+      setAuthToken(token);
+    }
     try {
       const response = await client.get<User>('/auth/me');
       setUser(response.data);
     } catch (error) {
       setUser(null);
+      setAuthToken(null);
+      localStorage.removeItem('charon_auth_token');
       throw error;
     }
   };
@@ -39,6 +48,8 @@ export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
     } catch (error) {
       console.error("Logout failed", error);
     }
+    localStorage.removeItem('charon_auth_token');
+    setAuthToken(null);
     setUser(null);
   };
 

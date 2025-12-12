@@ -128,10 +128,12 @@ echo "Using forward host: $FORWARD_HOST:$FORWARD_PORT"
 
 # Adjust the Caddy/Caddy proxy test port for local runs to avoid conflicts with
 # host services on port 80.
-CADDY_PORT="80"
-if [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ]; then
-  # Use a non-privileged port locally when binding to host: 8082
-  CADDY_PORT="8082"
+if [ -z "$CADDY_PORT" ]; then
+  CADDY_PORT="80"
+  if [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ]; then
+    # Use a non-privileged port locally when binding to host: 8082
+    CADDY_PORT="8082"
+  fi
 fi
 echo "Using Caddy host port: $CADDY_PORT"
 # Retry creation up to 5 times if the apply config call fails due to Caddy reloads
@@ -184,14 +186,14 @@ echo "Testing Proxy..."
 # We hit localhost:80 (Caddy) which should route to whoami
 HTTP_CODE=0
 CONTENT=""
-# Retry probing Caddy for the new route for up to 10 seconds
-for i in $(seq 1 10); do
+# Retry probing Caddy for the new route for up to 30 seconds
+for i in $(seq 1 30); do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: test.localhost" http://localhost:${CADDY_PORT} || true)
   CONTENT=$(curl -s -H "Host: test.localhost" http://localhost:${CADDY_PORT} || true)
   if [ "$HTTP_CODE" = "200" ] && echo "$CONTENT" | grep -q "Hostname:"; then
     break
   fi
-  echo "Waiting for Caddy to pick up new route ($i/10)..."
+  echo "Waiting for Caddy to pick up new route ($i/30)..."
   sleep 1
 done
 

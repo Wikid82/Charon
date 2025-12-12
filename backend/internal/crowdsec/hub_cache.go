@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 var (
@@ -67,10 +68,10 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 		return CachedPreset{}, fmt.Errorf("invalid slug")
 	}
 	dir := filepath.Join(c.baseDir, cleanSlug)
-	logger.Log().WithField("slug", cleanSlug).WithField("cache_dir", dir).WithField("archive_size", len(archive)).Debug("storing preset in cache")
+	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("cache_dir", util.SanitizeForLog(dir)).WithField("archive_size", len(archive)).Debug("storing preset in cache")
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		logger.Log().WithError(err).WithField("dir", dir).Error("failed to create cache directory")
+		logger.Log().WithError(err).WithField("dir", util.SanitizeForLog(dir)).Error("failed to create cache directory")
 		return CachedPreset{}, fmt.Errorf("create slug dir: %w", err)
 	}
 
@@ -102,11 +103,11 @@ func (c *HubCache) Store(ctx context.Context, slug, etag, source, preview string
 		return CachedPreset{}, fmt.Errorf("marshal metadata: %w", err)
 	}
 	if err := os.WriteFile(metaPath, raw, 0o640); err != nil {
-		logger.Log().WithError(err).WithField("meta_path", metaPath).Error("failed to write metadata file")
+		logger.Log().WithError(err).WithField("meta_path", util.SanitizeForLog(metaPath)).Error("failed to write metadata file")
 		return CachedPreset{}, fmt.Errorf("write metadata: %w", err)
 	}
 
-	logger.Log().WithField("slug", cleanSlug).WithField("cache_key", cacheKey).WithField("archive_path", archivePath).WithField("preview_path", previewPath).WithField("meta_path", metaPath).Info("preset successfully stored in cache")
+	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("cache_key", cacheKey).WithField("archive_path", util.SanitizeForLog(archivePath)).WithField("preview_path", util.SanitizeForLog(previewPath)).WithField("meta_path", util.SanitizeForLog(metaPath)).Info("preset successfully stored in cache")
 
 	return meta, nil
 }
@@ -121,29 +122,29 @@ func (c *HubCache) Load(ctx context.Context, slug string) (CachedPreset, error) 
 		return CachedPreset{}, fmt.Errorf("invalid slug")
 	}
 	metaPath := filepath.Join(c.baseDir, cleanSlug, "metadata.json")
-	logger.Log().WithField("slug", cleanSlug).WithField("meta_path", metaPath).Debug("attempting to load cached preset")
+	logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("meta_path", util.SanitizeForLog(metaPath)).Debug("attempting to load cached preset")
 
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			logger.Log().WithField("slug", cleanSlug).WithField("meta_path", metaPath).Debug("preset not found in cache (cache miss)")
+			logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("meta_path", util.SanitizeForLog(metaPath)).Debug("preset not found in cache (cache miss)")
 			return CachedPreset{}, ErrCacheMiss
 		}
-		logger.Log().WithError(err).WithField("slug", cleanSlug).WithField("meta_path", metaPath).Error("failed to read cached preset metadata")
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("meta_path", util.SanitizeForLog(metaPath)).Error("failed to read cached preset metadata")
 		return CachedPreset{}, err
 	}
 	var meta CachedPreset
 	if err := json.Unmarshal(data, &meta); err != nil {
-		logger.Log().WithError(err).WithField("slug", cleanSlug).Error("failed to unmarshal cached preset metadata")
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(cleanSlug)).Error("failed to unmarshal cached preset metadata")
 		return CachedPreset{}, fmt.Errorf("unmarshal metadata: %w", err)
 	}
 
 	if c.ttl > 0 && c.nowFn().After(meta.RetrievedAt.Add(c.ttl)) {
-		logger.Log().WithField("slug", cleanSlug).WithField("retrieved_at", meta.RetrievedAt).WithField("ttl", c.ttl).Debug("cached preset expired")
+		logger.Log().WithField("slug", util.SanitizeForLog(cleanSlug)).WithField("retrieved_at", meta.RetrievedAt).WithField("ttl", c.ttl).Debug("cached preset expired")
 		return CachedPreset{}, ErrCacheExpired
 	}
 
-	logger.Log().WithField("slug", meta.Slug).WithField("cache_key", meta.CacheKey).WithField("archive_path", meta.ArchivePath).Debug("successfully loaded cached preset")
+	logger.Log().WithField("slug", util.SanitizeForLog(meta.Slug)).WithField("cache_key", meta.CacheKey).WithField("archive_path", util.SanitizeForLog(meta.ArchivePath)).Debug("successfully loaded cached preset")
 	return meta, nil
 }
 

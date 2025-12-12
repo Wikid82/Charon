@@ -1,13 +1,13 @@
 services:
   charon:
     image: charon:local
-    container_name: charon-debug
+    container_name: charon
     restart: unless-stopped
     ports:
       - "80:80"        # HTTP (Caddy proxy)
       - "443:443"      # HTTPS (Caddy proxy)
       - "443:443/udp"  # HTTP/3 (Caddy proxy)
-      - "8080:8080"    # Management UI (CPM+)
+      - "8080:8080"    # Management UI (Charon)
       - "2345:2345"    # Delve Debugger
     environment:
       - CHARON_ENV=development
@@ -55,8 +55,3 @@ volumes:
     driver: local
   crowdsec_data:
     driver: local
-
-networks:
-  default:
-    name: containers_default
-    external: true
