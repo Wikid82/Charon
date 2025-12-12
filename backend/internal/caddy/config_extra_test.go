@@ -3,6 +3,7 @@ package caddy
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -270,4 +271,72 @@ func TestGenerateConfig_SecurityPipeline_OmitWhenDisabled(t *testing.T) {
 		require.NotEqual(t, "rate_limit", n)
 		require.NotEqual(t, "subroute", n)
 	}
+}
+
+// TestGetAccessLogPath tests the log path selection logic
+func TestGetAccessLogPath(t *testing.T) {
+	// Save and restore env vars
+	origEnv := os.Getenv("CHARON_ENV")
+	defer os.Setenv("CHARON_ENV", origEnv)
+
+	t.Run("CrowdSecEnabled_UsesStandardPath", func(t *testing.T) {
+		os.Setenv("CHARON_ENV", "development")
+		path := getAccessLogPath("/data/caddy/data", true)
+		require.Equal(t, "/var/log/caddy/access.log", path)
+	})
+
+	t.Run("Production_UsesStandardPath", func(t *testing.T) {
+		os.Setenv("CHARON_ENV", "production")
+		path := getAccessLogPath("/data/caddy/data", false)
+		require.Equal(t, "/var/log/caddy/access.log", path)
+	})
+
+	t.Run("Development_UsesRelativePath", func(t *testing.T) {
+		os.Setenv("CHARON_ENV", "development")
+		path := getAccessLogPath("/data/caddy/data", false)
+		// Only in development without CrowdSec should it use relative path
+		// Note: This test may fail if /.dockerenv exists (e.g., running in CI container)
+		if _, err := os.Stat("/.dockerenv"); err != nil {
+			// Not in Docker, should use relative path
+			expected := "/data/logs/access.log"
+			require.Equal(t, expected, path)
+		} else {
+			// In Docker, always uses standard path
+			require.Equal(t, "/var/log/caddy/access.log", path)
+		}
+	})
+
+	t.Run("NoEnv_CrowdSecEnabled_UsesStandardPath", func(t *testing.T) {
+		os.Unsetenv("CHARON_ENV")
+		path := getAccessLogPath("/tmp/caddy-data", true)
+		require.Equal(t, "/var/log/caddy/access.log", path)
+	})
+}
+
+// TestGenerateConfig_LoggingConfigured verifies logging is configured in GenerateConfig output
+func TestGenerateConfig_LoggingConfigured(t *testing.T) {
+	cfg, err := GenerateConfig([]models.ProxyHost{}, "/data/caddy/data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Logging should be configured
+	require.NotNil(t, cfg.Logging)
+	require.NotNil(t, cfg.Logging.Logs)
+	require.Contains(t, cfg.Logging.Logs, "access")
+
+	accessLog := cfg.Logging.Logs["access"]
+	require.NotNil(t, accessLog)
+	require.Equal(t, "INFO", accessLog.Level)
+
+	// Writer should be configured for file output
+	require.NotNil(t, accessLog.Writer)
+	require.Equal(t, "file", accessLog.Writer.Output)
+	// When CrowdSec is enabled, the path should be /var/log/caddy/access.log
+	require.Equal(t, "/var/log/caddy/access.log", accessLog.Writer.Filename)
+
+	// Encoder should be JSON
+	require.NotNil(t, accessLog.Encoder)
+	require.Equal(t, "json", accessLog.Encoder.Format)
+
+	// Should include access log directive
+	require.Contains(t, accessLog.Include, "http.log.access.access_log")
 }

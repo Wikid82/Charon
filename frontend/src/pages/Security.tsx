@@ -397,7 +397,7 @@ export default function Security() {
       {/* Live Activity Section */}
       {status.cerberus?.enabled && (
         <div className="mt-6">
-          <LiveLogViewer filters={{ source: 'cerberus' }} className="w-full" />
+          <LiveLogViewer mode="security" securityFilters={{}} className="w-full" />
         </div>
       )}
 

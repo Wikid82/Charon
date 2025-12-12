@@ -281,11 +281,11 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // All 4 cards should be present
-      expect(screen.getByText('CrowdSec')).toBeInTheDocument()
-      expect(screen.getByText('Access Control')).toBeInTheDocument()
-      expect(screen.getByText('Coraza')).toBeInTheDocument()
-      expect(screen.getByText('Rate Limiting')).toBeInTheDocument()
+      // All 4 cards should be present (use getAllByText since text may appear in multiple places like filter dropdowns)
+      expect(screen.getAllByText('CrowdSec').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Access Control').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Coraza').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Rate Limiting').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -329,8 +329,8 @@ describe('Security Page - QA Security Audit', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Spec requirement from current_spec.md plus Live Security Logs feature
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Live Security Logs'])
+      // Spec requirement from current_spec.md plus Security Access Logs feature
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('layer indicators match spec descriptions', async () => {

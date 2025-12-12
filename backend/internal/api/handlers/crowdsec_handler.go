@@ -1215,6 +1215,123 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
 }
 
+// RegisterBouncer registers a new bouncer or returns existing bouncer status.
+// POST /api/v1/admin/crowdsec/bouncer/register
+func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Check if register_bouncer.sh script exists
+	scriptPath := "/usr/local/bin/register_bouncer.sh"
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
+		return
+	}
+
+	// Run the registration script
+	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
+	if err != nil {
+		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to register bouncer")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": string(output)})
+		return
+	}
+
+	// Parse output for API key (last line typically contains the key)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var apiKeyPreview string
+	for _, line := range lines {
+		// Look for lines that appear to be an API key (long alphanumeric string)
+		line = strings.TrimSpace(line)
+		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
+			// Found what looks like an API key, show preview
+			if len(line) > 8 {
+				apiKeyPreview = line[:8] + "..."
+			} else {
+				apiKeyPreview = line + "..."
+			}
+			break
+		}
+	}
+
+	// Check if bouncer is actually registered by querying cscli
+	checkOutput, checkErr := h.CmdExec.Execute(ctx, "cscli", "bouncers", "list", "-o", "json")
+	registered := false
+	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
+		if strings.Contains(string(checkOutput), "caddy-bouncer") {
+			registered = true
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":          "registered",
+		"bouncer_name":    "caddy-bouncer",
+		"api_key_preview": apiKeyPreview,
+		"registered":      registered,
+	})
+}
+
+// GetAcquisitionConfig returns the current CrowdSec acquisition configuration.
+// GET /api/v1/admin/crowdsec/acquisition
+func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
+	acquisPath := "/etc/crowdsec/acquis.yaml"
+
+	content, err := os.ReadFile(acquisPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found", "path": acquisPath})
+			return
+		}
+		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read acquisition config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"content": string(content),
+		"path":    acquisPath,
+	})
+}
+
+// UpdateAcquisitionConfig updates the CrowdSec acquisition configuration.
+// PUT /api/v1/admin/crowdsec/acquisition
+func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
+	var payload struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+		return
+	}
+
+	acquisPath := "/etc/crowdsec/acquis.yaml"
+
+	// Create backup of existing config if it exists
+	var backupPath string
+	if _, err := os.Stat(acquisPath); err == nil {
+		backupPath = fmt.Sprintf("%s.backup.%s", acquisPath, time.Now().Format("20060102-150405"))
+		if err := os.Rename(acquisPath, backupPath); err != nil {
+			logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to backup acquisition config")
+			// Continue anyway - we'll try to write the new config
+		}
+	}
+
+	// Write new config
+	if err := os.WriteFile(acquisPath, []byte(payload.Content), 0o644); err != nil {
+		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
+		// Try to restore backup if it exists
+		if backupPath != "" {
+			_ = os.Rename(backupPath, acquisPath)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "updated",
+		"backup":      backupPath,
+		"reload_hint": true,
+	})
+}
+
 // RegisterRoutes registers crowdsec admin routes under protected group
 func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/start", h.Start)
@@ -1237,4 +1354,9 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
 	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
+	// Bouncer registration endpoint
+	rg.POST("/admin/crowdsec/bouncer/register", h.RegisterBouncer)
+	// Acquisition configuration endpoints
+	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
+	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)
 }

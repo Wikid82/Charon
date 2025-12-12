@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import client from './client'
-import { getLogs, getLogContent, downloadLog, connectLiveLogs } from './logs'
-import type { LiveLogEntry } from './logs'
+import { getLogs, getLogContent, downloadLog, connectLiveLogs, connectSecurityLogs } from './logs'
+import type { LiveLogEntry, SecurityLogEntry } from './logs'
 
 vi.mock('./client', () => ({
   default: {
@@ -132,5 +132,208 @@ describe('logs api', () => {
     expect(onClose).toHaveBeenCalled()
 
     disconnect()
+  })
+})
+
+describe('connectSecurityLogs', () => {
+  it('connects to cerberus logs websocket endpoint', () => {
+    const received: SecurityLogEntry[] = []
+    const onOpen = vi.fn()
+
+    connectSecurityLogs({}, (log) => received.push(log), onOpen)
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('/api/v1/cerberus/logs/ws')
+  })
+
+  it('passes source filter to websocket url', () => {
+    connectSecurityLogs({ source: 'waf' }, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('source=waf')
+  })
+
+  it('passes level filter to websocket url', () => {
+    connectSecurityLogs({ level: 'error' }, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('level=error')
+  })
+
+  it('passes ip filter to websocket url', () => {
+    connectSecurityLogs({ ip: '192.168' }, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('ip=192.168')
+  })
+
+  it('passes host filter to websocket url', () => {
+    connectSecurityLogs({ host: 'example.com' }, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('host=example.com')
+  })
+
+  it('passes blocked_only filter to websocket url', () => {
+    connectSecurityLogs({ blocked_only: true }, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('blocked_only=true')
+  })
+
+  it('receives and parses security log entries', () => {
+    const received: SecurityLogEntry[] = []
+    connectSecurityLogs({}, (log) => received.push(log))
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.open()
+
+    const securityLogEntry: SecurityLogEntry = {
+      timestamp: '2025-12-12T10:30:00Z',
+      level: 'info',
+      logger: 'http.log.access',
+      client_ip: '192.168.1.100',
+      method: 'GET',
+      uri: '/api/test',
+      status: 200,
+      duration: 0.05,
+      size: 1024,
+      user_agent: 'TestAgent/1.0',
+      host: 'example.com',
+      source: 'normal',
+      blocked: false,
+    }
+
+    socket.sendMessage(JSON.stringify(securityLogEntry))
+
+    expect(received).toHaveLength(1)
+    expect(received[0].client_ip).toBe('192.168.1.100')
+    expect(received[0].source).toBe('normal')
+    expect(received[0].blocked).toBe(false)
+  })
+
+  it('receives blocked security log entries', () => {
+    const received: SecurityLogEntry[] = []
+    connectSecurityLogs({}, (log) => received.push(log))
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.open()
+
+    const blockedEntry: SecurityLogEntry = {
+      timestamp: '2025-12-12T10:30:00Z',
+      level: 'warn',
+      logger: 'http.handlers.waf',
+      client_ip: '10.0.0.1',
+      method: 'POST',
+      uri: '/admin',
+      status: 403,
+      duration: 0.001,
+      size: 0,
+      user_agent: 'Attack/1.0',
+      host: 'example.com',
+      source: 'waf',
+      blocked: true,
+      block_reason: 'SQL injection detected',
+    }
+
+    socket.sendMessage(JSON.stringify(blockedEntry))
+
+    expect(received).toHaveLength(1)
+    expect(received[0].blocked).toBe(true)
+    expect(received[0].block_reason).toBe('SQL injection detected')
+    expect(received[0].source).toBe('waf')
+  })
+
+  it('handles onOpen callback', () => {
+    const onOpen = vi.fn()
+    connectSecurityLogs({}, () => {}, onOpen)
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.open()
+
+    expect(onOpen).toHaveBeenCalled()
+  })
+
+  it('handles onError callback', () => {
+    const onError = vi.fn()
+    connectSecurityLogs({}, () => {}, undefined, onError)
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    const errorEvent = new Event('error')
+    socket.triggerError(errorEvent)
+
+    expect(onError).toHaveBeenCalledWith(errorEvent)
+  })
+
+  it('handles onClose callback', () => {
+    const onClose = vi.fn()
+    connectSecurityLogs({}, () => {}, undefined, undefined, onClose)
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.close()
+
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('returns disconnect function that closes websocket', () => {
+    const disconnect = connectSecurityLogs({}, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.open()
+
+    expect(socket.readyState).toBe(MockWebSocket.OPEN)
+
+    disconnect()
+
+    expect(socket.readyState).toBe(MockWebSocket.CLOSED)
+  })
+
+  it('handles JSON parse errors gracefully', () => {
+    const received: SecurityLogEntry[] = []
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    connectSecurityLogs({}, (log) => received.push(log))
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    socket.open()
+    socket.sendMessage('invalid-json')
+
+    expect(received).toHaveLength(0)
+    expect(consoleError).toHaveBeenCalled()
+
+    consoleError.mockRestore()
+  })
+
+  it('uses wss protocol when on https', () => {
+    Object.defineProperty(window, 'location', {
+      value: { protocol: 'https:', host: 'secure.example.com', href: '' },
+      writable: true,
+    })
+
+    connectSecurityLogs({}, () => {})
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('wss://')
+    expect(socket.url).toContain('secure.example.com')
+  })
+
+  it('combines multiple filters in websocket url', () => {
+    connectSecurityLogs(
+      {
+        source: 'waf',
+        level: 'warn',
+        ip: '10.0.0',
+        host: 'example.com',
+        blocked_only: true,
+      },
+      () => {}
+    )
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    expect(socket.url).toContain('source=waf')
+    expect(socket.url).toContain('level=warn')
+    expect(socket.url).toContain('ip=10.0.0')
+    expect(socket.url).toContain('host=example.com')
+    expect(socket.url).toContain('blocked_only=true')
   })
 })

@@ -88,3 +88,6 @@ ignore:
   - "import/**"
   - "data/**"
   - ".cache/**"
+
+  # CrowdSec config files (no logic to test)
+  - "configs/crowdsec/**"

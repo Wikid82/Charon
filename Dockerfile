@@ -234,6 +234,19 @@ RUN rm -f /usr/local/bin/.placeholder /etc/crowdsec.dist/.placeholder 2>/dev/nul
         echo "CrowdSec not available for this architecture - skipping verification"; \
     fi
 
+# Create required CrowdSec directories in runtime image
+RUN mkdir -p /etc/crowdsec /etc/crowdsec/acquis.d /etc/crowdsec/bouncers \
+             /etc/crowdsec/hub /etc/crowdsec/notifications \
+             /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy
+
+# Copy CrowdSec configuration templates from source
+COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
+COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
+COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
+
+# Make CrowdSec scripts executable
+RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
+
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
 RUN ln -s /app/charon /app/cpmp || true
