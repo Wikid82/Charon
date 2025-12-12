@@ -421,8 +421,10 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled, aclEn
 
 	if m.db != nil {
 		var s models.Setting
-		// runtime override for cerberus enabled
-		if err := m.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
+		// runtime override for cerberus enabled (check feature flag first, fallback to legacy key)
+		if err := m.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
+			cerbEnabled = strings.EqualFold(s.Value, "true")
+		} else if err := m.db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
 			cerbEnabled = strings.EqualFold(s.Value, "true")
 		}
 

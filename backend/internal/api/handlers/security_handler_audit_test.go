@@ -225,7 +225,7 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 
 	// Seed settings that should override config defaults
 	settings := []models.Setting{
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security"},
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "true", Category: "security"},
 		{Key: "security.rate_limit.enabled", Value: "true", Category: "security"},
 		{Key: "security.crowdsec.enabled", Value: "true", Category: "security"},
@@ -272,7 +272,7 @@ func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
 
 	// Seed settings that disable everything
 	settings := []models.Setting{
-		{Key: "security.cerberus.enabled", Value: "false", Category: "security"},
+		{Key: "feature.cerberus.enabled", Value: "false", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "false", Category: "security"},
 		{Key: "security.rate_limit.enabled", Value: "false", Category: "security"},
 		{Key: "security.crowdsec.enabled", Value: "false", Category: "security"},
