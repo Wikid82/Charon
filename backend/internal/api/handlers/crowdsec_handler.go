@@ -899,7 +899,8 @@ type lapiDecision struct {
 //   - type: filter by decision type (e.g., "ban", "captcha")
 func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	// Get LAPI URL from security config or use default
-	lapiURL := "http://localhost:8080"
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	lapiURL := "http://127.0.0.1:8085"
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
@@ -1042,7 +1043,8 @@ func getLAPIKey() string {
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	// Get LAPI URL from security config or use default
-	lapiURL := "http://localhost:8080"
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	lapiURL := "http://127.0.0.1:8085"
 	if h.Security != nil {
 		cfg, err := h.Security.Get()
 		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
