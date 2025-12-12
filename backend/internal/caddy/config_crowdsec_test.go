@@ -18,16 +18,18 @@ func TestBuildCrowdSecHandler_Disabled(t *testing.T) {
 
 func TestBuildCrowdSecHandler_EnabledWithoutConfig(t *testing.T) {
 	// When crowdsecEnabled is true but no secCfg, should use default localhost URL
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
 	h, err := buildCrowdSecHandler(nil, nil, true)
 	require.NoError(t, err)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://localhost:8080", h["api_url"])
+	assert.Equal(t, "http://127.0.0.1:8085", h["api_url"])
 }
 
 func TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL(t *testing.T) {
 	// When crowdsecEnabled is true but CrowdSecAPIURL is empty, should use default
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "",
 	}
@@ -36,7 +38,7 @@ func TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL(t *testing.T) {
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://localhost:8080", h["api_url"])
+	assert.Equal(t, "http://127.0.0.1:8085", h["api_url"])
 }
 
 func TestBuildCrowdSecHandler_EnabledWithCustomAPIURL(t *testing.T) {

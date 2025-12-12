@@ -301,3 +301,106 @@ The WAF to Coraza rename has been successfully implemented:
 The rate limiter test infrastructure has been verified and is **ready for use**. All three files pass syntax validation, compile/parse correctly, and follow security best practices.
 
 **Overall Status**: ✅ **APPROVED**
+
+---
+
+## CrowdSec Decision Test Infrastructure QA
+
+**Date**: December 12, 2025
+**Scope**: CrowdSec decision management integration test infrastructure verification
+
+### Files Verified
+
+| File | Status |
+|------|--------|
+| `scripts/crowdsec_decision_integration.sh` | ✅ PASS |
+| `backend/integration/crowdsec_decisions_integration_test.go` | ✅ PASS |
+| `.vscode/tasks.json` | ✅ PASS |
+
+### Validation Results
+
+#### 1. Shell Script: `crowdsec_decision_integration.sh`
+
+**Syntax Check**: `bash -n scripts/crowdsec_decision_integration.sh`
+
+- **Result**: ✅ No syntax errors detected
+
+**File Permissions**:
+
+- **Result**: ✅ Executable (`-rwxr-xr-x`)
+- **Size**: 17,902 bytes (comprehensive test suite)
+
+**Security Review**:
+
+- ✅ Uses `set -euo pipefail` for strict error handling
+- ✅ Uses `$(...)` for command substitution (not backticks)
+- ✅ Proper quoting around variables (`"${TMP_COOKIE}"`, `"${TEST_IP}"`)
+- ✅ Cleanup trap function properly defined
+- ✅ Error handler (`on_failure`) captures container logs on failure
+- ✅ Temporary files cleaned up (`rm -f "${TMP_COOKIE}"`, export file)
+- ✅ No hardcoded secrets or credentials
+- ✅ Uses `mktemp` for temporary cookie and export files
+- ✅ Uses non-conflicting ports (8280, 8180, 8143, 2119)
+- ✅ Gracefully handles missing CrowdSec binary with skip logic
+- ✅ Checks for required dependencies (docker, curl, jq)
+
+**Test Coverage**:
+
+| Test Case | Description |
+|-----------|-------------|
+| TC-1 | Start CrowdSec process |
+| TC-2 | Get CrowdSec status |
+| TC-3 | List decisions (empty initially) |
+| TC-4 | Ban test IP |
+| TC-5 | Verify ban in decisions list |
+| TC-6 | Unban test IP |
+| TC-7 | Verify IP removed from decisions |
+| TC-8 | Test export endpoint |
+| TC-10 | Test LAPI health endpoint |
+
+#### 2. Go Integration Test: `crowdsec_decisions_integration_test.go`
+
+**Build Verification**: `go build -tags=integration ./integration/...`
+
+- **Result**: ✅ Compiles successfully
+
+**Code Review**:
+
+- ✅ Proper build tag: `//go:build integration`
+- ✅ Backward-compatible build tag: `// +build integration`
+- ✅ Uses `t.Parallel()` for concurrent test execution
+- ✅ Context timeout of 10 minutes (appropriate for container startup + tests)
+- ✅ Captures combined output for debugging (`cmd.CombinedOutput()`)
+- ✅ Validates key assertions: "Passed:" and "ALL CROWDSEC DECISION TESTS PASSED"
+- ✅ Comprehensive docstring explaining test coverage
+- ✅ Notes handling of missing CrowdSec binary scenario
+
+#### 3. VS Code Tasks: `tasks.json`
+
+**JSON Structure**: Valid JSONC with comments
+
+**New Tasks Verified**:
+
+| Task Label | Command | Status |
+|------------|---------|--------|
+| `CrowdSec: Run Decision Integration Script` | `bash ./scripts/crowdsec_decision_integration.sh` | ✅ Valid |
+| `CrowdSec: Run Decision Integration Go Test` | `go test -tags=integration ./integration -run TestCrowdsecDecisionsIntegration -v` | ✅ Valid |
+
+### Issues Found
+
+**None** - All files pass syntax validation and security review.
+
+### Script Features Verified
+
+1. **Graceful Degradation**: Tests handle missing `cscli` binary by skipping affected operations
+2. **Debug Output**: Comprehensive failure debug info (container logs, CrowdSec status)
+3. **Clean Test Environment**: Uses unique container name and volumes
+4. **Port Isolation**: Uses ports 8x80/8x43 series to avoid conflicts
+5. **Authentication**: Properly registers/authenticates test user
+6. **Test Counters**: Tracks PASSED, FAILED, SKIPPED counts
+
+### CrowdSec Decision Infrastructure Summary
+
+The CrowdSec decision test infrastructure has been verified and is **ready for use**. All three files pass syntax validation, compile/parse correctly, and follow security best practices.
+
+**Overall Status**: ✅ **APPROVED**

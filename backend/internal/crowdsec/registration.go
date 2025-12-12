@@ -14,7 +14,9 @@ import (
 )
 
 const (
-	defaultLAPIURL          = "http://localhost:8080"
+	// defaultLAPIURL is the default CrowdSec LAPI URL.
+	// Port 8085 is used to avoid conflict with Charon management API on port 8080.
+	defaultLAPIURL          = "http://127.0.0.1:8085"
 	defaultHealthTimeout    = 5 * time.Second
 	defaultRegistrationName = "caddy-bouncer"
 )

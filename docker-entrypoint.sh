@@ -38,6 +38,16 @@ if command -v cscli >/dev/null && [ ! -f "/etc/crowdsec/config.yaml" ]; then
         fi
     done
 
+    # Configure CrowdSec LAPI to use port 8085 to avoid conflict with Charon (port 8080)
+    if [ -f "/etc/crowdsec/config.yaml" ]; then
+        sed -i 's|listen_uri: 127.0.0.1:8080|listen_uri: 127.0.0.1:8085|g' /etc/crowdsec/config.yaml
+        sed -i 's|listen_uri: 0.0.0.0:8080|listen_uri: 127.0.0.1:8085|g' /etc/crowdsec/config.yaml
+    fi
+    if [ -f "/etc/crowdsec/local_api_credentials.yaml" ]; then
+        sed -i 's|url: http://127.0.0.1:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
+        sed -i 's|url: http://localhost:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
+    fi
+
     # Update hub index to ensure CrowdSec can start
     if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
         echo "Updating CrowdSec hub index..."

@@ -741,10 +741,11 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 
 // buildCrowdSecHandler returns a CrowdSec handler for the caddy-crowdsec-bouncer plugin.
 // The plugin expects api_url and optionally api_key fields.
-// For local mode, we use the local LAPI address at http://localhost:8080.
+// For local mode, we use the local LAPI address at http://127.0.0.1:8085.
+// NOTE: Port 8085 is used to avoid conflict with Charon management API on port 8080.
 //
 // Configuration options:
-//   - api_url: CrowdSec LAPI URL (default: http://localhost:8080)
+//   - api_url: CrowdSec LAPI URL (default: http://127.0.0.1:8085)
 //   - api_key: Bouncer API key for authentication (from CROWDSEC_API_KEY env var)
 //   - streaming: Enable streaming mode for real-time decision updates
 //   - ticker_interval: How often to poll for decisions when not streaming (default: 60s)
@@ -757,11 +758,11 @@ func buildCrowdSecHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig, cr
 	h := Handler{"handler": "crowdsec"}
 
 	// caddy-crowdsec-bouncer expects api_url and api_key
-	// For local mode, use the local LAPI address
+	// For local mode, use the local LAPI address (port 8085 to avoid conflict with Charon on 8080)
 	if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
 		h["api_url"] = secCfg.CrowdSecAPIURL
 	} else {
-		h["api_url"] = "http://localhost:8080"
+		h["api_url"] = "http://127.0.0.1:8085"
 	}
 
 	// Add API key if available from environment
