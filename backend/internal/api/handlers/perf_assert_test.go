@@ -84,7 +84,7 @@ func TestPerf_GetStatus_AssertThreshold(t *testing.T) {
 	db := setupPerfDB(t)
 
 	// seed settings to emulate production path
-	_ = db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "true", Category: "security"})
+	_ = db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"})
 	_ = db.Create(&models.Setting{Key: "security.waf.enabled", Value: "true", Category: "security"})
 	cfg := config.SecurityConfig{CerberusEnabled: true}
 	h := NewSecurityHandler(cfg, db, nil)

@@ -62,7 +62,7 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 
 	db := setupTestDB(t)
 	// set DB to enable cerberus
-	if err := db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "true"}).Error; err != nil {
+	if err := db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "true"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	if err := db.Create(&models.Setting{Key: "security.acl.enabled", Value: "true"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
-	if err := db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "false"}).Error; err != nil {
+	if err := db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "false"}).Error; err != nil {
 		t.Fatalf("failed to insert setting: %v", err)
 	}
 

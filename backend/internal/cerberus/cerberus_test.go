@@ -33,8 +33,8 @@ func TestCerberus_IsEnabled_ConfigTrue(t *testing.T) {
 
 func TestCerberus_IsEnabled_DBSetting(t *testing.T) {
 	db := setupTestDB(t)
-	// We're storing 'security.cerberus.enabled' key
-	db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "true"})
+	// We're storing 'feature.cerberus.enabled' key
+	db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "true"})
 	cfg := config.SecurityConfig{CerberusEnabled: false}
 	cerb := cerberus.New(cfg, db)
 	require.True(t, cerb.IsEnabled())

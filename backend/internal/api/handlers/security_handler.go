@@ -35,7 +35,7 @@ func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *ca
 func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	enabled := h.cfg.CerberusEnabled
 	// Check runtime setting override
-	var settingKey = "security.cerberus.enabled"
+	var settingKey = "feature.cerberus.enabled"
 	if h.db != nil {
 		var setting struct{ Value string }
 		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", settingKey).Scan(&setting).Error; err == nil && setting.Value != "" {

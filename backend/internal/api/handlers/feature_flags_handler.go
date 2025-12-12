@@ -29,6 +29,7 @@ var defaultFlags = []string{
 }
 
 var defaultFlagValues = map[string]bool{
+	"feature.cerberus.enabled":            false, // Cerberus OFF by default
 	"feature.crowdsec.console_enrollment": false,
 }
 
