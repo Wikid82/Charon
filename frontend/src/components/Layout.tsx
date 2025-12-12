@@ -67,7 +67,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: 'CrowdSec', path: '/security/crowdsec', icon: '🛡️' },
       { name: 'Access Lists', path: '/security/access-lists', icon: '🔒' },
       { name: 'Rate Limiting', path: '/security/rate-limiting', icon: '⚡' },
-      { name: 'WAF (Coraza)', path: '/security/waf', icon: '🛡️' },
+      { name: 'Coraza', path: '/security/waf', icon: '🛡️' },
     ]},
     { name: 'Notifications', path: '/notifications', icon: '🔔' },
     // Import group moved under Tasks

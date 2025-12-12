@@ -1,335 +1,135 @@
-# QA Security Audit Report
-
----
-
-## Cerberus Fixes Verification
+# QA Security Report: WAF to Coraza Rename
 
 **Date:** December 12, 2025
-**QA Agent:** QA_Security
-**Status:** ✅ **PASS**
+**Agent:** QA_Security
+**Scope:** Frontend UI changes renaming "WAF (Coraza)" to "Coraza"
 
-### Test Summary
+---
 
-| Check | Result | Details |
+## Executive Summary
+
+**Overall Status: ✅ PASS**
+
+All tests pass after fixing test assertions to match the new UI. The rename from "WAF (Coraza)" to "Coraza" has been successfully implemented and verified.
+
+---
+
+## Test Results
+
+### TypeScript Compilation
+
+| Check | Status |
+|-------|--------|
+| `npm run type-check` | ✅ PASS |
+
+**Output:** Clean compilation with no errors.
+
+### Frontend Unit Tests
+
+| Metric | Count |
+|--------|-------|
+| Test Files | 84 |
+| Tests Passed | 728 |
+| Tests Skipped | 2 |
+| Tests Failed | 0 |
+| Duration | ~61s |
+
+**Initial Run:** 4 failures related to outdated test assertions
+**After Fix:** All 728 tests passing
+
+#### Issues Found and Fixed
+
+1. **Security.test.tsx - Line 281**
+   - **Issue:** Test expected card title `'WAF (Coraza)'` but UI shows `'Coraza'`
+   - **Severity:** Low (test sync issue)
+   - **Fix:** Updated assertion to expect `'Coraza'`
+
+2. **Security.test.tsx - Lines 252-267 (WAF Controls describe block)**
+   - **Issue:** Tests for `waf-mode-select` and `waf-ruleset-select` dropdowns that were removed from the Security page
+   - **Severity:** Low (removed UI elements)
+   - **Fix:** Removed the `WAF Controls` test suite as dropdowns are now on dedicated `/security/waf` page
+
+### Lint Results
+
+| Tool | Errors | Warnings |
+|------|--------|----------|
+| ESLint | 0 | 5 |
+
+**Warnings (pre-existing, not related to this change):**
+
+- `CrowdSecConfig.tsx:212` - React Hook useEffect missing dependencies
+- `CrowdSecConfig.tsx:715` - Unexpected any type
+- `CrowdSecConfig.spec.tsx:258,284,317` - Unexpected any types in tests
+
+### Pre-commit Hooks
+
+| Hook | Status |
+|------|--------|
+| Go Test Coverage (85.1%) | ✅ PASS |
+| Go Vet | ✅ PASS |
+| Check .version matches Git tag | ✅ PASS |
+| Prevent large files not tracked by LFS | ✅ PASS |
+| Prevent committing CodeQL DB artifacts | ✅ PASS |
+| Prevent committing data/backups files | ✅ PASS |
+| Frontend TypeScript Check | ✅ PASS |
+| Frontend Lint (Fix) | ✅ PASS |
+
+---
+
+## File Verification
+
+### Security.tsx (`frontend/src/pages/Security.tsx`)
+
+| Check | Status | Details |
 |-------|--------|---------|
-| Backend Tests | ✅ PASS | All packages pass, 85.1% coverage (≥85% required) |
-| Frontend Tests | ⚠️ PASS* | 83/84 test files pass, 727/730 tests pass |
-| Frontend Build | ✅ PASS | Production build successful |
-| Pre-commit | ✅ PASS | All hooks pass |
+| Card title shows "Coraza" | ✅ Verified | Line 320: `<h3>Coraza</h3>` |
+| No "WAF (Coraza)" text in card title | ✅ Verified | Confirmed via grep search |
+| Dropdowns removed from Security page | ✅ Verified | Controls moved to `/security/waf` config page |
+| Internal API field names unchanged | ✅ Verified | `status.waf.enabled`, `toggle-waf` testid preserved for API compatibility |
 
-*Note: 1 flaky test in `LiveLogViewer.test.tsx` (WebSocket timing issue, not related to Cerberus)
+### Layout.tsx (`frontend/src/components/Layout.tsx`)
 
-### Issue Fix Verification
-
-#### Issue 1: Cerberus Default State in Feature Flags
-**File:** [feature_flags_handler.go](../../backend/internal/api/handlers/feature_flags_handler.go#L32)
-
-✅ **VERIFIED** - Line 32:
-```go
-"feature.cerberus.enabled": false, // Cerberus OFF by default
-```
-
-#### Issue 2: Security Handler Reads Correct Setting Key
-**File:** [security_handler.go](../../backend/internal/api/handlers/security_handler.go#L38)
-
-✅ **VERIFIED** - Line 38:
-```go
-var settingKey = "feature.cerberus.enabled"
-```
-
-The handler correctly reads from `feature.cerberus.enabled` (not an incorrect key).
-
-#### Issue 3: Docker Compose Files Have CrowdSec Disabled
-✅ **VERIFIED** - Found in:
-- `docker-compose.local.yml:25` - `CHARON_SECURITY_CROWDSEC_MODE=disabled`
-- `docker-compose.override.yml:25` - `CHARON_SECURITY_CROWDSEC_MODE=disabled`
-- `docker-compose.yml:25` - Commented template with `disabled` option
-- `docker-compose.dev.yml:25` - Commented template with `disabled` option
-
-### Cerberus Fixes Conclusion
-
-All three Cerberus-related fixes have been verified:
-
-1. ✅ Feature flags default `feature.cerberus.enabled` to `false`
-2. ✅ Security handler reads from correct setting key `feature.cerberus.enabled`
-3. ✅ Docker compose files set `CROWDSEC_MODE=disabled` in active configurations
-
-**Cerberus Verification: PASS**
+| Check | Status | Details |
+|-------|--------|---------|
+| Navigation shows "Coraza" | ✅ Verified | Line 70: `{ name: 'Coraza', path: '/security/waf', icon: '🛡️' }` |
 
 ---
 
-## Import Modal and Certificate Status Card Features
+## Changes Made During QA
 
-**Date:** December 11, 2025
-**Auditor:** QA_Security Agent
-**Overall Status:** ⚠️ **PARTIAL PASS**
+### Test File Update: Security.test.tsx
 
-### Executive Summary
+```diff
+- describe('WAF Controls', () => {
+-   it('should change WAF mode', async () => { ... })
+-   it('should change WAF ruleset', async () => { ... })
+- })
++ // Note: WAF Controls tests removed - dropdowns moved to dedicated WAF config page (/security/waf)
 
-The import modal (`ImportSuccessModal`) and certificate status card (`CertificateStatusCard`) features have been audited for code quality, type safety, accessibility, and proper testing. The core features are well-implemented with comprehensive test coverage, but there are **5 failing tests in CrowdSecConfig** (unrelated to the audited features) that need attention.
-
-### Test Results Summary
-
-### 1. TypeScript Type Check ✅ PASS
+- expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting', 'Live Security Logs'])
++ expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Live Security Logs'])
 ```
-npm run type-check - Passed
-No TypeScript errors detected
-```
-
-### 2. Frontend Tests with Coverage ⚠️ PARTIAL PASS
-```
-Test Files: 82 passed, 2 failed (84 total)
-Tests: 723 passed, 5 failed, 2 skipped (730 total)
-```
-
-**Failed Tests (in CrowdSecConfig - not related to audited features):**
-- `CrowdSecConfig.coverage.test.tsx`: 3 failures
-  - `auto-selects first preset and pulls preview` - Element not found `preset-select`
-  - `reads, edits, saves, and closes files` - Multiple textbox elements found
-  - `shows overlay messaging for preset pull, apply, import, write, and mode updates` - Multiple textbox elements found
-- `CrowdSecConfig.spec.tsx`: 2 failures
-  - `lists files, reads file content and can save edits` - Multiple textbox elements found
-  - `disables apply and offers cached preview when hub is unavailable` - Element not found `preset-select`
-
-**ImportSuccessModal Tests:** ✅ All passing (12 tests)
-**CertificateStatusCard Tests:** ✅ All passing (14 tests)
-
-### 3. ESLint ✅ PASS (with warnings)
-```
-5 warnings (0 errors)
-```
-Warnings are in unrelated files (CrowdSecConfig.tsx):
-- Missing dependencies in useEffect hook
-- Explicit `any` types in test files
-
-### 4. Backend Build ✅ PASS
-```
-go build ./... - Passed
-No compilation errors
-```
-
-### 5. Backend Tests ✅ PASS
-```
-All packages: PASS
-Coverage: 85.1% (minimum required 85%)
-```
-
-### 6. Pre-commit ✅ PASS
-```
-All hooks passed:
-- Go Vet: Passed
-- Frontend TypeScript Check: Passed
-- Frontend Lint (Fix): Passed
-- Large file checks: Passed
-- CodeQL DB artifact checks: Passed
-```
-
----
-
-## Code Review: ImportSuccessModal
-
-### File: `frontend/src/components/dialogs/ImportSuccessModal.tsx`
-
-#### ✅ Strengths
-
-1. **Type Safety**
-   - Well-defined `ImportSuccessModalProps` interface
-   - Explicit typing for all props including `results` structure
-   - Null safety with early return when `!visible || !results`
-
-2. **Error Handling**
-   - Dedicated error section with proper conditional rendering
-   - Scrollable error list with `max-h-24 overflow-y-auto`
-   - Clear error count display with proper pluralization
-
-3. **Accessibility**
-   - Backdrop click to close modal
-   - Clear visual hierarchy with icons (CheckCircle, AlertCircle, Info)
-   - Focus-visible button styles with `transition-colors`
-
-4. **Styling Consistency**
-   - Uses project's design tokens (`bg-dark-card`, `bg-blue-active`)
-   - Responsive layout with `flex-wrap` and `max-w-full mx-4`
-   - Consistent spacing and color scheme
-
-5. **Memory/Cleanup**
-   - No subscriptions or event listeners to clean up
-   - Pure functional component with no side effects
-
-#### ⚠️ Recommendations
-
-1. **Accessibility Enhancement**
-   - Add `role="dialog"` and `aria-modal="true"` to modal container
-   - Add `aria-labelledby` pointing to title element
-   - Consider focus trapping for keyboard navigation
-
-```tsx
-// Recommended enhancement:
-<div
-  className="relative bg-dark-card rounded-lg..."
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="import-modal-title"
->
-  <h2 id="import-modal-title" className="text-xl font-bold text-white">
-    Import Completed
-  </h2>
-```
-
-2. **Keyboard Support**
-   - Add `onKeyDown` handler for Escape key to close modal
-
----
-
-## Code Review: CertificateStatusCard
-
-### File: `frontend/src/components/CertificateStatusCard.tsx`
-
-#### ✅ Strengths
-
-1. **Type Safety**
-   - Uses imported `Certificate` and `ProxyHost` types
-   - Clean interface definition for props
-   - No `any` types used
-
-2. **Computed Values**
-   - Efficient calculation of certificate status counts
-   - Smart pending detection logic (SSL forced + enabled + no cert)
-   - Progress percentage with edge case handling (empty array = 100%)
-
-3. **Accessibility**
-   - Uses `Link` component for navigation (accessible by default)
-   - Visible focus states inherited from router Link
-
-4. **Styling Consistency**
-   - Follows card design pattern used elsewhere
-   - Responsive hover transitions
-   - Animated spinner for pending state (`animate-spin`)
-
-5. **Memory/Cleanup**
-   - Stateless functional component
-   - No subscriptions or event listeners
-
-#### ✅ No Issues Found
-
-The component is clean, well-typed, and follows best practices.
-
----
-
-## Code Review: useImport Hook
-
-### File: `frontend/src/hooks/useImport.ts`
-
-#### ✅ Strengths
-
-1. **State Management**
-   - Proper use of `useState` for local state (`commitSucceeded`, `commitResult`)
-   - Correct query invalidation patterns
-   - Smart polling logic with `refetchInterval`
-
-2. **Error Handling**
-   - Comprehensive error aggregation from multiple sources
-   - Guards against 404 errors after commit (expected behavior)
-   - Clear error message extraction
-
-3. **Memory/Cleanup**
-   - React Query handles cleanup automatically
-   - Proper cache removal with `removeQueries` on success/cancel
-   - `clearCommitResult` function for state reset
-
-4. **Type Safety**
-   - Explicit type imports
-   - Type re-exports for consumers
-
----
-
-## Test Coverage Analysis
-
-### ImportSuccessModal.test.tsx ✅
-- **12 tests** covering all major functionality
-- Tests for rendering, user interactions, and edge cases
-- Proper mock setup with `vi.fn()`
-- Grammar tests (singular/plural)
-- Visibility/null result tests
-
-### CertificateStatusCard.test.tsx ✅
-- **14 tests** covering all states
-- Router wrapper setup correct
-- Progress calculation tests
-- Edge cases (empty arrays, disabled hosts, no SSL)
-- Link destination verification
-
----
-
-## Issues Found (Unrelated to Audited Features)
-
-### CrowdSecConfig Test Failures
-The failing tests are in `CrowdSecConfig.spec.tsx` and `CrowdSecConfig.coverage.test.tsx`. The issues are:
-
-1. **Element selection conflict**: Tests use `screen.getByRole('textbox')` but the component now has multiple textbox elements (search input + textarea)
-2. **Missing `preset-select` testid**: Some tests expect a `data-testid="preset-select"` element that may have been refactored
-
-**Recommendation**: Update CrowdSecConfig tests to use more specific selectors:
-```tsx
-// Instead of:
-const textarea = screen.getByRole('textbox')
-// Use:
-const textarea = screen.getByTestId('crowdsec-file-textarea')
-// Or:
-const textarea = screen.getAllByRole('textbox')[1] // if order is consistent
-```
-
----
-
-## Security Checklist
-
-| Check | Status |
-|-------|--------|
-| No hardcoded secrets | ✅ |
-| No console.log statements | ✅ |
-| Input sanitization (handled by React) | ✅ |
-| XSS prevention (React escapes by default) | ✅ |
-| No direct DOM manipulation | ✅ |
-| Proper error message display (no stack traces) | ✅ |
-
----
-
-## Final Assessment
-
-### Features Under Review
-| Component | Status | Notes |
-|-----------|--------|-------|
-| ImportSuccessModal | ✅ PASS | Well-implemented, minor a11y enhancement recommended |
-| CertificateStatusCard | ✅ PASS | Clean, no issues |
-| useImport Hook | ✅ PASS | Proper state management |
-
-### Overall Codebase
-| Check | Status |
-|-------|--------|
-| TypeScript | ✅ PASS |
-| ESLint | ✅ PASS (warnings only) |
-| Backend Build | ✅ PASS |
-| Backend Tests | ✅ PASS (85.1% coverage) |
-| Pre-commit | ✅ PASS |
-| Frontend Tests | ⚠️ 5 failures (unrelated) |
 
 ---
 
 ## Recommendations
 
-1. **High Priority**: Fix the 5 failing CrowdSecConfig tests by updating element selectors
-2. **Medium Priority**: Add ARIA attributes to ImportSuccessModal for better accessibility
-3. **Low Priority**: Address ESLint warnings in CrowdSecConfig.tsx (missing deps, any types)
+1. **No blocking issues** - All changes are complete and verified.
+
+2. **Pre-existing warnings** - Consider addressing the `@typescript-eslint/no-explicit-any` warnings in `CrowdSecConfig.tsx` and its test file in a future cleanup pass.
 
 ---
 
 ## Conclusion
 
-**PARTIAL PASS** - The audited features (ImportSuccessModal, CertificateStatusCard, useImport) are well-implemented and pass all their tests. The failing tests are in an unrelated component (CrowdSecConfig) and should be addressed in a separate PR.
+The WAF to Coraza rename has been successfully implemented:
 
-The code demonstrates:
-- Strong TypeScript usage
-- Comprehensive test coverage for the audited features
-- Consistent styling patterns
-- Proper React Query patterns
-- No memory leaks or cleanup issues
+- ✅ UI displays "Coraza" in the Security dashboard card
+- ✅ Navigation shows "Coraza" instead of "WAF"
+- ✅ Dropdowns removed from main Security page (moved to dedicated config page)
+- ✅ All 728 frontend tests pass
+- ✅ TypeScript compiles without errors
+- ✅ No new lint errors introduced
+- ✅ All pre-commit hooks pass
+
+**QA Approval:** ✅ Approved for merge
