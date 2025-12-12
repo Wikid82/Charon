@@ -399,3 +399,87 @@ type mockTransport func(*http.Request) (*http.Response, error)
 func (m mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return m(req)
 }
+
+// TestApplyReadsArchiveBeforeBackup verifies the fix for the bug where Apply() would:
+// 1. Load cache metadata (getting archive path inside DataDir/hub_cache)
+// 2. Backup DataDir (moving the cache including the archive!)
+// 3. Try to read archive from original path (FAIL - file no longer exists!)
+//
+// The fix reads the archive into memory BEFORE creating the backup, so the
+// archive data is preserved even after the backup operation moves the files.
+func TestApplyReadsArchiveBeforeBackup(t *testing.T) {
+	// Create base directory structure that mirrors production:
+	// baseDir/
+	//   └── crowdsec/              <- DataDir (gets backed up)
+	//       └── hub_cache/         <- Cache lives INSIDE DataDir (the bug!)
+	//           └── test/preset/
+	//               ├── bundle.tgz
+	//               ├── preview.yaml
+	//               └── metadata.json
+	baseDir := t.TempDir()
+	dataDir := filepath.Join(baseDir, "crowdsec")
+	cacheDir := filepath.Join(dataDir, "hub_cache") // Cache INSIDE DataDir - this is key!
+
+	// Create DataDir with some existing config to make backup realistic
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.yaml"), []byte("existing: config"), 0o644))
+
+	// Create cache inside DataDir
+	cache, err := NewHubCache(cacheDir, time.Hour)
+	require.NoError(t, err)
+
+	// Create test archive
+	archive := makeTestArchive(t, map[string]string{
+		"config.yaml":   "test: applied_config\nvalue: 123",
+		"profiles.yaml": "name: test_profile",
+	})
+
+	// Pre-populate cache (simulating a prior Pull operation)
+	ctx := context.Background()
+	cachedMeta, err := cache.Store(ctx, "test/preset", "etag-pre", "hub", "preview: content", archive)
+	require.NoError(t, err)
+	require.FileExists(t, cachedMeta.ArchivePath, "Archive should exist in cache")
+
+	// Verify cache is inside DataDir (the scenario that triggers the bug)
+	require.True(t, strings.HasPrefix(cachedMeta.ArchivePath, dataDir),
+		"Cache archive must be inside DataDir for this test to be valid")
+
+	// Create hub service WITHOUT cscli (nil executor) to force cache fallback path
+	hub := NewHubService(nil, cache, dataDir)
+	hub.HubBaseURL = "http://test.example.com"
+	// HTTP client that fails everything - we don't want to hit network
+	hub.HTTPClient = &http.Client{
+		Transport: mockTransport(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(strings.NewReader("intentionally failing")),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	// Apply - this SHOULD succeed because:
+	// 1. Archive is read into memory BEFORE backup
+	// 2. Backup moves DataDir (including cache) but we already have archive bytes
+	// 3. Extract uses the in-memory archive bytes
+	//
+	// BEFORE THE FIX, this would fail with:
+	//   "read archive: open /tmp/.../crowdsec/hub_cache/.../bundle.tgz: no such file or directory"
+	result, err := hub.Apply(ctx, "test/preset")
+	require.NoError(t, err, "Apply should succeed - archive must be read before backup")
+	require.Equal(t, "applied", result.Status)
+	require.NotEmpty(t, result.BackupPath, "Backup should have been created")
+	require.False(t, result.UsedCSCLI, "Should have used cache fallback, not cscli")
+
+	// Verify backup was created
+	_, statErr := os.Stat(result.BackupPath)
+	require.NoError(t, statErr, "Backup directory should exist")
+
+	// Verify files were extracted to DataDir
+	extractedConfig := filepath.Join(dataDir, "config.yaml")
+	require.FileExists(t, extractedConfig, "Config should be extracted")
+	content, err := os.ReadFile(extractedConfig)
+	require.NoError(t, err)
+	require.Contains(t, string(content), "test: applied_config",
+		"Extracted config should contain content from archive, not original")
+}
