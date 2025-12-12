@@ -519,6 +519,54 @@ https://yourapp.com/search?q=' OR '1'='1
 
 ---
 
+## Testing & Validation
+
+### Integration Testing
+
+Cerberus includes a comprehensive integration test suite to validate all security features work correctly together.
+
+**Run the full test suite:**
+
+```bash
+# Integration script
+bash scripts/cerberus_integration.sh
+
+# Go test wrapper
+cd backend && go test -tags=integration ./integration -run TestCerberusIntegration -v
+```
+
+**What's tested:**
+
+- ✅ All features enable without conflicts
+- ✅ Correct handler pipeline order
+- ✅ WAF doesn't interfere with rate limiting
+- ✅ Security decisions enforced at correct layer
+- ✅ Legitimate traffic passes through all layers
+- ✅ Performance benchmarks (< 50ms overhead)
+
+### UI/UX Testing
+
+The Cerberus Dashboard has extensive UI testing coverage:
+
+- Security card status display verification
+- Loading overlay animations
+- Error handling and toast notifications
+- Mobile responsive layout testing (375px → 1920px)
+
+**Test documentation:**
+
+- [Integration Testing Plan](plans/cerberus_integration_testing_plan.md)
+- [UI/UX Testing Plan](plans/cerberus_uiux_testing_plan.md)
+
+### VS Code Tasks
+
+Run tests directly from VS Code using the provided tasks:
+
+- **Cerberus: Run Full Integration Script** — Full shell-based integration test
+- **Cerberus: Run Full Integration Go Test** — Go test wrapper
+
+---
+
 ## More Technical Details
 
 Want the nitty-gritty? See [Cerberus Technical Docs](cerberus.md).
