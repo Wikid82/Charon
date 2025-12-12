@@ -1,30 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LiveLogViewer } from '../LiveLogViewer';
 import * as logsApi from '../../api/logs';
 
-// Mock the connectLiveLogs function
+// Mock the connectLiveLogs and connectSecurityLogs functions
 vi.mock('../../api/logs', async () => {
   const actual = await vi.importActual('../../api/logs');
   return {
     ...actual,
     connectLiveLogs: vi.fn(),
+    connectSecurityLogs: vi.fn(),
   };
 });
 
 describe('LiveLogViewer', () => {
   let mockCloseConnection: ReturnType<typeof vi.fn>;
   let mockOnMessage: ((log: logsApi.LiveLogEntry) => void) | null;
+  let mockOnSecurityMessage: ((log: logsApi.SecurityLogEntry) => void) | null;
   let mockOnClose: (() => void) | null;
 
   beforeEach(() => {
     mockCloseConnection = vi.fn();
     mockOnMessage = null;
+    mockOnSecurityMessage = null;
     mockOnClose = null;
 
     vi.mocked(logsApi.connectLiveLogs).mockImplementation((_filters, onMessage, onOpen, _onError, onClose) => {
       mockOnMessage = onMessage;
+      mockOnClose = onClose ?? null;
+      // Simulate connection success
+      if (onOpen) {
+        setTimeout(() => onOpen(), 0);
+      }
+      return mockCloseConnection as () => void;
+    });
+
+    vi.mocked(logsApi.connectSecurityLogs).mockImplementation((_filters, onMessage, onOpen, _onError, onClose) => {
+      mockOnSecurityMessage = onMessage;
       mockOnClose = onClose ?? null;
       // Simulate connection success
       if (onOpen) {
@@ -116,7 +129,7 @@ describe('LiveLogViewer', () => {
     });
 
     // Apply level filter
-    const levelSelect = screen.getByRole('combobox');
+    const levelSelect = screen.getAllByRole('combobox')[0];
     await user.selectOptions(levelSelect, 'error');
 
     await waitFor(() => {
@@ -311,5 +324,320 @@ describe('LiveLogViewer', () => {
     mockOnClose?.();
 
     await waitFor(() => expect(screen.getByText('Disconnected')).toBeTruthy());
+  });
+
+  // ============================================================
+  // Security Mode Tests
+  // ============================================================
+
+  describe('Security Mode', () => {
+    it('renders in security mode when mode="security"', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      expect(screen.getByText('Security Access Logs')).toBeTruthy();
+      expect(logsApi.connectSecurityLogs).toHaveBeenCalled();
+    });
+
+    it('displays security log entries with source badges', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      // Wait for connection to establish
+      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+
+      const securityLog: logsApi.SecurityLogEntry = {
+        timestamp: '2025-12-12T10:30:00Z',
+        level: 'info',
+        logger: 'http.log.access',
+        client_ip: '192.168.1.100',
+        method: 'GET',
+        uri: '/api/test',
+        status: 200,
+        duration: 0.05,
+        size: 1024,
+        user_agent: 'TestAgent/1.0',
+        host: 'example.com',
+        source: 'normal',
+        blocked: false,
+      };
+
+      if (mockOnSecurityMessage) {
+        mockOnSecurityMessage(securityLog);
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText('NORMAL')).toBeTruthy();
+        expect(screen.getByText('192.168.1.100')).toBeTruthy();
+        expect(screen.getByText(/GET \/api\/test → 200/)).toBeTruthy();
+      });
+    });
+
+    it('displays blocked requests with special styling', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      // Wait for connection to establish
+      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+
+      const blockedLog: logsApi.SecurityLogEntry = {
+        timestamp: '2025-12-12T10:30:00Z',
+        level: 'warn',
+        logger: 'http.handlers.waf',
+        client_ip: '10.0.0.1',
+        method: 'POST',
+        uri: '/admin',
+        status: 403,
+        duration: 0.001,
+        size: 0,
+        user_agent: 'Attack/1.0',
+        host: 'example.com',
+        source: 'waf',
+        blocked: true,
+        block_reason: 'SQL injection detected',
+      };
+
+      // Send message inside act to properly handle state updates
+      await act(async () => {
+        if (mockOnSecurityMessage) {
+          mockOnSecurityMessage(blockedLog);
+        }
+      });
+
+      await waitFor(() => {
+        // Use getAllByText since 'WAF' appears both in dropdown option and source badge
+        const wafElements = screen.getAllByText('WAF');
+        expect(wafElements.length).toBeGreaterThanOrEqual(2); // Option + badge
+        expect(screen.getByText('10.0.0.1')).toBeTruthy();
+        expect(screen.getByText(/BLOCKED: SQL injection detected/)).toBeTruthy();
+        // Block reason is shown in brackets - check for the text content
+        expect(screen.getByText(/\[SQL injection detected\]/)).toBeTruthy();
+      });
+    });
+
+    it('shows source filter dropdown in security mode', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      // Should have source filter options
+      expect(screen.getByText('All Sources')).toBeTruthy();
+      expect(screen.getByRole('option', { name: 'WAF' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: 'CrowdSec' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: 'Rate Limit' })).toBeTruthy();
+      expect(screen.getByRole('option', { name: 'ACL' })).toBeTruthy();
+    });
+
+    it('filters by source in security mode', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="security" />);
+
+      // Wait for connection
+      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+
+      // Add logs from different sources
+      if (mockOnSecurityMessage) {
+        mockOnSecurityMessage({
+          timestamp: '2025-12-12T10:30:00Z',
+          level: 'info',
+          logger: 'http.log.access',
+          client_ip: '192.168.1.1',
+          method: 'GET',
+          uri: '/normal-request',
+          status: 200,
+          duration: 0.01,
+          size: 100,
+          user_agent: 'Test/1.0',
+          host: 'example.com',
+          source: 'normal',
+          blocked: false,
+        });
+        mockOnSecurityMessage({
+          timestamp: '2025-12-12T10:30:01Z',
+          level: 'warn',
+          logger: 'http.handlers.waf',
+          client_ip: '10.0.0.1',
+          method: 'POST',
+          uri: '/waf-blocked',
+          status: 403,
+          duration: 0.001,
+          size: 0,
+          user_agent: 'Attack/1.0',
+          host: 'example.com',
+          source: 'waf',
+          blocked: true,
+          block_reason: 'WAF block',
+        });
+      }
+
+      // Wait for logs to appear - normal shows URI, blocked shows block message
+      await waitFor(() => {
+        expect(screen.getByText(/GET \/normal-request/)).toBeTruthy();
+        expect(screen.getByText(/BLOCKED: WAF block/)).toBeTruthy();
+      });
+
+      // Filter by WAF using the source dropdown (second combobox after level)
+      const sourceSelects = screen.getAllByRole('combobox');
+      const sourceFilterSelect = sourceSelects[1]; // Second combobox is source filter
+
+      await user.selectOptions(sourceFilterSelect, 'waf');
+
+      await waitFor(() => {
+        expect(screen.queryByText(/GET \/normal-request/)).toBeFalsy();
+        expect(screen.getByText(/BLOCKED: WAF block/)).toBeTruthy();
+      });
+    });
+
+    it('shows blocked only checkbox in security mode', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      expect(screen.getByText('Blocked only')).toBeTruthy();
+      expect(screen.getByRole('checkbox')).toBeTruthy();
+    });
+
+    it('toggles blocked only filter', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="security" />);
+
+      const checkbox = screen.getByRole('checkbox');
+      await user.click(checkbox);
+
+      // Verify checkbox is checked
+      expect(checkbox).toBeChecked();
+    });
+
+    it('displays duration for security logs', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      // Wait for connection to establish
+      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+
+      const securityLog: logsApi.SecurityLogEntry = {
+        timestamp: '2025-12-12T10:30:00Z',
+        level: 'info',
+        logger: 'http.log.access',
+        client_ip: '192.168.1.100',
+        method: 'GET',
+        uri: '/api/test',
+        status: 200,
+        duration: 0.123,
+        size: 1024,
+        user_agent: 'TestAgent/1.0',
+        host: 'example.com',
+        source: 'normal',
+        blocked: false,
+      };
+
+      if (mockOnSecurityMessage) {
+        mockOnSecurityMessage(securityLog);
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText('123.0ms')).toBeTruthy();
+      });
+    });
+
+    it('displays status code with appropriate color for security logs', async () => {
+      render(<LiveLogViewer mode="security" />);
+
+      // Wait for connection to establish
+      await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
+
+      if (mockOnSecurityMessage) {
+        mockOnSecurityMessage({
+          timestamp: '2025-12-12T10:30:00Z',
+          level: 'info',
+          logger: 'http.log.access',
+          client_ip: '192.168.1.100',
+          method: 'GET',
+          uri: '/ok',
+          status: 200,
+          duration: 0.01,
+          size: 100,
+          user_agent: 'Test/1.0',
+          host: 'example.com',
+          source: 'normal',
+          blocked: false,
+        });
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText('[200]')).toBeTruthy();
+      });
+    });
+  });
+
+  // ============================================================
+  // Mode Toggle Tests
+  // ============================================================
+
+  describe('Mode Toggle', () => {
+    it('switches from application to security mode', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="application" />);
+
+      expect(screen.getByText('Live Security Logs')).toBeTruthy();
+      expect(logsApi.connectLiveLogs).toHaveBeenCalled();
+
+      // Click security mode button
+      const securityButton = screen.getByTitle('Security access logs');
+      await user.click(securityButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Security Access Logs')).toBeTruthy();
+        expect(logsApi.connectSecurityLogs).toHaveBeenCalled();
+      });
+    });
+
+    it('switches from security to application mode', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="security" />);
+
+      expect(screen.getByText('Security Access Logs')).toBeTruthy();
+
+      // Click application mode button
+      const appButton = screen.getByTitle('Application logs');
+      await user.click(appButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('Live Security Logs')).toBeTruthy();
+      });
+    });
+
+    it('clears logs when switching modes', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="application" />);
+
+      // Add a log in application mode
+      if (mockOnMessage) {
+        mockOnMessage({ level: 'info', timestamp: '2025-12-12T10:30:00Z', message: 'App log' });
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText('App log')).toBeTruthy();
+      });
+
+      // Switch to security mode
+      const securityButton = screen.getByTitle('Security access logs');
+      await user.click(securityButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText('App log')).toBeFalsy();
+        expect(screen.getByText('No logs yet. Waiting for events...')).toBeTruthy();
+      });
+    });
+
+    it('resets filters when switching modes', async () => {
+      const user = userEvent.setup();
+      render(<LiveLogViewer mode="application" />);
+
+      // Set a filter
+      const filterInput = screen.getByPlaceholderText('Filter by text...');
+      await user.type(filterInput, 'test');
+
+      // Switch to security mode
+      const securityButton = screen.getByTitle('Security access logs');
+      await user.click(securityButton);
+
+      await waitFor(() => {
+        // Filter should be cleared
+        expect(screen.getByPlaceholderText('Filter by text...')).toHaveValue('');
+      });
+    });
   });
 });

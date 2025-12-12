@@ -355,6 +355,21 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
+		// Cerberus Security Logs WebSocket
+		// Initialize log watcher for Caddy access logs (used by CrowdSec and security monitoring)
+		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
+		// or falls back to the configured storage directory for development
+		accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG")
+		if accessLogPath == "" {
+			accessLogPath = "/var/log/caddy/access.log"
+		}
+		logWatcher := services.NewLogWatcher(accessLogPath)
+		if err := logWatcher.Start(context.Background()); err != nil {
+			logger.Log().WithError(err).Error("Failed to start security log watcher")
+		}
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher)
+		protected.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)
 		if geoipSvc != nil {

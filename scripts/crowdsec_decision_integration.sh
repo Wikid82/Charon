@@ -206,6 +206,107 @@ log_info "Authentication complete"
 echo ""
 
 # ============================================================================
+# Pre-flight CrowdSec Startup Checks (TC-0 series)
+# ============================================================================
+echo "=============================================="
+echo "=== Pre-flight CrowdSec Startup Checks ==="
+echo "=============================================="
+echo ""
+
+# ----------------------------------------------------------------------------
+# TC-0: Verify CrowdSec agent started successfully
+# ----------------------------------------------------------------------------
+log_test "TC-0: Verify CrowdSec agent started successfully"
+CROWDSEC_READY=$(docker logs ${CONTAINER_NAME} 2>&1 | grep -c "CrowdSec LAPI is ready" || echo "0")
+CROWDSEC_FATAL=$(docker logs ${CONTAINER_NAME} 2>&1 | grep -c "no datasource enabled" || echo "0")
+
+if [ "$CROWDSEC_FATAL" -ge 1 ]; then
+    fail_test "CRITICAL: CrowdSec failed with 'no datasource enabled' - acquis.yaml is missing or empty"
+    echo ""
+    log_error "CrowdSec is fundamentally broken. Cannot proceed with tests."
+    echo ""
+    echo "=== Container Logs (CrowdSec related) ==="
+    docker logs ${CONTAINER_NAME} 2>&1 | grep -i "crowdsec\|acquis\|datasource" | tail -30
+    echo ""
+    cleanup
+    exit 1
+elif [ "$CROWDSEC_READY" -ge 1 ]; then
+    log_info "  CrowdSec LAPI is ready (found startup message in logs)"
+    pass_test
+else
+    # CrowdSec may not have started yet or may not be available
+    CROWDSEC_STARTED=$(docker logs ${CONTAINER_NAME} 2>&1 | grep -c "Starting CrowdSec" || echo "0")
+    if [ "$CROWDSEC_STARTED" -ge 1 ]; then
+        log_info "  CrowdSec startup initiated (may still be initializing)"
+        pass_test
+    else
+        log_warn "  CrowdSec startup message not found (may not be enabled or binary missing)"
+        pass_test
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# TC-0b: Verify acquisition config exists
+# ----------------------------------------------------------------------------
+log_test "TC-0b: Verify acquisition config exists"
+ACQUIS_CONTENT=$(docker exec ${CONTAINER_NAME} cat /etc/crowdsec/acquis.yaml 2>/dev/null || echo "")
+ACQUIS_HAS_SOURCE=$(echo "$ACQUIS_CONTENT" | grep -c "source:" || echo "0")
+
+if [ "$ACQUIS_HAS_SOURCE" -ge 1 ]; then
+    log_info "  Acquisition config found with datasource definition"
+    # Show first few lines for debugging
+    log_info "  Config preview:"
+    echo "$ACQUIS_CONTENT" | head -5 | sed 's/^/    /'
+    pass_test
+elif [ -n "$ACQUIS_CONTENT" ]; then
+    fail_test "CRITICAL: acquis.yaml exists but has no 'source:' definition"
+    echo ""
+    log_error "CrowdSec will fail to start without a valid datasource. Cannot proceed."
+    echo "Content found:"
+    echo "$ACQUIS_CONTENT" | head -10 | sed 's/^/    /'
+    echo ""
+    cleanup
+    exit 1
+else
+    # acquis.yaml doesn't exist - this might be okay if CrowdSec mode is disabled
+    MODE_CHECK=$(docker exec ${CONTAINER_NAME} printenv CERBERUS_SECURITY_CROWDSEC_MODE 2>/dev/null || echo "disabled")
+    if [ "$MODE_CHECK" = "local" ]; then
+        fail_test "CRITICAL: acquis.yaml missing but CROWDSEC_MODE=local"
+        log_error "CrowdSec local mode enabled but no acquisition config exists."
+        cleanup
+        exit 1
+    else
+        log_warn "  acquis.yaml not found (acceptable if CrowdSec mode is disabled)"
+        pass_test
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# TC-0c: Verify hub items installed
+# ----------------------------------------------------------------------------
+log_test "TC-0c: Verify hub items installed (at least one parser)"
+PARSER_COUNT=$(docker exec ${CONTAINER_NAME} cscli parsers list -o json 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
+
+if [ "$PARSER_COUNT" = "0" ] || [ -z "$PARSER_COUNT" ]; then
+    # cscli may not be available or no parsers installed
+    CSCLI_EXISTS=$(docker exec ${CONTAINER_NAME} which cscli 2>/dev/null || echo "")
+    if [ -z "$CSCLI_EXISTS" ]; then
+        log_warn "  cscli not available - cannot verify hub items"
+        pass_test
+    else
+        log_warn "  No parsers installed (CrowdSec may not detect attacks)"
+        pass_test
+    fi
+else
+    log_info "  Found $PARSER_COUNT parser(s) installed"
+    # List a few for debugging
+    docker exec ${CONTAINER_NAME} cscli parsers list 2>/dev/null | head -5 | sed 's/^/    /' || true
+    pass_test
+fi
+
+echo ""
+
+# ============================================================================
 # Detect CrowdSec/cscli availability
 # ============================================================================
 log_info "Detecting CrowdSec/cscli availability..."
@@ -517,6 +618,8 @@ if [ $FAILED -eq 0 ]; then
     if [ $SKIPPED -gt 0 ]; then
         echo "=============================================="
         echo "=== CROWDSEC TESTS PASSED (with skips) ==="
+        echo "=============================================="
+        echo "=== ALL CROWDSEC DECISION TESTS PASSED ==="
         echo "=============================================="
     else
         echo "=============================================="

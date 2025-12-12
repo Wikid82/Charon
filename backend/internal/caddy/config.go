@@ -16,13 +16,11 @@ import (
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
 func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
-	// Define log file paths
-	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
-	// storageDir is .../data/caddy/data
-	// Dir -> .../data/caddy
-	// Dir -> .../data
-	logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
-	logFile := filepath.Join(logDir, "access.log")
+	// Define log file paths for Caddy access logs.
+	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
+	// location that CrowdSec's acquis.yaml is configured to monitor.
+	// Otherwise, we fall back to the storageDir-relative path for development/non-Docker use.
+	logFile := getAccessLogPath(storageDir, crowdsecEnabled)
 
 	config := &Config{
 		Admin: &AdminConfig{
@@ -799,6 +797,44 @@ func getCrowdSecAPIKey() string {
 		}
 	}
 	return ""
+}
+
+// getAccessLogPath determines the appropriate path for Caddy access logs.
+// When CrowdSec is enabled or running in Docker (detected via /.dockerenv),
+// we use /var/log/caddy/access.log which is the standard location that
+// CrowdSec's acquis.yaml is configured to monitor.
+// Otherwise, we fall back to the storageDir-relative path for development use.
+//
+// The access logs written to this path include:
+//   - Standard HTTP fields (method, uri, status, duration, size)
+//   - Client IP for CrowdSec and security analysis
+//   - User-Agent for attack detection
+//   - Security-relevant response headers (X-Coraza-Id, X-RateLimit-Remaining)
+func getAccessLogPath(storageDir string, crowdsecEnabled bool) string {
+	// Standard CrowdSec-compatible path used in production Docker containers
+	const crowdsecLogPath = "/var/log/caddy/access.log"
+
+	// Use standard path when CrowdSec is enabled (explicit request)
+	if crowdsecEnabled {
+		return crowdsecLogPath
+	}
+
+	// Detect Docker environment via /.dockerenv file
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return crowdsecLogPath
+	}
+
+	// Check for CHARON_ENV=production or container-like environment
+	if env := os.Getenv("CHARON_ENV"); env == "production" {
+		return crowdsecLogPath
+	}
+
+	// Development fallback: use storageDir-relative path
+	// storageDir is .../data/caddy/data
+	// Dir -> .../data/caddy
+	// Dir -> .../data
+	logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
+	return filepath.Join(logDir, "access.log")
 }
 
 // buildWAFHandler returns a WAF handler (Coraza) configuration.
