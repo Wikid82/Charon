@@ -31,6 +31,10 @@ frontend/coverage/
 frontend/test-results/
 frontend/.vite/
 frontend/*.tsbuildinfo
+/frontend/.cache/
+/frontend/.eslintcache
+/backend/.vscode/
+/data/geoip/
 /frontend/frontend/
 
 # -----------------------------------------------------------------------------

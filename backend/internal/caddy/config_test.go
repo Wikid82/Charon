@@ -139,6 +139,43 @@ func TestGenerateConfig_Logging(t *testing.T) {
 	require.Equal(t, 7, config.Logging.Logs["access"].Writer.RollKeepDays)
 }
 
+func TestGenerateConfig_IPHostsSkipAutoHTTPS(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "uuid-ip",
+			DomainNames: "192.0.2.10",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	require.Contains(t, server.AutoHTTPS.Skip, "192.0.2.10")
+
+	// Ensure TLS automation adds internal issuer for IP literals
+	require.NotNil(t, config.Apps.TLS)
+	require.NotNil(t, config.Apps.TLS.Automation)
+	require.GreaterOrEqual(t, len(config.Apps.TLS.Automation.Policies), 1)
+	foundIPPolicy := false
+	for _, p := range config.Apps.TLS.Automation.Policies {
+		if len(p.Subjects) == 0 {
+			continue
+		}
+		if p.Subjects[0] == "192.0.2.10" {
+			foundIPPolicy = true
+			require.Len(t, p.IssuersRaw, 1)
+			issuer := p.IssuersRaw[0].(map[string]interface{})
+			require.Equal(t, "internal", issuer["module"])
+		}
+	}
+	require.True(t, foundIPPolicy, "expected internal issuer policy for IP host")
+}
+
 func TestGenerateConfig_Advanced(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{

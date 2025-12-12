@@ -55,7 +55,6 @@ ignore:
 
   # Backend non-source files
   - "backend/cmd/seed/**"
-  - "backend/cmd/api/**"
   - "backend/data/**"
   - "backend/coverage/**"
   - "backend/bin/**"

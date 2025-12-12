@@ -3,6 +3,7 @@ package caddy
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"path/filepath"
 	"strings"
 
@@ -139,6 +140,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 	// Initialize routes slice
 	routes := make([]*Route, 0)
+	// Track IP-only hostnames to skip AutoHTTPS/ACME
+	ipSubjects := make([]string, 0)
 
 	// Track processed domains to prevent duplicates (Ghost Host fix)
 	processedDomains := make(map[string]bool)
@@ -177,6 +180,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Parse comma-separated domains
 		rawDomains := strings.Split(host.DomainNames, ",")
 		var uniqueDomains []string
+		isIPOnly := true
 
 		for _, d := range rawDomains {
 			d = strings.TrimSpace(d)
@@ -190,10 +194,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 			processedDomains[d] = true
 			uniqueDomains = append(uniqueDomains, d)
+			if net.ParseIP(d) == nil {
+				isIPOnly = false
+			}
 		}
 
 		if len(uniqueDomains) == 0 {
 			continue
+		}
+
+		if isIPOnly {
+			ipSubjects = append(ipSubjects, uniqueDomains...)
 		}
 
 		// Build handlers for this host
@@ -397,16 +408,34 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		routes = append(routes, catchAllRoute)
 	}
 
+	autoHTTPS := &AutoHTTPSConfig{Disable: false, DisableRedir: false}
+	if len(ipSubjects) > 0 {
+		// Skip AutoHTTPS/ACME for IP literals to avoid ERR_SSL_PROTOCOL_ERROR
+		autoHTTPS.Skip = append(autoHTTPS.Skip, ipSubjects...)
+	}
+
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
-		Listen: []string{":80", ":443"},
-		Routes: routes,
-		AutoHTTPS: &AutoHTTPSConfig{
-			Disable:      false,
-			DisableRedir: false,
-		},
+		Listen:    []string{":80", ":443"},
+		Routes:    routes,
+		AutoHTTPS: autoHTTPS,
 		Logs: &ServerLogs{
 			DefaultLoggerName: "access_log",
 		},
+	}
+
+	// Provide internal certificates for IP subjects when present so optional TLS can succeed without ACME
+	if len(ipSubjects) > 0 {
+		if config.Apps.TLS == nil {
+			config.Apps.TLS = &TLSApp{}
+		}
+		policy := &AutomationPolicy{
+			Subjects:   ipSubjects,
+			IssuersRaw: []interface{}{map[string]interface{}{"module": "internal"}},
+		}
+		if config.Apps.TLS.Automation == nil {
+			config.Apps.TLS.Automation = &AutomationConfig{}
+		}
+		config.Apps.TLS.Automation.Policies = append(config.Apps.TLS.Automation.Policies, policy)
 	}
 
 	return config, nil

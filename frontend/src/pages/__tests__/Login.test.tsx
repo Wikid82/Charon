@@ -60,4 +60,21 @@ describe('<Login />', () => {
     await waitFor(() => expect(postSpy).toHaveBeenCalled())
     expect(toastSpy).toHaveBeenCalledWith('Bad creds')
   })
+
+  it('uses returned token when cookie is unavailable', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
+    const postSpy = vi.spyOn(client, 'post').mockResolvedValueOnce({ data: { token: 'bearer-token' } })
+    const loginFn = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(authHook, 'useAuth').mockReturnValue({ login: loginFn } as unknown as AuthContextType)
+
+    renderWithProviders(<Login />)
+    const email = screen.getByPlaceholderText(/admin@example.com/i)
+    const pass = screen.getByPlaceholderText(/••••••••/i)
+    fireEvent.change(email, { target: { value: 'a@b.com' } })
+    fireEvent.change(pass, { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }))
+
+    await waitFor(() => expect(postSpy).toHaveBeenCalled())
+    expect(loginFn).toHaveBeenCalledWith('bearer-token')
+  })
 })

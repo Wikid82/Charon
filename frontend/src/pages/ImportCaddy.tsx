@@ -1,15 +1,19 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createBackup } from '../api/backups'
 import { useImport } from '../hooks/useImport'
 import ImportBanner from '../components/ImportBanner'
 import ImportReviewTable from '../components/ImportReviewTable'
 import ImportSitesModal from '../components/ImportSitesModal'
+import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
 
 export default function ImportCaddy() {
-  const { session, preview, loading, error, upload, commit, cancel } = useImport()
+  const navigate = useNavigate()
+  const { session, preview, loading, error, upload, commit, cancel, commitResult, clearCommitResult } = useImport()
   const [content, setContent] = useState('')
   const [showReview, setShowReview] = useState(false)
   const [showMultiModal, setShowMultiModal] = useState(false)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
 
   const handleUpload = async () => {
     if (!content.trim()) {
@@ -40,10 +44,15 @@ export default function ImportCaddy() {
       await commit(resolutions, names)
       setContent('')
       setShowReview(false)
-      alert('Import completed successfully!')
+      setShowSuccessModal(true)
     } catch {
       // Error is already set by hook
     }
+  }
+
+  const handleCloseSuccessModal = () => {
+    setShowSuccessModal(false)
+    clearCommitResult()
   }
 
   const handleCancel = async () => {
@@ -169,6 +178,20 @@ api.example.com {
         visible={showMultiModal}
         onClose={() => setShowMultiModal(false)}
         onUploaded={() => setShowReview(true)}
+      />
+
+      <ImportSuccessModal
+        visible={showSuccessModal}
+        onClose={handleCloseSuccessModal}
+        onNavigateDashboard={() => {
+          handleCloseSuccessModal()
+          navigate('/')
+        }}
+        onNavigateHosts={() => {
+          handleCloseSuccessModal()
+          navigate('/proxy-hosts')
+        }}
+        results={commitResult}
       />
     </div>
   )

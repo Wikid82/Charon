@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
@@ -5,11 +6,22 @@ import { useQuery } from '@tanstack/react-query'
 import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
 import UptimeWidget from '../components/UptimeWidget'
+import CertificateStatusCard from '../components/CertificateStatusCard'
 
 export default function Dashboard() {
   const { hosts } = useProxyHosts()
   const { servers } = useRemoteServers()
-  const { certificates } = useCertificates()
+
+  // Detect if there are pending certificates (hosts with ssl_forced but no certificate_id)
+  const hasPendingCerts = useMemo(() => {
+    const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)
+    return sslHosts.some(h => !h.certificate_id)
+  }, [hosts])
+
+  // Poll certificates more frequently when there are pending certs
+  const { certificates } = useCertificates({
+    refetchInterval: hasPendingCerts ? 15000 : false, // Poll every 15s when pending
+  })
 
   // Use React Query for health check - benefits from global caching
   const { data: health } = useQuery({
@@ -39,11 +51,7 @@ export default function Dashboard() {
           <div className="text-xs text-gray-500">{enabledServers} enabled</div>
         </Link>
 
-        <Link to="/certificates" className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors">
-          <div className="text-sm text-gray-400 mb-2">SSL Certificates</div>
-          <div className="text-3xl font-bold text-white mb-1">{certificates.length}</div>
-          <div className="text-xs text-gray-500">{certificates.filter(c => c.status === 'valid').length} valid</div>
-        </Link>
+        <CertificateStatusCard certificates={certificates} hosts={hosts} />
 
         <div className="bg-dark-card p-6 rounded-lg border border-gray-800">
           <div className="text-sm text-gray-400 mb-2">System Status</div>
