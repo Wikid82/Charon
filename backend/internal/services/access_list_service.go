@@ -67,12 +67,26 @@ var validCountryCodes = map[string]bool{
 	"RU": true, "KZ": true, "UZ": true, "AZ": true, "GE": true, "AM": true,
 }
 
+// AccessListService handles access list CRUD and IP testing operations.
 type AccessListService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	geoipSvc *GeoIPService
 }
 
+// NewAccessListService creates a new AccessListService.
 func NewAccessListService(db *gorm.DB) *AccessListService {
 	return &AccessListService{db: db}
+}
+
+// SetGeoIPService sets the GeoIP service for geo-based access list lookups.
+// This method allows optional injection of the GeoIP service.
+func (s *AccessListService) SetGeoIPService(geoipSvc *GeoIPService) {
+	s.geoipSvc = geoipSvc
+}
+
+// GetGeoIPService returns the configured GeoIP service (may be nil).
+func (s *AccessListService) GetGeoIPService() *GeoIPService {
+	return s.geoipSvc
 }
 
 // Create creates a new access list with validation
@@ -186,6 +200,11 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 		return true, "Allowed by local network only rule", nil
 	}
 
+	// Handle geo-based access lists
+	if strings.HasPrefix(acl.Type, "geo_") {
+		return s.testGeoIP(acl, ipAddress)
+	}
+
 	// Test IP rules
 	if acl.IPRules != "" {
 		var rules []models.AccessListRule
@@ -208,6 +227,73 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 		return false, "Not in whitelist", nil
 	}
 	return true, "Not in blacklist", nil
+}
+
+// testGeoIP tests an IP against geo-based access list rules.
+func (s *AccessListService) testGeoIP(acl *models.AccessList, ipAddress string) (allowed bool, reason string, err error) {
+	// Check if GeoIP service is available
+	if s.geoipSvc == nil || !s.geoipSvc.IsLoaded() {
+		// Graceful degradation: if GeoIP is not available, allow traffic with warning
+		return true, "GeoIP database not available - allowing by default", nil
+	}
+
+	// Look up the country for this IP
+	country, err := s.geoipSvc.LookupCountry(ipAddress)
+	if err != nil {
+		// Handle specific errors
+		if errors.Is(err, ErrCountryNotFound) {
+			// IP has no associated country (e.g., private IP, reserved range)
+			if acl.Type == "geo_whitelist" {
+				return false, "No country found for IP - not in geo whitelist", nil
+			}
+			// For blacklist, unknown country means not blocked
+			return true, "No country found for IP - not in geo blacklist", nil
+		}
+		// Other errors: graceful degradation
+		return true, fmt.Sprintf("GeoIP lookup error: %v - allowing by default", err), nil
+	}
+
+	// Parse the country codes from the ACL
+	allowedCountries := s.parseCountryCodes(acl.CountryCodes)
+
+	// Check if the country is in the list
+	countryInList := false
+	for _, code := range allowedCountries {
+		if strings.EqualFold(code, country) {
+			countryInList = true
+			break
+		}
+	}
+
+	// Apply whitelist/blacklist logic
+	if acl.Type == "geo_whitelist" {
+		if countryInList {
+			return true, fmt.Sprintf("Allowed by geo whitelist: IP is from %s", country), nil
+		}
+		return false, fmt.Sprintf("Blocked by geo whitelist: IP is from %s (not in allowed countries)", country), nil
+	}
+
+	// geo_blacklist
+	if countryInList {
+		return false, fmt.Sprintf("Blocked by geo blacklist: IP is from %s", country), nil
+	}
+	return true, fmt.Sprintf("Allowed: IP is from %s (not in blocked countries)", country), nil
+}
+
+// parseCountryCodes parses a comma-separated list of country codes.
+func (s *AccessListService) parseCountryCodes(codes string) []string {
+	if codes == "" {
+		return nil
+	}
+	parts := strings.Split(codes, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		code := strings.TrimSpace(strings.ToUpper(part))
+		if code != "" {
+			result = append(result, code)
+		}
+	}
+	return result
 }
 
 // validateAccessList validates access list fields

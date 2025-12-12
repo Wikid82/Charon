@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -17,18 +18,38 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
+// WAFExclusionRequest represents a rule exclusion for false positives
+type WAFExclusionRequest struct {
+	RuleID      int    `json:"rule_id" binding:"required"`
+	Target      string `json:"target,omitempty"`      // e.g., "ARGS:password"
+	Description string `json:"description,omitempty"` // Human-readable reason
+}
+
+// WAFExclusion represents a stored rule exclusion
+type WAFExclusion struct {
+	RuleID      int    `json:"rule_id"`
+	Target      string `json:"target,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // SecurityHandler handles security-related API requests.
 type SecurityHandler struct {
 	cfg          config.SecurityConfig
 	db           *gorm.DB
 	svc          *services.SecurityService
 	caddyManager *caddy.Manager
+	geoipSvc     *services.GeoIPService
 }
 
 // NewSecurityHandler creates a new SecurityHandler.
 func NewSecurityHandler(cfg config.SecurityConfig, db *gorm.DB, caddyManager *caddy.Manager) *SecurityHandler {
 	svc := services.NewSecurityService(db)
 	return &SecurityHandler{cfg: cfg, db: db, svc: svc, caddyManager: caddyManager}
+}
+
+// SetGeoIPService sets the GeoIP service for the handler.
+func (h *SecurityHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
+	h.geoipSvc = geoipSvc
 }
 
 // GetStatus returns the current status of all security services.
@@ -442,4 +463,324 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		_ = h.caddyManager.ApplyConfig(c.Request.Context())
 	}
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
+}
+
+// GetRateLimitPresets returns predefined rate limit configurations
+func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
+	presets := []map[string]interface{}{
+		{
+			"id":          "standard",
+			"name":        "Standard Web",
+			"description": "Balanced protection for general web applications",
+			"requests":    100,
+			"window_sec":  60,
+			"burst":       20,
+		},
+		{
+			"id":          "api",
+			"name":        "API Protection",
+			"description": "Stricter limits for API endpoints",
+			"requests":    30,
+			"window_sec":  60,
+			"burst":       10,
+		},
+		{
+			"id":          "login",
+			"name":        "Login Protection",
+			"description": "Aggressive protection against brute-force",
+			"requests":    5,
+			"window_sec":  300,
+			"burst":       2,
+		},
+		{
+			"id":          "relaxed",
+			"name":        "High Traffic",
+			"description": "Higher limits for trusted, high-traffic apps",
+			"requests":    500,
+			"window_sec":  60,
+			"burst":       100,
+		},
+	}
+	c.JSON(http.StatusOK, gin.H{"presets": presets})
+}
+
+// GetGeoIPStatus returns the current status of the GeoIP service.
+func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
+	if h.geoipSvc == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"loaded":   false,
+			"message":  "GeoIP service not initialized",
+			"db_path":  "",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"loaded":   h.geoipSvc.IsLoaded(),
+		"db_path":  h.geoipSvc.GetDatabasePath(),
+		"message":  "GeoIP service available",
+	})
+}
+
+// ReloadGeoIP reloads the GeoIP database from disk.
+func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
+	if h.geoipSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "GeoIP service not initialized",
+		})
+		return
+	}
+
+	if err := h.geoipSvc.Load(); err != nil {
+		log.WithError(err).Error("Failed to reload GeoIP database")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to reload GeoIP database: " + err.Error(),
+		})
+		return
+	}
+
+	// Log audit event
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "reload_geoip", Details: "GeoIP database reloaded successfully"})
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "GeoIP database reloaded successfully",
+		"loaded":  h.geoipSvc.IsLoaded(),
+		"db_path": h.geoipSvc.GetDatabasePath(),
+	})
+}
+
+// LookupGeoIP performs a GeoIP lookup for a given IP address.
+func (h *SecurityHandler) LookupGeoIP(c *gin.Context) {
+	var req struct {
+		IPAddress string `json:"ip_address" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip_address is required"})
+		return
+	}
+
+	if h.geoipSvc == nil || !h.geoipSvc.IsLoaded() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "GeoIP service not available",
+		})
+		return
+	}
+
+	country, err := h.geoipSvc.LookupCountry(req.IPAddress)
+	if err != nil {
+		if errors.Is(err, services.ErrInvalidGeoIP) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid IP address"})
+			return
+		}
+		if errors.Is(err, services.ErrCountryNotFound) {
+			c.JSON(http.StatusOK, gin.H{
+				"ip_address":   req.IPAddress,
+				"country_code": "",
+				"found":        false,
+				"message":      "No country found for this IP address",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "GeoIP lookup failed: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ip_address":   req.IPAddress,
+		"country_code": country,
+		"found":        true,
+	})
+}
+
+// GetWAFExclusions returns current WAF rule exclusions from SecurityConfig
+func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
+	cfg, err := h.svc.Get()
+	if err != nil {
+		if err == services.ErrSecurityConfigNotFound {
+			c.JSON(http.StatusOK, gin.H{"exclusions": []WAFExclusion{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
+		return
+	}
+
+	var exclusions []WAFExclusion
+	if cfg.WAFExclusions != "" {
+		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
+			log.WithError(err).Warn("Failed to parse WAF exclusions")
+			exclusions = []WAFExclusion{}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"exclusions": exclusions})
+}
+
+// AddWAFExclusion adds a rule exclusion to the WAF configuration
+func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
+	var req WAFExclusionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "rule_id is required"})
+		return
+	}
+
+	if req.RuleID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "rule_id must be a positive integer"})
+		return
+	}
+
+	cfg, err := h.svc.Get()
+	if err != nil {
+		if err == services.ErrSecurityConfigNotFound {
+			// Create default config with the exclusion
+			cfg = &models.SecurityConfig{Name: "default"}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
+			return
+		}
+	}
+
+	// Parse existing exclusions
+	var exclusions []WAFExclusion
+	if cfg.WAFExclusions != "" {
+		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
+			log.WithError(err).Warn("Failed to parse existing WAF exclusions")
+			exclusions = []WAFExclusion{}
+		}
+	}
+
+	// Check for duplicate rule_id with same target
+	for _, e := range exclusions {
+		if e.RuleID == req.RuleID && e.Target == req.Target {
+			c.JSON(http.StatusConflict, gin.H{"error": "exclusion for this rule_id and target already exists"})
+			return
+		}
+	}
+
+	// Add the new exclusion - convert request to WAFExclusion type
+	newExclusion := WAFExclusion(req)
+	exclusions = append(exclusions, newExclusion)
+
+	// Marshal back to JSON
+	exclusionsJSON, err := json.Marshal(exclusions)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize exclusions"})
+		return
+	}
+
+	cfg.WAFExclusions = string(exclusionsJSON)
+	if err := h.svc.Upsert(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save exclusion"})
+		return
+	}
+
+	// Apply updated config to Caddy
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+		}
+	}
+
+	// Log audit event
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{
+		Actor:   actor,
+		Action:  "add_waf_exclusion",
+		Details: strconv.Itoa(req.RuleID),
+	})
+
+	c.JSON(http.StatusOK, gin.H{"exclusion": newExclusion})
+}
+
+// DeleteWAFExclusion removes a rule exclusion by rule_id
+func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
+	ruleIDParam := c.Param("rule_id")
+	if ruleIDParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "rule_id is required"})
+		return
+	}
+
+	ruleID, err := strconv.Atoi(ruleIDParam)
+	if err != nil || ruleID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rule_id"})
+		return
+	}
+
+	// Get optional target query parameter (for exclusions with specific targets)
+	target := c.Query("target")
+
+	cfg, err := h.svc.Get()
+	if err != nil {
+		if err == services.ErrSecurityConfigNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "exclusion not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
+		return
+	}
+
+	// Parse existing exclusions
+	var exclusions []WAFExclusion
+	if cfg.WAFExclusions != "" {
+		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse exclusions"})
+			return
+		}
+	}
+
+	// Find and remove the exclusion
+	found := false
+	newExclusions := make([]WAFExclusion, 0, len(exclusions))
+	for _, e := range exclusions {
+		// Match by rule_id and target (empty target matches exclusions without target)
+		if e.RuleID == ruleID && e.Target == target {
+			found = true
+			continue // Skip this one (delete it)
+		}
+		newExclusions = append(newExclusions, e)
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "exclusion not found"})
+		return
+	}
+
+	// Marshal back to JSON
+	exclusionsJSON, err := json.Marshal(newExclusions)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize exclusions"})
+		return
+	}
+
+	cfg.WAFExclusions = string(exclusionsJSON)
+	if err := h.svc.Upsert(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save exclusions"})
+		return
+	}
+
+	// Apply updated config to Caddy
+	if h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+		}
+	}
+
+	// Log audit event
+	actor := c.GetString("user_id")
+	if actor == "" {
+		actor = c.ClientIP()
+	}
+	_ = h.svc.LogAudit(&models.SecurityAudit{
+		Actor:   actor,
+		Action:  "delete_waf_exclusion",
+		Details: ruleIDParam,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }

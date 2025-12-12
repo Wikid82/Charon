@@ -878,6 +878,214 @@ type cscliDecision struct {
 	Until     string `json:"until"`
 }
 
+// lapiDecision represents the JSON structure from CrowdSec LAPI /v1/decisions
+type lapiDecision struct {
+	ID        int64  `json:"id"`
+	Origin    string `json:"origin"`
+	Type      string `json:"type"`
+	Scope     string `json:"scope"`
+	Value     string `json:"value"`
+	Duration  string `json:"duration"`
+	Scenario  string `json:"scenario"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Until     string `json:"until,omitempty"`
+}
+
+// GetLAPIDecisions queries CrowdSec LAPI directly for current decisions.
+// This is an alternative to ListDecisions which uses cscli.
+// Query params:
+//   - ip: filter by specific IP address
+//   - scope: filter by scope (e.g., "ip", "range")
+//   - type: filter by decision type (e.g., "ban", "captcha")
+func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
+	// Get LAPI URL from security config or use default
+	lapiURL := "http://localhost:8080"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Build query string
+	queryParams := make([]string, 0)
+	if ip := c.Query("ip"); ip != "" {
+		queryParams = append(queryParams, "ip="+ip)
+	}
+	if scope := c.Query("scope"); scope != "" {
+		queryParams = append(queryParams, "scope="+scope)
+	}
+	if decisionType := c.Query("type"); decisionType != "" {
+		queryParams = append(queryParams, "type="+decisionType)
+	}
+
+	// Build request URL
+	reqURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
+	if len(queryParams) > 0 {
+		reqURL += "?" + strings.Join(queryParams, "&")
+	}
+
+	// Get API key
+	apiKey := getLAPIKey()
+
+	// Create HTTP request with timeout
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to create LAPI decisions request")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+
+	// Add authentication header if API key is available
+	if apiKey != "" {
+		req.Header.Set("X-Api-Key", apiKey)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log().WithError(err).WithField("lapi_url", lapiURL).Warn("Failed to query LAPI decisions")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Handle non-200 responses
+	if resp.StatusCode == http.StatusUnauthorized {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "LAPI authentication failed - check API key configuration"})
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		logger.Log().WithField("status", resp.StatusCode).WithField("lapi_url", lapiURL).Warn("LAPI returned non-OK status")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+
+	// Check content-type to ensure we're getting JSON (not HTML from a proxy/frontend)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !strings.Contains(contentType, "application/json") {
+		logger.Log().WithField("content_type", contentType).WithField("lapi_url", lapiURL).Warn("LAPI returned non-JSON content-type, falling back to cscli")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+
+	// Parse response body
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB limit
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to read LAPI response")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response"})
+		return
+	}
+
+	// Handle null/empty responses
+	if len(body) == 0 || string(body) == "null" || string(body) == "null\n" {
+		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "total": 0, "source": "lapi"})
+		return
+	}
+
+	// Parse JSON
+	var lapiDecisions []lapiDecision
+	if err := json.Unmarshal(body, &lapiDecisions); err != nil {
+		logger.Log().WithError(err).WithField("body", string(body)).Warn("Failed to parse LAPI decisions")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse LAPI response"})
+		return
+	}
+
+	// Convert to our format
+	decisions := make([]CrowdSecDecision, 0, len(lapiDecisions))
+	for _, d := range lapiDecisions {
+		var createdAt time.Time
+		if d.CreatedAt != "" {
+			createdAt, _ = time.Parse(time.RFC3339, d.CreatedAt)
+		}
+		decisions = append(decisions, CrowdSecDecision{
+			ID:        d.ID,
+			Origin:    d.Origin,
+			Type:      d.Type,
+			Scope:     d.Scope,
+			Value:     d.Value,
+			Duration:  d.Duration,
+			Scenario:  d.Scenario,
+			CreatedAt: createdAt,
+			Until:     d.Until,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions), "source": "lapi"})
+}
+
+// getLAPIKey retrieves the LAPI API key from environment variables.
+func getLAPIKey() string {
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// CheckLAPIHealth verifies that CrowdSec LAPI is responding.
+func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
+	// Get LAPI URL from security config or use default
+	lapiURL := "http://localhost:8080"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Create health check request
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	healthURL := strings.TrimRight(lapiURL, "/") + "/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"healthy": false, "error": "failed to create request"})
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Try decisions endpoint as fallback health check
+		decisionsURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodHead, decisionsURL, http.NoBody)
+		resp2, err2 := client.Do(req2)
+		if err2 != nil {
+			c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "LAPI unreachable", "lapi_url": lapiURL})
+			return
+		}
+		defer resp2.Body.Close()
+		// 401 is expected without auth but indicates LAPI is running
+		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusUnauthorized {
+			c.JSON(http.StatusOK, gin.H{"healthy": true, "lapi_url": lapiURL, "note": "health endpoint unavailable, verified via decisions endpoint"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "unexpected status", "status": resp2.StatusCode, "lapi_url": lapiURL})
+		return
+	}
+	defer resp.Body.Close()
+
+	c.JSON(http.StatusOK, gin.H{"healthy": resp.StatusCode == http.StatusOK, "lapi_url": lapiURL, "status": resp.StatusCode})
+}
+
 // ListDecisions calls cscli to get current decisions (banned IPs)
 func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -1023,6 +1231,8 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
+	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)
+	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
 	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
 }

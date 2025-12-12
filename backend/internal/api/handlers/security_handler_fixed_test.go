@@ -1,6 +1,3 @@
-//go:build ignore
-// +build ignore
-
 package handlers
 
 import (
@@ -57,10 +54,11 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 		{
 			name: "All Enabled",
 			cfg: config.SecurityConfig{
-				CrowdSecMode:  "local",
-				WAFMode:       "enabled",
-				RateLimitMode: "enabled",
-				ACLMode:       "enabled",
+				CerberusEnabled: true, // Required for ACL to be effective
+				CrowdSecMode:    "local",
+				WAFMode:         "enabled",
+				RateLimitMode:   "enabled",
+				ACLMode:         "enabled",
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody: map[string]interface{}{

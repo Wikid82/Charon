@@ -406,3 +406,104 @@ func TestSecurityService_LogAudit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "custom-uuid-123", audit2.UUID)
 }
+
+func TestSecurityService_DeleteRuleSet_NotFound(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Try to delete non-existent ruleset
+	err := svc.DeleteRuleSet(9999)
+	assert.Error(t, err)
+}
+
+func TestSecurityService_ListDecisions_UnlimitedAndLimited(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create multiple decisions
+	for i := 0; i < 5; i++ {
+		dec := &models.SecurityDecision{
+			Source:  "test",
+			Action:  "block",
+			IP:      "1.2.3." + string(rune('0'+i)),
+			Host:    "example.com",
+			RuleID:  "test-rule",
+			Details: "test decision",
+		}
+		err := svc.LogDecision(dec)
+		assert.NoError(t, err)
+	}
+
+	// Test unlimited (limit = 0)
+	all, err := svc.ListDecisions(0)
+	assert.NoError(t, err)
+	assert.Len(t, all, 5)
+
+	// Test limited
+	limited, err := svc.ListDecisions(2)
+	assert.NoError(t, err)
+	assert.Len(t, limited, 2)
+}
+
+func TestSecurityService_LogDecision_Nil(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Nil decision should not error
+	err := svc.LogDecision(nil)
+	assert.NoError(t, err)
+}
+
+func TestSecurityService_LogDecision_PrefilledUUID(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	dec := &models.SecurityDecision{
+		UUID:    "custom-decision-uuid",
+		Source:  "manual",
+		Action:  "allow",
+		IP:      "10.0.0.1",
+		Host:    "internal.example.com",
+		RuleID:  "whitelist-1",
+		Details: "whitelisted",
+	}
+	err := svc.LogDecision(dec)
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-decision-uuid", dec.UUID)
+
+	// Verify it was stored with custom UUID
+	var stored models.SecurityDecision
+	err = db.Where("uuid = ?", "custom-decision-uuid").First(&stored).Error
+	assert.NoError(t, err)
+}
+
+func TestSecurityService_ListRuleSets_Empty(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Empty database should return empty slice, not error
+	list, err := svc.ListRuleSets()
+	assert.NoError(t, err)
+	assert.NotNil(t, list)
+	assert.Len(t, list, 0)
+}
+
+func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Test various invalid modes
+	invalidModes := []string{"", "invalid", "External", "LOCAL", "disabled123"}
+	for _, mode := range invalidModes {
+		cfg := &models.SecurityConfig{Name: "default", CrowdSecMode: mode}
+		err := svc.Upsert(cfg)
+		if mode == "" {
+			// Empty mode is valid (defaults to disabled)
+			continue
+		}
+		// Non-empty invalid modes should error
+		if mode != "local" && mode != "disabled" && mode != "" {
+			assert.Error(t, err, "Mode %q should be invalid", mode)
+		}
+	}
+}

@@ -196,3 +196,27 @@ func TestHubCacheListContextCanceled(t *testing.T) {
 	_, err = cache.List(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// ============================================
+// TTL Tests
+// ============================================
+
+func TestHubCacheTTL(t *testing.T) {
+	t.Run("returns configured TTL", func(t *testing.T) {
+		cache, err := NewHubCache(t.TempDir(), 2*time.Hour)
+		require.NoError(t, err)
+		require.Equal(t, 2*time.Hour, cache.TTL())
+	})
+
+	t.Run("returns minute TTL", func(t *testing.T) {
+		cache, err := NewHubCache(t.TempDir(), time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, time.Minute, cache.TTL())
+	})
+
+	t.Run("returns zero TTL if configured", func(t *testing.T) {
+		cache, err := NewHubCache(t.TempDir(), 0)
+		require.NoError(t, err)
+		require.Equal(t, time.Duration(0), cache.TTL())
+	})
+}

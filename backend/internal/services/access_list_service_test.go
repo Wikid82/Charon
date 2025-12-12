@@ -604,3 +604,93 @@ func TestAccessListService_ListFunction(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, lists, 2)
 }
+
+// TestAccessListService_SetGeoIPService tests the GeoIP service setter and getter.
+func TestAccessListService_SetGeoIPService(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	// Initially nil
+	assert.Nil(t, service.GetGeoIPService())
+
+	// Setting nil should work
+	service.SetGeoIPService(nil)
+	assert.Nil(t, service.GetGeoIPService())
+}
+
+// TestAccessListService_GeoACL_NoGeoIPService tests geo ACL behavior when GeoIP service is not available.
+func TestAccessListService_GeoACL_NoGeoIPService(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+	// Don't set GeoIP service
+
+	t.Run("geo_whitelist without GeoIP service allows traffic", func(t *testing.T) {
+		acl := &models.AccessList{
+			Name:         "US Only",
+			Type:         "geo_whitelist",
+			CountryCodes: "US",
+			Enabled:      true,
+		}
+		err := service.Create(acl)
+		assert.NoError(t, err)
+
+		// Should allow with graceful degradation message
+		allowed, reason, err := service.TestIP(acl.ID, "8.8.8.8")
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.Contains(t, reason, "GeoIP database not available")
+	})
+
+	t.Run("geo_blacklist without GeoIP service allows traffic", func(t *testing.T) {
+		acl := &models.AccessList{
+			Name:         "Block Russia",
+			Type:         "geo_blacklist",
+			CountryCodes: "RU",
+			Enabled:      true,
+		}
+		err := service.Create(acl)
+		assert.NoError(t, err)
+
+		// Should allow with graceful degradation message
+		allowed, reason, err := service.TestIP(acl.ID, "1.2.3.4")
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.Contains(t, reason, "GeoIP database not available")
+	})
+}
+
+// TestAccessListService_ParseCountryCodes tests the country code parsing helper.
+func TestAccessListService_ParseCountryCodes(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	t.Run("parse single code", func(t *testing.T) {
+		codes := service.parseCountryCodes("US")
+		assert.Equal(t, []string{"US"}, codes)
+	})
+
+	t.Run("parse multiple codes", func(t *testing.T) {
+		codes := service.parseCountryCodes("US,GB,DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse with spaces", func(t *testing.T) {
+		codes := service.parseCountryCodes("US, GB, DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse with lowercase", func(t *testing.T) {
+		codes := service.parseCountryCodes("us,gb,de")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse empty string", func(t *testing.T) {
+		codes := service.parseCountryCodes("")
+		assert.Nil(t, codes)
+	})
+
+	t.Run("parse with empty entries", func(t *testing.T) {
+		codes := service.parseCountryCodes("US,,GB,,,DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+}

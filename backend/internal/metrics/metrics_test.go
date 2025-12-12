@@ -16,22 +16,37 @@ func TestMetrics_Register(t *testing.T) {
 		Register(reg)
 	})
 
+	// Increment each metric at least once so they appear in Gather()
+	IncWAFRequest()
+	IncWAFBlocked()
+	IncWAFMonitored()
+	IncCrowdSecRequest()
+	IncCrowdSecBlocked()
+
 	// Verify metrics are registered by gathering them
 	metrics, err := reg.Gather()
 	assert.NoError(t, err)
-	assert.GreaterOrEqual(t, len(metrics), 3)
+	assert.GreaterOrEqual(t, len(metrics), 5)
 
-	// Check that our WAF metrics exist
-	hasWAFMetrics := 0
+	// Check that our WAF and CrowdSec metrics exist
+	expectedMetrics := map[string]bool{
+		"charon_waf_requests_total":      false,
+		"charon_waf_blocked_total":       false,
+		"charon_waf_monitored_total":     false,
+		"charon_crowdsec_requests_total": false,
+		"charon_crowdsec_blocked_total":  false,
+	}
+
 	for _, m := range metrics {
 		name := m.GetName()
-		if name == "charon_waf_requests_total" ||
-			name == "charon_waf_blocked_total" ||
-			name == "charon_waf_monitored_total" {
-			hasWAFMetrics++
+		if _, ok := expectedMetrics[name]; ok {
+			expectedMetrics[name] = true
 		}
 	}
-	assert.Equal(t, 3, hasWAFMetrics, "All three WAF metrics should be registered")
+
+	for name, found := range expectedMetrics {
+		assert.True(t, found, "Metric %s should be registered", name)
+	}
 }
 
 func TestMetrics_Increment(t *testing.T) {
@@ -48,6 +63,14 @@ func TestMetrics_Increment(t *testing.T) {
 		IncWAFMonitored()
 	})
 
+	assert.NotPanics(t, func() {
+		IncCrowdSecRequest()
+	})
+
+	assert.NotPanics(t, func() {
+		IncCrowdSecBlocked()
+	})
+
 	// Multiple increments should also not panic
 	assert.NotPanics(t, func() {
 		IncWAFRequest()
@@ -56,5 +79,7 @@ func TestMetrics_Increment(t *testing.T) {
 		IncWAFMonitored()
 		IncWAFMonitored()
 		IncWAFMonitored()
+		IncCrowdSecRequest()
+		IncCrowdSecBlocked()
 	})
 }

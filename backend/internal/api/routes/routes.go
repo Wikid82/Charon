@@ -4,6 +4,7 @@ package routes
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/gzip"
@@ -301,8 +302,30 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 
+		// Initialize GeoIP service if database exists
+		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
+		if geoipPath == "" {
+			geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
+		}
+
+		var geoipSvc *services.GeoIPService
+		if _, err := os.Stat(geoipPath); err == nil {
+			var geoErr error
+			geoipSvc, geoErr = services.NewGeoIPService(geoipPath)
+			if geoErr != nil {
+				logger.Log().WithError(geoErr).WithField("path", geoipPath).Warn("Failed to load GeoIP database - geo-blocking features will be unavailable")
+			} else {
+				logger.Log().WithField("path", geoipPath).Info("GeoIP database loaded successfully")
+			}
+		} else {
+			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
+		}
+
 		// Security Status
 		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
+		if geoipSvc != nil {
+			securityHandler.SetGeoIPService(geoipSvc)
+		}
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
@@ -315,6 +338,15 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
 		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
 		protected.DELETE("/security/rulesets/:id", securityHandler.DeleteRuleSet)
+		protected.GET("/security/rate-limit/presets", securityHandler.GetRateLimitPresets)
+		// GeoIP endpoints
+		protected.GET("/security/geoip/status", securityHandler.GetGeoIPStatus)
+		protected.POST("/security/geoip/reload", securityHandler.ReloadGeoIP)
+		protected.POST("/security/geoip/lookup", securityHandler.LookupGeoIP)
+		// WAF exclusion endpoints
+		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
+		protected.POST("/security/waf/exclusions", securityHandler.AddWAFExclusion)
+		protected.DELETE("/security/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
@@ -325,6 +357,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)
+		if geoipSvc != nil {
+			accessListHandler.SetGeoIPService(geoipSvc)
+		}
 		protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
 		protected.GET("/access-lists", accessListHandler.List)
 		protected.POST("/access-lists", accessListHandler.Create)
