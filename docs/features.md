@@ -511,6 +511,56 @@ Uses WebSocket technology to stream logs with zero delay.
 
 ---
 
+## 🧪 Cerberus Security Testing
+
+The Cerberus security suite includes comprehensive testing to ensure all features work correctly together.
+
+### Full Integration Test Suite
+
+**What it does:** Validates that all Cerberus security layers (CrowdSec, WAF, ACL, Rate Limiting) work together without conflicts.
+
+**Why you care:** Ensures your security stack is reliable and that enabling one feature doesn't break another.
+
+**Test coverage includes:**
+
+- All features enabling simultaneously without errors
+- Correct security pipeline order verification (Decisions → CrowdSec → WAF → Rate Limit → ACL)
+- WAF blocking doesn't consume rate limit quota
+- Security decisions are enforced before rate limiting
+- Legitimate traffic flows through all security layers
+- Latency benchmarks to ensure minimal performance overhead
+
+**How to run tests:**
+
+```bash
+# Run full integration script
+bash scripts/cerberus_integration.sh
+
+# Or via Go test
+cd backend && go test -tags=integration ./integration -run TestCerberusIntegration -v
+```
+
+### UI/UX Test Coverage
+
+**What it does:** Ensures the Cerberus Dashboard and security configuration pages work correctly.
+
+**Coverage includes:**
+
+- Security card status display (Active/Disabled indicators)
+- Loading states and Cerberus-themed overlays
+- Error handling and toast notifications
+- Mobile responsive design testing
+
+**Mobile responsive testing:**
+
+- Dashboard cards stack on mobile (375px), 2-column on tablet (768px), 4-column on desktop
+- Touch-friendly toggle switches (minimum 44px targets)
+- Scrollable modals and overlays on small screens
+
+**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases.
+
+---
+
 ## Missing Something?
 
 **[Request a feature](https://github.com/Wikid82/charon/discussions)** — Tell us what you need!
