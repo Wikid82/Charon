@@ -239,6 +239,33 @@ and lets you manage your security configuration easily.
 
 - **Live Decisions:** See exactly who is being blocked and why in real-time.
 
+### Rate Limiting
+
+**What it does:** Limits how many requests any single IP can make in a given time window.
+
+**Why you care:** Stops aggressive bots or abusive users from overwhelming your server.
+
+**Where to find it:** Cerberus → Dashboard → Rate Limiting card, or click "Configure"
+for full settings.
+
+**Dashboard features:**
+
+- **Status Badge:** The Rate Limiting card shows a clear "Active" or "Disabled" badge
+  so you know at a glance if protection is enabled.
+- **Quick View:** See the current configuration directly on the Security dashboard.
+
+**Configuration page features:**
+
+- **Active Summary Card:** When rate limiting is enabled, a green summary card at the
+  top shows your current settings (requests/sec, burst limit, time window).
+- **Real-time Updates:** Changes take effect immediately without server restart.
+
+**Settings:**
+
+- **Requests per Second:** Maximum sustained request rate (e.g., 10/sec)
+- **Burst Limit:** Allow short bursts above the limit (e.g., 20 requests)
+- **Time Window:** How long to track requests (e.g., 60 seconds)
+
 ---
 
 ## \ud83d\udc33 Docker Integration

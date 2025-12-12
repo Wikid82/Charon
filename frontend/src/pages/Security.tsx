@@ -366,8 +366,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.rate_limit.enabled ? 'Active' : 'Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.rate_limit.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.rate_limit.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Protects against: DDoS attacks, credential stuffing, API abuse

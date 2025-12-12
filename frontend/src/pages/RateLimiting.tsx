@@ -101,6 +101,21 @@ export default function RateLimiting() {
           </div>
         </div>
 
+        {/* Active Settings Summary */}
+        {enabled && config && (
+          <Card className="bg-green-900/20 border-green-800/50">
+            <div className="flex items-center gap-4">
+              <div className="text-green-400 text-2xl">✓</div>
+              <div>
+                <h3 className="text-sm font-semibold text-green-300">Currently Active</h3>
+                <p className="text-sm text-green-200/90">
+                  {config.rate_limit_requests} requests/sec • Burst: {config.rate_limit_burst} • Window: {config.rate_limit_window_sec}s
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Enable/Disable Toggle */}
         <Card>
           <div className="flex items-center justify-between">

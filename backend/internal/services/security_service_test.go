@@ -314,6 +314,61 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// 1. Create initial config with rate limit settings
+	initialCfg := &models.SecurityConfig{
+		Name:               "default",
+		Enabled:            true,
+		RateLimitEnable:    true,
+		RateLimitBurst:     10,
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		WAFLearning:        false,
+		CrowdSecAPIURL:     "http://localhost:8080",
+		WAFRulesSource:     "owasp-crs",
+	}
+	err := svc.Upsert(initialCfg)
+	assert.NoError(t, err)
+
+	// Verify initial values
+	got, err := svc.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, 100, got.RateLimitRequests)
+	assert.Equal(t, 60, got.RateLimitWindowSec)
+	assert.Equal(t, 10, got.RateLimitBurst)
+	assert.False(t, got.WAFLearning)
+	assert.Equal(t, "http://localhost:8080", got.CrowdSecAPIURL)
+	assert.Equal(t, "owasp-crs", got.WAFRulesSource)
+
+	// 2. Update rate limit settings via Upsert
+	updatedCfg := &models.SecurityConfig{
+		Name:               "default",
+		Enabled:            true,
+		RateLimitEnable:    true,
+		RateLimitBurst:     50,
+		RateLimitRequests:  500,
+		RateLimitWindowSec: 120,
+		WAFLearning:        true,
+		CrowdSecAPIURL:     "http://crowdsec:8080",
+		WAFRulesSource:     "custom-rules",
+	}
+	err = svc.Upsert(updatedCfg)
+	assert.NoError(t, err)
+
+	// 3. Verify all fields persisted correctly via Get()
+	got, err = svc.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, 500, got.RateLimitRequests, "RateLimitRequests should be updated")
+	assert.Equal(t, 120, got.RateLimitWindowSec, "RateLimitWindowSec should be updated")
+	assert.Equal(t, 50, got.RateLimitBurst, "RateLimitBurst should be updated")
+	assert.True(t, got.WAFLearning, "WAFLearning should be updated")
+	assert.Equal(t, "http://crowdsec:8080", got.CrowdSecAPIURL, "CrowdSecAPIURL should be updated")
+	assert.Equal(t, "custom-rules", got.WAFRulesSource, "WAFRulesSource should be updated")
+}
+
 func TestSecurityService_LogAudit(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := NewSecurityService(db)

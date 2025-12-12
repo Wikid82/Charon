@@ -89,9 +89,14 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 		return fmt.Errorf("invalid crowdsec mode: %s", cfg.CrowdSecMode)
 	}
 	existing.CrowdSecMode = cfg.CrowdSecMode
+	existing.CrowdSecAPIURL = cfg.CrowdSecAPIURL
 	existing.WAFMode = cfg.WAFMode
+	existing.WAFRulesSource = cfg.WAFRulesSource
+	existing.WAFLearning = cfg.WAFLearning
 	existing.RateLimitEnable = cfg.RateLimitEnable
 	existing.RateLimitBurst = cfg.RateLimitBurst
+	existing.RateLimitRequests = cfg.RateLimitRequests
+	existing.RateLimitWindowSec = cfg.RateLimitWindowSec
 
 	return s.db.Save(&existing).Error
 }
