@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import type { Certificate } from '../api/certificates'
@@ -13,14 +14,46 @@ export default function CertificateStatusCard({ certificates, hosts }: Certifica
   const expiringCount = certificates.filter(c => c.status === 'expiring').length
   const untrustedCount = certificates.filter(c => c.status === 'untrusted').length
 
-  // Pending = hosts with ssl_forced and enabled but no certificate_id
-  const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)
-  const hostsWithCerts = sslHosts.filter(h => h.certificate_id != null)
-  const pendingCount = sslHosts.length - hostsWithCerts.length
+  // Build a set of all domains that have certificates (case-insensitive)
+  // ACME certificates (Let's Encrypt) are auto-managed and don't set certificate_id,
+  // so we match by domain name instead
+  const certifiedDomains = useMemo(() => {
+    const domains = new Set<string>()
+    certificates.forEach(cert => {
+      // Handle missing or undefined domain field
+      if (!cert.domain) return
+      // Certificate domain field can be comma-separated
+      cert.domain.split(',').forEach(d => {
+        const trimmed = d.trim().toLowerCase()
+        if (trimmed) domains.add(trimmed)
+      })
+    })
+    return domains
+  }, [certificates])
+
+  // Calculate pending hosts: SSL-enabled hosts without any domain covered by a certificate
+  const { pendingCount, totalSSLHosts, hostsWithCerts } = useMemo(() => {
+    const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)
+
+    let withCerts = 0
+    sslHosts.forEach(host => {
+      // Check if any of the host's domains have a certificate
+      const hostDomains = host.domain_names.split(',').map(d => d.trim().toLowerCase())
+      if (hostDomains.some(domain => certifiedDomains.has(domain))) {
+        withCerts++
+      }
+    })
+
+    return {
+      pendingCount: sslHosts.length - withCerts,
+      totalSSLHosts: sslHosts.length,
+      hostsWithCerts: withCerts,
+    }
+  }, [hosts, certifiedDomains])
 
   const hasProvisioning = pendingCount > 0
-  const progressPercent = sslHosts.length > 0
-    ? Math.round((hostsWithCerts.length / sslHosts.length) * 100)
+  const progressPercent = totalSSLHosts > 0
+    ? Math.round((hostsWithCerts / totalSSLHosts) * 100)
     : 100
 
   return (
