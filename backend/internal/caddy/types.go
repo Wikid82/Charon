@@ -3,9 +3,15 @@ package caddy
 // Config represents Caddy's top-level JSON configuration structure.
 // Reference: https://caddyserver.com/docs/json/
 type Config struct {
+	Admin   *AdminConfig   `json:"admin,omitempty"`
 	Apps    Apps           `json:"apps"`
 	Logging *LoggingConfig `json:"logging,omitempty"`
 	Storage Storage        `json:"storage,omitempty"`
+}
+
+// AdminConfig configures Caddy's admin API endpoint.
+type AdminConfig struct {
+	Listen string `json:"listen,omitempty"` // e.g., "0.0.0.0:2019" or ":2019"
 }
 
 // LoggingConfig configures Caddy's logging facility.

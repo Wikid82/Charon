@@ -20,11 +20,13 @@ In staging mode:
 - ❌ Browsers don't trust the certificates (they show "Not Secure")
 
 **Use staging when:**
+
 - Testing new domains
 - Rebuilding containers repeatedly
 - Learning how SSL works
 
 **Use production when:**
+
 - Your site is ready for visitors
 - You need the green lock to show up
 
@@ -114,10 +116,12 @@ too many certificates already issued
 ```
 
 **Production limits:**
+
 - 50 certificates per domain per week
 - 5 duplicate certificates per week
 
 **Staging limits:**
+
 - Basically unlimited (thousands per week)
 
 **How to check current limits:** Visit [letsencrypt.org/docs/rate-limits](https://letsencrypt.org/docs/rate-limits/)

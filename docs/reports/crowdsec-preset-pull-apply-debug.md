@@ -1,7 +1,9 @@
 # CrowdSec Preset Pull/Apply Flow - Debug Report
 
 ## Issue Summary
+
 User reported that pulling CrowdSec presets appeared to succeed, but applying them failed with "preset not cached" error, suggesting either:
+
 1. Pull was failing silently
 2. Cache was not being saved correctly
 3. Apply was looking in the wrong location
@@ -10,6 +12,7 @@ User reported that pulling CrowdSec presets appeared to succeed, but applying th
 ## Investigation Results
 
 ### Architecture Overview
+
 The CrowdSec preset system has three main components:
 
 1. **HubCache** (`backend/internal/crowdsec/hub_cache.go`)
@@ -27,6 +30,7 @@ The CrowdSec preset system has three main components:
    - Manages hub service and cache initialization
 
 ### Pull Flow (What Actually Happens)
+
 ```
 1. Frontend POST /admin/crowdsec/presets/pull {slug: "test/preset"}
 2. Handler.PullPreset() calls Hub.Pull()
@@ -42,6 +46,7 @@ The CrowdSec preset system has three main components:
 ```
 
 ### Apply Flow (What Actually Happens)
+
 ```
 1. Frontend POST /admin/crowdsec/presets/apply {slug: "test/preset"}
 2. Handler.ApplyPreset() calls Hub.Apply()
@@ -63,6 +68,7 @@ The CrowdSec preset system has three main components:
 4. ✅ **Permissions are fine**: Tests show no permission issues
 
 **However, there was a lack of visibility:**
+
 - Pull/apply operations had minimal logging
 - Errors could be hard to diagnose without detailed logs
 - Cache operations were opaque to operators
@@ -74,16 +80,19 @@ The CrowdSec preset system has three main components:
 Added detailed logging at every critical point:
 
 **HubCache Operations** (`hub_cache.go`):
+
 - Store: Log cache directory, file sizes, paths created
 - Load: Log cache lookups, hits/misses, expiration checks
 - Include full file paths for debugging
 
 **HubService Operations** (`hub_sync.go`):
+
 - Pull: Log archive download, preview fetch, cache storage
 - Apply: Log cache lookup, file extraction, backup creation
 - Track each step with context
 
 **Handler Operations** (`crowdsec_handler.go`):
+
 - PullPreset: Log cache directory checks, file existence verification
 - ApplyPreset: Log cache status before apply, list cached slugs if miss occurs
 - Include hub base URL and slug in all logs
@@ -91,11 +100,13 @@ Added detailed logging at every critical point:
 ### 2. Enhanced Error Messages
 
 **Before:**
+
 ```
 error: "cscli unavailable and no cached preset; pull the preset or install cscli"
 ```
 
 **After:**
+
 ```
 error: "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
 ```
@@ -105,6 +116,7 @@ More user-friendly with actionable guidance.
 ### 3. Verification Checks
 
 Added file existence verification after cache operations:
+
 - After pull: Check that archive and preview files exist
 - Before apply: Check cache and verify files are still present
 - Log any discrepancies immediately
@@ -114,12 +126,14 @@ Added file existence verification after cache operations:
 Created new test suite to verify pull→apply workflow:
 
 **`hub_pull_apply_test.go`**:
+
 - `TestPullThenApplyFlow`: End-to-end pull→apply test
 - `TestApplyWithoutPullFails`: Verify proper error when cache missing
 - `TestCacheExpiration`: Verify TTL enforcement
 - `TestCacheListAfterPull`: Verify cache listing works
 
 **`crowdsec_pull_apply_integration_test.go`**:
+
 - `TestPullThenApplyIntegration`: HTTP handler integration test
 - `TestApplyWithoutPullReturnsProperError`: Error message validation
 
@@ -128,6 +142,7 @@ All tests pass ✅
 ## Example Log Output
 
 ### Successful Pull
+
 ```
 level=info msg="attempting to pull preset" cache_dir=/data/hub_cache slug=test/preset
 level=info msg="storing preset in cache" archive_size=158 etag=abc123 preview_size=24 slug=test/preset
@@ -140,6 +155,7 @@ level=info msg="preset pulled and cached successfully" ...
 ```
 
 ### Successful Apply
+
 ```
 level=info msg="attempting to apply preset" cache_dir=/data/hub_cache slug=test/preset
 level=info msg="preset found in cache"
@@ -150,6 +166,7 @@ level=info msg="successfully loaded cached preset metadata" ...
 ```
 
 ### Cache Miss Error
+
 ```
 level=info msg="attempting to apply preset" slug=test/preset
 level=warning msg="preset not found in cache before apply" error="cache miss" slug=test/preset
@@ -162,11 +179,13 @@ level=warning msg="crowdsec preset apply failed" error="preset not cached" ...
 To verify the fix works, follow these steps:
 
 1. **Build the updated backend:**
+
    ```bash
    cd backend && go build ./cmd/api
    ```
 
 2. **Run the backend with logging enabled:**
+
    ```bash
    ./api
    ```
@@ -180,9 +199,11 @@ To verify the fix works, follow these steps:
    - Should succeed without "preset not cached" error
 
 5. **Verify cache contents:**
+
    ```bash
    ls -la data/hub_cache/
    ```
+
    Should show preset directories with files.
 
 ## Files Modified
@@ -220,6 +241,7 @@ The pull→apply functionality was working correctly from an implementation stan
 5. ✅ File paths are logged for manual verification
 
 **If users still experience "preset not cached" errors, the logs will now clearly show:**
+
 - Whether pull succeeded
 - Where files were saved
 - Whether files still exist when apply runs

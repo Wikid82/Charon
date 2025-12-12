@@ -1,6 +1,7 @@
 # Sub-Issues for Bulk ACL Testing
 
 ## Parent Issue
+
 [Link to main testing issue]
 
 ---
@@ -15,6 +16,7 @@
 Test the core functionality of the bulk ACL feature - selecting hosts and applying access lists.
 
 **Test Checklist:**
+
 - [ ] Navigate to Proxy Hosts page
 - [ ] Verify checkbox column appears in table
 - [ ] Select individual hosts using checkboxes
@@ -27,6 +29,7 @@ Test the core functionality of the bulk ACL feature - selecting hosts and applyi
 - [ ] Check database to verify `access_list_id` fields updated
 
 **Expected Results:**
+
 - All checkboxes functional
 - Selection count accurate
 - Modal displays correctly
@@ -47,6 +50,7 @@ Test the core functionality of the bulk ACL feature - selecting hosts and applyi
 Test the ability to remove access lists from multiple hosts simultaneously.
 
 **Test Checklist:**
+
 - [ ] Select hosts that have ACLs assigned
 - [ ] Open Bulk Actions modal
 - [ ] Select "🚫 Remove Access List" option
@@ -57,6 +61,7 @@ Test the ability to remove access lists from multiple hosts simultaneously.
 - [ ] Check database to verify `access_list_id` is NULL
 
 **Expected Results:**
+
 - Removal option clearly visible
 - Confirmation dialog prevents accidental removal
 - All selected hosts have ACL removed
@@ -76,6 +81,7 @@ Test the ability to remove access lists from multiple hosts simultaneously.
 Test error scenarios and edge cases to ensure graceful degradation.
 
 **Test Checklist:**
+
 - [ ] Select multiple hosts including one that doesn't exist
 - [ ] Apply ACL via bulk action
 - [ ] Verify toast shows partial success: "Updated X host(s), Y failed"
@@ -86,6 +92,7 @@ Test error scenarios and edge cases to ensure graceful degradation.
 - [ ] Test applying invalid ACL ID (edge case)
 
 **Expected Results:**
+
 - Partial failures handled gracefully
 - Clear error messages displayed
 - No data corruption on partial failures
@@ -105,6 +112,7 @@ Test error scenarios and edge cases to ensure graceful degradation.
 Test the user interface and experience aspects of the bulk ACL feature.
 
 **Test Checklist:**
+
 - [ ] Verify checkboxes align properly in table
 - [ ] Test checkbox hover states
 - [ ] Verify "Bulk Actions" button appears/disappears based on selection
@@ -117,6 +125,7 @@ Test the user interface and experience aspects of the bulk ACL feature.
 - [ ] Test on mobile viewport (responsive design)
 
 **Expected Results:**
+
 - Clean, professional UI
 - Intuitive user flow
 - Proper loading states
@@ -137,6 +146,7 @@ Test the user interface and experience aspects of the bulk ACL feature.
 Test the feature in realistic scenarios and with varying data loads.
 
 **Test Checklist:**
+
 - [ ] Create new ACL, immediately apply to multiple hosts
 - [ ] Verify Caddy config reloads once (not per host)
 - [ ] Test with 1 host selected
@@ -149,6 +159,7 @@ Test the feature in realistic scenarios and with varying data loads.
 - [ ] Test concurrent user scenarios (multi-tab if possible)
 
 **Expected Results:**
+
 - Single Caddy reload per bulk operation
 - Performance acceptable up to 50+ hosts
 - No race conditions with rapid operations
@@ -168,6 +179,7 @@ Test the feature in realistic scenarios and with varying data loads.
 Verify the feature works across all major browsers and devices.
 
 **Test Checklist:**
+
 - [ ] Chrome/Chromium (latest)
 - [ ] Firefox (latest)
 - [ ] Safari (macOS/iOS)
@@ -176,6 +188,7 @@ Verify the feature works across all major browsers and devices.
 - [ ] Mobile Safari (iOS)
 
 **Expected Results:**
+
 - Feature works identically across all browsers
 - No CSS layout issues
 - No JavaScript errors in console
@@ -195,6 +208,7 @@ Verify the feature works across all major browsers and devices.
 Ensure the new bulk ACL feature doesn't break existing functionality.
 
 **Test Checklist:**
+
 - [ ] Verify individual proxy host edit still works
 - [ ] Confirm single-host ACL assignment unchanged
 - [ ] Test proxy host creation with ACL pre-selected
@@ -208,6 +222,7 @@ Ensure the new bulk ACL feature doesn't break existing functionality.
 - [ ] Test proxy host enable/disable toggle
 
 **Expected Results:**
+
 - Zero regressions
 - All existing features work as before
 - No performance degradation
@@ -232,6 +247,7 @@ For each sub-issue above:
 ## Testing Progress Tracking
 
 Update the parent issue with:
+
 ```markdown
 ## Sub-Issues Progress
 

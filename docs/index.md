@@ -1,4 +1,4 @@
-# Welcome to Charon!
+# Welcome to Charon
 
 **You're in the right place.** These guides explain everything in plain English, no technical jargon.
 

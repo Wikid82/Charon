@@ -47,6 +47,7 @@ go test ./... -v
 ```
 
 All backend test suites passed:
+
 - `internal/api/handlers`: PASS
 - `internal/services`: PASS (82.7% coverage)
 - `internal/models`: PASS
@@ -55,6 +56,7 @@ All backend test suites passed:
 - `internal/version`: PASS (100% coverage)
 
 **Rate Limiting Specific Tests:**
+
 - `TestSecurityService_Upsert_RateLimitFieldsPersist`: PASS
 - Config generation tests with rate_limit handler: PASS
 - Pipeline order tests (CrowdSec → WAF → rate_limit → ACL): PASS
@@ -88,19 +90,22 @@ npm test -- --run
 ```
 
 **Results:**
+
 - Total: 730 tests
 - Passed: 727
 - Skipped: 2
 - Failed: 1
 
 **Failed Test:**
-- **File:** [src/pages/__tests__/SMTPSettings.test.tsx](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L60)
+
+- **File:** [src/pages/**tests**/SMTPSettings.test.tsx](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L60)
 - **Test:** `renders SMTP form with existing config`
 - **Error:** `AssertionError: expected '' to be 'smtp.example.com'`
 - **Root Cause:** Flaky test timing issue with async form population, unrelated to Rate Limiting changes
 
 **Rate Limiting Tests:**
-- [src/pages/__tests__/RateLimiting.spec.tsx](frontend/src/pages/__tests__/RateLimiting.spec.tsx): **9/9 PASS** ✅
+
+- [src/pages/**tests**/RateLimiting.spec.tsx](frontend/src/pages/__tests__/RateLimiting.spec.tsx): **9/9 PASS** ✅
 
 ### 6. GolangCI-Lint
 
@@ -141,6 +146,7 @@ type SecurityConfig struct {
 ### Pipeline Order Verified
 
 The security pipeline correctly positions rate limiting:
+
 1. CrowdSec (IP reputation)
 2. WAF (Coraza)
 3. **Rate Limiting** ← Position confirmed
@@ -153,14 +159,17 @@ The security pipeline correctly positions rate limiting:
 ## Recommendations
 
 ### Immediate Actions
+
 None required for Rate Limiting changes.
 
 ### Technical Debt
+
 1. **SMTPSettings.test.tsx flaky test** - Consider adding longer waitFor timeout or stabilizing the async assertion pattern
-   - Location: [frontend/src/pages/__tests__/SMTPSettings.test.tsx#L60](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L60)
+   - Location: [frontend/src/pages/**tests**/SMTPSettings.test.tsx#L60](frontend/src/pages/__tests__/SMTPSettings.test.tsx#L60)
    - Priority: Low (not blocking)
 
 ### Code Quality Notes
+
 - Coverage maintained above 85% threshold ✅
 - No new linter warnings introduced ✅
 - All Rate Limiting specific tests passing ✅

@@ -1,5 +1,7 @@
 # QA Security Audit Report: Loading Overlays
+
 ## Date: 2025-12-04
+
 ## Feature: Thematic Loading Overlays (Charon, Coin, Cerberus)
 
 ---
@@ -15,6 +17,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
 ## 🔍 AUDIT SCOPE
 
 ### Components Tested
+
 1. **LoadingStates.tsx** - Core animation components
    - `CharonLoader` (blue boat theme)
    - `CharonCoinLoader` (gold coin theme)
@@ -22,6 +25,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
    - `ConfigReloadOverlay` (wrapper with theme support)
 
 ### Pages Audited
+
 1. **Login.tsx** - Coin theme (authentication)
 2. **ProxyHosts.tsx** - Charon theme (proxy operations)
 3. **WafConfig.tsx** - Cerberus theme (security operations)
@@ -33,23 +37,27 @@ The loading overlay implementation has been thoroughly audited and tested. The f
 ## 🛡️ SECURITY FINDINGS
 
 ### ✅ PASSED: XSS Protection
+
 - **Test**: Injected `<script>alert("XSS")</script>` in message prop
 - **Result**: React automatically escapes all HTML - no XSS vulnerability
 - **Evidence**: DOM inspection shows literal text, no script execution
 
 ### ✅ PASSED: Input Validation
+
 - **Test**: Extremely long strings (10,000 characters)
 - **Result**: Renders without crashing, no performance degradation
 - **Test**: Special characters and unicode
 - **Result**: Handles all character sets correctly
 
 ### ✅ PASSED: Type Safety
+
 - **Test**: Invalid type prop injection
 - **Result**: Defaults gracefully to 'charon' theme
 - **Test**: Null/undefined props
 - **Result**: Handles edge cases without errors (minor: null renders empty, not "null")
 
 ### ✅ PASSED: Race Conditions
+
 - **Test**: Rapid-fire button clicks during overlay
 - **Result**: Form inputs disabled during mutation, prevents duplicate requests
 - **Implementation**: Checked Login.tsx, ProxyHosts.tsx - all inputs disabled when `isApplyingConfig` is true
@@ -59,6 +67,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
 ## 🎨 THEME IMPLEMENTATION
 
 ### ✅ Charon Theme (Proxy Operations)
+
 - **Color**: Blue (`bg-blue-950/90`, `border-blue-900/50`)
 - **Animation**: `animate-bob-boat` (boat bobbing on waves)
 - **Pages**: ProxyHosts, Certificates
@@ -69,6 +78,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
   - Bulk: "Ferrying {count} souls..." / "Bulk operation crossing the river"
 
 ### ✅ Coin Theme (Authentication)
+
 - **Color**: Gold/Amber (`bg-amber-950/90`, `border-amber-900/50`)
 - **Animation**: `animate-spin-y` (3D spinning obol coin)
 - **Pages**: Login
@@ -76,6 +86,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
   - Login: "Paying the ferryman..." / "Your obol grants passage"
 
 ### ✅ Cerberus Theme (Security Operations)
+
 - **Color**: Red (`bg-red-950/90`, `border-red-900/50`)
 - **Animation**: `animate-rotate-head` (three heads moving)
 - **Pages**: WafConfig, Security, CrowdSecConfig, AccessLists
@@ -91,6 +102,7 @@ The loading overlay implementation has been thoroughly audited and tested. The f
 ## 🧪 TEST RESULTS
 
 ### Component Tests (LoadingStates.security.test.tsx)
+
 ```
 Total: 41 tests
 Passed: 40 ✅
@@ -98,12 +110,14 @@ Failed: 1 ⚠️ (minor edge case, not a bug)
 ```
 
 **Failed Test Analysis**:
+
 - **Test**: `handles null message`
 - **Issue**: React doesn't render `null` as the string "null", it renders nothing
 - **Impact**: NONE - Production code never passes null (TypeScript prevents it)
 - **Action**: Test expectation incorrect, not component bug
 
 ### Integration Coverage
+
 - ✅ Login.tsx: Coin overlay on authentication
 - ✅ ProxyHosts.tsx: Charon overlay on CRUD operations
 - ✅ WafConfig.tsx: Cerberus overlay on ruleset operations
@@ -111,6 +125,7 @@ Failed: 1 ⚠️ (minor edge case, not a bug)
 - ✅ CrowdSecConfig.tsx: Cerberus overlay on config operations
 
 ### Existing Test Suite
+
 ```
 ProxyHosts tests: 51 tests PASSING ✅
 ProxyHostForm tests: 22 tests PASSING ✅
@@ -122,6 +137,7 @@ Total frontend suite: 100+ tests PASSING ✅
 ## 🎯 CSS ANIMATIONS
 
 ### ✅ All Keyframes Defined (index.css)
+
 ```css
 @keyframes bob-boat { ... }        // Charon boat bobbing
 @keyframes pulse-glow { ... }      // Sail pulsing
@@ -130,6 +146,7 @@ Total frontend suite: 100+ tests PASSING ✅
 ```
 
 ### Performance
+
 - **Render Time**: All loaders < 100ms (tested)
 - **Animation Frame Rate**: Smooth 60fps (CSS-based, GPU accelerated)
 - **Bundle Impact**: +2KB minified (SVG components)
@@ -153,6 +170,7 @@ z-50: Config reload overlay ✅ (blocks everything)
 ## ♿ ACCESSIBILITY
 
 ### ✅ PASSED: ARIA Labels
+
 - All loaders have `role="status"`
 - Specific aria-labels:
   - CharonLoader: `aria-label="Loading"`
@@ -160,6 +178,7 @@ z-50: Config reload overlay ✅ (blocks everything)
   - CerberusLoader: `aria-label="Security Loading"`
 
 ### ✅ PASSED: Keyboard Navigation
+
 - Overlay blocks all interactions (intentional)
 - No keyboard traps (overlay clears on completion)
 - Screen readers announce status changes
@@ -177,17 +196,20 @@ The only "failure" was a test that expected React to render `null` as the string
 ## 🚀 PERFORMANCE TESTING
 
 ### Load Time Tests
+
 - CharonLoader: 2-4ms ✅
 - CharonCoinLoader: 2-3ms ✅
 - CerberusLoader: 2-3ms ✅
 - ConfigReloadOverlay: 3-4ms ✅
 
 ### Memory Impact
+
 - No memory leaks detected
 - Overlay properly unmounts on completion
 - React Query handles cleanup automatically
 
 ### Network Resilience
+
 - ✅ Timeout handling: Overlay clears on error
 - ✅ Network failure: Error toast shows, overlay clears
 - ✅ Caddy restart: Waits for completion, then clears
@@ -220,18 +242,23 @@ From current_spec.md:
 ## 🔧 RECOMMENDED FIXES
 
 ### 1. Minor Test Fix (Optional)
+
 **File**: `frontend/src/components/__tests__/LoadingStates.security.test.tsx`
 **Line**: 245
 **Current**:
+
 ```tsx
 expect(screen.getByText('null')).toBeInTheDocument()
 ```
+
 **Fix**:
+
 ```tsx
 // Verify message is empty when null is passed (React doesn't render null as "null")
 const messages = container.querySelectorAll('.text-slate-100')
 expect(messages[0].textContent).toBe('')
 ```
+
 **Priority**: LOW (test only, doesn't affect production)
 
 ---
@@ -239,16 +266,19 @@ expect(messages[0].textContent).toBe('')
 ## 📊 CODE QUALITY METRICS
 
 ### TypeScript Coverage
+
 - ✅ All components strongly typed
 - ✅ Props use explicit interfaces
 - ✅ No `any` types used
 
 ### Code Duplication
+
 - ✅ Single source of truth: `LoadingStates.tsx`
 - ✅ Shared `getMessage()` pattern across pages
 - ✅ Consistent theme configuration
 
 ### Maintainability
+
 - ✅ Well-documented JSDoc comments
 - ✅ Clear separation of concerns
 - ✅ Easy to add new themes (extend type union)
@@ -258,6 +288,7 @@ expect(messages[0].textContent).toBe('')
 ## 🎓 DEVELOPER NOTES
 
 ### How It Works
+
 1. User submits form (e.g., create proxy host)
 2. React Query mutation starts (`isCreating = true`)
 3. Page computes `isApplyingConfig = isCreating || isUpdating || ...`
@@ -268,6 +299,7 @@ expect(messages[0].textContent).toBe('')
 8. Overlay unmounts automatically
 
 ### Adding New Pages
+
 ```tsx
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 
@@ -299,6 +331,7 @@ return (
 ### **GREEN LIGHT FOR PRODUCTION** ✅
 
 **Reasoning**:
+
 1. ✅ No security vulnerabilities found
 2. ✅ No race conditions or state bugs
 3. ✅ Performance is excellent (<100ms, 60fps)
@@ -309,6 +342,7 @@ return (
 8. ⚠️ Only 1 minor test expectation issue (not a bug)
 
 ### Remaining Pre-Merge Steps
+
 1. ✅ Security audit complete (this document)
 2. ⏳ Run `pre-commit run --all-files` (recommended before PR)
 3. ⏳ Manual QA in dev environment (5 min smoke test)

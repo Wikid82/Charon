@@ -53,120 +53,124 @@ func (h *SecurityHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 }
 
 // GetStatus returns the current status of all security services.
+// Priority chain:
+// 1. Settings table (highest - runtime overrides)
+// 2. SecurityConfig DB record (middle - user configuration)
+// 3. Static config (lowest - defaults)
 func (h *SecurityHandler) GetStatus(c *gin.Context) {
+	// Start with static config defaults
 	enabled := h.cfg.CerberusEnabled
-	// Check runtime setting override
-	var settingKey = "feature.cerberus.enabled"
-	if h.db != nil {
-		var setting struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", settingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
-			if strings.EqualFold(setting.Value, "true") {
-				enabled = true
-			} else {
-				enabled = false
-			}
-		}
-	}
-
-	// Allow runtime overrides for CrowdSec mode + API URL via settings table
-	mode := h.cfg.CrowdSecMode
-	apiURL := h.cfg.CrowdSecAPIURL
-	if h.db != nil {
-		var m struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&m).Error; err == nil && m.Value != "" {
-			mode = m.Value
-		}
-		var a struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.api_url").Scan(&a).Error; err == nil && a.Value != "" {
-			apiURL = a.Value
-		}
-	}
-
-	// Allow runtime override for CrowdSec enabled flag via settings table
-	crowdsecEnabled := mode == "local"
-	if h.db != nil {
-		var cs struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&cs).Error; err == nil && cs.Value != "" {
-			if strings.EqualFold(cs.Value, "true") {
-				crowdsecEnabled = true
-				// If enabled via settings and mode is not local, set mode to local
-				if mode != "local" {
-					mode = "local"
-				}
-			} else if strings.EqualFold(cs.Value, "false") {
-				crowdsecEnabled = false
-				mode = "disabled"
-				apiURL = ""
-			}
-		}
-	}
-
-	// Only allow 'local' as an enabled mode. Any other value should be treated as disabled.
-	if mode != "local" {
-		mode = "disabled"
-		apiURL = ""
-	}
-
-	// Allow runtime override for WAF enabled flag via settings table
-	wafEnabled := h.cfg.WAFMode != "" && h.cfg.WAFMode != "disabled"
 	wafMode := h.cfg.WAFMode
+	rateLimitMode := h.cfg.RateLimitMode
+	crowdSecMode := h.cfg.CrowdSecMode
+	crowdSecAPIURL := h.cfg.CrowdSecAPIURL
+	aclMode := h.cfg.ACLMode
+
+	// Override with database SecurityConfig if present (priority 2)
 	if h.db != nil {
-		var w struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&w).Error; err == nil && w.Value != "" {
-			if strings.EqualFold(w.Value, "true") {
-				wafEnabled = true
-				if wafMode == "" || wafMode == "disabled" {
-					wafMode = "enabled"
-				}
-			} else if strings.EqualFold(w.Value, "false") {
-				wafEnabled = false
+		var sc models.SecurityConfig
+		if err := h.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			// SecurityConfig in DB takes precedence over static config
+			enabled = sc.Enabled
+			if sc.WAFMode != "" {
+				wafMode = sc.WAFMode
+			}
+			if sc.RateLimitMode != "" {
+				rateLimitMode = sc.RateLimitMode
+			} else if sc.RateLimitEnable {
+				rateLimitMode = "enabled"
+			}
+			if sc.CrowdSecMode != "" {
+				crowdSecMode = sc.CrowdSecMode
+			}
+			if sc.CrowdSecAPIURL != "" {
+				crowdSecAPIURL = sc.CrowdSecAPIURL
+			}
+		}
+
+		// Check runtime setting overrides from settings table (priority 1 - highest)
+		var setting struct{ Value string }
+
+		// Cerberus enabled override
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "feature.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			enabled = strings.EqualFold(setting.Value, "true")
+		}
+
+		// WAF enabled override
+		setting = struct{ Value string }{}
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.waf.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			if strings.EqualFold(setting.Value, "true") {
+				wafMode = "enabled"
+			} else {
 				wafMode = "disabled"
 			}
 		}
-	}
 
-	// Allow runtime override for Rate Limit enabled flag via settings table
-	rateLimitEnabled := h.cfg.RateLimitMode == "enabled"
-	rateLimitMode := h.cfg.RateLimitMode
-	if h.db != nil {
-		var rl struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.rate_limit.enabled").Scan(&rl).Error; err == nil && rl.Value != "" {
-			if strings.EqualFold(rl.Value, "true") {
-				rateLimitEnabled = true
-				if rateLimitMode == "" || rateLimitMode == "disabled" {
-					rateLimitMode = "enabled"
-				}
-			} else if strings.EqualFold(rl.Value, "false") {
-				rateLimitEnabled = false
+		// Rate Limit enabled override
+		setting = struct{ Value string }{}
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.rate_limit.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			if strings.EqualFold(setting.Value, "true") {
+				rateLimitMode = "enabled"
+			} else {
 				rateLimitMode = "disabled"
 			}
 		}
+
+		// CrowdSec enabled override
+		setting = struct{ Value string }{}
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			if strings.EqualFold(setting.Value, "true") {
+				crowdSecMode = "local"
+			} else {
+				crowdSecMode = "disabled"
+			}
+		}
+
+		// CrowdSec mode override
+		setting = struct{ Value string }{}
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.mode").Scan(&setting).Error; err == nil && setting.Value != "" {
+			crowdSecMode = setting.Value
+		}
+
+		// ACL enabled override
+		setting = struct{ Value string }{}
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
+			if strings.EqualFold(setting.Value, "true") {
+				aclMode = "enabled"
+			} else {
+				aclMode = "disabled"
+			}
+		}
 	}
 
-	// Allow runtime override for ACL enabled flag via settings table
-	aclEnabled := h.cfg.ACLMode == "enabled"
-	aclEffective := aclEnabled && enabled
-	if h.db != nil {
-		var a struct{ Value string }
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.acl.enabled").Scan(&a).Error; err == nil && a.Value != "" {
-			if strings.EqualFold(a.Value, "true") {
-				aclEnabled = true
-			} else if strings.EqualFold(a.Value, "false") {
-				aclEnabled = false
-			}
+	// Map unknown/external mode to disabled
+	if crowdSecMode != "local" && crowdSecMode != "disabled" {
+		crowdSecMode = "disabled"
+	}
 
-			// If Cerberus is disabled, ACL should not be considered enabled even
-			// if the ACL setting is true. This keeps ACL tied to the Cerberus
-			// suite state in the UI and APIs.
-			aclEffective = aclEnabled && enabled
-		}
+	// Compute effective enabled state for each feature
+	wafEnabled := wafMode != "" && wafMode != "disabled"
+	rateLimitEnabled := rateLimitMode == "enabled"
+	crowdsecEnabled := crowdSecMode == "local"
+	aclEnabled := aclMode == "enabled"
+
+	// All features require Cerberus to be enabled
+	if !enabled {
+		wafEnabled = false
+		rateLimitEnabled = false
+		crowdsecEnabled = false
+		aclEnabled = false
+		wafMode = "disabled"
+		rateLimitMode = "disabled"
+		crowdSecMode = "disabled"
+		aclMode = "disabled"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
-			"mode":    mode,
-			"api_url": apiURL,
+			"mode":    crowdSecMode,
+			"api_url": crowdSecAPIURL,
 			"enabled": crowdsecEnabled,
 		},
 		"waf": gin.H{
@@ -178,8 +182,8 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"enabled": rateLimitEnabled,
 		},
 		"acl": gin.H{
-			"mode":    h.cfg.ACLMode,
-			"enabled": aclEffective,
+			"mode":    aclMode,
+			"enabled": aclEnabled,
 		},
 	})
 }
@@ -207,6 +211,12 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	}
 	if payload.Name == "" {
 		payload.Name = "default"
+	}
+	// Sync RateLimitMode with RateLimitEnable for backward compatibility
+	if payload.RateLimitEnable {
+		payload.RateLimitMode = "enabled"
+	} else if payload.RateLimitMode == "" {
+		payload.RateLimitMode = "disabled"
 	}
 	if err := h.svc.Upsert(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

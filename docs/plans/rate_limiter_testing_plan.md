@@ -13,6 +13,7 @@
 The Charon rate limiter uses the **`mholt/caddy-ratelimit`** Caddy module, which implements a **sliding window algorithm** with a **ring buffer** implementation.
 
 **Key characteristics:**
+
 - **Sliding window**: Looks back `<window>` duration and checks if `<max_events>` events have occurred
 - **Ring buffer**: Memory-efficient `O(Kn)` where K = max events, n = number of rate limiters
 - **Automatic Retry-After**: The module automatically sets `Retry-After` header on 429 responses
@@ -50,6 +51,7 @@ Rate limiting is scoped per-client using the remote host IP address. Each unique
 ### 1.5 Headers Returned
 
 The `caddy-ratelimit` module returns:
+
 - **HTTP 429** response when limit exceeded
 - **`Retry-After`** header indicating seconds until the client can retry
 
@@ -88,6 +90,7 @@ Rate limiting requires **two conditions**:
 ```
 
 With bypass list, wraps in subroute:
+
 ```json
 {
   "handler": "subroute",
@@ -117,6 +120,7 @@ With bypass list, wraps in subroute:
 ### 2.2 Unit Test Functions
 
 From [config_test.go](../../backend/internal/caddy/config_test.go):
+
 - `TestBuildRateLimitHandler_Disabled` - nil config returns nil handler
 - `TestBuildRateLimitHandler_InvalidValues` - zero/negative values return nil
 - `TestBuildRateLimitHandler_ValidConfig` - correct caddy-ratelimit format
@@ -133,6 +137,7 @@ From [config_test.go](../../backend/internal/caddy/config_test.go):
 ### 2.3 Missing Integration Tests
 
 There is **NO existing integration test** for rate limiting. The pattern to follow is:
+
 - [scripts/coraza_integration.sh](../../scripts/coraza_integration.sh) - WAF integration test
 - [backend/integration/coraza_integration_test.go](../../backend/integration/coraza_integration_test.go) - Go test wrapper
 
@@ -144,10 +149,12 @@ There is **NO existing integration test** for rate limiting. The pattern to foll
 
 1. **Docker running** with Charon image built
 2. **Cerberus enabled**:
+
    ```bash
    export CERBERUS_SECURITY_CERBERUS_ENABLED=true
    export CERBERUS_SECURITY_RATELIMIT_MODE=enabled
    ```
+
 3. **Proxy host configured** that can receive test requests
 
 ### 3.2 Test Setup Commands
@@ -463,6 +470,7 @@ for name, server in servers.items():
 ## 7. Recommended Next Steps
 
 1. **Run existing unit tests:**
+
    ```bash
    cd backend && go test ./internal/caddy/... -v -run TestBuildRateLimitHandler
    cd backend && go test ./internal/api/handlers/... -v -run TestSecurityHandler_GetRateLimitPresets

@@ -26,6 +26,7 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
 ### What's Implemented ✅
 
 **Backend:**
+
 - CrowdSec handler (`crowdsec_handler.go`) with:
   - Start/Stop process control via `CrowdsecExecutor` interface
   - Status monitoring endpoint
@@ -39,6 +40,7 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
   - CrowdSec enabled flag computed in `computeEffectiveFlags()`
 
 **Frontend:**
+
 - `CrowdSecConfig.tsx` page with:
   - Mode selection (disabled/local)
   - Import configuration (file upload)
@@ -47,6 +49,7 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
   - Loading states and error handling
 
 **Docker:**
+
 - CrowdSec binary installed at `/usr/local/bin/crowdsec`
 - Config directory at `/app/data/crowdsec`
 - `caddy-crowdsec-bouncer` plugin compiled into Caddy
@@ -71,6 +74,7 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
 
 5. **Caddy Integration Handler** - Placeholder only
    - `buildCrowdSecHandler()` returns `Handler{"handler": "crowdsec"}` but Caddy's `caddy-crowdsec-bouncer` expects different configuration:
+
      ```json
      {
        "handler": "crowdsec",
@@ -95,19 +99,23 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
 ### What's Implemented ✅
 
 **Backend:**
+
 - `SecurityRuleSet` model for storing WAF rules
 - `SecurityConfig.WAFMode` (disabled/monitor/block)
 - `SecurityConfig.WAFRulesSource` for ruleset selection
 - `buildWAFHandler()` generates Coraza handler config:
+
   ```go
   h := Handler{"handler": "waf"}
   h["directives"] = fmt.Sprintf("Include %s", rulesetPath)
   ```
+
 - Ruleset files written to `/app/data/caddy/coraza/rulesets/`
 - `SecRuleEngine On/DetectionOnly` auto-prepended based on mode
 - Security service CRUD for rulesets
 
 **Frontend:**
+
 - `WafConfig.tsx` with:
   - Rule set CRUD (create, edit, delete)
   - Mode selection (blocking/detection)
@@ -116,9 +124,11 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
   - Rule count display
 
 **Docker:**
+
 - `coraza-caddy/v2` plugin compiled into Caddy
 
 **Testing:**
+
 - Integration test `coraza_integration_test.go`
 - Unit tests for WAF handler building
 
@@ -160,15 +170,19 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
 ### What's Implemented ✅
 
 **Backend:**
+
 - `SecurityConfig` model fields:
+
   ```go
   RateLimitEnable    bool
   RateLimitBurst     int
   RateLimitRequests  int
   RateLimitWindowSec int
   ```
+
 - `security.rate_limit.enabled` setting
 - `buildRateLimitHandler()` generates config:
+
   ```go
   h := Handler{"handler": "rate_limit"}
   h["requests"] = secCfg.RateLimitRequests
@@ -177,6 +191,7 @@ After a comprehensive analysis of the CrowdSec (#17), WAF (#18), and Rate Limiti
   ```
 
 **Frontend:**
+
 - `RateLimiting.tsx` with:
   - Enable/disable toggle
   - Requests per second input
@@ -292,23 +307,27 @@ The rate limit handler needs to output proper Caddy JSON:
 ### Phase 1: Rate Limiting Fix (Critical - Blocking Beta)
 
 **Backend Changes:**
+
 1. Add `github.com/mholt/caddy-ratelimit` to Dockerfile xcaddy build
 2. Fix `buildRateLimitHandler()` to output correct Caddy JSON format
 3. Add rate limit bypass using admin whitelist
 
 **Frontend Changes:**
+
 1. Add presets dropdown (Login: 5/min, API: 100/min, Standard: 30/min)
 2. Add bypass IP list input (reuse admin whitelist)
 
 ### Phase 2: CrowdSec Completeness (High Priority)
 
 **Backend Changes:**
+
 1. Create `/api/v1/crowdsec/decisions` endpoint (call cscli)
 2. Create `/api/v1/crowdsec/ban` and `unban` endpoints
 3. Fix `buildCrowdSecHandler()` to include proper bouncer config
 4. Auto-generate acquisition.yaml for Caddy log parsing
 
 **Frontend Changes:**
+
 1. Add "Banned IPs" tab to CrowdSecConfig page
 2. Add "Ban IP" button with duration selector
 3. Add "Unban" action to each banned IP row
@@ -316,11 +335,13 @@ The rate limit handler needs to output proper Caddy JSON:
 ### Phase 3: WAF Enhancements (Medium Priority)
 
 **Backend Changes:**
+
 1. Add paranoia level to SecurityConfig model
 2. Add rule exclusion list to SecurityRuleSet model
 3. Parse Coraza logs for WAF events
 
 **Frontend Changes:**
+
 1. Add paranoia level slider (1-4) to WAF config
 2. Add "Enable WAF" checkbox to ProxyHostForm
 3. Add rule exclusion UI (list of rule IDs to exclude)
@@ -337,16 +358,19 @@ The rate limit handler needs to output proper Caddy JSON:
 ## 🕵️ QA & Security Considerations
 
 ### CrowdSec Security
+
 - Ensure API key not exposed in logs
 - Validate IP inputs to prevent injection
 - Rate limit the ban/unban endpoints themselves
 
 ### WAF Security
+
 - Validate ruleset content (no malicious directives)
 - Prevent path traversal in ruleset file paths
 - Test for WAF bypass techniques
 
 ### Rate Limiting Security
+
 - Prevent bypass via IP spoofing (X-Forwarded-For)
 - Ensure rate limits apply to all methods
 - Test distributed rate limiting behavior
@@ -376,6 +400,7 @@ The rate limit handler needs to output proper Caddy JSON:
 ## Summary: What Works vs What Doesn't
 
 ### ✅ Working Now
+
 - WAF rule management and blocking (Coraza integration)
 - CrowdSec process control (start/stop/status)
 - CrowdSec config import/export
@@ -383,11 +408,13 @@ The rate limit handler needs to output proper Caddy JSON:
 - Security status API reporting
 
 ### ⚠️ Partially Working
+
 - CrowdSec bouncer (handler exists but config incomplete)
 - Per-host WAF (via advanced config only)
 - Rate limiting settings (stored but not enforced)
 
 ### ❌ Not Working / Missing
+
 - Rate limiting actual enforcement (Caddy module missing)
 - CrowdSec banned IP dashboard
 - Manual IP ban/unban

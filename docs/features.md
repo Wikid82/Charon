@@ -481,8 +481,6 @@ Uses WebSocket technology to stream logs with zero delay.
 
 **What you do:** Nothing—WebSockets work automatically.
 
-
-
 ## \ud83d\udcf1 Mobile-Friendly Interface
 
 **What it does:** Works perfectly on phones and tablets.

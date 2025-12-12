@@ -330,8 +330,22 @@ if [ "$BLOCKED_STATUS" = "429" ]; then
 else
     echo "  ✗ Expected HTTP 429, got HTTP $BLOCKED_STATUS"
     echo ""
+    echo "=== DEBUG: SecurityConfig from API ==="
+    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/config | jq .
+    echo ""
+    echo "=== DEBUG: SecurityStatus from API ==="
+    curl -s -b ${TMP_COOKIE} http://localhost:8280/api/v1/security/status | jq .
+    echo ""
+    echo "=== DEBUG: Caddy config (first proxy route handlers) ==="
+    curl -s http://localhost:2119/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
+    echo ""
+    echo "=== DEBUG: Container logs (last 100 lines) ==="
+    docker logs ${CONTAINER_NAME} 2>&1 | tail -100
+    echo ""
     echo "Rate limit enforcement test FAILED"
-    cleanup
+    echo "Container left running for manual inspection"
+    echo "Run: docker logs ${CONTAINER_NAME}"
+    echo "Run: docker rm -f ${CONTAINER_NAME} ${BACKEND_CONTAINER}"
     exit 1
 fi
 

@@ -410,16 +410,43 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 // computeEffectiveFlags reads runtime settings to determine whether Cerberus
 // suite and each sub-component (ACL, WAF, RateLimit, CrowdSec) are effectively enabled.
 func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled bool) {
-	// Base flags from static config
+	// Start with base flags from static config (environment variables)
 	cerbEnabled = m.securityCfg.CerberusEnabled
-	// WAF is enabled if explicitly set and not 'disabled' (supports 'monitor'/'block')
 	wafEnabled = m.securityCfg.WAFMode != "" && m.securityCfg.WAFMode != "disabled"
 	rateLimitEnabled = m.securityCfg.RateLimitMode == "enabled"
-	// CrowdSec only supports 'local' mode; treat other values as disabled
 	crowdsecEnabled = m.securityCfg.CrowdSecMode == "local"
 	aclEnabled = m.securityCfg.ACLMode == "enabled"
 
 	if m.db != nil {
+		// Priority 1: Read from SecurityConfig table (DB overrides static config)
+		var sc models.SecurityConfig
+		if err := m.db.Where("name = ?", "default").First(&sc).Error; err == nil {
+			// SecurityConfig.Enabled controls Cerberus globally
+			cerbEnabled = sc.Enabled
+
+			// WAF mode from DB
+			if sc.WAFMode != "" {
+				wafEnabled = !strings.EqualFold(sc.WAFMode, "disabled")
+			}
+
+			// Rate limiting from DB
+			if sc.RateLimitMode != "" {
+				rateLimitEnabled = strings.EqualFold(sc.RateLimitMode, "enabled")
+			} else if sc.RateLimitEnable {
+				// Fallback to boolean field for backward compatibility
+				rateLimitEnabled = true
+			}
+
+			// CrowdSec mode from DB
+			if sc.CrowdSecMode != "" {
+				crowdsecEnabled = sc.CrowdSecMode == "local"
+			}
+
+			// ACL mode (if we add it to SecurityConfig in the future)
+			// For now, ACL mode stays at static config value or settings override below
+		}
+
+		// Priority 2: Settings table overrides (for feature flags)
 		var s models.Setting
 		// runtime override for cerberus enabled (check feature flag first, fallback to legacy key)
 		if err := m.db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
@@ -445,14 +472,6 @@ func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled, aclEn
 				crowdsecEnabled = true
 			} else {
 				crowdsecEnabled = false
-			}
-		}
-
-		// runtime override for WAF mode
-		var sc models.SecurityConfig
-		if err := m.db.Where("name = ?", "default").First(&sc).Error; err == nil {
-			if sc.WAFMode != "" {
-				wafEnabled = !strings.EqualFold(sc.WAFMode, "disabled")
 			}
 		}
 	}

@@ -1,17 +1,21 @@
 # WebSocket Live Log Viewer Fix
 
 ## Problem
+
 The live log viewer in the Cerberus Dashboard was always showing "Disconnected" status even when it should connect to the WebSocket endpoint.
 
 ## Root Cause
+
 The `LiveLogViewer` component was setting `isConnected=true` immediately when the component mounted, before the WebSocket actually established a connection. This premature status update masked the real connection state and made it impossible to see whether the WebSocket was actually connecting.
 
 ## Solution
+
 Modified the WebSocket connection flow to properly track connection lifecycle:
 
 ### Frontend Changes
 
 #### 1. API Layer (`frontend/src/api/logs.ts`)
+
 - Added `onOpen?: () => void` callback parameter to `connectLiveLogs()`
 - Added `ws.onopen` event handler that calls the callback when connection opens
 - Enhanced logging for debugging:
@@ -20,6 +24,7 @@ Modified the WebSocket connection flow to properly track connection lifecycle:
   - Log close event details (code, reason, wasClean)
 
 #### 2. Component (`frontend/src/components/LiveLogViewer.tsx`)
+
 - Updated to use the new `onOpen` callback
 - Initial state is now "Disconnected"
 - Only set `isConnected=true` when `onOpen` callback fires
@@ -27,6 +32,7 @@ Modified the WebSocket connection flow to properly track connection lifecycle:
 - Properly cleanup and set disconnected state on unmount
 
 #### 3. Tests (`frontend/src/components/__tests__/LiveLogViewer.test.tsx`)
+
 - Updated mock implementation to include `onOpen` callback
 - Fixed test expectations to match new behavior (initially Disconnected)
 - Added proper simulation of WebSocket opening
@@ -34,12 +40,14 @@ Modified the WebSocket connection flow to properly track connection lifecycle:
 ### Backend Changes (for debugging)
 
 #### 1. Auth Middleware (`backend/internal/api/middleware/auth.go`)
+
 - Added `fmt` import for logging
 - Detect WebSocket upgrade requests (`Upgrade: websocket` header)
 - Log auth method used for WebSocket (cookie vs query param)
 - Log auth failures with context
 
 #### 2. WebSocket Handler (`backend/internal/api/handlers/logs_ws.go`)
+
 - Added log on connection attempt received
 - Added log when connection successfully established with subscriber ID
 
@@ -58,6 +66,7 @@ For same-origin WebSocket connections from a browser, **cookies are sent automat
 To test the fix:
 
 1. **Build and Deploy**:
+
    ```bash
    # Build Docker image
    docker build -t charon:local .
@@ -88,9 +97,11 @@ To test the fix:
    - Messages tab should show incoming log entries
 
 5. **Check Backend Logs**:
+
    ```bash
    docker logs <charon-container> 2>&1 | grep -i websocket
    ```
+
    Should see:
    - "WebSocket connection attempt received"
    - "WebSocket connection established successfully"

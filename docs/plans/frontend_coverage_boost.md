@@ -4,6 +4,7 @@ Current (QA): statements 84.54%, branches 75.85%, functions 78.97%.
 Goal: reach >=85% with the smallest number of high-yield tests.
 
 ## Targeted Tests (minimal set with maximum lift)
+
 - **API units (fast, high gap)**
   - [src/api/notifications.ts](frontend/src/api/notifications.ts): cover payload branches in `previewProvider` (with/without `data`) and `previewExternalTemplate` (id vs inline template vs both), plus happy-path CRUD wrappers to verify endpoint URLs.
   - [src/api/logs.ts](frontend/src/api/logs.ts): assert `getLogContent` query param building (search/host/status/level/sort), `downloadLog` sets `window.location.href`, and `connectLiveLogs` callbacks for `onOpen`, `onMessage` (valid JSON), parse error branch, `onError`, and `onClose` (closing when readyState OPEN/CONNECTING).
@@ -38,12 +39,14 @@ Goal: reach >=85% with the smallest number of high-yield tests.
   - `Summary.tsx`, `FeatureFlagProvider.tsx`, `useFeatureFlags.ts`, `LiveLogViewerRow.tsx`: confirm current paths (may have been renamed). Add light RTL/unit tests mirroring above patterns if still present (e.g., summary widget rendering counts, provider supplying default flags).
 
 ## SMTPSettings Deflake Strategy
+
 - Wait for data: use `await screen.findByText('Email (SMTP) Settings')` and `await waitFor(() => expect(hostInput).toHaveValue('...'))` after mocking `getSMTPConfig` to resolve once.
 - Avoid racing mutations: wrap `vi.useFakeTimers()` only if timers are used; otherwise keep real timers and `await act(async () => ...)` on mutations.
 - Reset query cache per test (`queryClient.clear()` or `QueryClientProvider` fresh instance) and isolate toast spies.
 - Prefer role/label queries (`getByLabelText('SMTP Host')`) over brittle text selectors; ensure `toast` mocks are flushed before assertions.
 
 ## Ordered Phases (minimal steps to >=85%)
+
 - Phase 1 (API unit bursts) — expected +0.30 to statements: notifications.ts, logs.ts, users.ts.
 - Phase 2 (UI quick wins) — expected +0.50: SMTPSettings, LiveLogViewer, UsersPage.
 - Phase 3 (Security shell) — expected +0.40: CrowdSecConfig, Security page.

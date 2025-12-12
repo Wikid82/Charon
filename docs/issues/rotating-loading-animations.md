@@ -29,6 +29,7 @@ Currently, each operation type displays the same loading animation every time. W
 ## 🎨 Proposed Animation Variants
 
 ### Charon Theme (Proxy/General Operations)
+
 **Color Palette**: Blue (#3B82F6, #60A5FA), Slate (#64748B, #475569)
 
 | Animation | Description | Key Message Examples |
@@ -38,6 +39,7 @@ Currently, each operation type displays the same loading animation every time. W
 | **River Flow** | Flowing water with current lines | "Drifting down the Styx..." / "Waters carry the change..." |
 
 ### Coin Theme (Authentication)
+
 **Color Palette**: Gold (#F59E0B, #FBBF24), Amber (#D97706, #F59E0B)
 
 | Animation | Description | Key Message Examples |
@@ -48,6 +50,7 @@ Currently, each operation type displays the same loading animation every time. W
 | **Gate Opening** | Stone gate/door opening animation | "Gates part..." / "Passage granted" |
 
 ### Cerberus Theme (Security Operations)
+
 **Color Palette**: Red (#DC2626, #EF4444), Amber (#F59E0B), Red-900 (#7F1D1D)
 
 | Animation | Description | Key Message Examples |
@@ -185,36 +188,42 @@ export function CerberusChainsLoader({ size }: LoaderProps) {
 ## 📐 Animation Specifications
 
 ### Charon: Coin Flip
+
 - **Visual**: Ancient Greek obol coin spinning on Y-axis
 - **Animation**: 360° rotation every 2s, slight wobble
 - **Colors**: Gold (#F59E0B) glint, slate shadow
 - **Message Timing**: Change text on coin flip (heads vs tails)
 
 ### Charon: Rowing Oar
+
 - **Visual**: Oar blade dipping into water, pulling back
 - **Animation**: Arc motion, water ripples on dip
 - **Colors**: Brown (#92400E) oar, blue (#3B82F6) water
 - **Timing**: 3s cycle (dip 1s, pull 1.5s, lift 0.5s)
 
 ### Charon: River Flow
+
 - **Visual**: Horizontal flowing lines with subtle particle drift
 - **Animation**: Lines translate-x infinitely, particles bob
 - **Colors**: Blue gradient (#1E3A8A → #3B82F6)
 - **Timing**: Continuous flow, particles move slower than lines
 
 ### Cerberus: Shield Pulse
+
 - **Visual**: Shield outline with expanding aura rings
 - **Animation**: Rings pulse outward and fade (like sonar)
 - **Colors**: Red (#DC2626) shield, amber (#F59E0B) aura
 - **Timing**: 2s pulse interval
 
 ### Cerberus: Guardian Stance
+
 - **Visual**: Simplified three-headed dog silhouette, alert posture
 - **Animation**: Heads swivel slightly, ears perk
 - **Colors**: Red (#7F1D1D) body, amber (#F59E0B) eyes
 - **Timing**: 3s head rotation cycle
 
 ### Cerberus: Chain Links
+
 - **Visual**: 4-5 interlocking chain links
 - **Animation**: Links tighten/loosen (scale transform)
 - **Colors**: Gray (#475569) chains, red (#DC2626) accents
@@ -225,11 +234,13 @@ export function CerberusChainsLoader({ size }: LoaderProps) {
 ## 🧪 Testing Strategy
 
 ### Visual Regression Tests
+
 - Capture screenshots of each variant at key animation frames
 - Verify animations play smoothly (no janky SVG rendering)
 - Test across browsers (Chrome, Firefox, Safari)
 
 ### Unit Tests
+
 ```tsx
 describe('ConfigReloadOverlay - Variant Selection', () => {
   it('randomly selects Charon variant', () => {
@@ -265,6 +276,7 @@ describe('ConfigReloadOverlay - Variant Selection', () => {
 ```
 
 ### Manual Testing
+
 - [ ] Trigger same operation 10 times, verify different animations appear
 - [ ] Verify messages match animation theme (e.g., "Coin" messages with coin animation)
 - [ ] Check performance (should be smooth at 60fps)
@@ -275,18 +287,21 @@ describe('ConfigReloadOverlay - Variant Selection', () => {
 ## 📦 Implementation Phases
 
 ### Phase 1: Core Infrastructure (2-3 hours)
+
 - [ ] Create variant selection logic
 - [ ] Create message mapping system
 - [ ] Update `ConfigReloadOverlay` to accept variant prop
 - [ ] Write unit tests for variant selection
 
 ### Phase 2: Charon Variants (3-4 hours)
+
 - [ ] Implement `CharonOarLoader` component
 - [ ] Implement `CharonRiverLoader` component
 - [ ] Create messages for each variant
 - [ ] Add Tailwind animations
 
 ### Phase 3: Coin Variants (3-4 hours)
+
 - [ ] Implement `CoinDropLoader` component
 - [ ] Implement `TokenGlowLoader` component
 - [ ] Implement `GateOpeningLoader` component
@@ -294,6 +309,7 @@ describe('ConfigReloadOverlay - Variant Selection', () => {
 - [ ] Add Tailwind animations
 
 ### Phase 4: Cerberus Variants (4-5 hours)
+
 - [ ] Implement `CerberusShieldLoader` component
 - [ ] Implement `CerberusStanceLoader` component
 - [ ] Implement `CerberusChainsLoader` component
@@ -301,6 +317,7 @@ describe('ConfigReloadOverlay - Variant Selection', () => {
 - [ ] Add Tailwind animations
 
 ### Phase 5: Integration & Polish (2-3 hours)
+
 - [ ] Update all usage sites (ProxyHosts, WafConfig, etc.)
 - [ ] Visual regression tests
 - [ ] Performance profiling

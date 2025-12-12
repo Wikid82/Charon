@@ -24,6 +24,7 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 ### Tests Added This Session
 
 #### CrowdSec Handler Tests (`crowdsec_handler_test.go`)
+
 - ✅ Console enrollment tests (disabled, service unavailable, invalid payload, success, missing agent name)
 - ✅ Console status tests (disabled, unavailable, success, after enrollment)
 - ✅ `isConsoleEnrollmentEnabled` tests (DB variants, env variants, defaults)
@@ -32,6 +33,7 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 - ✅ `hubEndpoints` tests (nil, deduplicates, multiple, skips empty)
 
 #### CrowdSec Package Tests
+
 - ✅ `ExecuteWithEnv` - 100% coverage
 - ✅ `formatEnv` - 100% coverage
 - ✅ `hubHTTPError.Error()` - 100% coverage
@@ -43,6 +45,7 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 - ✅ Encryption round-trip tests
 
 #### Cerberus Middleware Tests (`cerberus_test.go`)
+
 - ✅ `IsEnabled` - All branches covered (config, DB setting, legacy setting, modes)
 - ✅ `Middleware` - 100% coverage achieved
   - Disabled state (skip checks)
@@ -53,11 +56,13 @@ This document outlines the comprehensive test plan to achieve **100% code covera
   - CrowdSec local mode (metrics tracking)
 
 #### Access List Handler Tests
+
 - ✅ `SetGeoIPService` - 100% coverage (was 0%)
 - ✅ `TestIP` - 100% coverage (was 89.5%)
 - ✅ Internal error path covered
 
 #### Security Service Tests
+
 - ✅ `DeleteRuleSet` not found case
 - ✅ `ListDecisions` unlimited and limited variants
 - ✅ `LogDecision` nil and prefilled UUID
@@ -576,12 +581,14 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 ## Test Execution Order
 
 ### Phase 1: Critical (0% Coverage) - IMMEDIATE
+
 1. CrowdSec Console tests (ConsoleEnroll, ConsoleStatus)
 2. `testGeoIP` service tests
 3. `SetGeoIPService` handler tests
 4. CrowdSec package tests (ExecuteWithEnv, formatEnv, Status)
 
 ### Phase 2: High Priority (<70% Coverage) - WEEK 1
+
 1. `LookupGeoIP` handler tests
 2. `GetLAPIDecisions` handler tests
 3. `CheckLAPIHealth` handler tests
@@ -589,6 +596,7 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 5. `emptyDir` and `backupExisting` tests
 
 ### Phase 3: Medium Priority (70-90% Coverage) - WEEK 2
+
 1. Remaining handler coverage gaps
 2. Cerberus middleware edge cases
 3. Frontend console enrollment tests
@@ -599,13 +607,14 @@ This document outlines the comprehensive test plan to achieve **100% code covera
 
 ## QA Workflow
 
-### For Each Test Case:
+### For Each Test Case
+
 1. **QA writes test** following expected behavior
 2. **If test passes**: Mark as ✅ complete
 3. **If test fails due to missing code behavior**: Create DEV issue to implement behavior
 4. **If test fails due to bug**: Create DEV issue to fix bug
 
-### Dev Handoff Format:
+### Dev Handoff Format
 
 ```markdown
 ## Test Failure Report

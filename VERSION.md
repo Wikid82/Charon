@@ -10,6 +10,7 @@ Charon follows [Semantic Versioning 2.0.0](https://semver.org/):
   - **PATCH**: Bug fixes (backward compatible)
 
 ### Pre-release Identifiers
+
 - `alpha`: Early development, unstable
 - `beta`: Feature complete, testing phase
 - `rc` (release candidate): Final testing before release
@@ -21,17 +22,20 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 ### Automated Release Process
 
 1. **Update version** in `.version` file:
+
    ```bash
    echo "1.0.0" > .version
    ```
 
 2. **Commit version bump**:
+
    ```bash
    git add .version
    git commit -m "chore: bump version to 1.0.0"
    ```
 
 3. **Create and push tag**:
+
    ```bash
    git tag -a v1.0.0 -m "Release v1.0.0"
    git push origin v1.0.0
@@ -83,6 +87,7 @@ curl http://localhost:8080/api/v1/health
 ```
 
 Response includes:
+
 ```json
 {
   "status": "ok",
@@ -96,12 +101,14 @@ Response includes:
 ### Container Image Labels
 
 View version metadata:
+
 ```bash
 docker inspect ghcr.io/wikid82/charon:latest \
   --format='{{json .Config.Labels}}' | jq
 ```
 
 Returns OCI-compliant labels:
+
 - `org.opencontainers.image.version`
 - `org.opencontainers.image.created`
 - `org.opencontainers.image.revision`
@@ -110,11 +117,13 @@ Returns OCI-compliant labels:
 ## Development Builds
 
 Local builds default to `version=dev`:
+
 ```bash
 docker build -t charon:dev .
 ```
 
 Build with custom version:
+
 ```bash
 docker build \
   --build-arg VERSION=1.2.3 \
@@ -136,6 +145,7 @@ The release workflow automatically generates changelogs from commit messages. Us
 - `ci:` CI/CD changes
 
 Example:
+
 ```bash
 git commit -m "feat: add TLS certificate management"
 git commit -m "fix: correct proxy timeout handling"

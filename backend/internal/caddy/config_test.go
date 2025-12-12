@@ -411,7 +411,7 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 	require.Equal(t, "{http.request.remote.host}", staticZone["key"])
 	require.Equal(t, "60s", staticZone["window"])
 	require.Equal(t, 100, staticZone["max_events"])
-	require.Equal(t, 25, staticZone["burst"])
+	// Note: caddy-ratelimit doesn't support burst parameter (uses sliding window)
 }
 
 func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
@@ -437,7 +437,7 @@ func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
 	require.Contains(t, s, `"key":"{http.request.remote.host}"`)
 	require.Contains(t, s, `"window":"10s"`)
 	require.Contains(t, s, `"max_events":30`)
-	require.Contains(t, s, `"burst":5`)
+	// Note: burst field not included (not supported by caddy-ratelimit)
 }
 
 func TestGenerateConfig_WithRateLimiting(t *testing.T) {
@@ -485,7 +485,7 @@ func TestGenerateConfig_WithRateLimiting(t *testing.T) {
 }
 
 func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
-	// Verify that configured burst value is used
+	// Verify that burst config value is ignored (caddy-ratelimit doesn't support it)
 	secCfg := &models.SecurityConfig{
 		RateLimitRequests:  100,
 		RateLimitWindowSec: 60,
@@ -503,12 +503,13 @@ func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
 	staticZone, ok := rateLimits["static"].(map[string]interface{})
 	require.True(t, ok)
 
-	// Verify burst is set to the configured value
-	require.Equal(t, 50, staticZone["burst"])
+	// Verify burst field is NOT present (not supported by caddy-ratelimit)
+	_, hasBurst := staticZone["burst"]
+	require.False(t, hasBurst, "burst field should not be included")
 }
 
 func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
-	// Verify that default burst is calculated as 20% of requests when not set
+	// Verify that burst field is not included (caddy-ratelimit uses sliding window, no burst)
 	secCfg := &models.SecurityConfig{
 		RateLimitRequests:  100,
 		RateLimitWindowSec: 60,
@@ -523,10 +524,11 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 	staticZone, ok := rateLimits["static"].(map[string]interface{})
 	require.True(t, ok)
 
-	// Default burst should be 20% of 100 = 20
-	require.Equal(t, 20, staticZone["burst"])
+	// Verify burst field is NOT present
+	_, hasBurst := staticZone["burst"]
+	require.False(t, hasBurst, "burst field should not be included")
 
-	// Test with small requests value (burst should be at least 1)
+	// Test with small requests value - should also not have burst
 	secCfg2 := &models.SecurityConfig{
 		RateLimitRequests:  3,
 		RateLimitWindowSec: 60,
@@ -541,8 +543,9 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 	staticZone2, ok := rateLimits2["static"].(map[string]interface{})
 	require.True(t, ok)
 
-	// 3 / 5 = 0, so burst should default to 1
-	require.Equal(t, 1, staticZone2["burst"])
+	// Verify no burst field here either
+	_, hasBurst2 := staticZone2["burst"]
+	require.False(t, hasBurst2, "burst field should not be included")
 }
 
 func TestBuildRateLimitHandler_BypassList(t *testing.T) {

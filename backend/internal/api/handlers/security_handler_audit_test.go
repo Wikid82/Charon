@@ -223,25 +223,35 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupAuditTestDB(t)
 
-	// Seed settings that should override config defaults
+	// Create SecurityConfig with all security features enabled (DB priority)
+	secCfg := &models.SecurityConfig{
+		Name:            "default",        // Required - GetStatus looks for name='default'
+		Enabled:         true,
+		WAFMode:         "block",          // "block" mode enables WAF
+		RateLimitMode:   "enabled",
+		CrowdSecMode:    "local",          // "local" mode enables CrowdSec
+		RateLimitEnable: true,
+	}
+	require.NoError(t, db.Create(secCfg).Error)
+
+	// Seed settings (these won't override DB SecurityConfig for WAF/Rate Limit/CrowdSec)
 	settings := []models.Setting{
 		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "true", Category: "security"},
 		{Key: "security.rate_limit.enabled", Value: "true", Category: "security"},
 		{Key: "security.crowdsec.enabled", Value: "true", Category: "security"},
-		{Key: "security.acl.enabled", Value: "true", Category: "security"},
 	}
 	for _, s := range settings {
 		require.NoError(t, db.Create(&s).Error)
 	}
 
-	// Config has everything disabled
+	// Static config has everything disabled (lowest priority)
 	cfg := config.SecurityConfig{
 		CerberusEnabled: false,
 		WAFMode:         "disabled",
 		RateLimitMode:   "disabled",
 		CrowdSecMode:    "disabled",
-		ACLMode:         "disabled",
+		ACLMode:         "enabled", // ACL comes from static config only
 	}
 	h := NewSecurityHandler(cfg, db, nil)
 
@@ -258,12 +268,13 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	// Verify settings override config
-	assert.True(t, resp["cerberus"]["enabled"].(bool), "cerberus should be enabled via settings")
-	assert.True(t, resp["waf"]["enabled"].(bool), "waf should be enabled via settings")
-	assert.True(t, resp["rate_limit"]["enabled"].(bool), "rate_limit should be enabled via settings")
-	assert.True(t, resp["crowdsec"]["enabled"].(bool), "crowdsec should be enabled via settings")
-	assert.True(t, resp["acl"]["enabled"].(bool), "acl should be enabled via settings")
+	// Verify DB config is used (highest priority) for SecurityConfig features
+	assert.True(t, resp["cerberus"]["enabled"].(bool), "cerberus should be enabled via DB config")
+	assert.True(t, resp["waf"]["enabled"].(bool), "waf should be enabled via DB config")
+	assert.True(t, resp["rate_limit"]["enabled"].(bool), "rate_limit should be enabled via DB config")
+	assert.True(t, resp["crowdsec"]["enabled"].(bool), "crowdsec should be enabled via DB config")
+	// ACL comes from static config only (not in SecurityConfig model)
+	assert.True(t, resp["acl"]["enabled"].(bool), "acl should be enabled via static config")
 }
 
 func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {

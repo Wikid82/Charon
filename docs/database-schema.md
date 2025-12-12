@@ -5,6 +5,7 @@
 ## Overview
 
 The database consists of 8 main tables:
+
 - ProxyHost
 - RemoteServer
 - CaddyConfig
@@ -142,10 +143,12 @@ Stores reverse proxy host configurations.
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **Indexes:**
+
 - Primary key on `uuid`
 - Foreign key index on `remote_server_id`
 
 **Relationships:**
+
 - `RemoteServer`: Many-to-One (optional) - Links to remote Caddy instance
 - `CaddyConfig`: One-to-One - Generated Caddyfile configuration
 
@@ -167,6 +170,7 @@ Stores remote Caddy server connection information.
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **Indexes:**
+
 - Primary key on `uuid`
 - Index on `enabled` for fast filtering
 
@@ -184,6 +188,7 @@ Stores generated Caddyfile configurations for each proxy host.
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **Indexes:**
+
 - Primary key on `uuid`
 - Unique index on `proxy_host_id`
 
@@ -229,6 +234,7 @@ Stores user authentication information (future enhancement).
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **Indexes:**
+
 - Primary key on `uuid`
 - Unique index on `email`
 
@@ -245,10 +251,12 @@ Stores application-wide settings as key-value pairs.
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **Indexes:**
+
 - Primary key on `uuid`
 - Unique index on `key`
 
 **Default Settings:**
+
 - `app_name`: "Charon"
 - `default_scheme`: "http"
 - `enable_ssl_by_default`: "false"
@@ -266,6 +274,7 @@ Tracks Caddyfile import sessions.
 | `updated_at` | TIMESTAMP | Last update timestamp |
 
 **States:**
+
 - `parsing`: Caddyfile is being parsed
 - `reviewing`: Waiting for user to review/resolve conflicts
 - `completed`: Import successfully committed
@@ -283,6 +292,7 @@ go run ./cmd/seed/main.go
 ### Sample Seed Data
 
 The seed script creates:
+
 - 4 remote servers (Docker registry, API server, web app, database admin)
 - 3 proxy hosts (app.local.dev, api.local.dev, docker.local.dev)
 - 3 settings (app configuration)
