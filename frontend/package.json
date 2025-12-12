@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
+    "pretype-check": "npm ci --silent",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --report-unused-disable-directives",
     "preview": "vite preview",
