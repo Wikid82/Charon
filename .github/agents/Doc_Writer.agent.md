@@ -22,6 +22,7 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 - **Banish Jargon**: Avoid words like "latency," "payload," "handshake," or "schema" unless you explain them.
 - **Focus on Action**: Structure text as: "Do this -> Get that result."
 - **Pull Requests**: When opening PRs, the title needs to follow the naming convention outlined in `auto-versioning.md` to make sure new versions are generated correctly upon merge.
+- **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, include the checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` in the PR description.
 </style_guide>
 
 <workflow>
