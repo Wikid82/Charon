@@ -105,6 +105,11 @@ export default function SystemSettings() {
         tooltip: 'Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.',
       },
       {
+        key: 'feature.crowdsec.console_enrollment',
+        label: 'CrowdSec Console Enrollment',
+        tooltip: 'Allow enrolling this node with CrowdSec Console for centralized fleet management.',
+      },
+      {
         key: 'feature.uptime.enabled',
         label: 'Uptime Monitoring',
         tooltip: 'Monitor the availability of your proxy hosts and remote servers.',

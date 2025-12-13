@@ -1,3 +1,4 @@
+// Package config handles configuration loading and validation.
 package config
 
 import (
@@ -25,13 +26,14 @@ type Config struct {
 
 // SecurityConfig holds configuration for optional security services.
 type SecurityConfig struct {
-	CrowdSecMode    string
-	CrowdSecAPIURL  string
-	CrowdSecAPIKey  string
-	WAFMode         string
-	RateLimitMode   string
-	ACLMode         string
-	CerberusEnabled bool
+	CrowdSecMode      string
+	CrowdSecAPIURL    string
+	CrowdSecAPIKey    string
+	CrowdSecConfigDir string
+	WAFMode           string
+	RateLimitMode     string
+	ACLMode           string
+	CerberusEnabled   bool
 }
 
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.
@@ -49,13 +51,14 @@ func Load() (Config, error) {
 		JWTSecret:       getEnvAny("change-me-in-production", "CHARON_JWT_SECRET", "CPM_JWT_SECRET"),
 		ACMEStaging:     getEnvAny("", "CHARON_ACME_STAGING", "CPM_ACME_STAGING") == "true",
 		Security: SecurityConfig{
-			CrowdSecMode:    getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),
-			CrowdSecAPIURL:  getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_URL", "CHARON_SECURITY_CROWDSEC_API_URL", "CPM_SECURITY_CROWDSEC_API_URL"),
-			CrowdSecAPIKey:  getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"),
-			WAFMode:         getEnvAny("disabled", "CERBERUS_SECURITY_WAF_MODE", "CHARON_SECURITY_WAF_MODE", "CPM_SECURITY_WAF_MODE"),
-			RateLimitMode:   getEnvAny("disabled", "CERBERUS_SECURITY_RATELIMIT_MODE", "CHARON_SECURITY_RATELIMIT_MODE", "CPM_SECURITY_RATELIMIT_MODE"),
-			ACLMode:         getEnvAny("disabled", "CERBERUS_SECURITY_ACL_MODE", "CHARON_SECURITY_ACL_MODE", "CPM_SECURITY_ACL_MODE"),
-			CerberusEnabled: getEnvAny("false", "CERBERUS_SECURITY_CERBERUS_ENABLED", "CHARON_SECURITY_CERBERUS_ENABLED", "CPM_SECURITY_CERBERUS_ENABLED") == "true",
+			CrowdSecMode:      getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),
+			CrowdSecAPIURL:    getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_URL", "CHARON_SECURITY_CROWDSEC_API_URL", "CPM_SECURITY_CROWDSEC_API_URL"),
+			CrowdSecAPIKey:    getEnvAny("", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"),
+			CrowdSecConfigDir: getEnvAny(filepath.Join("data", "crowdsec"), "CHARON_CROWDSEC_CONFIG_DIR", "CPM_CROWDSEC_CONFIG_DIR"),
+			WAFMode:           getEnvAny("disabled", "CERBERUS_SECURITY_WAF_MODE", "CHARON_SECURITY_WAF_MODE", "CPM_SECURITY_WAF_MODE"),
+			RateLimitMode:     getEnvAny("disabled", "CERBERUS_SECURITY_RATELIMIT_MODE", "CHARON_SECURITY_RATELIMIT_MODE", "CPM_SECURITY_RATELIMIT_MODE"),
+			ACLMode:           getEnvAny("disabled", "CERBERUS_SECURITY_ACL_MODE", "CHARON_SECURITY_ACL_MODE", "CPM_SECURITY_ACL_MODE"),
+			CerberusEnabled:   getEnvAny("false", "CERBERUS_SECURITY_CERBERUS_ENABLED", "CHARON_SECURITY_CERBERUS_ENABLED", "CPM_SECURITY_CERBERUS_ENABLED") == "true",
 		},
 		Debug: getEnvAny("false", "CHARON_DEBUG", "CPM_DEBUG") == "true",
 	}

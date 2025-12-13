@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"net"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -510,5 +511,186 @@ func TestAccessListService_Validation(t *testing.T) {
 		for _, typ := range invalidTypes {
 			assert.False(t, service.isValidType(typ), "Type should be invalid: %s", typ)
 		}
+	})
+}
+
+// TestIPMatchesCIDR_Helper tests the ipMatchesCIDR helper function
+func TestIPMatchesCIDR_Helper(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	tests := []struct {
+		name    string
+		ipStr   string
+		cidr    string
+		matches bool
+	}{
+		{"IPv4 in subnet", "192.168.1.50", "192.168.1.0/24", true},
+		{"IPv4 not in subnet", "192.168.2.50", "192.168.1.0/24", false},
+		{"IPv4 single IP match", "10.0.0.1", "10.0.0.1", true},
+		{"IPv4 single IP no match", "10.0.0.2", "10.0.0.1", false},
+		{"IPv6 in subnet", "2001:db8::1", "2001:db8::/32", true},
+		{"IPv6 not in subnet", "2001:db9::1", "2001:db8::/32", false},
+		{"Invalid CIDR", "192.168.1.1", "invalid", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ipStr)
+			if ip == nil {
+				t.Fatalf("Failed to parse test IP: %s", tt.ipStr)
+			}
+			result := service.ipMatchesCIDR(ip, tt.cidr)
+			assert.Equal(t, tt.matches, result)
+		})
+	}
+}
+
+// TestIsPrivateIP_Helper tests the isPrivateIP helper function
+func TestIsPrivateIP_Helper(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	tests := []struct {
+		name      string
+		ipStr     string
+		isPrivate bool
+	}{
+		{"Private 10.x.x.x", "10.0.0.1", true},
+		{"Private 172.16.x.x", "172.16.0.1", true},
+		{"Private 192.168.x.x", "192.168.1.1", true},
+		{"Private 127.0.0.1", "127.0.0.1", true},
+		{"Private ::1", "::1", true},
+		{"Private fc00::/7", "fc00::1", true},
+		{"Public 8.8.8.8", "8.8.8.8", false},
+		{"Public 1.1.1.1", "1.1.1.1", false},
+		{"Public IPv6", "2001:4860:4860::8888", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ipStr)
+			if ip == nil {
+				t.Fatalf("Failed to parse test IP: %s", tt.ipStr)
+			}
+			result := service.isPrivateIP(ip)
+			assert.Equal(t, tt.isPrivate, result)
+		})
+	}
+}
+
+// TestAccessListService_ListFunction tests the List function
+func TestAccessListService_ListFunction(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	// Create a few access lists
+	acl1 := &models.AccessList{
+		Name:    "List 1",
+		Type:    "whitelist",
+		Enabled: true,
+	}
+	acl2 := &models.AccessList{
+		Name:    "List 2",
+		Type:    "blacklist",
+		Enabled: false,
+	}
+
+	assert.NoError(t, service.Create(acl1))
+	assert.NoError(t, service.Create(acl2))
+
+	// Test listing
+	lists, err := service.List()
+	assert.NoError(t, err)
+	assert.Len(t, lists, 2)
+}
+
+// TestAccessListService_SetGeoIPService tests the GeoIP service setter and getter.
+func TestAccessListService_SetGeoIPService(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	// Initially nil
+	assert.Nil(t, service.GetGeoIPService())
+
+	// Setting nil should work
+	service.SetGeoIPService(nil)
+	assert.Nil(t, service.GetGeoIPService())
+}
+
+// TestAccessListService_GeoACL_NoGeoIPService tests geo ACL behavior when GeoIP service is not available.
+func TestAccessListService_GeoACL_NoGeoIPService(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+	// Don't set GeoIP service
+
+	t.Run("geo_whitelist without GeoIP service allows traffic", func(t *testing.T) {
+		acl := &models.AccessList{
+			Name:         "US Only",
+			Type:         "geo_whitelist",
+			CountryCodes: "US",
+			Enabled:      true,
+		}
+		err := service.Create(acl)
+		assert.NoError(t, err)
+
+		// Should allow with graceful degradation message
+		allowed, reason, err := service.TestIP(acl.ID, "8.8.8.8")
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.Contains(t, reason, "GeoIP database not available")
+	})
+
+	t.Run("geo_blacklist without GeoIP service allows traffic", func(t *testing.T) {
+		acl := &models.AccessList{
+			Name:         "Block Russia",
+			Type:         "geo_blacklist",
+			CountryCodes: "RU",
+			Enabled:      true,
+		}
+		err := service.Create(acl)
+		assert.NoError(t, err)
+
+		// Should allow with graceful degradation message
+		allowed, reason, err := service.TestIP(acl.ID, "1.2.3.4")
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.Contains(t, reason, "GeoIP database not available")
+	})
+}
+
+// TestAccessListService_ParseCountryCodes tests the country code parsing helper.
+func TestAccessListService_ParseCountryCodes(t *testing.T) {
+	db := setupTestDB(t)
+	service := NewAccessListService(db)
+
+	t.Run("parse single code", func(t *testing.T) {
+		codes := service.parseCountryCodes("US")
+		assert.Equal(t, []string{"US"}, codes)
+	})
+
+	t.Run("parse multiple codes", func(t *testing.T) {
+		codes := service.parseCountryCodes("US,GB,DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse with spaces", func(t *testing.T) {
+		codes := service.parseCountryCodes("US, GB, DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse with lowercase", func(t *testing.T) {
+		codes := service.parseCountryCodes("us,gb,de")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
+	})
+
+	t.Run("parse empty string", func(t *testing.T) {
+		codes := service.parseCountryCodes("")
+		assert.Nil(t, codes)
+	})
+
+	t.Run("parse with empty entries", func(t *testing.T) {
+		codes := service.parseCountryCodes("US,,GB,,,DE")
+		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
 	})
 }

@@ -50,7 +50,7 @@ func BenchmarkSecurityHandler_GetStatus(b *testing.B) {
 
 	// Seed settings
 	settings := []models.Setting{
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security"},
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "true", Category: "security"},
 		{Key: "security.rate_limit.enabled", Value: "true", Category: "security"},
 		{Key: "security.crowdsec.enabled", Value: "true", Category: "security"},
@@ -305,7 +305,7 @@ func BenchmarkSecurityHandler_GetStatus_Parallel(b *testing.B) {
 	db := setupBenchmarkDB(b)
 
 	settings := []models.Setting{
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security"},
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "true", Category: "security"},
 	}
 	for _, s := range settings {
@@ -431,7 +431,7 @@ func BenchmarkSecurityHandler_ManySettingsLookups(b *testing.B) {
 	}
 	// Security settings
 	settings := []models.Setting{
-		{Key: "security.cerberus.enabled", Value: "true", Category: "security"},
+		{Key: "feature.cerberus.enabled", Value: "true", Category: "feature"},
 		{Key: "security.waf.enabled", Value: "true", Category: "security"},
 		{Key: "security.rate_limit.enabled", Value: "true", Category: "security"},
 		{Key: "security.crowdsec.enabled", Value: "true", Category: "security"},

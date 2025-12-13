@@ -39,6 +39,9 @@ frontend/node_modules/
 frontend/coverage/
 frontend/test-results/
 frontend/dist/
+frontend/.cache
+frontend/.eslintcache
+data/geoip
 frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/frontend/

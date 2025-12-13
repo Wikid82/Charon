@@ -11,18 +11,17 @@ import (
 func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
+
 		if authHeader == "" {
-			// Try cookie
-			cookie, err := c.Cookie("auth_token")
-			if err == nil {
+			// Try cookie first for browser flows
+			if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
 				authHeader = "Bearer " + cookie
 			}
 		}
 
 		if authHeader == "" {
-			// Try query param
-			token := c.Query("token")
-			if token != "" {
+			// Try query param (token passthrough)
+			if token := c.Query("token"); token != "" {
 				authHeader = "Bearer " + token
 			}
 		}

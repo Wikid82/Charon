@@ -24,7 +24,10 @@ func setupDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func TestMiddleware_WAFBlocksPayload(t *testing.T) {
+// TestMiddleware_WAFEnabledTracksMetrics tests that the cerberus middleware tracks WAF metrics
+// when WAF mode is enabled. Note: Actual WAF blocking is handled by Coraza at the Caddy layer,
+// not by this middleware. The middleware only provides metrics tracking and ACL enforcement.
+func TestMiddleware_WAFEnabledTracksMetrics(t *testing.T) {
 	db := setupDB(t)
 	cfg := config.SecurityConfig{WAFMode: "block"}
 	c := cerberus.New(cfg, db)
@@ -33,16 +36,19 @@ func TestMiddleware_WAFBlocksPayload(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
 
-	// Create a request containing "<script>" in the URI (should trigger WAF)
-	req := httptest.NewRequest(http.MethodGet, "/?q=<script>", http.NoBody)
-	req.RequestURI = "/?q=<script>"
+	// Create a request - this middleware no longer blocks on payload content
+	// because Coraza handles WAF at the Caddy layer
+	req := httptest.NewRequest(http.MethodGet, "/?q=test", http.NoBody)
+	req.RequestURI = "/?q=test"
 	ctx.Request = req
 
 	// call middleware
 	mw := c.Middleware()
 	mw(ctx)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	// Middleware should pass through - it only tracks metrics now
+	// WAF blocking happens at Caddy/Coraza layer
+	require.False(t, ctx.IsAborted(), "cerberus middleware should not block - WAF is handled by Coraza at Caddy layer")
 }
 
 func TestMiddleware_ACLBlocksClientIP(t *testing.T) {

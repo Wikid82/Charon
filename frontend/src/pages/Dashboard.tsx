@@ -1,15 +1,53 @@
+import { useMemo, useEffect } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { checkHealth } from '../api/health'
 import { Link } from 'react-router-dom'
 import UptimeWidget from '../components/UptimeWidget'
+import CertificateStatusCard from '../components/CertificateStatusCard'
 
 export default function Dashboard() {
   const { hosts } = useProxyHosts()
   const { servers } = useRemoteServers()
+  const queryClient = useQueryClient()
+
+  // Fetch certificates (polling interval managed via effect below)
   const { certificates } = useCertificates()
+
+  // Build set of certified domains for pending detection
+  // ACME certificates (Let's Encrypt) are auto-managed and don't set certificate_id,
+  // so we match by domain name instead
+  const hasPendingCerts = useMemo(() => {
+    const certifiedDomains = new Set<string>()
+    certificates.forEach(cert => {
+      // Handle missing or undefined domain field
+      if (!cert.domain) return
+      cert.domain.split(',').forEach(d => {
+        const trimmed = d.trim().toLowerCase()
+        if (trimmed) certifiedDomains.add(trimmed)
+      })
+    })
+
+    // Check if any SSL host lacks a certificate
+    const sslHosts = hosts.filter(h => h.ssl_forced && h.enabled)
+    return sslHosts.some(host => {
+      const hostDomains = host.domain_names.split(',').map(d => d.trim().toLowerCase())
+      return !hostDomains.some(domain => certifiedDomains.has(domain))
+    })
+  }, [hosts, certificates])
+
+  // Poll certificates every 15s when there are pending certs
+  useEffect(() => {
+    if (!hasPendingCerts) return
+
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ['certificates'] })
+    }, 15000)
+
+    return () => clearInterval(interval)
+  }, [hasPendingCerts, queryClient])
 
   // Use React Query for health check - benefits from global caching
   const { data: health } = useQuery({
@@ -39,11 +77,7 @@ export default function Dashboard() {
           <div className="text-xs text-gray-500">{enabledServers} enabled</div>
         </Link>
 
-        <Link to="/certificates" className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors">
-          <div className="text-sm text-gray-400 mb-2">SSL Certificates</div>
-          <div className="text-3xl font-bold text-white mb-1">{certificates.length}</div>
-          <div className="text-xs text-gray-500">{certificates.filter(c => c.status === 'valid').length} valid</div>
-        </Link>
+        <CertificateStatusCard certificates={certificates} hosts={hosts} />
 
         <div className="bg-dark-card p-6 rounded-lg border border-gray-800">
           <div className="text-sm text-gray-400 mb-2">System Status</div>

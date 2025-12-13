@@ -33,6 +33,9 @@ type ProxyHost struct {
 	// When enabled, Caddy will use forward_auth to verify user access via Charon
 	ForwardAuthEnabled bool `json:"forward_auth_enabled" gorm:"default:false"`
 
+	// WAF override - when true, disables WAF for this specific host
+	WAFDisabled bool `json:"waf_disabled" gorm:"default:false"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -99,7 +99,7 @@ docker run -d \
 2. The web interface opened on port 8080
 3. Your websites will use ports 80 (HTTP) and 443 (HTTPS)
 
-**Open http://localhost:8080** and start adding your websites!
+**Open <http://localhost:8080>** and start adding your websites!
 
 ---
 
@@ -137,8 +137,6 @@ Want to help make Charon better? Check out [CONTRIBUTING.md](CONTRIBUTING.md)
 ---
 
 ## ✨ Top Features
-
-
 
 ---
 

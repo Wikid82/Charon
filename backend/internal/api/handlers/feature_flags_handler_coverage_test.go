@@ -126,7 +126,7 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupFlagsDB(t)
 
-	// No DB value, no env var - should default to true
+	// No DB value, no env var - check defaults
 	h := NewFeatureFlagsHandler(db)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
@@ -141,8 +141,9 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &flags)
 	require.NoError(t, err)
 
-	// All flags should default to true
-	assert.True(t, flags["feature.cerberus.enabled"])
+	// Cerberus defaults to false (OFF by default per diagnostic fix)
+	assert.False(t, flags["feature.cerberus.enabled"])
+	// Uptime defaults to true (no explicit default set)
 	assert.True(t, flags["feature.uptime.enabled"])
 }
 

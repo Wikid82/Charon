@@ -1,3 +1,4 @@
+// Package caddy provides a client and manager for interacting with the Caddy Admin API.
 package caddy
 
 import (

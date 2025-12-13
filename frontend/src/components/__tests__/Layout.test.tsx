@@ -55,6 +55,8 @@ const renderWithProviders = (children: ReactNode) => {
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+    localStorage.setItem('sidebarCollapsed', 'false')
     // Default: all features enabled
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.cerberus.enabled': true,
@@ -146,6 +148,31 @@ describe('Layout', () => {
 
     // Toggle button should still be in the document
     expect(toggleButton).toBeInTheDocument()
+  })
+
+  it('persists collapse state to localStorage', async () => {
+    localStorage.clear()
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    const collapseBtn = await screen.findByTitle('Collapse sidebar')
+    await userEvent.click(collapseBtn)
+    expect(JSON.parse(localStorage.getItem('sidebarCollapsed') || 'false')).toBe(true)
+  })
+
+  it('restores collapsed state from localStorage on load', async () => {
+    localStorage.setItem('sidebarCollapsed', 'true')
+
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
+    )
+
+    expect(await screen.findByTitle('Expand sidebar')).toBeInTheDocument()
   })
 
   describe('Feature Flags - Conditional Sidebar Items', () => {
@@ -255,7 +282,7 @@ describe('Layout', () => {
 
     it('defaults to showing Cerberus and Uptime when feature flags are loading', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue(undefined as any)
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({} as any)
 
       renderWithProviders(
         <Layout>

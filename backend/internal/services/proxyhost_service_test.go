@@ -167,3 +167,101 @@ func TestProxyHostService_TestConnection(t *testing.T) {
 	err = service.TestConnection(addr.IP.String(), addr.Port)
 	assert.NoError(t, err)
 }
+
+// TestProxyHostService_AdvancedConfig tests advanced config JSON normalization
+func TestProxyHostService_AdvancedConfig(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	tests := []struct {
+		name           string
+		advancedConfig string
+		wantErr        bool
+	}{
+		{
+			name:           "Empty advanced config",
+			advancedConfig: "",
+			wantErr:        false,
+		},
+		{
+			name:           "Valid JSON object",
+			advancedConfig: `{"key": "value"}`,
+			wantErr:        false,
+		},
+		{
+			name:           "Valid JSON array",
+			advancedConfig: `[{"directive": "test"}]`,
+			wantErr:        false,
+		},
+		{
+			name:           "Invalid JSON",
+			advancedConfig: `{invalid json}`,
+			wantErr:        true,
+		},
+		{
+			name:           "Valid nested config",
+			advancedConfig: `{"nested": {"key": "value"}}`,
+			wantErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host := &models.ProxyHost{
+				UUID:           fmt.Sprintf("uuid-%s", tt.name),
+				DomainNames:    fmt.Sprintf("test-%s.example.com", tt.name),
+				ForwardHost:    "127.0.0.1",
+				ForwardPort:    8080,
+				AdvancedConfig: tt.advancedConfig,
+			}
+
+			err := service.Create(host)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid advanced_config")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestProxyHostService_UpdateAdvancedConfig tests updating with advanced config
+func TestProxyHostService_UpdateAdvancedConfig(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	// Create host without advanced config
+	host := &models.ProxyHost{
+		UUID:        "uuid-update",
+		DomainNames: "update.example.com",
+		ForwardHost: "127.0.0.1",
+		ForwardPort: 8080,
+	}
+	require.NoError(t, service.Create(host))
+
+	// Update with valid advanced config
+	host.AdvancedConfig = `{"custom": "directive"}`
+	err := service.Update(host)
+	assert.NoError(t, err)
+
+	fetched, err := service.GetByID(host.ID)
+	require.NoError(t, err)
+	assert.Contains(t, fetched.AdvancedConfig, "custom")
+
+	// Update with invalid advanced config
+	host.AdvancedConfig = `{invalid}`
+	err = service.Update(host)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid advanced_config")
+}
+
+// TestProxyHostService_EmptyDomain tests validation with empty domain
+func TestProxyHostService_EmptyDomain(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+
+	// Validate empty domain (should work as no conflict)
+	err := service.ValidateUniqueDomain("", 0)
+	assert.NoError(t, err)
+}

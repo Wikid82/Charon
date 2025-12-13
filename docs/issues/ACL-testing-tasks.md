@@ -5,13 +5,16 @@ Branch: feature/beta-release
 
 Purpose
 -------
+
 Create a tracked issue and sub-tasks to validate ACL-related changes introduced on the `feature/beta-release` branch. This file records the scope, test steps, and sub-issues so we can open a GitHub issue later or link this file in the issue body.
 
 Top-level checklist
+
 - [ ] Open GitHub Issue "ACL: Test and validate ACL changes (feature/beta-release)" and link this file
 - [ ] Assign owner and target date
 
 Sub-tasks (suggested GitHub issue checklist items)
+
 1) Unit & Service Tests
    - [ ] Add/verify unit tests for `internal/services/access_list_service.go` CRUD + validation
    - [ ] Add tests for `internal/api/handlers/access_list_handler.go` endpoints (create/list/get/update/delete)
@@ -37,6 +40,7 @@ Sub-tasks (suggested GitHub issue checklist items)
    - [ ] Add a short note in release notes describing ACL test coverage and migration steps
 
 Manual Test Steps (quick guide)
+
 - Set up local environment:
   1. `cd backend && go run ./cmd/api` (or use docker compose)
   2. Run frontend dev server: `cd frontend && npm run dev`
@@ -44,10 +48,12 @@ Manual Test Steps (quick guide)
 - Import Caddyfiles (single & multi-site) with ACL directives and validate mapping.
 
 Issue metadata (suggested)
+
 - Title: ACL: Test and validate ACL changes (feature/beta-release)
 - Labels: testing, needs-triage, acl, regression
 - Assignees: @<owner-placeholder>
 - Milestone: to be set
 
 Notes
+
 - Keep this file as the canonical checklist and paste into the GitHub issue body when opening the issue.

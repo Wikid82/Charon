@@ -1,11 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import UsersPage from '../UsersPage'
 import * as usersApi from '../../api/users'
 import * as proxyHostsApi from '../../api/proxyHosts'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+import { toast } from '../../utils/toast'
 
 // Mock APIs
 vi.mock('../../api/users', () => ({
@@ -24,22 +24,12 @@ vi.mock('../../api/proxyHosts', () => ({
   getProxyHosts: vi.fn(),
 }))
 
-const createQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  })
-
-const renderWithProviders = (ui: React.ReactNode) => {
-  const queryClient = createQueryClient()
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>
-  )
-}
+vi.mock('../../utils/toast', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}))
 
 const mockUsers = [
   {
@@ -81,7 +71,7 @@ const mockUsers = [
 
 const mockProxyHosts = [
   {
-    uuid: 'host-1',
+    uuid: '1',
     name: 'Test Host',
     domain_names: 'test.example.com',
     forward_scheme: 'http',
@@ -105,12 +95,14 @@ describe('UsersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue(mockProxyHosts)
+    vi.mocked(toast.success).mockClear()
+    vi.mocked(toast.error).mockClear()
   })
 
   it('renders loading state initially', () => {
     vi.mocked(usersApi.listUsers).mockReturnValue(new Promise(() => {}))
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     expect(document.querySelector('.animate-spin')).toBeTruthy()
   })
@@ -118,7 +110,7 @@ describe('UsersPage', () => {
   it('renders user list', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('User Management')).toBeTruthy()
@@ -133,7 +125,7 @@ describe('UsersPage', () => {
   it('shows pending invite status', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('Pending Invite')).toBeTruthy()
@@ -143,7 +135,7 @@ describe('UsersPage', () => {
   it('shows active status for accepted users', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0)
@@ -153,7 +145,7 @@ describe('UsersPage', () => {
   it('opens invite modal when clicking invite button', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('Invite User')).toBeTruthy()
@@ -170,7 +162,7 @@ describe('UsersPage', () => {
   it('shows permission mode in user list', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getAllByText('Blacklist').length).toBeGreaterThan(0)
@@ -183,7 +175,7 @@ describe('UsersPage', () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
     vi.mocked(usersApi.updateUser).mockResolvedValue({ message: 'Updated' })
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('Regular User')).toBeTruthy()
@@ -218,7 +210,7 @@ describe('UsersPage', () => {
       expires_at: '2024-01-03T00:00:00Z',
     })
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('Invite User')).toBeTruthy()
@@ -252,7 +244,7 @@ describe('UsersPage', () => {
     // Mock window.confirm
     const confirmSpy = vi.spyOn(window, 'confirm').mockImplementation(() => true)
 
-    renderWithProviders(<UsersPage />)
+    renderWithQueryClient(<UsersPage />)
 
     await waitFor(() => {
       expect(screen.getByText('Regular User')).toBeTruthy()
@@ -277,5 +269,84 @@ describe('UsersPage', () => {
     })
 
     confirmSpy.mockRestore()
+  })
+
+  it('updates user permissions from the modal', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.updateUserPermissions).mockResolvedValue({ message: 'ok' })
+
+    renderWithQueryClient(<UsersPage />)
+
+    await waitFor(() => expect(screen.getByText('Regular User')).toBeInTheDocument())
+
+    const editButtons = screen.getAllByTitle('Edit Permissions')
+    const firstEditable = editButtons.find((btn) => !(btn as HTMLButtonElement).disabled)
+    expect(firstEditable).toBeTruthy()
+
+    const user = userEvent.setup()
+    await user.click(firstEditable!)
+
+    const modal = await screen.findByText(/Edit Permissions/i)
+    const modalContainer = modal.closest('.bg-dark-card') as HTMLElement
+
+    // Switch to whitelist (deny_all) and toggle first host
+    const modeSelect = within(modalContainer).getByDisplayValue('Allow All (Blacklist)')
+    await user.selectOptions(modeSelect, 'deny_all')
+    const checkbox = within(modalContainer).getByLabelText(/Test Host/) as HTMLInputElement
+    expect(checkbox.checked).toBe(false)
+    await user.click(checkbox)
+
+    await user.click(screen.getByRole('button', { name: 'Save Permissions' }))
+
+    await waitFor(() => {
+      expect(usersApi.updateUserPermissions).toHaveBeenCalledWith(2, {
+        permission_mode: 'deny_all',
+        permitted_hosts: expect.arrayContaining([expect.any(Number)]),
+      })
+      expect(toast.success).toHaveBeenCalledWith('Permissions updated')
+    })
+  })
+
+  it('shows manual invite link flow when email is not sent and allows copy', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.inviteUser).mockResolvedValue({
+      id: 5,
+      uuid: 'invitee',
+      email: 'manual@example.com',
+      role: 'user',
+      invite_token: 'token-123',
+      email_sent: false,
+      expires_at: '2025-01-01T00:00:00Z',
+    })
+
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const originalDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', {
+      get: () => ({ writeText }),
+      configurable: true,
+    })
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Invite User/i }))
+    await user.type(screen.getByPlaceholderText('user@example.com'), 'manual@example.com')
+    await user.click(screen.getByRole('button', { name: /Send Invite/i }))
+
+    await screen.findByDisplayValue(/accept-invite\?token=token-123/)
+    const copyButton = await screen.findByRole('button', { name: /copy invite link/i })
+
+    await user.click(copyButton)
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Invite link copied to clipboard')
+    })
+
+    if (originalDescriptor) {
+      Object.defineProperty(navigator, 'clipboard', originalDescriptor)
+    } else {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard
+    }
   })
 })
