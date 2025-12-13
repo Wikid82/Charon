@@ -19,6 +19,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -53,6 +55,21 @@ type CrowdsecHandler struct {
 	BinPath  string
 	DataDir  string
 	Hub      *crowdsec.HubService
+	Console  *crowdsec.ConsoleEnrollmentService
+	Security *services.SecurityService
+}
+
+func ttlRemainingSeconds(now, retrievedAt time.Time, ttl time.Duration) *int64 {
+	if retrievedAt.IsZero() || ttl <= 0 {
+		return nil
+	}
+	remaining := retrievedAt.Add(ttl).Sub(now)
+	if remaining < 0 {
+		var zero int64
+		return &zero
+	}
+	secs := int64(remaining.Seconds())
+	return &secs
 }
 
 func mapCrowdsecStatus(err error, defaultCode int) int {
@@ -69,6 +86,16 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		logger.Log().WithError(err).Warn("failed to init crowdsec hub cache")
 	}
 	hubSvc := crowdsec.NewHubService(&RealCommandExecutor{}, cache, dataDir)
+	consoleSecret := os.Getenv("CHARON_CONSOLE_ENCRYPTION_KEY")
+	if consoleSecret == "" {
+		consoleSecret = os.Getenv("CHARON_JWT_SECRET")
+	}
+	var securitySvc *services.SecurityService
+	var consoleSvc *crowdsec.ConsoleEnrollmentService
+	if db != nil {
+		securitySvc = services.NewSecurityService(db)
+		consoleSvc = crowdsec.NewConsoleEnrollmentService(db, &crowdsec.SecureCommandExecutor{}, dataDir, consoleSecret)
+	}
 	return &CrowdsecHandler{
 		DB:       db,
 		Executor: executor,
@@ -76,6 +103,8 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 		BinPath:  binPath,
 		DataDir:  dataDir,
 		Hub:      hubSvc,
+		Console:  consoleSvc,
+		Security: securitySvc,
 	}
 }
 
@@ -104,6 +133,52 @@ func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	}
 
 	return true
+}
+
+// isConsoleEnrollmentEnabled toggles console enrollment via DB or env flag.
+func (h *CrowdsecHandler) isConsoleEnrollmentEnabled() bool {
+	const key = "feature.crowdsec.console_enrollment"
+	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
+		var s models.Setting
+		if err := h.DB.Where("key = ?", key).First(&s).Error; err == nil {
+			v := strings.ToLower(strings.TrimSpace(s.Value))
+			return v == "true" || v == "1" || v == "yes"
+		}
+	}
+
+	if envVal, ok := os.LookupEnv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			return b
+		}
+		return envVal == "1"
+	}
+
+	return false
+}
+
+func actorFromContext(c *gin.Context) string {
+	if id, ok := c.Get("userID"); ok {
+		return fmt.Sprintf("user:%v", id)
+	}
+	return "unknown"
+}
+
+func (h *CrowdsecHandler) hubEndpoints() []string {
+	if h.Hub == nil {
+		return nil
+	}
+	set := make(map[string]struct{})
+	for _, e := range []string{h.Hub.HubBaseURL, h.Hub.MirrorBaseURL} {
+		if e == "" {
+			continue
+		}
+		set[e] = struct{}{}
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	return out
 }
 
 // Start starts the CrowdSec process.
@@ -253,7 +328,7 @@ func (h *CrowdsecHandler) ExportConfig(c *gin.Context) {
 		}
 		defer func() {
 			if err := f.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", path)
+				logger.Log().WithError(err).Warn("failed to close file while archiving", "path", util.SanitizeForLog(path))
 			}
 		}()
 
@@ -381,11 +456,12 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 
 	type presetInfo struct {
 		crowdsec.Preset
-		Available   bool       `json:"available"`
-		Cached      bool       `json:"cached"`
-		CacheKey    string     `json:"cache_key,omitempty"`
-		Etag        string     `json:"etag,omitempty"`
-		RetrievedAt *time.Time `json:"retrieved_at,omitempty"`
+		Available           bool       `json:"available"`
+		Cached              bool       `json:"cached"`
+		CacheKey            string     `json:"cache_key,omitempty"`
+		Etag                string     `json:"etag,omitempty"`
+		RetrievedAt         *time.Time `json:"retrieved_at,omitempty"`
+		TTLRemainingSeconds *int64     `json:"ttl_remaining_seconds,omitempty"`
 	}
 
 	result := map[string]*presetInfo{}
@@ -425,6 +501,8 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 	if h.Hub != nil && h.Hub.Cache != nil {
 		ctx := c.Request.Context()
 		if cached, err := h.Hub.Cache.List(ctx); err == nil {
+			cacheTTL := h.Hub.Cache.TTL()
+			now := time.Now().UTC()
 			for _, entry := range cached {
 				if _, ok := result[entry.Slug]; !ok {
 					result[entry.Slug] = &presetInfo{Preset: crowdsec.Preset{Slug: entry.Slug, Title: entry.Slug, Summary: "cached preset", Source: "hub", RequiresHub: true}}
@@ -436,6 +514,7 @@ func (h *CrowdsecHandler) ListPresets(c *gin.Context) {
 					val := entry.RetrievedAt
 					result[entry.Slug].RetrievedAt = &val
 				}
+				result[entry.Slug].TTLRemainingSeconds = ttlRemainingSeconds(now, entry.RetrievedAt, cacheTTL)
 			}
 		} else {
 			logger.Log().WithError(err).Warn("crowdsec hub cache list failed")
@@ -474,13 +553,49 @@ func (h *CrowdsecHandler) PullPreset(c *gin.Context) {
 		return
 	}
 
+	// Check for curated preset that doesn't require hub
+	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "pulled",
+			"slug":         preset.Slug,
+			"preview":      "# Curated preset: " + preset.Title + "\n# " + preset.Summary,
+			"cache_key":    "curated-" + preset.Slug,
+			"etag":         "curated",
+			"retrieved_at": time.Now(),
+			"source":       "charon-curated",
+		})
+		return
+	}
+
 	ctx := c.Request.Context()
+	// Log cache directory before pull
+	if h.Hub != nil && h.Hub.Cache != nil {
+		cacheDir := filepath.Join(h.DataDir, "hub_cache")
+		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to pull preset")
+		if stat, err := os.Stat(cacheDir); err == nil {
+			logger.Log().WithField("cache_dir_mode", stat.Mode()).WithField("cache_dir_writable", stat.Mode().Perm()&0o200 != 0).Debug("cache directory exists")
+		} else {
+			logger.Log().WithError(err).Warn("cache directory stat failed")
+		}
+	}
+
 	res, err := h.Hub.Pull(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusBadGateway)
-		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
-		c.JSON(status, gin.H{"error": err.Error()})
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset pull failed")
+		c.JSON(status, gin.H{"error": err.Error(), "hub_endpoints": h.hubEndpoints()})
 		return
+	}
+
+	// Verify cache was actually stored
+	logger.Log().WithField("slug", res.Meta.Slug).WithField("cache_key", res.Meta.CacheKey).WithField("archive_path", res.Meta.ArchivePath).WithField("preview_path", res.Meta.PreviewPath).Info("preset pulled and cached successfully")
+
+	// Verify files exist on disk
+	if _, err := os.Stat(res.Meta.ArchivePath); err != nil {
+		logger.Log().WithError(err).WithField("archive_path", res.Meta.ArchivePath).Error("cached archive file not found after pull")
+	}
+	if _, err := os.Stat(res.Meta.PreviewPath); err != nil {
+		logger.Log().WithError(err).WithField("preview_path", res.Meta.PreviewPath).Error("cached preview file not found after pull")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -519,15 +634,82 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		return
 	}
 
+	// Check for curated preset that doesn't require hub
+	if preset, ok := crowdsec.FindPreset(slug); ok && !preset.RequiresHub {
+		if h.DB != nil {
+			_ = h.DB.Create(&models.CrowdsecPresetEvent{
+				Slug:       slug,
+				Action:     "apply",
+				Status:     "applied",
+				CacheKey:   "curated-" + slug,
+				BackupPath: "",
+			}).Error
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "applied",
+			"backup":      "",
+			"reload_hint": true,
+			"used_cscli":  false,
+			"cache_key":   "curated-" + slug,
+			"slug":        slug,
+		})
+		return
+	}
+
 	ctx := c.Request.Context()
+
+	// Log cache status before apply
+	if h.Hub != nil && h.Hub.Cache != nil {
+		cacheDir := filepath.Join(h.DataDir, "hub_cache")
+		logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to apply preset")
+
+		// Check if cached
+		if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
+			logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
+			// Verify files still exist
+			if _, err := os.Stat(cached.ArchivePath); err != nil {
+				logger.Log().WithError(err).WithField("archive_path", cached.ArchivePath).Error("cached archive file missing")
+			}
+			if _, err := os.Stat(cached.PreviewPath); err != nil {
+				logger.Log().WithError(err).WithField("preview_path", cached.PreviewPath).Error("cached preview file missing")
+			}
+		} else {
+			logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
+			// List what's actually in the cache
+			if entries, listErr := h.Hub.Cache.List(ctx); listErr == nil {
+				slugs := make([]string, len(entries))
+				for i, e := range entries {
+					slugs[i] = e.Slug
+				}
+				logger.Log().WithField("cached_slugs", slugs).Info("current cache contents")
+			}
+		}
+	}
+
 	res, err := h.Hub.Apply(ctx, slug)
 	if err != nil {
 		status := mapCrowdsecStatus(err, http.StatusInternalServerError)
-		logger.Log().WithError(err).WithField("slug", slug).WithField("hub_base_url", h.Hub.HubBaseURL).Warn("crowdsec preset apply failed")
+		logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", h.Hub.HubBaseURL).WithField("backup_path", res.BackupPath).WithField("cache_key", res.CacheKey).Warn("crowdsec preset apply failed")
 		if h.DB != nil {
 			_ = h.DB.Create(&models.CrowdsecPresetEvent{Slug: slug, Action: "apply", Status: "failed", CacheKey: res.CacheKey, BackupPath: res.BackupPath, Error: err.Error()}).Error
 		}
-		c.JSON(status, gin.H{"error": err.Error(), "backup": res.BackupPath})
+		// Build detailed error response
+		errorMsg := err.Error()
+		// Add actionable guidance based on error type
+		if errors.Is(err, crowdsec.ErrCacheMiss) || strings.Contains(errorMsg, "cache miss") {
+			errorMsg = "Preset cache missing or expired. Pull the preset again, then retry apply."
+		} else if strings.Contains(errorMsg, "cscli unavailable") && strings.Contains(errorMsg, "no cached preset") {
+			errorMsg = "CrowdSec preset not cached. Pull the preset first by clicking 'Pull Preview', then try applying again."
+		}
+		errorResponse := gin.H{"error": errorMsg, "hub_endpoints": h.hubEndpoints()}
+		if res.BackupPath != "" {
+			errorResponse["backup"] = res.BackupPath
+		}
+		if res.CacheKey != "" {
+			errorResponse["cache_key"] = res.CacheKey
+		}
+		c.JSON(status, errorResponse)
 		return
 	}
 
@@ -551,6 +733,82 @@ func (h *CrowdsecHandler) ApplyPreset(c *gin.Context) {
 		"cache_key":   res.CacheKey,
 		"slug":        res.AppliedPreset,
 	})
+}
+
+// ConsoleEnroll enrolls the local engine with CrowdSec console.
+func (h *CrowdsecHandler) ConsoleEnroll(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment unavailable"})
+		return
+	}
+
+	var payload struct {
+		EnrollmentKey string `json:"enrollment_key"`
+		Tenant        string `json:"tenant"`
+		AgentName     string `json:"agent_name"`
+		Force         bool   `json:"force"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	status, err := h.Console.Enroll(ctx, crowdsec.ConsoleEnrollRequest{
+		EnrollmentKey: payload.EnrollmentKey,
+		Tenant:        payload.Tenant,
+		AgentName:     payload.AgentName,
+		Force:         payload.Force,
+	})
+
+	if err != nil {
+		httpStatus := mapCrowdsecStatus(err, http.StatusBadGateway)
+		if strings.Contains(strings.ToLower(err.Error()), "progress") {
+			httpStatus = http.StatusConflict
+		} else if strings.Contains(strings.ToLower(err.Error()), "required") {
+			httpStatus = http.StatusBadRequest
+		}
+		logger.Log().WithError(err).WithField("tenant", util.SanitizeForLog(payload.Tenant)).WithField("agent", util.SanitizeForLog(payload.AgentName)).WithField("correlation_id", status.CorrelationID).Warn("crowdsec console enrollment failed")
+		if h.Security != nil {
+			_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_failed", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, payload.Tenant, payload.AgentName, status.CorrelationID)})
+		}
+		resp := gin.H{"error": err.Error(), "status": status.Status}
+		if status.CorrelationID != "" {
+			resp["correlation_id"] = status.CorrelationID
+		}
+		c.JSON(httpStatus, resp)
+		return
+	}
+
+	if h.Security != nil {
+		_ = h.Security.LogAudit(&models.SecurityAudit{Actor: actorFromContext(c), Action: "crowdsec_console_enroll_succeeded", Details: fmt.Sprintf("status=%s tenant=%s agent=%s correlation_id=%s", status.Status, status.Tenant, status.AgentName, status.CorrelationID)})
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// ConsoleStatus returns the current console enrollment status without secrets.
+func (h *CrowdsecHandler) ConsoleStatus(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment unavailable"})
+		return
+	}
+
+	status, err := h.Console.Status(c.Request.Context())
+	if err != nil {
+		logger.Log().WithError(err).Warn("failed to read console enrollment status")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read enrollment status"})
+		return
+	}
+	c.JSON(http.StatusOK, status)
 }
 
 // GetCachedPreset returns cached preview for a slug when available.
@@ -578,8 +836,20 @@ func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	meta, _ := h.Hub.Cache.Load(ctx, slug)
-	c.JSON(http.StatusOK, gin.H{"preview": preview, "cache_key": meta.CacheKey, "etag": meta.Etag})
+	meta, metaErr := h.Hub.Cache.Load(ctx, slug)
+	if metaErr != nil && !errors.Is(metaErr, crowdsec.ErrCacheMiss) && !errors.Is(metaErr, crowdsec.ErrCacheExpired) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": metaErr.Error()})
+		return
+	}
+	cacheTTL := h.Hub.Cache.TTL()
+	now := time.Now().UTC()
+	c.JSON(http.StatusOK, gin.H{
+		"preview":               preview,
+		"cache_key":             meta.CacheKey,
+		"etag":                  meta.Etag,
+		"retrieved_at":          meta.RetrievedAt,
+		"ttl_remaining_seconds": ttlRemainingSeconds(now, meta.RetrievedAt, cacheTTL),
+	})
 }
 
 // CrowdSecDecision represents a ban decision from CrowdSec
@@ -608,10 +878,224 @@ type cscliDecision struct {
 	Until     string `json:"until"`
 }
 
+// lapiDecision represents the JSON structure from CrowdSec LAPI /v1/decisions
+type lapiDecision struct {
+	ID        int64  `json:"id"`
+	Origin    string `json:"origin"`
+	Type      string `json:"type"`
+	Scope     string `json:"scope"`
+	Value     string `json:"value"`
+	Duration  string `json:"duration"`
+	Scenario  string `json:"scenario"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Until     string `json:"until,omitempty"`
+}
+
+// GetLAPIDecisions queries CrowdSec LAPI directly for current decisions.
+// This is an alternative to ListDecisions which uses cscli.
+// Query params:
+//   - ip: filter by specific IP address
+//   - scope: filter by scope (e.g., "ip", "range")
+//   - type: filter by decision type (e.g., "ban", "captcha")
+func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
+	// Get LAPI URL from security config or use default
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	lapiURL := "http://127.0.0.1:8085"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Build query string
+	queryParams := make([]string, 0)
+	if ip := c.Query("ip"); ip != "" {
+		queryParams = append(queryParams, "ip="+ip)
+	}
+	if scope := c.Query("scope"); scope != "" {
+		queryParams = append(queryParams, "scope="+scope)
+	}
+	if decisionType := c.Query("type"); decisionType != "" {
+		queryParams = append(queryParams, "type="+decisionType)
+	}
+
+	// Build request URL
+	reqURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
+	if len(queryParams) > 0 {
+		reqURL += "?" + strings.Join(queryParams, "&")
+	}
+
+	// Get API key
+	apiKey := getLAPIKey()
+
+	// Create HTTP request with timeout
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to create LAPI decisions request")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+
+	// Add authentication header if API key is available
+	if apiKey != "" {
+		req.Header.Set("X-Api-Key", apiKey)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	// Execute request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Log().WithError(err).WithField("lapi_url", lapiURL).Warn("Failed to query LAPI decisions")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Handle non-200 responses
+	if resp.StatusCode == http.StatusUnauthorized {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "LAPI authentication failed - check API key configuration"})
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		logger.Log().WithField("status", resp.StatusCode).WithField("lapi_url", lapiURL).Warn("LAPI returned non-OK status")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+
+	// Check content-type to ensure we're getting JSON (not HTML from a proxy/frontend)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !strings.Contains(contentType, "application/json") {
+		logger.Log().WithField("content_type", contentType).WithField("lapi_url", lapiURL).Warn("LAPI returned non-JSON content-type, falling back to cscli")
+		// Fallback to cscli-based method
+		h.ListDecisions(c)
+		return
+	}
+
+	// Parse response body
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB limit
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to read LAPI response")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response"})
+		return
+	}
+
+	// Handle null/empty responses
+	if len(body) == 0 || string(body) == "null" || string(body) == "null\n" {
+		c.JSON(http.StatusOK, gin.H{"decisions": []CrowdSecDecision{}, "total": 0, "source": "lapi"})
+		return
+	}
+
+	// Parse JSON
+	var lapiDecisions []lapiDecision
+	if err := json.Unmarshal(body, &lapiDecisions); err != nil {
+		logger.Log().WithError(err).WithField("body", string(body)).Warn("Failed to parse LAPI decisions")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse LAPI response"})
+		return
+	}
+
+	// Convert to our format
+	decisions := make([]CrowdSecDecision, 0, len(lapiDecisions))
+	for _, d := range lapiDecisions {
+		var createdAt time.Time
+		if d.CreatedAt != "" {
+			createdAt, _ = time.Parse(time.RFC3339, d.CreatedAt)
+		}
+		decisions = append(decisions, CrowdSecDecision{
+			ID:        d.ID,
+			Origin:    d.Origin,
+			Type:      d.Type,
+			Scope:     d.Scope,
+			Value:     d.Value,
+			Duration:  d.Duration,
+			Scenario:  d.Scenario,
+			CreatedAt: createdAt,
+			Until:     d.Until,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"decisions": decisions, "total": len(decisions), "source": "lapi"})
+}
+
+// getLAPIKey retrieves the LAPI API key from environment variables.
+func getLAPIKey() string {
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+	for _, key := range envVars {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// CheckLAPIHealth verifies that CrowdSec LAPI is responding.
+func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
+	// Get LAPI URL from security config or use default
+	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	lapiURL := "http://127.0.0.1:8085"
+	if h.Security != nil {
+		cfg, err := h.Security.Get()
+		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
+			lapiURL = cfg.CrowdSecAPIURL
+		}
+	}
+
+	// Create health check request
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	healthURL := strings.TrimRight(lapiURL, "/") + "/health"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"healthy": false, "error": "failed to create request"})
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Try decisions endpoint as fallback health check
+		decisionsURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodHead, decisionsURL, http.NoBody)
+		resp2, err2 := client.Do(req2)
+		if err2 != nil {
+			c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "LAPI unreachable", "lapi_url": lapiURL})
+			return
+		}
+		defer resp2.Body.Close()
+		// 401 is expected without auth but indicates LAPI is running
+		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusUnauthorized {
+			c.JSON(http.StatusOK, gin.H{"healthy": true, "lapi_url": lapiURL, "note": "health endpoint unavailable, verified via decisions endpoint"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "unexpected status", "status": resp2.StatusCode, "lapi_url": lapiURL})
+		return
+	}
+	defer resp.Body.Close()
+
+	c.JSON(http.StatusOK, gin.H{"healthy": resp.StatusCode == http.StatusOK, "lapi_url": lapiURL, "status": resp.StatusCode})
+}
+
 // ListDecisions calls cscli to get current decisions (banned IPs)
 func (h *CrowdsecHandler) ListDecisions(c *gin.Context) {
 	ctx := c.Request.Context()
-	output, err := h.CmdExec.Execute(ctx, "cscli", "decisions", "list", "-o", "json")
+	args := []string{"decisions", "list", "-o", "json"}
+	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+	}
+	output, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
 		// If cscli is not available or returns error, return empty list with warning
 		logger.Log().WithError(err).Warn("Failed to execute cscli decisions list")
@@ -692,9 +1176,12 @@ func (h *CrowdsecHandler) BanIP(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	args := []string{"decisions", "add", "-i", ip, "-d", duration, "-R", reason, "-t", "ban"}
+	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+	}
 	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions add")
+		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban IP"})
 		return
 	}
@@ -715,14 +1202,134 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	args := []string{"decisions", "delete", "-i", ip}
+	if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+		args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+	}
 	_, err := h.CmdExec.Execute(ctx, "cscli", args...)
 	if err != nil {
-		logger.Log().WithError(err).WithField("ip", ip).Warn("Failed to execute cscli decisions delete")
+		logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions delete")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban IP"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "unbanned", "ip": ip})
+}
+
+// RegisterBouncer registers a new bouncer or returns existing bouncer status.
+// POST /api/v1/admin/crowdsec/bouncer/register
+func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Check if register_bouncer.sh script exists
+	scriptPath := "/usr/local/bin/register_bouncer.sh"
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
+		return
+	}
+
+	// Run the registration script
+	output, err := h.CmdExec.Execute(ctx, "bash", scriptPath)
+	if err != nil {
+		logger.Log().WithError(err).WithField("output", string(output)).Warn("Failed to register bouncer")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": string(output)})
+		return
+	}
+
+	// Parse output for API key (last line typically contains the key)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var apiKeyPreview string
+	for _, line := range lines {
+		// Look for lines that appear to be an API key (long alphanumeric string)
+		line = strings.TrimSpace(line)
+		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
+			// Found what looks like an API key, show preview
+			if len(line) > 8 {
+				apiKeyPreview = line[:8] + "..."
+			} else {
+				apiKeyPreview = line + "..."
+			}
+			break
+		}
+	}
+
+	// Check if bouncer is actually registered by querying cscli
+	checkOutput, checkErr := h.CmdExec.Execute(ctx, "cscli", "bouncers", "list", "-o", "json")
+	registered := false
+	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
+		if strings.Contains(string(checkOutput), "caddy-bouncer") {
+			registered = true
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":          "registered",
+		"bouncer_name":    "caddy-bouncer",
+		"api_key_preview": apiKeyPreview,
+		"registered":      registered,
+	})
+}
+
+// GetAcquisitionConfig returns the current CrowdSec acquisition configuration.
+// GET /api/v1/admin/crowdsec/acquisition
+func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
+	acquisPath := "/etc/crowdsec/acquis.yaml"
+
+	content, err := os.ReadFile(acquisPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "acquisition config not found", "path": acquisPath})
+			return
+		}
+		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read acquisition config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"content": string(content),
+		"path":    acquisPath,
+	})
+}
+
+// UpdateAcquisitionConfig updates the CrowdSec acquisition configuration.
+// PUT /api/v1/admin/crowdsec/acquisition
+func (h *CrowdsecHandler) UpdateAcquisitionConfig(c *gin.Context) {
+	var payload struct {
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content is required"})
+		return
+	}
+
+	acquisPath := "/etc/crowdsec/acquis.yaml"
+
+	// Create backup of existing config if it exists
+	var backupPath string
+	if _, err := os.Stat(acquisPath); err == nil {
+		backupPath = fmt.Sprintf("%s.backup.%s", acquisPath, time.Now().Format("20060102-150405"))
+		if err := os.Rename(acquisPath, backupPath); err != nil {
+			logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to backup acquisition config")
+			// Continue anyway - we'll try to write the new config
+		}
+	}
+
+	// Write new config
+	if err := os.WriteFile(acquisPath, []byte(payload.Content), 0o644); err != nil {
+		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to write acquisition config")
+		// Try to restore backup if it exists
+		if backupPath != "" {
+			_ = os.Rename(backupPath, acquisPath)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write acquisition config"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "updated",
+		"backup":      backupPath,
+		"reload_hint": true,
+	})
 }
 
 // RegisterRoutes registers crowdsec admin routes under protected group
@@ -739,8 +1346,17 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/admin/crowdsec/presets/pull", h.PullPreset)
 	rg.POST("/admin/crowdsec/presets/apply", h.ApplyPreset)
 	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
+	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
+	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
+	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)
+	rg.GET("/admin/crowdsec/lapi/health", h.CheckLAPIHealth)
 	rg.POST("/admin/crowdsec/ban", h.BanIP)
 	rg.DELETE("/admin/crowdsec/ban/:ip", h.UnbanIP)
+	// Bouncer registration endpoint
+	rg.POST("/admin/crowdsec/bouncer/register", h.RegisterBouncer)
+	// Acquisition configuration endpoints
+	rg.GET("/admin/crowdsec/acquisition", h.GetAcquisitionConfig)
+	rg.PUT("/admin/crowdsec/acquisition", h.UpdateAcquisitionConfig)
 }

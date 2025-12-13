@@ -6,6 +6,14 @@ const client = axios.create({
   timeout: 30000, // 30 second timeout
 });
 
+export const setAuthToken = (token: string | null) => {
+  if (token) {
+    client.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    delete client.defaults.headers.common.Authorization;
+  }
+};
+
 // Global 401 error logging for debugging
 client.interceptors.response.use(
   (response) => response,

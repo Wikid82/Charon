@@ -83,14 +83,35 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := NewSecurityService(db)
 
+	// Test creating new ruleset
 	rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: "rule: 1"}
 	err := svc.UpsertRuleSet(rs)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, rs.UUID)
+	assert.False(t, rs.LastUpdated.IsZero())
+
+	// Test updating existing ruleset
+	rs.Content = "rule: 2"
+	rs.Mode = "updated"
+	err = svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
 
 	list, err := svc.ListRuleSets()
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(list), 1)
 	assert.Equal(t, "owasp-crs", list[0].Name)
+	assert.Equal(t, "rule: 2", list[0].Content)
+	assert.Equal(t, "updated", list[0].Mode)
+
+	// Test nil ruleset
+	err = svc.UpsertRuleSet(nil)
+	assert.NoError(t, err)
+
+	// Test ruleset without name
+	invalidRuleset := &models.SecurityRuleSet{Content: "test"}
+	err = svc.UpsertRuleSet(invalidRuleset)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "name required")
 }
 
 func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
@@ -291,4 +312,198 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	ok, err := svc.VerifyBreakGlassToken("default", token)
 	assert.NoError(t, err)
 	assert.True(t, ok)
+}
+
+func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// 1. Create initial config with rate limit settings
+	initialCfg := &models.SecurityConfig{
+		Name:               "default",
+		Enabled:            true,
+		RateLimitEnable:    true,
+		RateLimitBurst:     10,
+		RateLimitRequests:  100,
+		RateLimitWindowSec: 60,
+		WAFLearning:        false,
+		CrowdSecAPIURL:     "http://localhost:8080",
+		WAFRulesSource:     "owasp-crs",
+	}
+	err := svc.Upsert(initialCfg)
+	assert.NoError(t, err)
+
+	// Verify initial values
+	got, err := svc.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, 100, got.RateLimitRequests)
+	assert.Equal(t, 60, got.RateLimitWindowSec)
+	assert.Equal(t, 10, got.RateLimitBurst)
+	assert.False(t, got.WAFLearning)
+	assert.Equal(t, "http://localhost:8080", got.CrowdSecAPIURL)
+	assert.Equal(t, "owasp-crs", got.WAFRulesSource)
+
+	// 2. Update rate limit settings via Upsert
+	updatedCfg := &models.SecurityConfig{
+		Name:               "default",
+		Enabled:            true,
+		RateLimitEnable:    true,
+		RateLimitBurst:     50,
+		RateLimitRequests:  500,
+		RateLimitWindowSec: 120,
+		WAFLearning:        true,
+		CrowdSecAPIURL:     "http://crowdsec:8080",
+		WAFRulesSource:     "custom-rules",
+	}
+	err = svc.Upsert(updatedCfg)
+	assert.NoError(t, err)
+
+	// 3. Verify all fields persisted correctly via Get()
+	got, err = svc.Get()
+	assert.NoError(t, err)
+	assert.Equal(t, 500, got.RateLimitRequests, "RateLimitRequests should be updated")
+	assert.Equal(t, 120, got.RateLimitWindowSec, "RateLimitWindowSec should be updated")
+	assert.Equal(t, 50, got.RateLimitBurst, "RateLimitBurst should be updated")
+	assert.True(t, got.WAFLearning, "WAFLearning should be updated")
+	assert.Equal(t, "http://crowdsec:8080", got.CrowdSecAPIURL, "CrowdSecAPIURL should be updated")
+	assert.Equal(t, "custom-rules", got.WAFRulesSource, "WAFRulesSource should be updated")
+}
+
+func TestSecurityService_LogAudit(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Test logging valid audit entry
+	audit := &models.SecurityAudit{
+		Action:  "login_success",
+		Actor:   "admin",
+		Details: "User admin logged in from 192.168.1.100",
+	}
+	err := svc.LogAudit(audit)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, audit.UUID)
+	assert.False(t, audit.CreatedAt.IsZero())
+
+	// Verify audit was stored
+	var stored models.SecurityAudit
+	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "login_success", stored.Action)
+	assert.Equal(t, "admin", stored.Actor)
+
+	// Test logging nil audit (should not error)
+	err = svc.LogAudit(nil)
+	assert.NoError(t, err)
+
+	// Test audit with pre-filled UUID
+	audit2 := &models.SecurityAudit{
+		UUID:    "custom-uuid-123",
+		Action:  "config_change",
+		Actor:   "admin",
+		Details: "Security settings updated",
+	}
+	err = svc.LogAudit(audit2)
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-uuid-123", audit2.UUID)
+}
+
+func TestSecurityService_DeleteRuleSet_NotFound(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Try to delete non-existent ruleset
+	err := svc.DeleteRuleSet(9999)
+	assert.Error(t, err)
+}
+
+func TestSecurityService_ListDecisions_UnlimitedAndLimited(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create multiple decisions
+	for i := 0; i < 5; i++ {
+		dec := &models.SecurityDecision{
+			Source:  "test",
+			Action:  "block",
+			IP:      "1.2.3." + string(rune('0'+i)),
+			Host:    "example.com",
+			RuleID:  "test-rule",
+			Details: "test decision",
+		}
+		err := svc.LogDecision(dec)
+		assert.NoError(t, err)
+	}
+
+	// Test unlimited (limit = 0)
+	all, err := svc.ListDecisions(0)
+	assert.NoError(t, err)
+	assert.Len(t, all, 5)
+
+	// Test limited
+	limited, err := svc.ListDecisions(2)
+	assert.NoError(t, err)
+	assert.Len(t, limited, 2)
+}
+
+func TestSecurityService_LogDecision_Nil(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Nil decision should not error
+	err := svc.LogDecision(nil)
+	assert.NoError(t, err)
+}
+
+func TestSecurityService_LogDecision_PrefilledUUID(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	dec := &models.SecurityDecision{
+		UUID:    "custom-decision-uuid",
+		Source:  "manual",
+		Action:  "allow",
+		IP:      "10.0.0.1",
+		Host:    "internal.example.com",
+		RuleID:  "whitelist-1",
+		Details: "whitelisted",
+	}
+	err := svc.LogDecision(dec)
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-decision-uuid", dec.UUID)
+
+	// Verify it was stored with custom UUID
+	var stored models.SecurityDecision
+	err = db.Where("uuid = ?", "custom-decision-uuid").First(&stored).Error
+	assert.NoError(t, err)
+}
+
+func TestSecurityService_ListRuleSets_Empty(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Empty database should return empty slice, not error
+	list, err := svc.ListRuleSets()
+	assert.NoError(t, err)
+	assert.NotNil(t, list)
+	assert.Len(t, list, 0)
+}
+
+func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Test various invalid modes
+	invalidModes := []string{"", "invalid", "External", "LOCAL", "disabled123"}
+	for _, mode := range invalidModes {
+		cfg := &models.SecurityConfig{Name: "default", CrowdSecMode: mode}
+		err := svc.Upsert(cfg)
+		if mode == "" {
+			// Empty mode is valid (defaults to disabled)
+			continue
+		}
+		// Non-empty invalid modes should error
+		if mode != "local" && mode != "disabled" && mode != "" {
+			assert.Error(t, err, "Mode %q should be invalid", mode)
+		}
+	}
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -192,4 +194,38 @@ func TestLogsHandler_List_DirectoryIsFile(t *testing.T) {
 
 	// Service may handle this gracefully or error
 	assert.Contains(t, []int{200, 500}, w.Code)
+}
+
+func TestLogsHandler_Download_TempFileError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	logsDir := filepath.Join(dataDir, "logs")
+	require.NoError(t, os.MkdirAll(logsDir, 0o755))
+
+	dbPath := filepath.Join(dataDir, "charon.db")
+	logPath := filepath.Join(logsDir, "access.log")
+	require.NoError(t, os.WriteFile(logPath, []byte("log line"), 0o644))
+
+	cfg := &config.Config{DatabasePath: dbPath}
+	svc := services.NewLogService(cfg)
+	h := NewLogsHandler(svc)
+
+	originalCreateTemp := createTempFile
+	createTempFile = func(dir, pattern string) (*os.File, error) {
+		return nil, fmt.Errorf("boom")
+	}
+	t.Cleanup(func() {
+		createTempFile = originalCreateTemp
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "filename", Value: "access.log"}}
+	c.Request = httptest.NewRequest("GET", "/logs/access.log", http.NoBody)
+
+	h.Download(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

@@ -1,3 +1,4 @@
+// Package database handles database connections and migrations.
 package database
 
 import (
@@ -51,7 +52,7 @@ func Connect(dbPath string) (*gorm.DB, error) {
 func configurePool(sqlDB *sql.DB) {
 	// SQLite is file-based, so we limit connections
 	// but keep some idle for reuse
-	sqlDB.SetMaxOpenConns(1)   // SQLite only allows one writer at a time
-	sqlDB.SetMaxIdleConns(1)   // Keep one connection ready
+	sqlDB.SetMaxOpenConns(1)    // SQLite only allows one writer at a time
+	sqlDB.SetMaxIdleConns(1)    // Keep one connection ready
 	sqlDB.SetConnMaxLifetime(0) // Don't close idle connections
 }

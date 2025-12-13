@@ -93,3 +93,26 @@ export const previewExternalTemplate = async (templateId?: string, template?: st
   const response = await client.post('/notifications/external-templates/preview', payload);
   return response.data;
 };
+
+// Security Notification Settings
+export interface SecurityNotificationSettings {
+  enabled: boolean;
+  min_log_level: string;
+  notify_waf_blocks: boolean;
+  notify_acl_denials: boolean;
+  notify_rate_limit_hits: boolean;
+  webhook_url?: string;
+  email_recipients?: string;
+}
+
+export const getSecurityNotificationSettings = async (): Promise<SecurityNotificationSettings> => {
+  const response = await client.get<SecurityNotificationSettings>('/notifications/settings/security');
+  return response.data;
+};
+
+export const updateSecurityNotificationSettings = async (
+  settings: Partial<SecurityNotificationSettings>
+): Promise<SecurityNotificationSettings> => {
+  const response = await client.put<SecurityNotificationSettings>('/notifications/settings/security', settings);
+  return response.data;
+};

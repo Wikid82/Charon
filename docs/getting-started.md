@@ -63,7 +63,7 @@ docker run -d \
 - **Port 8080**: The control panel where you manage everything
 - **Docker socket**: Lets Charon see your other Docker containers
 
-**Open http://localhost:8080** in your browser!
+**Open <http://localhost:8080>** in your browser!
 
 ---
 
@@ -168,11 +168,13 @@ Now that you have the basics:
 If you are a repository maintainer and need to run the history-rewrite utilities, find the scripts in `scripts/history-rewrite/`.
 
 Minimum required tools:
+
 - `git` — install: `sudo apt-get update && sudo apt-get install -y git` (Debian/Ubuntu) or `brew install git` (macOS).
 - `git-filter-repo` — recommended install via pip: `pip install --user git-filter-repo` or via your package manager if available: `sudo apt-get install git-filter-repo`.
 - `pre-commit` — install via pip or package manager: `pip install --user pre-commit` and then `pre-commit install` in the repository.
 
 Quick checks before running scripts:
+
 ```bash
 # Fetch full history (non-shallow)
 git fetch --unshallow || true

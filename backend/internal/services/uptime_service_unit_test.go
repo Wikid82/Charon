@@ -80,3 +80,148 @@ func TestDeleteMonitorDeletesHeartbeats_Unit(t *testing.T) {
 	db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor.ID).Count(&count)
 	require.Equal(t, int64(0), count)
 }
+
+// TestCheckMonitor_PublicAPI tests the public CheckMonitor wrapper
+func TestCheckMonitor_PublicAPI(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	monitor := models.UptimeMonitor{
+		ID:       uuid.New().String(),
+		Name:     "test-public-check",
+		URL:      "https://httpbin.org/status/200",
+		Type:     "https",
+		Interval: 60,
+		Enabled:  true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	// Call the public API (doesn't return error, just executes)
+	svc.CheckMonitor(monitor)
+
+	// Verify heartbeat was created
+	var count int64
+	db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor.ID).Count(&count)
+	require.Greater(t, count, int64(0))
+}
+
+// TestCheckMonitor_InvalidURL tests checking with invalid URL
+func TestCheckMonitor_InvalidURL(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	monitor := models.UptimeMonitor{
+		ID:       uuid.New().String(),
+		Name:     "test-invalid-url",
+		URL:      "http://invalid-domain-that-does-not-exist-12345.com",
+		Type:     "http",
+		Interval: 60,
+		Enabled:  true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	// This should create a "down" heartbeat
+	svc.checkMonitor(monitor)
+
+	// Verify heartbeat was created with "down" status
+	var hb models.UptimeHeartbeat
+	err := db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&hb).Error
+	require.NoError(t, err)
+	require.Equal(t, "down", hb.Status)
+	require.NotEmpty(t, hb.Message)
+}
+
+// TestCheckMonitor_TCPSuccess tests TCP monitor success
+func TestCheckMonitor_TCPSuccess(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	// Use a known accessible TCP port (Google DNS)
+	monitor := models.UptimeMonitor{
+		ID:       uuid.New().String(),
+		Name:     "test-tcp-success",
+		URL:      "8.8.8.8:53",
+		Type:     "tcp",
+		Interval: 60,
+		Enabled:  true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	svc.checkMonitor(monitor)
+
+	// Verify heartbeat was created with "up" status
+	var hb models.UptimeHeartbeat
+	err := db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&hb).Error
+	require.NoError(t, err)
+	require.Equal(t, "up", hb.Status)
+}
+
+// TestCheckMonitor_TCPFailure tests TCP monitor failure
+func TestCheckMonitor_TCPFailure(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	monitor := models.UptimeMonitor{
+		ID:       uuid.New().String(),
+		Name:     "test-tcp-failure",
+		URL:      "192.0.2.1:9999", // TEST-NET-1, should timeout
+		Type:     "tcp",
+		Interval: 60,
+		Enabled:  true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	svc.checkMonitor(monitor)
+
+	// Verify heartbeat was created with "down" status
+	var hb models.UptimeHeartbeat
+	err := db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&hb).Error
+	require.NoError(t, err)
+	require.Equal(t, "down", hb.Status)
+	require.NotEmpty(t, hb.Message)
+}
+
+// TestCheckMonitor_UnknownType tests unknown monitor type
+func TestCheckMonitor_UnknownType(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	monitor := models.UptimeMonitor{
+		ID:       uuid.New().String(),
+		Name:     "test-unknown-type",
+		URL:      "http://example.com",
+		Type:     "unknown-type",
+		Interval: 60,
+		Enabled:  true,
+	}
+	require.NoError(t, db.Create(&monitor).Error)
+
+	svc.checkMonitor(monitor)
+
+	// Verify heartbeat was created with "down" status
+	var hb models.UptimeHeartbeat
+	err := db.Where("monitor_id = ?", monitor.ID).Order("created_at desc").First(&hb).Error
+	require.NoError(t, err)
+	require.Equal(t, "down", hb.Status)
+	require.Equal(t, "Unknown monitor type", hb.Message)
+}
+
+// TestDeleteMonitor_NonExistent tests deleting a non-existent monitor
+func TestDeleteMonitor_NonExistent(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	// Try to delete non-existent monitor
+	err := svc.DeleteMonitor("non-existent-id")
+	require.Error(t, err)
+}
+
+// TestUpdateMonitor_NonExistent tests updating a non-existent monitor
+func TestUpdateMonitor_NonExistent(t *testing.T) {
+	db := setupUnitTestDB(t)
+	svc := NewUptimeService(db, nil)
+
+	// Try to update non-existent monitor
+	_, err := svc.UpdateMonitor("non-existent-id", map[string]interface{}{"enabled": false})
+	require.Error(t, err)
+}

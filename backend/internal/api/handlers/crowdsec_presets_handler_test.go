@@ -301,13 +301,23 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
-	require.Contains(t, w.Body.String(), "cscli unavailable")
+
+	// Verify response includes backup path for traceability
+	var response map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	_, hasBackup := response["backup"]
+	require.True(t, hasBackup, "Response should include 'backup' field for diagnostics")
+
+	// Verify error message is present
+	errorMsg, ok := response["error"].(string)
+	require.True(t, ok, "error field should be a string")
+	require.Contains(t, errorMsg, "cache", "error should indicate cache is unavailable")
 
 	var events []models.CrowdsecPresetEvent
 	require.NoError(t, db.Find(&events).Error)
 	require.Len(t, events, 1)
 	require.Equal(t, "failed", events[0].Status)
-	require.Empty(t, events[0].BackupPath)
+	require.NotEmpty(t, events[0].BackupPath)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
 	require.NoError(t, readErr)
@@ -438,4 +448,88 @@ func TestGetCachedPresetPreviewError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.Contains(t, w.Body.String(), "no such file")
+}
+
+func TestPullCuratedPresetSkipsHub(t *testing.T) {
+gin.SetMode(gin.TestMode)
+t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+
+// Setup handler with a hub service that would fail if called
+cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+require.NoError(t, err)
+
+// We don't set HTTPClient, so any network call would panic or fail if not handled
+hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+
+h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+h.Hub = hub
+
+r := gin.New()
+g := r.Group("/api/v1")
+h.RegisterRoutes(g)
+
+// Use a known curated preset that doesn't require hub
+slug := "honeypot-friendly-defaults"
+
+body, _ := json.Marshal(map[string]string{"slug": slug})
+w := httptest.NewRecorder()
+req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/pull", bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json")
+r.ServeHTTP(w, req)
+
+require.Equal(t, http.StatusOK, w.Code)
+
+var resp map[string]interface{}
+require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+require.Equal(t, "pulled", resp["status"])
+require.Equal(t, slug, resp["slug"])
+require.Equal(t, "charon-curated", resp["source"])
+require.Contains(t, resp["preview"], "Curated preset")
+}
+
+func TestApplyCuratedPresetSkipsHub(t *testing.T) {
+gin.SetMode(gin.TestMode)
+t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+
+db := OpenTestDB(t)
+require.NoError(t, db.AutoMigrate(&models.CrowdsecPresetEvent{}))
+
+// Setup handler with a hub service that would fail if called
+// We intentionally don't put anything in cache to prove we don't check it
+cache, err := crowdsec.NewHubCache(t.TempDir(), time.Hour)
+require.NoError(t, err)
+
+hub := crowdsec.NewHubService(nil, cache, t.TempDir())
+
+h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+h.Hub = hub
+
+r := gin.New()
+g := r.Group("/api/v1")
+h.RegisterRoutes(g)
+
+// Use a known curated preset that doesn't require hub
+slug := "honeypot-friendly-defaults"
+
+body, _ := json.Marshal(map[string]string{"slug": slug})
+w := httptest.NewRecorder()
+req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/presets/apply", bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json")
+r.ServeHTTP(w, req)
+
+require.Equal(t, http.StatusOK, w.Code)
+
+var resp map[string]interface{}
+require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+require.Equal(t, "applied", resp["status"])
+require.Equal(t, slug, resp["slug"])
+
+// Verify event was logged
+var events []models.CrowdsecPresetEvent
+require.NoError(t, db.Find(&events).Error)
+require.Len(t, events, 1)
+require.Equal(t, slug, events[0].Slug)
+require.Equal(t, "applied", events[0].Status)
 }

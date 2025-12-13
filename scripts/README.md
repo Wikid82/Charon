@@ -14,10 +14,13 @@ bash ./scripts/coraza_integration.sh
 Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run Integration Script`
 
 **Requirements:**
+
 - Docker image `charon:local` must be built first:
+
   ```bash
   docker build -t charon:local .
   ```
+
 - The script will:
   1. Start a test container with WAF enabled
   2. Create a backend container (httpbin)
@@ -26,6 +29,7 @@ Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run I
   5. Clean up all test containers
 
 **Expected output:**
+
 ```
 ✓ httpbin backend is ready
 ✓ Coraza WAF blocked payload as expected (HTTP 403) in BLOCK mode
@@ -42,6 +46,7 @@ Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run I
 ## CI/CD Workflows
 
 Changes to these scripts may trigger CI workflows:
+
 - `coraza_integration.sh` → WAF Integration Tests workflow
 - Files in `.github/workflows/` directory control CI behavior
 

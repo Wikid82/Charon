@@ -7,17 +7,10 @@ import Security from '../Security'
 import * as securityApi from '../../api/security'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as settingsApi from '../../api/settings'
-import { toast } from '../../utils/toast'
 
 vi.mock('../../api/security')
 vi.mock('../../api/crowdsec')
 vi.mock('../../api/settings')
-vi.mock('../../utils/toast', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
   return {
@@ -236,59 +229,10 @@ describe('Security', () => {
       })
     })
 
-    it('should export CrowdSec config', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob(['config data']))
-      window.URL.createObjectURL = vi.fn(() => 'blob:url')
-      window.URL.revokeObjectURL = vi.fn()
 
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByRole('button', { name: /Export/i }))
-      const exportButton = screen.getByRole('button', { name: /Export/i })
-      await user.click(exportButton)
-
-      await waitFor(() => {
-        expect(crowdsecApi.exportCrowdsecConfig).toHaveBeenCalled()
-        expect(toast.success).toHaveBeenCalledWith('CrowdSec configuration exported')
-      })
-    })
   })
 
-  describe('WAF Controls', () => {
-    it('should change WAF mode', async () => {
-      const user = userEvent.setup()
-      const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
-      const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByTestId('waf-mode-select'))
-      const select = screen.getByTestId('waf-mode-select')
-      await user.selectOptions(select, 'monitor')
-
-      await waitFor(() => expect(mockMutate).toHaveBeenCalledWith({ name: 'default', waf_mode: 'monitor' }))
-    })
-
-    it('should change WAF ruleset', async () => {
-      const user = userEvent.setup()
-      const { useUpdateSecurityConfig } = await import('../../hooks/useSecurity')
-      const mockMutate = vi.fn()
-      vi.mocked(useUpdateSecurityConfig).mockReturnValue({ mutate: mockMutate, isPending: false } as unknown as ReturnType<typeof useUpdateSecurityConfig>)
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByTestId('waf-ruleset-select'))
-      const select = screen.getByTestId('waf-ruleset-select')
-      await user.selectOptions(select, 'OWASP CRS')
-
-      await waitFor(() => expect(mockMutate).toHaveBeenCalledWith({ name: 'default', waf_rules_source: 'OWASP CRS' }))
-    })
-  })
+  // Note: WAF Controls tests removed - dropdowns moved to dedicated WAF config page (/security/waf)
 
   describe('Card Order (Pipeline Sequence)', () => {
     it('should render cards in correct pipeline order: CrowdSec → ACL → WAF → Rate Limiting', async () => {
@@ -301,8 +245,8 @@ describe('Security', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → WAF (Layer 3) → Rate Limiting (Layer 4)
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting'])
+      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → Coraza (Layer 3) → Rate Limiting (Layer 4) + Security Access Logs
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('should display layer indicators on each card', async () => {

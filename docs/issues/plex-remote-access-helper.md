@@ -5,20 +5,25 @@
 ---
 
 ## Issue Title
+
 `Plex Remote Access Helper & CGNAT Solver`
 
 ## Labels
+
 `beta`, `feature`, `plus`, `ui`, `caddy`
 
 ---
 
 ## Description
+
 Implement a "Plex Remote Access Helper" feature that assists users stuck behind CGNAT (Carrier-Grade NAT) to properly configure their Plex Media Server for remote streaming via a reverse proxy like Caddy. This feature addresses the common pain point of Plex remote access failures when users cannot open ports due to ISP limitations.
 
 ## Parent Issue
+
 Extends #44 (Tailscale Network Integration) and #43 (Remote Servers Management)
 
 ## Why This Feature?
+
 - **CGNAT is increasingly common** - Many ISPs (especially mobile carriers like T-Mobile) use Carrier-Grade NAT, preventing users from forwarding ports
 - **Plex is one of the most popular homelab applications** - A significant portion of Charon users will have Plex
 - **Manual configuration is error-prone** - Users often struggle with the correct Caddy configuration and Plex settings
@@ -26,12 +31,14 @@ Extends #44 (Tailscale Network Integration) and #43 (Remote Servers Management)
 - **User story origin** - This feature was conceived from a real user experience solving CGNAT issues with Plex + Tailscale
 
 ## Use Cases
+
 1. **T-Mobile/Starlink Home Internet users** - Cannot port forward, need VPN tunnel + reverse proxy
 2. **Apartment/Dorm residents** - Shared internet without port access
 3. **Privacy-conscious users** - Prefer VPN tunnel over exposing ports
 4. **Multi-server Plex setups** - Proxying to multiple Plex instances
 
 ## Tasks
+
 - [ ] Design "Plex Mode" toggle or "Media Server Helper" option in proxy host creation
 - [ ] Implement automatic header injection for Plex compatibility:
   - `X-Forwarded-For` - Client's real IP address
@@ -48,6 +55,7 @@ Extends #44 (Tailscale Network Integration) and #43 (Remote Servers Management)
 - [ ] Add warning about bandwidth limiting implications when headers are missing
 
 ## Acceptance Criteria
+
 - [ ] User can enable "Plex Mode" when creating a proxy host
 - [ ] Correct headers are automatically added to Caddy config
 - [ ] Copy-paste snippet generated for Plex custom URL setting
@@ -59,6 +67,7 @@ Extends #44 (Tailscale Network Integration) and #43 (Remote Servers Management)
 ## Technical Considerations
 
 ### Caddy Configuration Template
+
 ```caddyfile
 plex.example.com {
     reverse_proxy localhost:32400 {
@@ -86,16 +95,20 @@ plex.example.com {
 ```
 
 ### Plex Settings Required
+
 Users must configure in Plex Settings → Network:
+
 - **Secure connections**: Preferred (not Required, to allow proxy)
 - **Custom server access URLs**: `https://plex.example.com:443`
 
 ### Integration with Existing Features
+
 - Leverage Remote Servers (#43) for Plex server discovery
 - Use Tailscale integration (#44) for CGNAT bypass
 - Apply to Cloudflare Tunnel (#47) for additional NAT traversal option
 
 ### Header Behavior Notes
+
 - Without `X-Forwarded-For`: Plex sees all traffic as coming from the proxy's IP (e.g., Tailscale 100.x.x.x)
 - This may cause Plex to treat remote traffic as "Local," bypassing bandwidth limits
 - Users should be warned about this behavior in the UI
@@ -103,7 +116,9 @@ Users must configure in Plex Settings → Network:
 ## UI/UX Design Notes
 
 ### Proxy Host Creation Form
+
 Add a collapsible "Media Server Settings" section:
+
 ```
 ☑ Enable Plex Mode
 
@@ -119,12 +134,15 @@ Add a collapsible "Media Server Settings" section:
 ```
 
 ### Quick Start Template
+
 In Onboarding Wizard (#30), add "Plex" as a Quick Start template option:
+
 - Pre-configures port 32400
 - Enables Plex Mode automatically
 - Provides step-by-step instructions
 
 ## Documentation Sections to Add
+
 1. **CGNAT Explained** - What is CGNAT and why it blocks remote access
 2. **Tailscale + Plex Setup Guide** - Complete walkthrough
 3. **Troubleshooting Remote Access** - Common issues and solutions
@@ -132,18 +150,22 @@ In Onboarding Wizard (#30), add "Plex" as a Quick Start template option:
 5. **Bandwidth Limiting Gotcha** - Why headers matter for throttling
 
 ## Priority
+
 Medium - Valuable user experience improvement, builds on #44
 
 ## Milestone
+
 Beta
 
 ## Related Issues
+
 - #44 (Tailscale Network Integration) - Provides the VPN tunnel
 - #43 (Remote Servers Management) - Server discovery
 - #47 (Cloudflare Tunnel Integration) - Alternative NAT traversal
 - #30 (Onboarding Wizard) - Quick Start templates
 
 ## Future Extensions
+
 - Support for other media servers (Jellyfin, Emby)
 - Automatic Plex server detection via UPnP/SSDP
 - Integration with Tautulli for monitoring
@@ -153,7 +175,7 @@ Beta
 
 ## How to Create This Issue
 
-1. Go to https://github.com/Wikid82/charon/issues/new
+1. Go to <https://github.com/Wikid82/charon/issues/new>
 2. Use title: `Plex Remote Access Helper & CGNAT Solver`
 3. Add labels: `beta`, `feature`, `plus`, `ui`, `caddy`
 4. Copy the content from "## Description" through "## Future Extensions"

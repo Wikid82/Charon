@@ -1,8 +1,11 @@
+// Package cerberus provides lightweight security checks (WAF, ACL, CrowdSec) with notification support.
 package cerberus
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -16,17 +19,19 @@ import (
 
 // Cerberus provides a lightweight facade for security checks (WAF, CrowdSec, ACL).
 type Cerberus struct {
-	cfg       config.SecurityConfig
-	db        *gorm.DB
-	accessSvc *services.AccessListService
+	cfg               config.SecurityConfig
+	db                *gorm.DB
+	accessSvc         *services.AccessListService
+	securityNotifySvc *services.SecurityNotificationService
 }
 
 // New creates a new Cerberus instance
 func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 	return &Cerberus{
-		cfg:       cfg,
-		db:        db,
-		accessSvc: services.NewAccessListService(db),
+		cfg:               cfg,
+		db:                db,
+		accessSvc:         services.NewAccessListService(db),
+		securityNotifySvc: services.NewSecurityNotificationService(db),
 	}
 }
 
@@ -70,35 +75,14 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// WAF: naive example check - evaluate requests containing <script> in URL
+		// WAF: The actual WAF protection is handled by the Coraza plugin at the Caddy layer.
+		// This middleware just tracks metrics for requests when WAF is enabled.
+		// The naive <script> check has been removed as it's trivially bypassed and
+		// proper WAF protection is now provided by Coraza at the reverse proxy level.
 		if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
 			metrics.IncWAFRequest()
-			suspicious := strings.Contains(ctx.Request.RequestURI, "<script>")
-			if suspicious {
-				if c.cfg.WAFMode == "block" {
-					logger.Log().WithFields(map[string]interface{}{
-						"source":   "waf",
-						"decision": "block",
-						"mode":     c.cfg.WAFMode,
-						"path":     ctx.Request.URL.Path,
-						"query":    ctx.Request.URL.RawQuery,
-					}).Warn("WAF blocked request")
-					metrics.IncWAFBlocked()
-					ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "WAF: suspicious payload detected"})
-					return
-				}
-				// Monitor mode: log only, never block
-				if c.cfg.WAFMode == "monitor" {
-					logger.Log().WithFields(map[string]interface{}{
-						"source":   "waf",
-						"decision": "monitor",
-						"mode":     c.cfg.WAFMode,
-						"path":     ctx.Request.URL.Path,
-						"query":    ctx.Request.URL.RawQuery,
-					}).Info("WAF monitored request")
-					metrics.IncWAFMonitored()
-				}
-			}
+			// Note: Actual blocking is done by Coraza in Caddy. This middleware
+			// provides defense-in-depth tracking and ACL enforcement only.
 		}
 
 		// ACL: simple per-request evaluation against all access lists if enabled
@@ -112,6 +96,20 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 					}
 					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
 					if err == nil && !allowed {
+						// Send security notification
+						_ = c.securityNotifySvc.Send(context.Background(), models.SecurityEvent{
+							EventType: "acl_deny",
+							Severity:  "warn",
+							Message:   "Access control list blocked request",
+							ClientIP:  clientIP,
+							Path:      ctx.Request.URL.Path,
+							Timestamp: time.Now(),
+							Metadata: map[string]interface{}{
+								"acl_name": acl.Name,
+								"acl_id":   acl.ID,
+							},
+						})
+
 						ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
 						return
 					}
@@ -119,8 +117,16 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 			}
 		}
 
-		// CrowdSec placeholder: integration would check CrowdSec API and apply blocks
-		// (no-op for the moment)
+		// CrowdSec integration: The actual IP blocking is handled by the caddy-crowdsec-bouncer
+		// plugin at the Caddy layer. This middleware provides defense-in-depth tracking.
+		// When CrowdSec mode is "local", the bouncer communicates directly with the LAPI
+		// to receive ban decisions and block malicious IPs before they reach the application.
+		if c.cfg.CrowdSecMode == "local" {
+			// Track that this request passed through CrowdSec evaluation
+			// Note: Blocking decisions are made by Caddy bouncer, not here
+			metrics.IncCrowdSecRequest()
+			logger.Log().WithField("client_ip", ctx.ClientIP()).WithField("path", ctx.Request.URL.Path).Debug("Request evaluated by CrowdSec bouncer at Caddy layer")
+		}
 
 		// Rate limiting placeholder (no-op for the moment)
 

@@ -146,7 +146,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                       readOnly
                       className="flex-1 text-sm"
                     />
-                    <Button onClick={copyInviteLink}>
+                    <Button onClick={copyInviteLink} aria-label="Copy invite link" title="Copy invite link">
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>

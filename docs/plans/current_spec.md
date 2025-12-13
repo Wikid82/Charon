@@ -1,276 +1,1366 @@
-History Rewrite: Address Copilot Suggestions (PR #336)
-===================================================
+# Cerberus Security Module - Comprehensive Remediation Plan
 
-Summary
--------
-- PR #336 introduced history-rewrite tooling, documentation, and a CI dry-run workflow to detect unwanted large blobs and CodeQL DB artifacts in repository history.
-- Copilot left suggestions on the PR asserting a number of robustness, testing, validation, and safety improvements.
-- This spec documents how to resolve those suggestions, lists the impacted files and functions, and provides an implementation & QA plan.
+**Version:** 2.0
+**Date:** 2025-12-12
+**Status:** 🔴 PENDING - Issues #16, #17, #18, #19 incomplete
 
-Copilot Suggestions (Short Summary)
-----------------------------------
-- Improve `validate_after_rewrite.sh` to use a defined `backup_branch` variable and fail gracefully when missing.
-- Harden `clean_history.sh` and `preview_removals.sh` to handle shallow clones, tags, and refs, validate `git-filter-repo` args, and double-check backups (include tags & annotated refs).
-- Add automated script unit tests (shell) for the scripts (preview/dry-run/validate) to make them testable and CI-friendly.
-- Add a CI job to run these script tests (e.g., `bats-core`) and trap shallow clones early.
-- Expand pre-commit and `.gitignore` coverage (include `data/backups`), validate `backup_branch` push, and refuse running filter-repo on `main`/`master` or non-existent remotes.
-- Add more detailed PR checklist validation (tags, backup branch pushed) and update docs/examples.
+---
 
-Files Changed / Impacted
-------------------------
-Core scripts and CI currently touched by PR #336 and Copilot suggestions (primary targets):
-- scripts/history-rewrite/clean_history.sh
-  - Functions: `check_requirements`, `timestamp`, `preview_removals` block, local `backup_branch` creation.
-  - Behaviors to harden: shallow clone handling; ensure backup branch pushed to remote and tags backed up; refuse to run on `main`/`master`; confirm `git-filter-repo` args are validated; ensure remote tag backup.
-- scripts/history-rewrite/preview_removals.sh
-  - Behaviors to add: more structured preview output (json or delimited), detect shallow clone and warn, add checks for tags & refs.
-- scripts/history-rewrite/validate_after_rewrite.sh
-  - Fix bug: `backup_branch` referenced but not set, add env variable or accept `--backup-branch` argument; verify pre-commit location; exit non-zero on failures.
-- scripts/ci/dry_run_history_rewrite.sh
-  - Add shallow clone detection and early fail with instructions to fetch full history; ensure `git rev-list` does not grow too large on very large repositories (timeout or cap); fail on conditions.
-- .github/workflows/dry-run-history-rewrite.yml
-  - Behavior: run the new tests; ensure fetch-depth 0; add `bats` runner step or `shellcheck` runner.
-- .github/workflows/pr-checklist.yml
-  - Behavior: enhance validation of PR body for additional checklist items: ensure `data/backups` log is attached, `tags` backup statement, and maintainers ack for forced rewrite.
-- .github/PULL_REQUEST_TEMPLATE/history-rewrite.md
-  - Behavior: update the checklist with new checks for tags and `data/backups/` and note `validate_after_rewrite.sh` will fail if not present.
+## Executive Summary
+
+This document provides a **comprehensive, actionable remediation plan** to complete the Cerberus security module. Four GitHub issues remain partially implemented:
+
+| Issue | Feature | Current State | Priority |
+|-------|---------|---------------|----------|
+| #16 | GeoIP Integration | Database downloaded, no Go code reads it | HIGH |
+| #17 | CrowdSec Bouncer | Placeholder comment in code | HIGH |
+| #18 | WAF (Coraza) Integration | Only checks `<script>` tag, no real Coraza config | HIGH |
+| #19 | Rate Limiting | Burst field unused, no bypass list/templates | MEDIUM |
+
+---
+
+## Implementation Phases
+
+### Phase 1: GeoIP Integration (Issue #16)
+
+**Goal:** Enable actual IP → Country lookup for geo-blocking ACLs.
+
+#### 1.1 Current State Analysis
+
+- **Dockerfile** downloads `GeoLite2-Country.mmdb` to `/app/data/geoip/`
+- **Environment variable** `CHARON_GEOIP_DB_PATH` is set
+- **No Go code** imports or reads the MaxMind database
+- **Caddy config** uses `caddy-geoip2` plugin with `{geoip2.country_code}` placeholder (works at proxy level)
+- **`TestIP` service method** only evaluates IP/CIDR rules, returns default for geo types
+
+#### 1.2 Required Changes
+
+##### 1.2.1 Add GeoIP Dependency
+
+**File:** `backend/go.mod`
+
+```bash
+cd backend && go get github.com/oschwald/geoip2-golang
+```
+
+##### 1.2.2 Create GeoIP Service
+
+**New File:** `backend/internal/services/geoip_service.go`
+
+```go
+// Package services provides business logic for the application.
+package services
+
+import (
+ "errors"
+ "net"
+ "sync"
+
+ "github.com/oschwald/geoip2-golang"
+)
+
+var (
+ ErrGeoIPDatabaseNotLoaded = errors.New("geoip database not loaded")
+ ErrInvalidIP              = errors.New("invalid IP address")
+ ErrCountryNotFound        = errors.New("country not found for IP")
+)
+
+// GeoIPService provides IP-to-country lookups using MaxMind GeoLite2.
+type GeoIPService struct {
+ mu     sync.RWMutex
+ db     *geoip2.Reader
+ dbPath string
+}
+
+// NewGeoIPService creates a new GeoIPService and loads the database.
+func NewGeoIPService(dbPath string) (*GeoIPService, error) {
+ svc := &GeoIPService{dbPath: dbPath}
+ if err := svc.Load(); err != nil {
+  return nil, err
+ }
+ return svc, nil
+}
+
+// Load opens or reloads the GeoIP database.
+func (s *GeoIPService) Load() error {
+ s.mu.Lock()
+ defer s.mu.Unlock()
+
+ if s.db != nil {
+  s.db.Close()
+ }
+
+ db, err := geoip2.Open(s.dbPath)
+ if err != nil {
+  return err
+ }
+ s.db = db
+ return nil
+}
+
+// Close releases the database resources.
+func (s *GeoIPService) Close() error {
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ if s.db != nil {
+  return s.db.Close()
+ }
+ return nil
+}
+
+// LookupCountry returns the ISO 3166-1 alpha-2 country code for an IP.
+func (s *GeoIPService) LookupCountry(ipStr string) (string, error) {
+ s.mu.RLock()
+ defer s.mu.RUnlock()
+
+ if s.db == nil {
+  return "", ErrGeoIPDatabaseNotLoaded
+ }
+
+ ip := net.ParseIP(ipStr)
+ if ip == nil {
+  return "", ErrInvalidIP
+ }
+
+ record, err := s.db.Country(ip)
+ if err != nil {
+  return "", err
+ }
+
+ if record.Country.IsoCode == "" {
+  return "", ErrCountryNotFound
+ }
+
+ return record.Country.IsoCode, nil
+}
+
+// IsLoaded returns true if the database is loaded.
+func (s *GeoIPService) IsLoaded() bool {
+ s.mu.RLock()
+ defer s.mu.RUnlock()
+ return s.db != nil
+}
+```
+
+##### 1.2.3 Update AccessListService to Use GeoIP
+
+**File:** `backend/internal/services/access_list_service.go`
+
+**Add field to struct:**
+
+```go
+type AccessListService struct {
+ db       *gorm.DB
+ geoipSvc *GeoIPService  // NEW
+}
+```
+
+**Update constructor:**
+
+```go
+func NewAccessListService(db *gorm.DB) *AccessListService {
+ return &AccessListService{
+  db:       db,
+  geoipSvc: nil, // Will be set via SetGeoIPService
+ }
+}
+
+// SetGeoIPService attaches a GeoIP service for country lookups.
+func (s *AccessListService) SetGeoIPService(geoipSvc *GeoIPService) {
+ s.geoipSvc = geoipSvc
+}
+```
+
+**Update `TestIP` method to handle geo types:**
+
+```go
+// TestIP tests if an IP address would be allowed/blocked by the access list
+func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
+ acl, err := s.GetByID(aclID)
+ if err != nil {
+  return false, "", err
+ }
+
+ if !acl.Enabled {
+  return true, "Access list is disabled - all traffic allowed", nil
+ }
+
+ ip := net.ParseIP(ipAddress)
+ if ip == nil {
+  return false, "", ErrInvalidIPAddress
+ }
+
+ // Handle geo-based ACLs
+ if strings.HasPrefix(acl.Type, "geo_") {
+  if s.geoipSvc == nil {
+   return true, "GeoIP service not available - allowing by default", nil
+  }
+
+  countryCode, err := s.geoipSvc.LookupCountry(ipAddress)
+  if err != nil {
+   // If lookup fails, allow with warning
+   return true, fmt.Sprintf("GeoIP lookup failed: %v - allowing by default", err), nil
+  }
+
+  // Parse country codes from ACL
+  allowedCodes := make(map[string]bool)
+  for _, code := range strings.Split(acl.CountryCodes, ",") {
+   allowedCodes[strings.TrimSpace(strings.ToUpper(code))] = true
+  }
+
+  isInList := allowedCodes[countryCode]
+
+  if acl.Type == "geo_whitelist" {
+   if isInList {
+    return true, fmt.Sprintf("Allowed by geo whitelist: IP from %s", countryCode), nil
+   }
+   return false, fmt.Sprintf("Blocked: IP from %s not in geo whitelist", countryCode), nil
+  }
+
+  // geo_blacklist
+  if isInList {
+   return false, fmt.Sprintf("Blocked by geo blacklist: IP from %s", countryCode), nil
+  }
+  return true, fmt.Sprintf("Allowed: IP from %s not in geo blacklist", countryCode), nil
+ }
+
+ // ... rest of existing IP/CIDR logic unchanged ...
+}
+```
+
+##### 1.2.4 Initialize GeoIP Service on Server Start
+
+**File:** `backend/internal/server/server.go` (or wherever services are initialized)
+
+```go
+import (
+ "os"
+ // ...
+)
+
+// In server initialization:
+geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
+if geoipPath == "" {
+ geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
+}
+
+var geoipSvc *services.GeoIPService
+if _, err := os.Stat(geoipPath); err == nil {
+ geoipSvc, err = services.NewGeoIPService(geoipPath)
+ if err != nil {
+  logger.Log().WithError(err).Warn("Failed to load GeoIP database, geo-blocking will be unavailable")
+ } else {
+  logger.Log().Info("GeoIP database loaded successfully")
+ }
+}
+
+// Pass to AccessListService
+accessListSvc := services.NewAccessListService(db)
+if geoipSvc != nil {
+ accessListSvc.SetGeoIPService(geoipSvc)
+}
+```
+
+##### 1.2.5 Add GeoIP Reload Endpoint (Optional Enhancement)
+
+**File:** `backend/internal/api/handlers/security_handler.go`
+
+```go
+// ReloadGeoIP reloads the GeoIP database from disk
+func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
+ if h.geoipSvc == nil {
+  c.JSON(http.StatusServiceUnavailable, gin.H{"error": "GeoIP service not initialized"})
+  return
+ }
+ if err := h.geoipSvc.Load(); err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reload: %v", err)})
+  return
+ }
+ c.JSON(http.StatusOK, gin.H{"message": "GeoIP database reloaded"})
+}
+```
+
+**Add route:** `POST /api/v1/security/geoip/reload`
+
+#### 1.3 Test Requirements
+
+**New File:** `backend/internal/services/geoip_service_test.go`
+
+```go
+func TestGeoIPService_LookupCountry(t *testing.T) {
+ // Skip if no test database available
+ testDBPath := os.Getenv("TEST_GEOIP_DB_PATH")
+ if testDBPath == "" {
+  t.Skip("TEST_GEOIP_DB_PATH not set")
+ }
+
+ svc, err := NewGeoIPService(testDBPath)
+ require.NoError(t, err)
+ defer svc.Close()
+
+ tests := []struct {
+  name    string
+  ip      string
+  wantCC  string
+  wantErr bool
+ }{
+  {"Google DNS", "8.8.8.8", "US", false},
+  {"Cloudflare", "1.1.1.1", "AU", false}, // May vary
+  {"Invalid IP", "not-an-ip", "", true},
+  {"Private IP", "192.168.1.1", "", true}, // No country
+ }
+
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   cc, err := svc.LookupCountry(tt.ip)
+   if tt.wantErr {
+    assert.Error(t, err)
+   } else {
+    assert.NoError(t, err)
+    assert.Equal(t, tt.wantCC, cc)
+   }
+  })
+ }
+}
+```
+
+**Update:** `backend/internal/services/access_list_service_test.go` - add tests for geo ACL `TestIP`.
+
+#### 1.4 Frontend Changes
+
+**File:** `frontend/src/pages/AccessLists.tsx`
+
+Update the test IP result display to show country code when geo-blocking:
+
+```tsx
+// In handleTestIP success callback:
+if (result.reason.includes("IP from")) {
+  toast.success(`${result.allowed ? '✅' : '🚫'} ${result.reason}`)
+} else {
+  // existing logic
+}
+```
+
+#### 1.5 Documentation Update
+
+**File:** `docs/cerberus.md` - Add section on GeoIP configuration and database updates.
+
+---
+
+### Phase 2: Rate Limit Fix (Issue #19) - Quick Win
+
+**Goal:** Fix burst field usage, add bypass list and preset templates.
+
+#### 2.1 Current State Analysis
+
+- `RateLimitBurst` field exists in `SecurityConfig` model
+- `buildRateLimitHandler` in `caddy/config.go` **ignores** burst field
+- No bypass list for trusted IPs
+- No preset templates (login, API, standard)
+- Frontend has burst input but it's not used by backend
+
+#### 2.2 Required Changes
+
+##### 2.2.1 Fix Burst Field in Caddy Config
+
+**File:** `backend/internal/caddy/config.go`
+
+```go
+// buildRateLimitHandler returns a rate-limit handler using the caddy-ratelimit module.
+func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
+ if secCfg == nil {
+  return nil, nil
+ }
+ if secCfg.RateLimitRequests <= 0 || secCfg.RateLimitWindowSec <= 0 {
+  return nil, nil
+ }
+
+ // Calculate burst: if not set, default to 20% of requests
+ burst := secCfg.RateLimitBurst
+ if burst <= 0 {
+  burst = secCfg.RateLimitRequests / 5
+  if burst < 1 {
+   burst = 1
+  }
+ }
+
+ // caddy-ratelimit format with burst support
+ h := Handler{"handler": "rate_limit"}
+ h["rate_limits"] = map[string]interface{}{
+  "static": map[string]interface{}{
+   "key":        "{http.request.remote.host}",
+   "window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
+   "max_events": secCfg.RateLimitRequests,
+   // NOTE: caddy-ratelimit doesn't have a direct "burst" param,
+   // but we can use distributed rate limiting or adjust max_events
+  },
+ }
+ return h, nil
+}
+```
+
+> **Note:** The `caddy-ratelimit` module by mholt doesn't have a direct burst parameter. Consider:
+>
+> 1. Using a sliding window algorithm (already default)
+> 2. Implementing burst via separate zone for initial requests
+> 3. Document limitation in UI
+
+##### 2.2.2 Add Bypass List Support
+
+**File:** `backend/internal/models/security_config.go`
+
+```go
+type SecurityConfig struct {
+ // ... existing fields ...
+ RateLimitBypassList string `json:"rate_limit_bypass_list" gorm:"type:text"` // Comma-separated CIDRs
+}
+```
+
+**File:** `backend/internal/caddy/config.go`
+
+```go
+func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
+ // ... existing validation ...
+
+ h := Handler{"handler": "rate_limit"}
+
+ // Build zone configuration
+ zone := map[string]interface{}{
+  "key":        "{http.request.remote.host}",
+  "window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
+  "max_events": secCfg.RateLimitRequests,
+ }
+
+ h["rate_limits"] = map[string]interface{}{"static": zone}
+
+ // If bypass list is configured, wrap in a subroute that skips for those IPs
+ if secCfg.RateLimitBypassList != "" {
+  bypassCIDRs := parseBypassList(secCfg.RateLimitBypassList)
+  if len(bypassCIDRs) > 0 {
+   return Handler{
+    "handler": "subroute",
+    "routes": []map[string]interface{}{
+     {
+      // Skip rate limiting for bypass IPs
+      "match": []map[string]interface{}{
+       {"remote_ip": map[string]interface{}{"ranges": bypassCIDRs}},
+      },
+      "terminal": false, // Continue to proxy handler
+     },
+     {
+      // Apply rate limiting for all others
+      "handle": []Handler{h},
+     },
+    },
+   }, nil
+  }
+ }
+
+ return h, nil
+}
+
+#### 2.3 Rate Limiting — Test Plan (Detailed)
+
+**Summary:** This section contains a complete test plan to validate rate limiting configuration generation and runtime enforcement in Charon. Tests are grouped into Unit, Integration and E2E categories and prioritize quick unit coverage and high-impact integration tests.
+
+Goal: Verify the following behavior:
+- The `RateLimitBurst`, `RateLimitRequests`, `RateLimitWindowSec` and `RateLimitBypassList` fields are used by `buildRateLimitHandler` and emitted into the Caddy JSON configuration.
+- The Caddy `rate_limit` handler configuration uses `{http.request.remote.host}` as the key.
+- Bypass IPs are excluded from rate limiting by creating a subroute with `remote_ip` matcher.
+- At runtime, Caddy enforces limits, returns `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `Retry-After` headers (or documented equivalents), and resets counters after the configured window.
+- The plugin behaves correctly across multiple client IPs and respects bypass lists.
+
+-----
+
+2.3.1 Files to Add / Edit
+- New scripts: `scripts/rate_limit_integration.sh` (shell integration test), `scripts/rate_limit_e2e.sh` (optional extended tests).
+- New integration test: `backend/integration/rate_limit_integration_test.go` (go test wrapper runs script).
+- Unit tests to add/edit: `backend/internal/caddy/config_test.go` (add `TestGenerateConfig_WithRateLimitBypassList` and `TestBuildRateLimitHandler_KeyIsRemoteHost`), `backend/internal/api/handlers/security_ratelimit_test.go` (validate API fields persist & UpdateConfig accepts rate_limit fields).
+
+2.3.2 Unit Tests (fast, run in CI pre-merge)
+- File: `backend/internal/caddy/config_test.go`
+ - `TestGenerateConfig_WithRateLimitBypassList`
+  - Input: call `GenerateConfig` with `secCfg` set with `RateLimitEnable:true` and `RateLimitBypassList:"10.0.0.0/8,127.0.0.1/32"`; include one host.
+  - Assertions:
+   - The generated `Config` contains a route with `handler:"subroute"` or a `rate_limit` handler containing the bypass CIDRs (CIDRs found in JSON output).
+   - `RateLimitHandler` contains `rate_limits` map and `static` zone.
+ - `TestBuildRateLimitHandler_KeyIsRemoteHost`
+  - Input: `secCfg` with valid values.
+  - Assertions: the static zone `key` is `{http.request.remote.host}`.
+ - `TestBuildRateLimitHandler_DefaultBurstAndMax` (already present) and `TestParseBypassCIDRs` (existing) remain required.
+
+2.3.3 Integration Tests (CI gated, Docker required)
+We will add a scripted integration test to run inside CI or locally with Docker. The test will:
+ - Start the `charon:local` image (build if not present) in a detached container named `charon-debug`.
+ - Create a simple HTTP backend (httpbin/kennethreitz/httpbin) called `ratelimit-backend` (or `httpbin`).
+ - Create a proxy host `ratelimit.local` pointing to the backend via the Charon API (use /api/v1/proxy-hosts).
+ - Set `SecurityConfig` (POST /api/v1/security/config) with short windows for speed, e.g.:
+  ```json
+  {"name":"default","enabled":true,"rate_limit_enable":true,"rate_limit_requests":3,"rate_limit_window_sec":10,"rate_limit_burst":1}
+  ```
+ - Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
+ - Execute the runtime checks:
+  - Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
+  - The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
+  - On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
+  - Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
+
+ - Bypass List Validation:
+  - Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
+
+ - Multi-IP Isolation:
+  - Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
+
+ - X-Forwarded-For behavior (Confirm remote.host is used as key):
+  - Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
+
+ - Test Example (Shell Snippet to assert headers)
+  ```bash
+  # Single request driver - check headers
+  curl -s -D - -o /dev/null -H "Host: ratelimit.local" http://localhost/post
+  # Expect headers: X-RateLimit-Limit: 3, X-RateLimit-Remaining: <number>
+  ```
+
+ - Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
+
+ - Manage flaky behavior:
+  - Retry a couple times and log Caddy admin API output on failure for debugging.
++
+2.3.4 E2E Tests (Longer, optional)
+- Create `scripts/rate_limit_e2e.sh` which spins up the same environment but runs broader scenarios:
+ - High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
+ - Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
+ - SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
+
+2.3.5 Mock/Stub Guidance
+- IP Addresses
+ - Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
+ - For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
+- X-Forwarded-For
+ - Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
+- Timing Windows
+ - Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
+
+2.3.6 Test Data and Assertions (Explicit)
+- Unit Test: `TestBuildRateLimitHandler_ValidConfig`
+ - Input: secCfg{Requests:100, WindowSec:60, Burst:25}
+ - Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
+
+- Integration Test: `TestRateLimit_Enforcement_Basic`
+ - Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
+ - Actions: Send 4 rapid requests using client container
+ - Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
+ - Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
+
+- Integration Test: `TestRateLimit_BypassList_SkipsLimit`
+ - Input: Same as above + `RateLimitBypassList` contains client IP CIDR
+ - Expected outputs: All requests 200 (no 429)
+
+- Integration Test: `TestRateLimit_MultiClient_Isolation`
+ - Input: As above
+ - Actions: Client A sends 3 requests, Client B sends 3 requests
+ - Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
+
+- Integration Test: `TestRateLimit_Window_Reset`
+ - Input: As above
+ - Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
+ - Expected: New request is 200 again
+
+2.3.7 Test Harness - Example Go Integration Test
+Use the same approach as `backend/integration/coraza_integration_test.go`, run the script and check output for expected messages. Example test file: `backend/integration/rate_limit_integration_test.go`:
+
+```go
+//go:build integration
+// +build integration
+
+package integration
+
+import (
+  "context"
+  "os/exec"
+  "strings"
+  "testing"
+  "time"
+)
+
+func TestRateLimitIntegration(t *testing.T) {
+  t.Parallel()
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+  defer cancel()
+  cmd := exec.CommandContext(ctx, "bash", "./scripts/rate_limit_integration.sh")
+  out, err := cmd.CombinedOutput()
+  t.Logf("rate_limit_integration script output:\n%s", string(out))
+  if err != nil {
+    t.Fatalf("rate_limit integration failed: %v", err)
+  }
+  if !strings.Contains(string(out), "Rate limit enforcement succeeded") {
+    t.Fatalf("unexpected script output, rate limiting assertion not found")
+  }
+}
+```
+
+2.3.8 CI and Pre-commit Hooks
+
+- Add an integration CI job that runs the Docker-based script and the integration `go` test suite in a separate job to avoid blocking unit test runs on tools requiring Docker. Use a job matrix with `services: docker` and timeouts set appropriately.
+- Do not add integration scripts to pre-commit (too heavy); keep pre-commit focused on `go fmt`, `go vet`, `go test ./...` (unit tests), `npm test`, and lint rules.
+- Use the workspace `tasks.json` to add a `Coraza: Run Integration Script` style task for rate limit integration that mirrors `scripts/coraza_integration.sh`.
+
+2.3.9 .gitignore / .codecov.yml / Dockerfile changes
+
 - .gitignore
-  - Add `data/backups/` to `.gitignore` to ensure backup logs are not accidentally committed.
-- .pre-commit-config.yaml
-  - Add a new `block-data-backups-commit` hook to prevent accidental commits to `data/backups`.
+ 	- Add `test-results/rate_limit/` to avoid committing local script logs.
+ 	- Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
+- .codecov.yml
+ 	- Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
+- .dockerignore
+ 	- Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
+- Dockerfile
+ 	- Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
 
-Potential Secondary Impact (best-guess; confirm):
-- scripts/pre-commit-hooks/block-codeql-db-commits.sh (might need to be more strict): extend to check codeql-db-* and codeql-*.sarif patterns.
-- scripts/ci/dry_run_history_rewrite.sh invocation in `.github/workflows/dry-run-history-rewrite.yml`: adjust to ensure `fetch-depth: 0` is set and that `git` is non-shallow.
+2.3.10 Prioritization
 
-Implementation Plan (Phases)
---------------------------
-PHASE 1 — Script Hardening (2-4 days)
-- Goals: fix functional bugs, add validation checks, handle edge cases (shallow clones, tag preservation), make scripts idempotent and testable.
-- Tasks:
-  1. Update `scripts/history-rewrite/validate_after_rewrite.sh`:
-     - Add a command-line argument or `ENV` for `--backup-branch` and fallback to reading `backup_branch` from the log in `data/backups` if present.
-     - Ensure it sets `backup_branch` correctly or exits with a clear message.
-     - Ensure it currently fails the build on any reported issues (non-zero exit when pre-commit fails in CI mode).
-  2. Update `scripts/history-rewrite/clean_history.sh`:
-     - Detect shallow clones (if `git rev-parse --is-shallow-repository` returns true) and fail with instructions to `git fetch --unshallow`.
-     - When creating `backup_branch`, also include tag backups: `git tag -l | xargs -n1 -I{} git tag -l -n {}...` and push tags to `origin` into `backup/tags/history-YYYY...` namespace OR save them to `data/backups/tags-*.tar`.
-     - Validate `git-filter-repo` args are valid—use `git filter-repo --help` to confirm that provided `--strip-blobs-bigger-than` args are numbers and `--paths` exist in repo for the dry-run case.
-     - Ensure `backup_branch` is pushed successfully, otherwise abort.
-     - Make `read -r confirmation` explicit with `--` or a short timeout to avoid interactive hang; in scripts launched via terminal, interactive fallback is acceptable, but in CI this should not be used. Add `--non-interactive` to skip confirmation in CI with an explicit flag and require maintainers to pass `FORCE=1` in env to proceed.
-  3. Update `scripts/history-rewrite/preview_removals.sh`:
-     - Add structured `--format` option with `text` (default) and `json` for CI parsing; include commit oids, paths, and sizes in the output.
-     - Detect & warn if the repo is shallow.
-  4. Add a `scripts/history-rewrite/check_refs.sh` helper:
-     - Print current branches, tags, and any remotes pointing to objects in the paths to be removed.
-     - Output a tarball `data/backups/tags-YYYYMMDD.tar` with tag refs.
+- P0: Integration test `TestRateLimit_Enforcement_Basic` (high confidence: verifies actual runtime limit enforcement and header presence)
+- P1: Unit tests verifying config building (`TestGenerateConfig_WithRateLimitBypassList`, `TestBuildRateLimitHandler_KeyIsRemoteHost`) and API tests for `POST /security/config` handling rate limit fields
+- P2: Integration tests for bypass list, multi-client isolation, window reset
+- P3: E2E tests for UI configuration of rate limiting and long-running stress tests
 
-PHASE 2 — Testing & Automation (2-3 days)
-- Goals: Add script unit tests and CI steps to run them; add a validation pipeline for maintainers to use.
-- Tasks:
-  1. Add `bats-core` test harness inside `scripts/history-rewrite/tests/`.
-     - `scripts/history-rewrite/tests/preview_removals.bats` — tests ensuring the preview prints commits and objects for specified paths.
-     - `scripts/history-rewrite/tests/clean_history.dryrun.bats` — tests that `--dry-run` exits non-zero when repo contains banned paths and that `--force` requires confirmation.
-     - `scripts/history-rewrite/tests/validate_after_rewrite.bats` — tests that `validate_after_rewrite.sh` uses `--backup-branch` and fails with the correct non-zero codes when `backup_branch` is missing.
-  2. Add a `ci/scripts/test-history-rewrite.yml` workflow to run bats tests in CI and to fail early on shallow clones or missing tools.
-  3. Add a script-level `shellcheck` pass and a `bash` minimal lint step; use `shellcheck` GitHub Action or pre-commit hook.
+2.3.11 Next Steps
 
-PHASE 3 — PR Pipeline & Pre-commit (1-2 days)
-- Goals: Prevent accidental destructive runs and accidental commits of generated backups.
-- Tasks:
-  1. Update the PR template `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` adding checklist items: tag backups, confirm `data/backups` tarball included, confirm remote pushed backup branch and tags, optional `CI verification output` from `preview_removals --format json`.
-  2. Update `.github/workflows/pr-checklist.yml` to validate: presence of `preview_removals` output in PR body, a check that `data/backups` is attached, and additional keywords like `tag backup` and `backup branch pushed`.
-  3. Add `.pre-commit-config.yaml` hook to block commits to `data/backups` and ensure `data/backups` is added to `.gitignore`.
-  4. Add `scripts/pre-commit-hooks/validate-backup-branch.sh` which verifies that `backup_branch` exists and points to the expected ref(s).
+- Implement `scripts/rate_limit_integration.sh` and `backend/integration/rate_limit_integration_test.go` following `coraza_integration.sh` as the blueprint.
+- Add unit tests to `backend/internal/caddy/config_test.go` and API handler tests in `backend/internal/api/handlers/security_ratelimit_test.go`.
+- Add Docker network helpers and ensure `docker run --ip` is used to control client IPs during integration.
+- Run all new tests locally (Docker required) and in CI. Add integration job to GitHub Actions with `runs-on: ubuntu-latest`, `services: docker` and appropriate timeouts.
 
-PHASE 4 — Docs, QA & Rollout (1-2 days)
-- Goals: Update docs, add reproducible tests, and provide QA instructions and rollback strategies.
-- Tasks:
-  1. Update `docs/plans/history_rewrite.md` to include:
-     - `backup_branch` naming and tagging policy
-     - `data/backups` layout, e.g., `metadata.json`, `tags.tar.gz`, `log` paths
-     - Example `preview_removals --format json` output for PR inclusion
-  2. Add `docs/plans/current_spec.md` (this file) containing the execution plan and timeline estimate.
-  3. QA steps: run `clean_history.sh --dry-run`, `preview_removals.sh` with `--format json` for PR attachments, then proceed with `--force` only after maintainers confirm window; verify via `validate_after_rewrite.sh` and CI.
+-----
 
-PHASE 5 — Post-Deploy & Maintenance (1 day)
-- Run `git gc` and prune on mirrors; notify downstream consumers; update CI mirrors and caches. Verify repository size decreased within expected tolerance.
+This test plan should serve as a complete specification for testing rate limiting behavior across unit, integration, and E2E tiers. The next iteration will include scripted test implementations and Jenkins/GHA job snippets for CI.
 
-Unit & Integration Tests (Files & Functions)
--------------------------------------------
-Add these test files to `scripts/history-rewrite/tests/`.
-Unit test harness: `bats-core` recommended; tests should run without network and create ephemeral local repositories.
-
-- `scripts/history-rewrite/tests/preview_removals.bats`:
-  - test_preview_detects_banned_commits()
-  - test_preview_detects_large_blob_sizes()
-  - test_preview_outputs_json_when_requested()
-
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats`:
-  - test_dry_run_exits_success_when_no_banned_paths()
-  - test_dry_run_reports_banned_commits()
-  - test_force_requires_confirmation() — simulate interactive confirmation or set `FORCE=1` with `--non-interactive` flag to test non-interactive usage.
-  - test_refuse_on_main_branch() — ensures script refuses to run on `main`/`master`.
-
-- `scripts/history-rewrite/tests/validate_after_rewrite.bats`:
-  - test_validate_fails_when_backup_branch_missing()
-  - test_validate_passes_when_backup_branch_provided_and_all_checks_clear()
-  - test_validate_populates_log_and_error_when_precommit_fails()
-
-Integration test (bash / simulated repository): a test that acts as a small git repo containing a `backend/codeql-db` folder and a large fake blob.
-- `scripts/history-rewrite/tests/integration_clean_history.bats`:
-  - test_integration_end_to_end_preview_then_dry_run(): create a local repo, add a large file under `backend/codeql-db`, commit it, run `preview_removals` to capture output, ensure `clean_history.sh --dry-run` detects it, then run `clean_history.sh --force` but only after backing up repo; verify `git rev-list` no longer returns commits for that path.
-
-Exact tests & names (for maintainers' convenience):
-- `scripts/history-rewrite/tests/preview_removals.bats::test_preview_detects_banned_commits`
-- `scripts/history-rewrite/tests/preview_removals.bats::test_preview_outputs_json`
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats::test_dry_run_reports_banned_commits`
-- `scripts/history-rewrite/tests/clean_history.dryrun.bats::test_force_requires_confirmation`
-- `scripts/history-rewrite/tests/validate_after_rewrite.bats::test_validate_fails_when_backup_branch_missing`
-- `scripts/history-rewrite/tests/integration_clean_history.bats::test_integration_end_to_end_preview_then_dry_run`
-
-CI & Pre-commit Changes
------------------------
-- Add `data/backups/` to `.gitignore` (to avoid accidental commits of backup logs) and ensure `scripts` produce readable `data/backups` logs that can be attached to PRs.
-- Add a new pre-commit hook `scripts/pre-commit-hooks/block-data-backups-commit.sh` to block user commits of `data/backups` and `data/backups/*` (mirror `block-codeql-db-commits.sh`).
-- Add `shellcheck` to the pre-commit config or add a `scripts/ci/shellcheck_history_rewrite.yml` workflow that ensures scripts pass style checks.
-- Create a new CI workflow: `.github/workflows/history-rewrite-tests.yml`
-  - Steps: Checkout with `fetch-depth: 0`, install bats-core via apt or package manager, run the `bats` tests, run `shellcheck` for scripts, and run `scripts/ci/dry_run_history_rewrite.sh`.
-- Update existing `.github/workflows/dry-run-history-rewrite.yml` to:
-  - Ensure `fetch-depth: 0` in `actions/checkout` is set (already the case), and fail early for shallow clones; add a `shellcheck` step and `bats` tests step.
-
-Potential Regressions & Rollback Strategies
--------------------------------------------
-- Regressions:
-  - Accidental removal of unrelated history entries due to incorrect `--paths` or `--invert-paths` usage.
-  - Loss of tags or refs if not properly backed up and pushed to a safe place before rewrite.
-  - CI breakage from new pre-commit hooks or failing `bats` tests.
-  - Developer pipelines or forks could break from forced `--all --force` push if they do not follow the rollback steps.
-
-- Mitigations & Rollback:
-  - **Always create backups**: `backup_branch` and `backup/tags/history-YYYYMMDD` tarball stored outside the working repo (S3/GitHub release) prior to any `--force` push.
-  - Maintain a simple rollback command sequence in the docs:
-    - `git checkout -b restore/DATE backup/history-YYYYMMDD-HHMMSS`
-    - `git push origin restore/DATE` and create a PR to restore the history (or directly replace refs on the remote as maintainers decide)
-  - Keep the `data/backups/` tarball outside the repo in a known remote location (this will also help recovery if the `backup_branch` is not visible).
-  - Ensure CI `dry-run` workflow is fully functional and fails on shallow clones so maintainers must re-run with a proper clone.
-  - Add a section in `docs/plans/history_rewrite.md` to show commands to restore tags if they were mistakenly deleted.
-
-Backwards Compatibility & Maintainers' Notes
--------------------------------------------
-- The scripts must remain POSIX-compliant where pragmatic; use `/bin/sh` for portability.
-- Avoid automatic `git push --all --force` from scripts; maintainers must perform final coordinated push.
-- Scripts will remain safe by default (`--dry-run` or interactive) with `--force` and explicit `I UNDERSTAND` confirmation for destructive operations.
-
-Timeline Estimate (Rough)
-------------------------
-- Script hardening: 2-4 days
-- Tests & CI: 2-3 days
-- PR pipeline updates & pre-commit hooks: 1-2 days
-- Docs, QA & rollout ( manual coordination): 1-2 days
-- Total: 6-11 business days (one-to-two weeks), may vary with availability of maintainers and CR feedback.
-
-Deployment Checklist for Maintainers
-----------------------------------
-Before scheduling a destructive rewrite:
-1. Verify all `bats` tests in `scripts/history-rewrite/tests` pass on CI.
-2. Ensure backup branches and tags are pushed to `origin` (and optionally exported to external storage like an S3 bucket).
-3. Confirm the PR uses `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md` and the PR automation passes.
-4. Run full `scripts/history-rewrite/clean_history.sh --dry-run` and `scripts/history-rewrite/preview_removals.sh --format json` locally and attach outputs to the PR.
-5. Have at least two maintainers approve the destructive rewrite before pushing `git push --all --force`.
-
-Development checklist
----------------------
- - [ ] Implement described script and validation changes.
- - [ ] Add `bats` tests and `history-rewrite` test CI workflow.
- - [ ] Add `data/backups/` to `.gitignore` and add pre-commit hooks to block accidental commits.
- - [ ] Update `pr-checklist.yml` to include tag-backup checks, backup logs, and PR content checks.
- - [ ] Add maintainers' docs and rollback examples.
-
-Follow-ups / Outstanding Questions (ask maintainers)
---------------------------------------------------
-- Should `data/backups` remain inside repo (but ignored) or be offloaded to a remote store before the rewrite?
-- Should `clean_history.sh` create an optional tarball of `refs` and `tags` and push to `origin/backups/` or an alternate remote repository for longer term storage?
-- For CI (bats) tests: do we want to install `bats-core` in the main CI image, or depend on an apt install in the `history-rewrite-tests` workflow?
-- Is `git-filter-repo` present on official runner images or should we install it in the CI workflow each time? (script currently exits with `Please install git-filter-repo` advisory.)
-
-Appendix: Example `bats` Test Skeleton (preview_removals)
-------------------------------------------------------
-You can start implementing the tests with `bats` like the following skeleton:
+func parseBypassList(list string) []string {
+ var cidrs []string
+ for _, part := range strings.Split(list, ",") {
+  part = strings.TrimSpace(part)
+  if part == "" {
+   continue
+  }
+  // Validate CIDR
+  if_, _, err := net.ParseCIDR(part); err == nil {
+   cidrs = append(cidrs, part)
+  } else if net.ParseIP(part) != nil {
+   // Single IP - convert to /32 or /128
+   if strings.Contains(part, ":") {
+    cidrs = append(cidrs, part+"/128")
+   } else {
+    cidrs = append(cidrs, part+"/32")
+   }
+  }
+ }
+ return cidrs
+}
 
 ```
-#!/usr/bin/env bats
 
-setup() {
-  repo_dir="$(mktemp -d)"
-  cd "$repo_dir"
-  git init -q
-  mkdir -p backend/codeql-db
-  echo "largefile" > backend/codeql-db/big.txt
-  git add -A
-  git commit -m "feat: add dummy codeql-db file" || exit 1
-}
+##### 2.2.3 Add Preset Templates
 
-teardown() {
-  rm -rf "$repo_dir"
-}
+**File:** `backend/internal/api/handlers/security_handler.go`
 
-@test "preview_removals reports commits in path" {
-  run sh /workspace/scripts/history-rewrite/preview_removals.sh --paths 'backend/codeql-db' --strip-size 1
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Commits touching specified paths"* ]]
+```go
+// GetRateLimitPresets returns predefined rate limit configurations
+func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
+ presets := []map[string]interface{}{
+  {
+   "id":          "standard",
+   "name":        "Standard Web",
+   "description": "Balanced protection for general web applications",
+   "requests":    100,
+   "window_sec":  60,
+   "burst":       20,
+  },
+  {
+   "id":          "api",
+   "name":        "API Protection",
+   "description": "Stricter limits for API endpoints",
+   "requests":    30,
+   "window_sec":  60,
+   "burst":       10,
+  },
+  {
+   "id":          "login",
+   "name":        "Login Protection",
+   "description": "Aggressive protection against brute-force",
+   "requests":    5,
+   "window_sec":  300,
+   "burst":       2,
+  },
+  {
+   "id":          "relaxed",
+   "name":        "High Traffic",
+   "description": "Higher limits for trusted, high-traffic apps",
+   "requests":    500,
+   "window_sec":  60,
+   "burst":       100,
+  },
+ }
+ c.JSON(http.StatusOK, gin.H{"presets": presets})
 }
 ```
 
-This same pattern can be reused to spawn a test repository and run `clean_history.sh --dry-run`, `validate_after_rewrite.sh` and assert expected outputs and exit codes.
+**Add route:** `GET /api/v1/security/rate-limit/presets`
 
-Done.
-# Investigation and Remediation Plan: CI Failures on feature/beta-release
+##### 2.2.4 Frontend Updates
 
-## 1. Incident Summary
-**Issue**: CI builds failing on `feature/beta-release`.
-**Symptoms**:
-- Frontend build fails due to missing module `../data/crowdsecPresets`.
-- Backend coverage check fails (likely due to missing tests or artifacts).
-- Docker build fails.
-**Root Cause Identified**:
-- The file `frontend/src/data/crowdsecPresets.ts` exists locally but was **ignored by git** due to an overly broad pattern in `.gitignore`.
-- The pattern `data/` in `.gitignore` (intended for the root `data/` directory) accidentally matched `frontend/src/data/`.
+**File:** `frontend/src/api/security.ts`
 
-## 2. Diagnosis Details
-- **Local Environment**: The file `frontend/src/data/crowdsecPresets.ts` was present, so local `npm run build` and `npm run test:ci` passed.
-- **CI Environment**: The file was missing because it was not committed.
-- **Git Ignore Analysis**:
-  - `.gitignore` contained `data/` under "Caddy Runtime Data".
-  - This pattern matches any directory named `data` anywhere in the tree.
-  - It matched `frontend/src/data/`, causing `crowdsecPresets.ts` to be ignored.
+```typescript
+export interface RateLimitPreset {
+  id: string
+  name: string
+  description: string
+  requests: number
+  window_sec: number
+  burst: number
+}
 
-## 3. Remediation Steps
-1.  **Fix `.gitignore`**:
-    - Change `data/` to `/data/` to anchor it to the project root.
-    - Change `frontend/frontend/` to `/frontend/frontend/` for safety.
-2.  **Add Missing File**:
-    - Force add or add `frontend/src/data/crowdsecPresets.ts` after fixing `.gitignore`.
-3.  **Verify**:
-    - Run `git check-ignore` to ensure the file is no longer ignored.
-    - Run local build/test to ensure no regressions.
+export const getRateLimitPresets = async (): Promise<{ presets: RateLimitPreset[] }> => {
+  const response = await client.get('/security/rate-limit/presets')
+  return response.data
+}
+```
 
-## 4. Verification Results
-- **Local Tests**:
-  - Backend Coverage: 85.4% (Pass)
-  - Frontend Tests: 70 files passed (Pass)
-  - Frontend Coverage: 85.97% (Pass)
-  - Build: Passed
-- **Git Status**:
-  - `frontend/src/data/crowdsecPresets.ts` is now staged for commit.
-  - `.gitignore` is modified and staged.
+**File:** `frontend/src/pages/RateLimiting.tsx`
 
-## 5. Next Actions
-- Commit the changes with message: `fix: resolve CI failures by unignoring frontend data files`.
-- Push to `feature/beta-release`.
-- Monitor the next CI run.
+Add preset dropdown and bypass list input (see implementation details in frontend section below).
 
-## 6. Future Prevention
-- Use anchored paths (starting with `/`) in `.gitignore` for root-level directories.
-- Check `git status` for unexpected ignored files when adding new directories.
-- Add a pre-commit check or CI step to verify that all imported modules exist in the git tree (though `tsc` in CI does this, the issue was the discrepancy between local and CI).
+#### 2.3 Test Requirements
+
+**File:** `backend/internal/caddy/config_test.go`
+
+```go
+func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
+ secCfg := &models.SecurityConfig{
+  RateLimitRequests:  100,
+  RateLimitWindowSec: 60,
+  RateLimitBurst:     25,
+ }
+ h, err := buildRateLimitHandler(nil, secCfg)
+ require.NoError(t, err)
+ require.NotNil(t, h)
+ // Verify burst is used in config
+}
+
+func TestBuildRateLimitHandler_BypassList(t *testing.T) {
+ secCfg := &models.SecurityConfig{
+  RateLimitRequests:    100,
+  RateLimitWindowSec:   60,
+  RateLimitBypassList:  "10.0.0.0/8,192.168.1.1",
+ }
+ h, err := buildRateLimitHandler(nil, secCfg)
+ require.NoError(t, err)
+ // Verify subroute structure with bypass
+}
+```
+
+---
+
+### Phase 3: CrowdSec Bouncer (Issue #17)
+
+**Goal:** Implement actual IP reputation checking against CrowdSec decisions.
+
+#### 3.1 Current State Analysis
+
+- CrowdSec binary installed in Docker image
+- `caddy-crowdsec-bouncer` plugin compiled into Caddy
+- `buildCrowdSecHandler` returns a handler but only sets `api_url`
+- Comment in `cerberus.go`: "CrowdSec placeholder: integration would check CrowdSec API"
+- No actual decision lookup code
+
+#### 3.2 Architecture Decision
+
+**Two approaches:**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **A: Caddy Plugin** | Offloads to Caddy, less Go code | Requires Caddy config regeneration |
+| **B: Middleware** | Real-time, Go-native | Duplicates bouncer logic |
+
+**Recommendation:** Use **Approach A** (Caddy Plugin) since `caddy-crowdsec-bouncer` is already compiled in. Enhance the handler configuration.
+
+#### 3.3 Required Changes
+
+##### 3.3.1 Update CrowdSec Handler Builder
+
+**File:** `backend/internal/caddy/config.go`
+
+```go
+// buildCrowdSecHandler returns a CrowdSec bouncer handler.
+// See: https://github.com/hslatman/caddy-crowdsec-bouncer
+func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+ if !crowdsecEnabled {
+  return nil, nil
+ }
+
+ h := Handler{"handler": "crowdsec"}
+
+ // API URL (required)
+ apiURL := "http://localhost:8080"
+ if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
+  apiURL = secCfg.CrowdSecAPIURL
+ }
+ h["api_url"] = apiURL
+
+ // API Key (from environment or config)
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey == "" && secCfg != nil {
+  // Could store encrypted in DB - for now use env var
+ }
+ if apiKey != "" {
+  h["api_key"] = apiKey
+ }
+
+ // Ticker interval for decision sync (default 30s)
+ h["ticker_interval"] = "30s"
+
+ // Enable streaming mode for real-time updates
+ h["enable_streaming"] = true
+
+ return h, nil
+}
+```
+
+##### 3.3.2 Add CrowdSec Registration on Startup
+
+**File:** `backend/internal/crowdsec/registration.go` (new)
+
+```go
+// Package crowdsec handles CrowdSec LAPI integration.
+package crowdsec
+
+import (
+ "bytes"
+ "encoding/json"
+ "fmt"
+ "net/http"
+ "os"
+ "os/exec"
+ "time"
+)
+
+// EnsureBouncerRegistered registers the Caddy bouncer with local CrowdSec LAPI.
+func EnsureBouncerRegistered(lapiURL string) (string, error) {
+ // Check if already registered
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey != "" {
+  return apiKey, nil
+ }
+
+ // Use cscli to register bouncer
+ cmd := exec.Command("cscli", "bouncers", "add", "caddy-bouncer", "-o", "raw")
+ output, err := cmd.Output()
+ if err != nil {
+  // May already exist, try to get existing key
+  return "", fmt.Errorf("failed to register bouncer: %w", err)
+ }
+
+ apiKey = string(bytes.TrimSpace(output))
+ return apiKey, nil
+}
+
+// CheckLAPIHealth verifies CrowdSec LAPI is responding.
+func CheckLAPIHealth(lapiURL string) bool {
+ client := &http.Client{Timeout: 5 * time.Second}
+ resp, err := client.Get(lapiURL + "/v1/decisions")
+ if err != nil {
+  return false
+ }
+ defer resp.Body.Close()
+ // 401 is expected without auth, but means LAPI is up
+ return resp.StatusCode == 401 || resp.StatusCode == 200
+}
+```
+
+##### 3.3.3 Update Cerberus Middleware (Optional - for logging)
+
+**File:** `backend/internal/cerberus/cerberus.go`
+
+The actual blocking is handled by the Caddy CrowdSec bouncer plugin. However, we can add logging in Cerberus:
+
+```go
+// In Middleware(), after ACL check:
+// CrowdSec logging (actual blocking is done by Caddy bouncer)
+if c.cfg.CrowdSecMode == "local" {
+ // Log that CrowdSec is active (blocking happens at Caddy layer)
+ logger.Log().WithField("client_ip", ctx.ClientIP()).Debug("Request evaluated by CrowdSec bouncer")
+}
+```
+
+##### 3.3.4 Add CrowdSec Status Endpoint Enhancement
+
+**File:** `backend/internal/api/handlers/crowdsec_handler.go`
+
+```go
+// GetCrowdSecDecisions returns recent decisions from CrowdSec LAPI
+func (h *CrowdSecHandler) GetDecisions(c *gin.Context) {
+ lapiURL := os.Getenv("CROWDSEC_LAPI_URL")
+ if lapiURL == "" {
+  lapiURL = "http://localhost:8080"
+ }
+
+ apiKey := os.Getenv("CROWDSEC_API_KEY")
+ if apiKey == "" {
+  c.JSON(http.StatusServiceUnavailable, gin.H{"error": "CrowdSec API key not configured"})
+  return
+ }
+
+ client := &http.Client{Timeout: 10 * time.Second}
+ req, _ := http.NewRequest("GET", lapiURL+"/v1/decisions", nil)
+ req.Header.Set("X-Api-Key", apiKey)
+
+ resp, err := client.Do(req)
+ if err != nil {
+  c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to CrowdSec LAPI"})
+  return
+ }
+ defer resp.Body.Close()
+
+ var decisions []map[string]interface{}
+ json.NewDecoder(resp.Body).Decode(&decisions)
+ c.JSON(http.StatusOK, gin.H{"decisions": decisions})
+}
+```
+
+#### 3.4 Frontend Updates
+
+**File:** `frontend/src/pages/CrowdSecConfig.tsx`
+
+Add decisions viewer panel:
+
+```tsx
+// In CrowdSecConfig component:
+const { data: decisions } = useQuery({
+  queryKey: ['crowdsec-decisions'],
+  queryFn: () => client.get('/api/v1/crowdsec/decisions').then(r => r.data),
+  enabled: status?.crowdsec?.enabled,
+  refetchInterval: 30000,
+})
+
+// Render decisions table
+{decisions?.decisions?.length > 0 && (
+  <Card>
+    <h3>Active Decisions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>IP/Range</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Expires</th>
+        </tr>
+      </thead>
+      <tbody>
+        {decisions.decisions.map((d: Decision) => (
+          <tr key={d.id}>
+            <td>{d.value}</td>
+            <td>{d.type}</td>
+            <td>{d.scenario}</td>
+            <td>{formatExpiry(d.until)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </Card>
+)}
+```
+
+#### 3.5 Test Requirements
+
+**File:** `backend/internal/crowdsec/registration_test.go`
+
+```go
+func TestCheckLAPIHealth(t *testing.T) {
+ // Mock server test
+ ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  w.WriteHeader(http.StatusUnauthorized) // Expected without auth
+ }))
+ defer ts.Close()
+
+ assert.True(t, CheckLAPIHealth(ts.URL))
+}
+```
+
+---
+
+### Phase 4: WAF Integration (Issue #18) - Most Complex
+
+**Goal:** Generate actual Coraza configuration, per-host toggle, rule exclusions, paranoia levels.
+
+#### 4.1 Current State Analysis
+
+- `cerberus.go` only checks for literal `<script>` string in URL (trivial bypass)
+- `buildWAFHandler` in `config.go` creates Coraza handler but requires ruleset
+- Frontend (`WafConfig.tsx`) manages rule sets but no per-host toggle
+- No paranoia level selector
+- No rule exclusion system for false positives
+
+#### 4.2 Required Changes
+
+##### 4.2.1 Enhance WAF Handler Builder
+
+**File:** `backend/internal/caddy/config.go`
+
+```go
+// buildWAFHandler returns a WAF handler (Coraza) configuration.
+func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
+ if !wafEnabled {
+  return nil, nil
+ }
+
+ // Check per-host WAF toggle
+ if host != nil && host.WAFDisabled {
+  return nil, nil
+ }
+
+ // Build directives
+ var directives strings.Builder
+
+ // Base configuration
+ directives.WriteString("SecRuleEngine On\n")
+ directives.WriteString("SecRequestBodyAccess On\n")
+ directives.WriteString("SecResponseBodyAccess Off\n")
+
+ // Paranoia level (1-4, default 1)
+ paranoiaLevel := 1
+ if secCfg != nil && secCfg.WAFParanoiaLevel > 0 && secCfg.WAFParanoiaLevel <= 4 {
+  paranoiaLevel = secCfg.WAFParanoiaLevel
+ }
+ directives.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel))
+
+ // Mode: block or monitor
+ if secCfg != nil && secCfg.WAFMode == "monitor" {
+  directives.WriteString("SecRuleEngine DetectionOnly\n")
+ }
+
+ // Include ruleset files
+ for _, rs := range rulesets {
+  if path, ok := rulesetPaths[rs.Name]; ok && path != "" {
+   directives.WriteString(fmt.Sprintf("Include %s\n", path))
+  }
+ }
+
+ // Apply exclusions
+ if secCfg != nil && secCfg.WAFExclusions != "" {
+  var exclusions []WAFExclusion
+  if err := json.Unmarshal([]byte(secCfg.WAFExclusions), &exclusions); err == nil {
+   for _, ex := range exclusions {
+    // Generate SecRuleRemoveById or SecRuleUpdateTargetById
+    if ex.RuleID > 0 {
+     if ex.Target != "" {
+      directives.WriteString(fmt.Sprintf("SecRuleUpdateTargetById %d \"!%s\"\n", ex.RuleID, ex.Target))
+     } else {
+      directives.WriteString(fmt.Sprintf("SecRuleRemoveById %d\n", ex.RuleID))
+     }
+    }
+   }
+  }
+ }
+
+ h := Handler{
+  "handler":    "waf",
+  "directives": directives.String(),
+ }
+
+ return h, nil
+}
+
+// WAFExclusion represents a rule exclusion for false positives
+type WAFExclusion struct {
+ RuleID      int    `json:"rule_id"`
+ Target      string `json:"target,omitempty"`       // e.g., "ARGS:password"
+ Description string `json:"description,omitempty"`
+}
+```
+
+##### 4.2.2 Add Per-Host WAF Toggle
+
+**File:** `backend/internal/models/proxy_host.go`
+
+```go
+type ProxyHost struct {
+ // ... existing fields ...
+ WAFDisabled bool `json:"waf_disabled" gorm:"default:false"` // Override global WAF
+}
+```
+
+##### 4.2.3 Add Paranoia Level and Exclusions to SecurityConfig
+
+**File:** `backend/internal/models/security_config.go`
+
+```go
+type SecurityConfig struct {
+ // ... existing fields ...
+ WAFParanoiaLevel int    `json:"waf_paranoia_level" gorm:"default:1"` // 1-4
+ WAFExclusions    string `json:"waf_exclusions" gorm:"type:text"`     // JSON array of exclusions
+}
+```
+
+##### 4.2.4 Remove Naive Check from Cerberus Middleware
+
+**File:** `backend/internal/cerberus/cerberus.go`
+
+The current `<script>` check is misleading. Replace with proper logging:
+
+```go
+// WAF is handled by Coraza at the Caddy layer
+// Log WAF status for debugging
+if c.cfg.WAFMode != "" && c.cfg.WAFMode != "disabled" {
+ logger.Log().WithFields(map[string]interface{}{
+  "source":    "waf",
+  "mode":      c.cfg.WAFMode,
+  "client_ip": ctx.ClientIP(),
+ }).Debug("Request subject to WAF inspection")
+}
+```
+
+##### 4.2.5 Add Rule Exclusion Management Endpoints
+
+**File:** `backend/internal/api/handlers/security_handler.go`
+
+```go
+// GetWAFExclusions returns current WAF rule exclusions
+func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
+ cfg, err := h.svc.Get()
+ if err != nil && err != services.ErrSecurityConfigNotFound {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get config"})
+  return
+ }
+
+ var exclusions []WAFExclusion
+ if cfg != nil && cfg.WAFExclusions != "" {
+  json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
+ }
+ c.JSON(http.StatusOK, gin.H{"exclusions": exclusions})
+}
+
+// AddWAFExclusion adds a rule exclusion
+func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
+ var exclusion WAFExclusion
+ if err := c.ShouldBindJSON(&exclusion); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+  return
+ }
+
+ cfg, _ := h.svc.Get()
+ if cfg == nil {
+  cfg = &models.SecurityConfig{Name: "default"}
+ }
+
+ var exclusions []WAFExclusion
+ if cfg.WAFExclusions != "" {
+  json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions)
+ }
+
+ exclusions = append(exclusions, exclusion)
+ data, _ := json.Marshal(exclusions)
+ cfg.WAFExclusions = string(data)
+
+ if err := h.svc.Upsert(cfg); err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save"})
+  return
+ }
+
+ // Apply to Caddy
+ if h.caddyManager != nil {
+  h.caddyManager.ApplyConfig(c.Request.Context())
+ }
+
+ c.JSON(http.StatusOK, gin.H{"exclusion": exclusion})
+}
+```
+
+**Routes:**
+
+- `GET /api/v1/security/waf/exclusions`
+- `POST /api/v1/security/waf/exclusions`
+- `DELETE /api/v1/security/waf/exclusions/:id`
+
+#### 4.3 Frontend Updates
+
+##### 4.3.1 Update WafConfig Page
+
+**File:** `frontend/src/pages/WafConfig.tsx`
+
+Add:
+
+1. Paranoia level selector (1-4 with descriptions)
+2. Exclusions management panel
+3. Per-host override indicator
+
+```tsx
+// Paranoia level selector
+const PARANOIA_LEVELS = [
+  { level: 1, name: 'Low', description: 'Minimal false positives, basic protection' },
+  { level: 2, name: 'Medium', description: 'Balanced protection, some false positives' },
+  { level: 3, name: 'High', description: 'Strong protection, requires tuning' },
+  { level: 4, name: 'Paranoid', description: 'Maximum protection, many false positives' },
+]
+
+// In render:
+<div>
+  <label>Paranoia Level</label>
+  <select value={paranoiaLevel} onChange={...}>
+    {PARANOIA_LEVELS.map(p => (
+      <option key={p.level} value={p.level}>
+        {p.level} - {p.name}
+      </option>
+    ))}
+  </select>
+  <p className="text-xs text-gray-500">
+    {PARANOIA_LEVELS.find(p => p.level === paranoiaLevel)?.description}
+  </p>
+</div>
+```
+
+##### 4.3.2 Add Per-Host WAF Toggle to Proxy Host Form
+
+**File:** `frontend/src/pages/ProxyHostForm.tsx` (or similar)
+
+```tsx
+<Switch
+  label="Disable WAF for this host"
+  checked={formData.waf_disabled}
+  onChange={(e) => setFormData({...formData, waf_disabled: e.target.checked})}
+  helperText="Override global WAF settings for this specific host"
+/>
+```
+
+#### 4.4 Test Requirements
+
+**File:** `backend/internal/caddy/config_waf_test.go`
+
+```go
+func TestBuildWAFHandler_ParanoiaLevel(t *testing.T) {
+ secCfg := &models.SecurityConfig{
+  WAFMode:          "block",
+  WAFParanoiaLevel: 2,
+ }
+ h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ directives := h["directives"].(string)
+ assert.Contains(t, directives, "tx.paranoia_level=2")
+}
+
+func TestBuildWAFHandler_Exclusions(t *testing.T) {
+ exclusions := []WAFExclusion{
+  {RuleID: 942100, Description: "SQL injection false positive"},
+ }
+ data, _ := json.Marshal(exclusions)
+ secCfg := &models.SecurityConfig{
+  WAFMode:       "block",
+  WAFExclusions: string(data),
+ }
+ h, err := buildWAFHandler(nil, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ directives := h["directives"].(string)
+ assert.Contains(t, directives, "SecRuleRemoveById 942100")
+}
+
+func TestBuildWAFHandler_PerHostDisabled(t *testing.T) {
+ host := &models.ProxyHost{WAFDisabled: true}
+ secCfg := &models.SecurityConfig{WAFMode: "block"}
+ h, err := buildWAFHandler(host, nil, nil, secCfg, true)
+ require.NoError(t, err)
+ assert.Nil(t, h)
+}
+```
+
+---
+
+## File Change Summary
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `backend/internal/services/geoip_service.go` | GeoIP lookup service |
+| `backend/internal/services/geoip_service_test.go` | GeoIP unit tests |
+| `backend/internal/crowdsec/registration.go` | CrowdSec bouncer registration |
+| `backend/internal/crowdsec/registration_test.go` | CrowdSec registration tests |
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `backend/go.mod` | Add `github.com/oschwald/geoip2-golang` |
+| `backend/internal/models/security_config.go` | Add `WAFParanoiaLevel`, `WAFExclusions`, `RateLimitBypassList` |
+| `backend/internal/models/proxy_host.go` | Add `WAFDisabled` |
+| `backend/internal/services/access_list_service.go` | Add GeoIP integration to `TestIP` |
+| `backend/internal/caddy/config.go` | Fix burst, add bypass, enhance WAF handler |
+| `backend/internal/cerberus/cerberus.go` | Remove naive `<script>` check, add logging |
+| `backend/internal/api/handlers/security_handler.go` | Add presets, exclusions, GeoIP reload endpoints |
+| `backend/internal/server/server.go` | Initialize GeoIP service |
+| `frontend/src/api/security.ts` | Add new API types |
+| `frontend/src/pages/RateLimiting.tsx` | Add presets, bypass list UI |
+| `frontend/src/pages/WafConfig.tsx` | Add paranoia selector, exclusions UI |
+| `frontend/src/pages/AccessLists.tsx` | Enhance geo test result display |
+
+---
+
+## Database Migrations
+
+Auto-migrate will handle new fields. For explicit migration:
+
+```sql
+-- Add new SecurityConfig fields
+ALTER TABLE security_configs ADD COLUMN waf_paranoia_level INTEGER DEFAULT 1;
+ALTER TABLE security_configs ADD COLUMN waf_exclusions TEXT;
+ALTER TABLE security_configs ADD COLUMN rate_limit_bypass_list TEXT;
+
+-- Add ProxyHost WAF toggle
+ALTER TABLE proxy_hosts ADD COLUMN waf_disabled BOOLEAN DEFAULT FALSE;
+```
+
+---
+
+## Implementation Order
+
+1. **Phase 2 (Rate Limit)** - Quickest, enables immediate value
+2. **Phase 1 (GeoIP)** - Most user-requested feature
+3. **Phase 4 (WAF)** - Most complex but highest security impact
+4. **Phase 3 (CrowdSec)** - Requires external service coordination
+
+---
+
+## Definition of Done Checklist
+
+For each phase:
+
+- [ ] All new code has unit tests with >85% coverage
+- [ ] Pre-commit hooks pass (`pre-commit run --all-files`)
+- [ ] Backend compiles without warnings (`go build ./...`)
+- [ ] Frontend builds without errors (`npm run build`)
+- [ ] Integration tests pass (if applicable)
+- [ ] Documentation updated in `docs/cerberus.md`
+- [ ] API changes reflected in `docs/api.md`
+- [ ] Feature documented in `docs/features.md`
+
+---
+
+## Risk Assessment
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| GeoIP database missing | Geo-blocking fails silently | Graceful fallback with warning |
+| CrowdSec LAPI unavailable | No IP reputation | Caddy continues without bouncer |
+| WAF exclusions break rules | Security gap | Validate rule IDs, log exclusions |
+| Rate limit bypass abused | DDoS possible | Audit bypass list, alert on changes |
+
+---
+
+## Appendix: API Routes Summary
+
+| Method | Endpoint | Phase |
+|--------|----------|-------|
+| POST | `/api/v1/security/geoip/reload` | 1 |
+| GET | `/api/v1/security/rate-limit/presets` | 2 |
+| GET | `/api/v1/crowdsec/decisions` | 3 |
+| GET | `/api/v1/security/waf/exclusions` | 4 |
+| POST | `/api/v1/security/waf/exclusions` | 4 |
+| DELETE | `/api/v1/security/waf/exclusions/:id` | 4 |

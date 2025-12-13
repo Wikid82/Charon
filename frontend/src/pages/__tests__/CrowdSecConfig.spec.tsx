@@ -10,6 +10,8 @@ import * as crowdsecApi from '../../api/crowdsec'
 import * as backupsApi from '../../api/backups'
 import * as settingsApi from '../../api/settings'
 import * as presetsApi from '../../api/presets'
+import * as featureFlagsApi from '../../api/featureFlags'
+import * as consoleApi from '../../api/consoleEnrollment'
 import { CROWDSEC_PRESETS } from '../../data/crowdsecPresets'
 
 vi.mock('../../api/security')
@@ -17,6 +19,8 @@ vi.mock('../../api/crowdsec')
 vi.mock('../../api/backups')
 vi.mock('../../api/settings')
 vi.mock('../../api/presets')
+vi.mock('../../api/featureFlags')
+vi.mock('../../api/consoleEnrollment')
 
 const createQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const renderWithProviders = (ui: React.ReactNode) => {
@@ -63,6 +67,11 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached', cache_key: 'cache-123', etag: 'etag-123' })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+      'feature.crowdsec.console_enrollment': false,
+    })
+    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'not_enrolled', key_present: false })
+    vi.mocked(consoleApi.enrollConsole).mockResolvedValue({ status: 'enrolling', key_present: true })
   })
 
   it('exports config when clicking Export', async () => {
@@ -94,6 +103,103 @@ describe('CrowdSecConfig', () => {
     await waitFor(() => expect(crowdsecApi.importCrowdsecConfig).toHaveBeenCalled())
   })
 
+  it('hides console enrollment when feature flag is off', async () => {
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
+    expect(screen.queryByTestId('console-enrollment-card')).not.toBeInTheDocument()
+  })
+
+  it('shows console enrollment form when feature flag is on', async () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect(screen.getByTestId('console-enrollment-card')).toBeInTheDocument())
+    expect(screen.getByTestId('console-enrollment-token')).toBeInTheDocument()
+  })
+
+  it('validates required console enrollment fields and acknowledgement', async () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    const enrollBtn = await screen.findByTestId('console-enroll-btn')
+    await userEvent.click(enrollBtn)
+
+    const errors = await screen.findAllByTestId('console-enroll-error')
+    expect(errors.length).toBeGreaterThan(0)
+    expect(consoleApi.enrollConsole).not.toHaveBeenCalled()
+  })
+
+  it('submits console enrollment payload with snake_case fields', async () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(consoleApi.enrollConsole).mockResolvedValue({ status: 'enrolled', key_present: true, agent_name: 'agent-one', tenant: 'tenant-inc' })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect(screen.getByTestId('console-enrollment-card')).toBeInTheDocument())
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'secret-1234567890')
+    await userEvent.clear(screen.getByTestId('console-agent-name'))
+    await userEvent.type(screen.getByTestId('console-agent-name'), 'agent-one')
+    await userEvent.type(screen.getByTestId('console-tenant'), 'tenant-inc')
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-enroll-btn'))
+
+    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith({
+      enrollment_key: 'secret-1234567890',
+      agent_name: 'agent-one',
+      tenant: 'tenant-inc',
+      force: false,
+    }))
+
+    expect((screen.getByTestId('console-enrollment-token') as HTMLInputElement).value).toBe('')
+  })
+
+  it('renders masked key state in console status', async () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'enrolled', key_present: true, agent_name: 'a1', tenant: 't1', last_heartbeat_at: '2024-01-01T00:00:00Z' })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect(screen.getByTestId('console-token-state')).toHaveTextContent('Stored (masked)'))
+  })
+
+  it('retries degraded enrollment and rotates key when enrolled', async () => {
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': true })
+    vi.mocked(api.getSecurityStatus).mockResolvedValue({ crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
+    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValueOnce({ status: 'failed', key_present: true, last_error: 'network' })
+    vi.mocked(consoleApi.getConsoleStatus).mockResolvedValue({ status: 'enrolled', key_present: true })
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    await waitFor(() => expect(screen.getByTestId('console-ack-checkbox')).toBeInTheDocument())
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'another-secret-123456')
+    await userEvent.click(screen.getByTestId('console-ack-checkbox'))
+    await userEvent.click(screen.getByTestId('console-retry-btn'))
+    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith(expect.objectContaining({ force: true })))
+
+    await waitFor(() => expect(screen.getByTestId('console-rotate-btn')).not.toBeDisabled())
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'rotate-token-987654321')
+    await userEvent.click(screen.getByTestId('console-rotate-btn'))
+    await waitFor(() => expect(consoleApi.enrollConsole).toHaveBeenCalledWith(expect.objectContaining({
+      enrollment_key: 'rotate-token-987654321',
+      force: true,
+    })))
+  })
+
   it('lists files, reads file content and can save edits (backup before save)', async () => {
     const status = { crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
@@ -109,8 +215,9 @@ describe('CrowdSecConfig', () => {
     const select = screen.getByTestId('crowdsec-file-select')
     await userEvent.selectOptions(select, 'conf.d/a.conf')
     await waitFor(() => expect(crowdsecApi.readCrowdsecFile).toHaveBeenCalledWith('conf.d/a.conf'))
-    // ensure textarea populated
-    const textarea = screen.getByRole('textbox')
+    // ensure textarea populated - use getAllByRole and filter for textarea (not the search input)
+    const textareas = screen.getAllByRole('textbox')
+    const textarea = textareas.find(el => el.tagName.toLowerCase() === 'textarea')!
     expect(textarea).toHaveValue('rule1')
     // edit and save
     await userEvent.clear(textarea)
@@ -213,9 +320,9 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-  const select = await screen.findByTestId('preset-select')
-  await waitFor(() => expect(screen.getByText('Hub Only')).toBeInTheDocument())
-  await userEvent.selectOptions(select, 'hub-only')
+  // Wait for presets to load and click on the preset card
+  const presetCard = await screen.findByText('Hub Only')
+  await userEvent.click(presetCard)
 
     await waitFor(() => expect(screen.getByTestId('preset-hub-unavailable')).toBeInTheDocument())
 
@@ -249,5 +356,28 @@ describe('CrowdSecConfig', () => {
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Status: applied')
     expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('Method: cscli')
     // reloadHint is a boolean and renders as empty/true - just verify the info section exists
+  })
+
+  it('shows improved error message when preset is not cached', async () => {
+    const axiosError = {
+      isAxiosError: true,
+      response: {
+        status: 500,
+        data: {
+          error: 'CrowdSec preset not cached. Pull the preset first by clicking \'Pull Preview\', then try applying again.',
+        },
+      },
+      message: 'Request failed',
+    } as AxiosError
+
+    vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError)
+
+    renderWithProviders(<CrowdSecConfig />)
+
+    const applyBtn = await screen.findByTestId('apply-preset-btn')
+    await userEvent.click(applyBtn)
+
+    await waitFor(() => expect(screen.getByTestId('preset-validation-error')).toBeInTheDocument())
+    expect(screen.getByTestId('preset-validation-error')).toHaveTextContent('Preset must be pulled before applying')
   })
 })

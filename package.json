@@ -1,6 +1,13 @@
 {
   "type": "module",
+  "scripts": {
+    "lint:md": "markdownlint-cli2 '**/*.md' --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
+    "lint:md:fix": "markdownlint-cli2 '**/*.md' --fix --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results"
+  },
   "dependencies": {
     "tldts": "^7.0.19"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.15.0"
   }
 }

@@ -10,29 +10,26 @@ import (
 )
 
 // TestBuildWAFHandler_PathTraversalAttack tests path traversal attempts in ruleset names
+// WAF without rules returns nil, so malicious ruleset names that don't have paths should return nil.
 func TestBuildWAFHandler_PathTraversalAttack(t *testing.T) {
 	tests := []struct {
 		name        string
 		rulesetName string
-		shouldMatch bool // Whether the ruleset should be found
 		description string
 	}{
 		{
 			name:        "Path traversal in ruleset name",
 			rulesetName: "../../../etc/passwd",
-			shouldMatch: false,
 			description: "Ruleset with path traversal should not match any legitimate path",
 		},
 		{
 			name:        "Null byte injection",
 			rulesetName: "rules\x00.conf",
-			shouldMatch: false,
 			description: "Ruleset with null bytes should not match",
 		},
 		{
 			name:        "URL encoded traversal",
 			rulesetName: "..%2F..%2Fetc%2Fpasswd",
-			shouldMatch: false,
 			description: "URL encoded path traversal should not match",
 		},
 	}
@@ -49,18 +46,14 @@ func TestBuildWAFHandler_PathTraversalAttack(t *testing.T) {
 
 			handler, err := buildWAFHandler(host, rulesets, rulesetPaths, secCfg, true)
 			require.NoError(t, err)
-
-			if tc.shouldMatch {
-				require.NotNil(t, handler)
-			} else {
-				// Handler should be nil since no matching path exists
-				require.Nil(t, handler, tc.description)
-			}
+			// Handler should be nil since no matching path exists for malicious names
+			require.Nil(t, handler, tc.description)
 		})
 	}
 }
 
 // TestBuildWAFHandler_SQLInjectionInRulesetName tests SQL injection patterns in ruleset names
+// WAF without rules returns nil, so malicious patterns without paths should return nil.
 func TestBuildWAFHandler_SQLInjectionInRulesetName(t *testing.T) {
 	sqlInjectionPatterns := []string{
 		"'; DROP TABLE rulesets; --",

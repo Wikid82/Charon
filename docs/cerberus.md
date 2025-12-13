@@ -68,6 +68,7 @@ This means it protects the management API but does not directly inspect traffic 
 | Credential stuffing | ✅ | ❌ | ❌ | ✅ |
 
 **Legend:**
+
 - ✅ Full protection
 - ⚠️ Partial protection (time-delayed)
 - ❌ Not designed for this threat
@@ -77,17 +78,20 @@ This means it protects the management API but does not directly inspect traffic 
 The WAF provides **pattern-based detection** for zero-day exploits:
 
 **How It Works:**
+
 1. Attacker discovers new vulnerability (e.g., SQLi in your login form)
 2. Attacker crafts exploit: `' OR 1=1--`
 3. WAF inspects request → matches SQL injection pattern → **BLOCKED**
 4. Your application never sees the malicious input
 
 **Limitations:**
+
 - Only protects HTTP/HTTPS traffic
 - Cannot detect completely novel attack patterns (rare)
 - Does not protect against logic bugs in application code
 
 **Effectiveness:**
+
 - **~90% of zero-day web exploits** use known patterns (SQLi, XSS, RCE)
 - **~10% are truly novel** and may bypass WAF until rules are updated
 
@@ -357,6 +361,7 @@ Content-Type: application/json
 ```
 
 Requires either:
+
 - `admin_whitelist` with at least one IP/CIDR
 - OR valid break-glass token in header
 
@@ -367,6 +372,7 @@ POST /api/v1/security/disable
 ```
 
 Requires either:
+
 - Request from localhost
 - OR valid break-glass token in header
 

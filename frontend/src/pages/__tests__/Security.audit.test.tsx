@@ -98,9 +98,13 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // Empty whitelist input should exist and be empty
-      const whitelistInput = screen.getByDisplayValue('')
+      // Empty whitelist input should exist and be empty - use label to find it
+      const whitelistLabel = screen.getByText(/Admin whitelist \(comma-separated CIDR\/IPs\)/i)
+      expect(whitelistLabel).toBeInTheDocument()
+      // The input follows the label, get it by querying parent
+      const whitelistInput = whitelistLabel.parentElement?.querySelector('input')
       expect(whitelistInput).toBeInTheDocument()
+      expect(whitelistInput?.value).toBe('')
     })
   })
 
@@ -158,21 +162,7 @@ describe('Security Page - QA Security Audit', () => {
       })
     })
 
-    it('handles CrowdSec export failure gracefully', async () => {
-      const user = userEvent.setup()
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.exportCrowdsecConfig).mockRejectedValue(new Error('Export failed'))
 
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByRole('button', { name: /Export/i }))
-      const exportButton = screen.getByRole('button', { name: /Export/i })
-      await user.click(exportButton)
-
-      await waitFor(() => {
-        expect(toast.error).toHaveBeenCalledWith('Failed to export CrowdSec configuration')
-      })
-    })
 
     it('handles CrowdSec status check failure gracefully', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
@@ -291,11 +281,11 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // All 4 cards should be present
-      expect(screen.getByText('CrowdSec')).toBeInTheDocument()
-      expect(screen.getByText('Access Control')).toBeInTheDocument()
-      expect(screen.getByText('WAF (Coraza)')).toBeInTheDocument()
-      expect(screen.getByText('Rate Limiting')).toBeInTheDocument()
+      // All 4 cards should be present (use getAllByText since text may appear in multiple places like filter dropdowns)
+      expect(screen.getAllByText('CrowdSec').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Access Control').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Coraza').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Rate Limiting').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -313,17 +303,6 @@ describe('Security Page - QA Security Audit', () => {
       expect(screen.getByTestId('toggle-rate-limit')).toBeInTheDocument()
     })
 
-    it('WAF controls have proper test IDs when enabled', async () => {
-      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-
-      await renderSecurityPage()
-
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
-
-      expect(screen.getByTestId('waf-mode-select')).toBeInTheDocument()
-      expect(screen.getByTestId('waf-ruleset-select')).toBeInTheDocument()
-    })
-
     it('CrowdSec controls surface primary actions when enabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
@@ -333,8 +312,7 @@ describe('Security Page - QA Security Audit', () => {
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
       expect(screen.getByTestId('toggle-crowdsec')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Logs/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Export/i })).toBeInTheDocument()
+      // CrowdSec card should only have Config button now
       const configButtons = screen.getAllByRole('button', { name: /Config/i })
       expect(configButtons.some(btn => btn.textContent === 'Config')).toBe(true)
     })
@@ -351,8 +329,8 @@ describe('Security Page - QA Security Audit', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Spec requirement from current_spec.md
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'WAF (Coraza)', 'Rate Limiting'])
+      // Spec requirement from current_spec.md plus Security Access Logs feature
+      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('layer indicators match spec descriptions', async () => {

@@ -158,13 +158,56 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-temp; \
         /usr/bin/caddy version'
 
+# ---- CrowdSec Installer ----
+# CrowdSec requires CGO (mattn/go-sqlite3), so we cannot build from source
+# with CGO_ENABLED=0. Instead, we download prebuilt static binaries for amd64
+# or install from packages. For other architectures, CrowdSec is skipped.
+FROM alpine:3.23 AS crowdsec-installer
+
+WORKDIR /tmp/crowdsec
+
+ARG TARGETARCH
+# CrowdSec version - Renovate can update this
+# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+ARG CROWDSEC_VERSION=1.7.4
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache curl tar
+
+# Download static binaries (only available for amd64)
+# For other architectures, create empty placeholder files so COPY doesn't fail
+# hadolint ignore=DL3059,SC2015
+RUN set -eux; \
+    mkdir -p /crowdsec-out/bin /crowdsec-out/config; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        echo "Downloading CrowdSec binaries for amd64..."; \
+        curl -fSL "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
+            -o /tmp/crowdsec.tar.gz && \
+        tar -xzf /tmp/crowdsec.tar.gz -C /tmp && \
+        # Binaries are in cmd/crowdsec-cli/cscli and cmd/crowdsec/crowdsec
+        cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli" /crowdsec-out/bin/ && \
+        cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec" /crowdsec-out/bin/ && \
+        chmod +x /crowdsec-out/bin/* && \
+        # Copy config files from the release tarball
+        if [ -d "/tmp/crowdsec-v${CROWDSEC_VERSION}/config" ]; then \
+            cp -r "/tmp/crowdsec-v${CROWDSEC_VERSION}/config/"* /crowdsec-out/config/; \
+        fi && \
+        echo "CrowdSec binaries installed successfully"; \
+    else \
+        echo "CrowdSec binaries not available for $TARGETARCH - skipping"; \
+        # Create empty placeholder so COPY doesn't fail
+        touch /crowdsec-out/bin/.placeholder /crowdsec-out/config/.placeholder; \
+    fi; \
+    # Show what we have
+    ls -la /crowdsec-out/bin/ /crowdsec-out/config/ || true
+
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon (no bash needed)
 # hadolint ignore=DL3018
-RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl \
+RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
     && apk --no-cache upgrade
 
 # Download MaxMind GeoLite2 Country database
@@ -177,22 +220,32 @@ RUN mkdir -p /app/data/geoip && \
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
-# Install CrowdSec binary and CLI (default version can be overridden at build time)
-ARG CROWDSEC_VERSION=1.7.4
-# hadolint ignore=DL3018
-RUN apk add --no-cache curl tar gzip && \
-    set -eux; \
-    URL="https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz"; \
-    curl -fSL "$URL" -o /tmp/crowdsec.tar.gz && \
-    mkdir -p /tmp/crowdsec && tar -xzf /tmp/crowdsec.tar.gz -C /tmp/crowdsec || true; \
-    if [ -f /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec ]; then \
-        mv /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec /usr/local/bin/crowdsec && chmod +x /usr/local/bin/crowdsec; \
-    fi && \
-    if [ -f /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli ]; then \
-        mv /tmp/crowdsec/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli /usr/local/bin/cscli && chmod +x /usr/local/bin/cscli; \
-    fi && \
-    rm -rf /tmp/crowdsec /tmp/crowdsec.tar.gz && \
-    cscli version
+# Copy CrowdSec binaries from the crowdsec-installer stage (optional - only amd64)
+# The installer creates placeholders for non-amd64 architectures
+COPY --from=crowdsec-installer /crowdsec-out/bin/* /usr/local/bin/
+COPY --from=crowdsec-installer /crowdsec-out/config /etc/crowdsec.dist
+
+# Clean up placeholder files and verify CrowdSec (if available)
+RUN rm -f /usr/local/bin/.placeholder /etc/crowdsec.dist/.placeholder 2>/dev/null || true; \
+    if [ -x /usr/local/bin/cscli ]; then \
+        echo "CrowdSec installed:"; \
+        cscli version || echo "CrowdSec version check failed"; \
+    else \
+        echo "CrowdSec not available for this architecture - skipping verification"; \
+    fi
+
+# Create required CrowdSec directories in runtime image
+RUN mkdir -p /etc/crowdsec /etc/crowdsec/acquis.d /etc/crowdsec/bouncers \
+             /etc/crowdsec/hub /etc/crowdsec/notifications \
+             /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy
+
+# Copy CrowdSec configuration templates from source
+COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
+COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
+COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
+
+# Make CrowdSec scripts executable
+RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder /app/backend/charon /app/charon
