@@ -23,9 +23,15 @@ jobs:
             const body = (pr.data && pr.data.body) || '';
 
             // Determine if this PR modifies history-rewrite related files
+            // Exclude the template file itself - it shouldn't trigger its own validation
             const filesResp = await github.rest.pulls.listFiles({ owner, repo, pull_number: prNumber });
             const files = filesResp.data.map(f => f.filename.toLowerCase());
-            const relevant = files.some(fn => fn.startsWith('scripts/history-rewrite/') || fn.startsWith('docs/plans/history_rewrite.md') || fn.includes('history-rewrite'));
+            const relevant = files.some(fn => {
+              // Skip the PR template itself
+              if (fn === '.github/pull_request_template/history-rewrite.md') return false;
+              // Check for actual history-rewrite implementation files
+              return fn.startsWith('scripts/history-rewrite/') || fn === 'docs/plans/history_rewrite.md';
+            });
             if (!relevant) {
               core.info('No history-rewrite related files changed; skipping checklist validation.');
               return;
