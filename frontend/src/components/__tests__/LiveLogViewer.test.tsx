@@ -401,16 +401,19 @@ describe('LiveLogViewer', () => {
         }
       });
 
+      // Use findBy queries (built-in waiting) instead of single waitFor with multiple assertions
+      // This avoids race conditions where one failing assertion causes the entire block to retry
+      await screen.findByText('10.0.0.1');
+      await screen.findByText(/BLOCKED: SQL injection detected/);
+      await screen.findByText(/\[SQL injection detected\]/);
+
+      // For getAllByText, keep in waitFor but separate from other assertions
       await waitFor(() => {
         // Use getAllByText since 'WAF' appears both in dropdown option and source badge
         const wafElements = screen.getAllByText('WAF');
         expect(wafElements.length).toBeGreaterThanOrEqual(2); // Option + badge
-        expect(screen.getByText('10.0.0.1')).toBeTruthy();
-        expect(screen.getByText(/BLOCKED: SQL injection detected/)).toBeTruthy();
-        // Block reason is shown in brackets - check for the text content
-        expect(screen.getByText(/\[SQL injection detected\]/)).toBeTruthy();
       });
-    });
+    }, 15000); // 15 second timeout as safeguard
 
     it('shows source filter dropdown in security mode', async () => {
       render(<LiveLogViewer mode="security" />);

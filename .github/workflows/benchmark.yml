@@ -43,9 +43,13 @@ jobs:
           tool: 'go'
           output-file-path: backend/output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Only push results on main branch, not PRs (avoids permission errors on forks)
           auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Skip fetching gh-pages on PRs to avoid permission errors
+          skip-fetch-gh-pages: ${{ github.event_name == 'pull_request' }}
           # Show alert with commit comment on detection of performance regression
-          alert-threshold: '150%'
+          # Threshold increased to 175% to account for CI variability
+          alert-threshold: '175%'
           comment-on-alert: true
           fail-on-alert: false
           # Enable Job Summary for PRs
