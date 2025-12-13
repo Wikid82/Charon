@@ -37,22 +37,22 @@ jobs:
         run: go test -bench=. -benchmem -run='^$' ./... | tee output.txt
 
       - name: Store Benchmark Result
+        # Only store results on pushes to main - PRs just run benchmarks without storage
+        # This avoids gh-pages branch errors and permission issues on fork PRs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: Go Benchmark
           tool: 'go'
           output-file-path: backend/output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Only push results on main branch, not PRs (avoids permission errors on forks)
-          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          # Skip fetching gh-pages on PRs to avoid permission errors
-          skip-fetch-gh-pages: ${{ github.event_name == 'pull_request' }}
+          auto-push: true
           # Show alert with commit comment on detection of performance regression
           # Threshold increased to 175% to account for CI variability
           alert-threshold: '175%'
           comment-on-alert: true
           fail-on-alert: false
-          # Enable Job Summary for PRs
+          # Enable Job Summary
           summary-always: true
 
       - name: Run Perf Asserts
