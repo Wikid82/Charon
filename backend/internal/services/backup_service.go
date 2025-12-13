@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -289,6 +290,29 @@ func (s *BackupService) GetAvailableSpace() (int64, error) {
 	if err := syscall.Statfs(s.BackupDir, &stat); err != nil {
 		return 0, fmt.Errorf("failed to get disk space: %w", err)
 	}
-	// Available blocks * block size = available bytes
-	return int64(stat.Bavail) * int64(stat.Bsize), nil
+
+	// Safe conversion with overflow protection (gosec G115)
+	bsize := stat.Bsize
+	bavail := stat.Bavail
+
+	// Check for invalid filesystem (negative block size)
+	if bsize < 0 {
+		return 0, fmt.Errorf("invalid block size: %d", bsize)
+	}
+
+	// Check if bavail exceeds max int64 before conversion
+	if bavail > uint64(math.MaxInt64) {
+		return math.MaxInt64, nil
+	}
+
+	// Safe to convert now
+	availBlocks := int64(bavail)
+	blockSize := int64(bsize)
+
+	// Check for multiplication overflow
+	if availBlocks > 0 && blockSize > math.MaxInt64/availBlocks {
+		return math.MaxInt64, nil
+	}
+
+	return availBlocks * blockSize, nil
 }

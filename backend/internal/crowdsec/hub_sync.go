@@ -26,13 +26,14 @@ type CommandExecutor interface {
 }
 
 const (
-	defaultHubBaseURL     = "https://hub-data.crowdsec.net"
-	defaultHubIndexPath   = "/api/index.json"
-	defaultHubArchivePath = "/%s.tgz"
-	defaultHubPreviewPath = "/%s.yaml"
-	maxArchiveSize        = int64(25 * 1024 * 1024) // 25MiB safety cap
-	defaultPullTimeout    = 25 * time.Second
-	defaultApplyTimeout   = 45 * time.Second
+	defaultHubBaseURL       = "https://hub-data.crowdsec.net"
+	defaultHubMirrorBaseURL = "https://raw.githubusercontent.com/crowdsecurity/hub/master"
+	defaultHubIndexPath     = "/api/index.json"
+	defaultHubArchivePath   = "/%s.tgz"
+	defaultHubPreviewPath   = "/%s.yaml"
+	maxArchiveSize          = int64(25 * 1024 * 1024) // 25MiB safety cap
+	defaultPullTimeout      = 25 * time.Second
+	defaultApplyTimeout     = 45 * time.Second
 )
 
 // HubIndexEntry represents a single hub catalog entry.
@@ -71,13 +72,14 @@ type ApplyResult struct {
 
 // HubService coordinates hub pulls, caching, and apply operations.
 type HubService struct {
-	Exec         CommandExecutor
-	Cache        *HubCache
-	DataDir      string
-	HTTPClient   *http.Client
-	HubBaseURL   string
-	PullTimeout  time.Duration
-	ApplyTimeout time.Duration
+	Exec          CommandExecutor
+	Cache         *HubCache
+	DataDir       string
+	HTTPClient    *http.Client
+	HubBaseURL    string
+	MirrorBaseURL string
+	PullTimeout   time.Duration
+	ApplyTimeout  time.Duration
 }
 
 // NewHubService constructs a HubService with sane defaults.
@@ -97,13 +99,14 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 	}
 
 	return &HubService{
-		Exec:         exec,
-		Cache:        cache,
-		DataDir:      dataDir,
-		HTTPClient:   newHubHTTPClient(pullTimeout),
-		HubBaseURL:   normalizeHubBaseURL(os.Getenv("HUB_BASE_URL")),
-		PullTimeout:  pullTimeout,
-		ApplyTimeout: applyTimeout,
+		Exec:          exec,
+		Cache:         cache,
+		DataDir:       dataDir,
+		HTTPClient:    newHubHTTPClient(pullTimeout),
+		HubBaseURL:    normalizeHubBaseURL(os.Getenv("HUB_BASE_URL")),
+		MirrorBaseURL: normalizeHubBaseURL(firstNonEmpty(os.Getenv("HUB_MIRROR_BASE_URL"), defaultHubMirrorBaseURL)),
+		PullTimeout:   pullTimeout,
+		ApplyTimeout:  applyTimeout,
 	}
 }
 
@@ -136,12 +139,28 @@ func normalizeHubBaseURL(raw string) string {
 	return strings.TrimRight(trimmed, "/")
 }
 
+func (s *HubService) hubBaseCandidates() []string {
+	candidates := []string{s.HubBaseURL, s.MirrorBaseURL, defaultHubMirrorBaseURL, defaultHubBaseURL}
+	return uniqueStrings(candidates)
+}
+
 func buildIndexURL(base string) string {
 	normalized := normalizeHubBaseURL(base)
 	if strings.HasSuffix(strings.ToLower(normalized), ".json") {
 		return normalized
 	}
 	return strings.TrimRight(normalized, "/") + defaultHubIndexPath
+}
+
+func indexURLCandidates(base string) []string {
+	normalized := normalizeHubBaseURL(base)
+	primary := buildIndexURL(normalized)
+	if strings.Contains(normalized, "github.io") || strings.Contains(normalized, "githubusercontent.com") {
+		mirrorIndex := strings.TrimRight(normalized, "/") + "/.index.json"
+		return uniqueStrings([]string{mirrorIndex, primary})
+	}
+
+	return []string{primary}
 }
 
 func uniqueStrings(values []string) []string {
@@ -155,6 +174,20 @@ func uniqueStrings(values []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func buildResourceURLs(explicit, slug, pattern string, bases []string) []string {
+	urls := make([]string, 0, len(bases)+1)
+	if explicit != "" {
+		urls = append(urls, explicit)
+	}
+	for _, base := range bases {
+		if base == "" {
+			continue
+		}
+		urls = append(urls, fmt.Sprintf(strings.TrimRight(base, "/")+pattern, slug))
+	}
+	return uniqueStrings(urls)
 }
 
 // FetchIndex downloads the hub index. If the hub is unreachable, returns ErrCacheMiss.
@@ -220,6 +253,53 @@ func parseCSCLIIndex(raw []byte) (HubIndex, error) {
 	return HubIndex{Items: items}, nil
 }
 
+func parseRawIndex(raw []byte, baseURL string) (HubIndex, error) {
+	bucket := map[string]map[string]struct {
+		Path        string `json:"path"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+	}{}
+	if err := json.Unmarshal(raw, &bucket); err != nil {
+		return HubIndex{}, fmt.Errorf("parse raw index: %w", err)
+	}
+
+	items := make([]HubIndexEntry, 0)
+	for section, list := range bucket {
+		for name, obj := range list {
+			cleanName := sanitizeSlug(name)
+			if cleanName == "" {
+				continue
+			}
+
+			// Construct URLs
+			rootURL := baseURL
+			if strings.HasSuffix(rootURL, "/.index.json") {
+				rootURL = strings.TrimSuffix(rootURL, "/.index.json")
+			} else if strings.HasSuffix(rootURL, "/api/index.json") {
+				rootURL = strings.TrimSuffix(rootURL, "/api/index.json")
+			}
+
+			dlURL := fmt.Sprintf("%s/%s", strings.TrimRight(rootURL, "/"), obj.Path)
+
+			entry := HubIndexEntry{
+				Name:        cleanName,
+				Title:       cleanName,
+				Version:     obj.Version,
+				Type:        section,
+				Description: obj.Description,
+				Etag:        obj.Version,
+				DownloadURL: dlURL,
+				PreviewURL:  dlURL,
+			}
+			items = append(items, entry)
+		}
+	}
+	if len(items) == 0 {
+		return HubIndex{}, fmt.Errorf("empty raw index")
+	}
+	return HubIndex{Items: items}, nil
+}
+
 func asString(v any) string {
 	if v == nil {
 		return ""
@@ -248,15 +328,25 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 		return HubIndex{}, fmt.Errorf("http client missing")
 	}
 
-	targets := uniqueStrings([]string{buildIndexURL(s.HubBaseURL), buildIndexURL(defaultHubBaseURL)})
+	var targets []string
+	for _, base := range s.hubBaseCandidates() {
+		targets = append(targets, indexURLCandidates(base)...)
+	}
+	targets = uniqueStrings(targets)
 	var errs []error
 
-	for _, target := range targets {
+	for attempt, target := range targets {
 		idx, err := s.fetchIndexHTTPFromURL(ctx, target)
 		if err == nil {
+			logger.Log().WithField("hub_index", target).WithField("fallback_used", attempt > 0).Info("hub index fetched")
 			return idx, nil
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", target, err))
+		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
+			logger.Log().WithField("hub_index", target).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
+			continue
+		}
+		break
 	}
 
 	if len(errs) == 1 {
@@ -264,6 +354,25 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 	}
 
 	return HubIndex{}, fmt.Errorf("fetch hub index: %w", errors.Join(errs...))
+}
+
+type hubHTTPError struct {
+	url        string
+	statusCode int
+	inner      error
+	fallback   bool
+}
+
+func (h hubHTTPError) Error() string {
+	if h.inner != nil {
+		return fmt.Sprintf("%s (status %d): %v", h.url, h.statusCode, h.inner)
+	}
+	return fmt.Sprintf("%s (status %d)", h.url, h.statusCode)
+}
+
+func (h hubHTTPError) Unwrap() error { return h.inner }
+func (h hubHTTPError) CanFallback() bool {
+	return h.fallback
 }
 
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
@@ -281,27 +390,34 @@ func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
-			return HubIndex{}, fmt.Errorf("hub index redirect (%d) to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", resp.StatusCode, firstNonEmpty(loc, target))
+			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index redirect to %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", firstNonEmpty(loc, target)), fallback: true}
 		}
-		return HubIndex{}, fmt.Errorf("hub index status %d from %s", resp.StatusCode, target)
+		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
 	if err != nil {
 		return HubIndex{}, fmt.Errorf("read hub index: %w", err)
 	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
-	if ct != "" && !strings.Contains(ct, "application/json") {
+	if ct != "" && !strings.Contains(ct, "application/json") && !strings.Contains(ct, "text/plain") {
 		if isLikelyHTML(data) {
-			return HubIndex{}, fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint")
+			return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint"), fallback: true}
 		}
-		return HubIndex{}, fmt.Errorf("unexpected hub content-type %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", ct)
+		return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("unexpected hub content-type %s; install cscli or set HUB_BASE_URL to a JSON hub endpoint", ct), fallback: true}
 	}
 	var idx HubIndex
-	if err := json.Unmarshal(data, &idx); err != nil {
-		if isLikelyHTML(data) {
-			return HubIndex{}, fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint")
+	if err := json.Unmarshal(data, &idx); err != nil || len(idx.Items) == 0 {
+		// Try parsing as raw index (map of maps)
+		if rawIdx, rawErr := parseRawIndex(data, target); rawErr == nil {
+			return rawIdx, nil
 		}
-		return HubIndex{}, fmt.Errorf("decode hub index: %w", err)
+
+		if err != nil {
+			if isLikelyHTML(data) {
+				return HubIndex{}, hubHTTPError{url: target, statusCode: resp.StatusCode, inner: fmt.Errorf("hub index responded with HTML; install cscli or set HUB_BASE_URL to a JSON hub endpoint"), fallback: true}
+			}
+			return HubIndex{}, fmt.Errorf("decode hub index from %s: %w", target, err)
+		}
 	}
 	return idx, nil
 }
@@ -341,30 +457,60 @@ func (s *HubService) Pull(ctx context.Context, slug string) (PullResult, error) 
 		return PullResult{}, fmt.Errorf("preset not found in hub")
 	}
 
-	archiveURL := entry.DownloadURL
-	if archiveURL == "" {
-		archiveURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubArchivePath, cleanSlug)
-	}
-	previewURL := entry.PreviewURL
-	if previewURL == "" {
-		previewURL = fmt.Sprintf(strings.TrimRight(s.HubBaseURL, "/")+defaultHubPreviewPath, cleanSlug)
-	}
+	entrySlug := firstNonEmpty(entry.Name, cleanSlug)
 
-	archiveBytes, err := s.fetchWithLimit(pullCtx, archiveURL)
+	archiveCandidates := buildResourceURLs(entry.DownloadURL, entrySlug, defaultHubArchivePath, s.hubBaseCandidates())
+	previewCandidates := buildResourceURLs(entry.PreviewURL, entrySlug, defaultHubPreviewPath, s.hubBaseCandidates())
+
+	archiveBytes, archiveURL, err := s.fetchWithFallback(pullCtx, archiveCandidates)
 	if err != nil {
-		return PullResult{}, fmt.Errorf("download archive: %w", err)
+		return PullResult{}, fmt.Errorf("download archive from %s: %w", archiveURL, err)
 	}
 
-	previewText, err := s.fetchPreview(pullCtx, previewURL)
+	// Check if it's a tar.gz
+	if !isGzip(archiveBytes) {
+		// Assume it's a raw file (YAML/JSON) and wrap it
+		filename := filepath.Base(archiveURL)
+		if filename == "." || filename == "/" {
+			filename = cleanSlug + ".yaml"
+		}
+
+		var buf bytes.Buffer
+		gw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gw)
+
+		hdr := &tar.Header{
+			Name: filename,
+			Mode: 0o644,
+			Size: int64(len(archiveBytes)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return PullResult{}, fmt.Errorf("create tar header: %w", err)
+		}
+		if _, err := tw.Write(archiveBytes); err != nil {
+			return PullResult{}, fmt.Errorf("write tar content: %w", err)
+		}
+		_ = tw.Close()
+		_ = gw.Close()
+
+		archiveBytes = buf.Bytes()
+	}
+
+	previewText, err := s.fetchPreview(pullCtx, previewCandidates)
 	if err != nil {
 		logger.Log().WithError(err).WithField("slug", cleanSlug).Warn("failed to download preview, falling back to archive inspection")
 		previewText = s.peekFirstYAML(archiveBytes)
 	}
 
+	logger.Log().WithField("slug", cleanSlug).WithField("etag", entry.Etag).WithField("archive_size", len(archiveBytes)).WithField("preview_size", len(previewText)).WithField("hub_endpoint", archiveURL).Info("storing preset in cache")
+
 	cachedMeta, err := s.Cache.Store(pullCtx, cleanSlug, entry.Etag, "hub", previewText, archiveBytes)
 	if err != nil {
-		return PullResult{}, err
+		logger.Log().WithError(err).WithField("slug", cleanSlug).Error("failed to store preset in cache")
+		return PullResult{}, fmt.Errorf("cache store: %w", err)
 	}
+
+	logger.Log().WithField("slug", cachedMeta.Slug).WithField("cache_key", cachedMeta.CacheKey).WithField("archive_path", cachedMeta.ArchivePath).WithField("preview_path", cachedMeta.PreviewPath).Info("preset successfully cached")
 
 	return PullResult{Meta: cachedMeta, Preview: previewText}, nil
 }
@@ -384,17 +530,26 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		result.CacheKey = meta.CacheKey
 	}
 	hasCS := s.hasCSCLI(applyCtx)
-	if !hasCS && metaErr != nil {
-		msg := "cscli unavailable and no cached preset; pull the preset or install cscli"
-		result.ErrorMessage = msg
-		return result, errors.New(msg)
+
+	// Read archive into memory BEFORE backup, since cache is inside DataDir.
+	// If we backup first, the archive path becomes invalid (file moved).
+	var archive []byte
+	var archiveReadErr error
+	if metaErr == nil {
+		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
+		if archiveReadErr != nil {
+			logger.Log().WithError(archiveReadErr).WithField("archive_path", meta.ArchivePath).
+				Warn("failed to read cached archive before backup")
+		}
 	}
 
 	backupPath := filepath.Clean(s.DataDir) + ".backup." + time.Now().Format("20060102-150405")
-	result.BackupPath = backupPath
 	if err := s.backupExisting(backupPath); err != nil {
+		// Only set BackupPath if backup was actually created
 		return result, fmt.Errorf("backup: %w", err)
 	}
+	// Set BackupPath only after successful backup
+	result.BackupPath = backupPath
 
 	// Try cscli first
 	if hasCS {
@@ -408,18 +563,32 @@ func (s *HubService) Apply(ctx context.Context, slug string) (ApplyResult, error
 		logger.Log().WithField("slug", cleanSlug).WithError(cscliErr).Warn("cscli install failed; attempting cache fallback")
 	}
 
-	if metaErr != nil {
-		_ = s.rollback(backupPath)
-		msg := fmt.Sprintf("load cache: %v", metaErr)
-		result.ErrorMessage = msg
-		return result, errors.New(msg)
+	// Handle cache miss OR failed archive read - need to refresh cache
+	if metaErr != nil || archiveReadErr != nil {
+		originalErr := metaErr
+		if originalErr == nil {
+			originalErr = archiveReadErr
+		}
+		refreshed, refreshErr := s.refreshCache(applyCtx, cleanSlug, originalErr)
+		if refreshErr != nil {
+			_ = s.rollback(backupPath)
+			logger.Log().WithError(refreshErr).WithField("slug", cleanSlug).WithField("backup_path", backupPath).Warn("cache refresh failed; rolled back backup")
+			msg := fmt.Sprintf("load cache for %s: %v", cleanSlug, refreshErr)
+			result.ErrorMessage = msg
+			return result, fmt.Errorf("load cache for %s: %w", cleanSlug, refreshErr)
+		}
+		meta = refreshed
+		result.CacheKey = meta.CacheKey
+
+		// Re-read archive from the newly refreshed cache location
+		archive, archiveReadErr = os.ReadFile(meta.ArchivePath)
+		if archiveReadErr != nil {
+			_ = s.rollback(backupPath)
+			return result, fmt.Errorf("read archive after refresh: %w", archiveReadErr)
+		}
 	}
 
-	archive, err := os.ReadFile(meta.ArchivePath)
-	if err != nil {
-		_ = s.rollback(backupPath)
-		return result, fmt.Errorf("read archive: %w", err)
-	}
+	// Use pre-loaded archive bytes
 	if err := s.extractTarGz(applyCtx, archive, s.DataDir); err != nil {
 		_ = s.rollback(backupPath)
 		return result, fmt.Errorf("extract: %w", err)
@@ -458,18 +627,44 @@ func (s *HubService) findPreviewFile(data []byte) string {
 	}
 }
 
-func (s *HubService) fetchPreview(ctx context.Context, url string) (string, error) {
-	if url == "" {
-		return "", fmt.Errorf("preview url missing")
-	}
-	data, err := s.fetchWithLimit(ctx, url)
+func (s *HubService) fetchPreview(ctx context.Context, urls []string) (string, error) {
+	data, used, err := s.fetchWithFallback(ctx, urls)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("preview fetch failed (last endpoint %s): %w", used, err)
 	}
 	return string(data), nil
 }
 
-func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, error) {
+func (s *HubService) fetchWithFallback(ctx context.Context, urls []string) (data []byte, used string, err error) {
+	candidates := uniqueStrings(urls)
+	if len(candidates) == 0 {
+		return nil, "", fmt.Errorf("no endpoints provided")
+	}
+	var errs []error
+	var last string
+	for attempt, u := range candidates {
+		last = u
+		data, err := s.fetchWithLimitFromURL(ctx, u)
+		if err == nil {
+			logger.Log().WithField("endpoint", u).WithField("fallback_used", attempt > 0).Info("hub fetch succeeded")
+			return data, u, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w", u, err))
+		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
+			logger.Log().WithError(err).WithField("endpoint", u).WithField("attempt", attempt+1).Warn("hub fetch failed, attempting fallback")
+			continue
+		}
+		break
+	}
+
+	if len(errs) == 1 {
+		return nil, last, errs[0]
+	}
+
+	return nil, last, errors.Join(errs...)
+}
+
+func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]byte, error) {
 	if s.HTTPClient == nil {
 		return nil, fmt.Errorf("http client missing")
 	}
@@ -483,7 +678,7 @@ func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("http %d from %s", resp.StatusCode, url)
+		return nil, hubHTTPError{url: url, statusCode: resp.StatusCode, fallback: resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500}
 	}
 	lr := io.LimitReader(resp.Body, maxArchiveSize+1024)
 	data, err := io.ReadAll(lr)
@@ -498,13 +693,34 @@ func (s *HubService) fetchWithLimit(ctx context.Context, url string) ([]byte, er
 
 func (s *HubService) loadCacheMeta(ctx context.Context, slug string) (CachedPreset, error) {
 	if s.Cache == nil {
+		logger.Log().WithField("slug", slug).Error("cache unavailable for apply")
 		return CachedPreset{}, fmt.Errorf("cache unavailable for manual apply")
 	}
+	logger.Log().WithField("slug", slug).Debug("attempting to load cached preset metadata")
 	meta, err := s.Cache.Load(ctx, slug)
 	if err != nil {
-		return CachedPreset{}, err
+		logger.Log().WithError(err).WithField("slug", slug).Warn("failed to load cached preset metadata")
+		return CachedPreset{}, fmt.Errorf("load cache for %s: %w", slug, err)
 	}
+	logger.Log().WithField("slug", meta.Slug).WithField("cache_key", meta.CacheKey).WithField("archive_path", meta.ArchivePath).Info("successfully loaded cached preset metadata")
 	return meta, nil
+}
+
+func (s *HubService) refreshCache(ctx context.Context, slug string, metaErr error) (CachedPreset, error) {
+	if !errors.Is(metaErr, ErrCacheMiss) && !errors.Is(metaErr, ErrCacheExpired) {
+		return CachedPreset{}, metaErr
+	}
+	if errors.Is(metaErr, ErrCacheExpired) && s.Cache != nil {
+		if err := s.Cache.Evict(ctx, slug); err != nil {
+			logger.Log().WithError(err).WithField("slug", slug).Warn("failed to evict expired cache before refresh")
+		}
+	}
+	logger.Log().WithError(metaErr).WithField("slug", slug).Info("attempting to repull preset after cache load failure")
+	refreshed, pullErr := s.Pull(ctx, slug)
+	if pullErr != nil {
+		return CachedPreset{}, fmt.Errorf("%w: refresh cache: %v", metaErr, pullErr)
+	}
+	return refreshed.Meta, nil
 }
 
 func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
@@ -513,6 +729,46 @@ func findIndexEntry(idx HubIndex, slug string) (HubIndexEntry, bool) {
 			return i, true
 		}
 	}
+
+	normalized := strings.TrimSpace(slug)
+	if normalized == "" {
+		return HubIndexEntry{}, false
+	}
+
+	if !strings.Contains(normalized, "/") {
+		namespaced := "crowdsecurity/" + normalized
+		var candidate HubIndexEntry
+		found := false
+		for _, i := range idx.Items {
+			if i.Name == namespaced || i.Title == namespaced || strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
+				if found {
+					return HubIndexEntry{}, false
+				}
+				candidate = i
+				found = true
+			}
+		}
+		if found {
+			return candidate, true
+		}
+	}
+
+	var suffixCandidate HubIndexEntry
+	foundSuffix := false
+	for _, i := range idx.Items {
+		if strings.HasSuffix(i.Name, "/"+normalized) || strings.HasSuffix(i.Title, "/"+normalized) {
+			if foundSuffix {
+				return HubIndexEntry{}, false
+			}
+			suffixCandidate = i
+			foundSuffix = true
+		}
+	}
+
+	if foundSuffix {
+		return suffixCandidate, true
+	}
+
 	return HubIndexEntry{}, false
 }
 
@@ -563,9 +819,26 @@ func (s *HubService) backupExisting(backupPath string) error {
 	if _, err := os.Stat(s.DataDir); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err := os.Rename(s.DataDir, backupPath); err != nil {
-		return err
+
+	// First try rename for performance (atomic operation)
+	if err := os.Rename(s.DataDir, backupPath); err == nil {
+		return nil
 	}
+
+	// If rename fails (e.g., device busy, cross-device), use copy approach
+	logger.Log().WithField("data_dir", s.DataDir).WithField("backup_path", backupPath).Info("rename failed; using copy-based backup")
+
+	// Create backup directory
+	if err := os.MkdirAll(backupPath, 0o755); err != nil {
+		return fmt.Errorf("mkdir backup: %w", err)
+	}
+
+	// Copy directory contents recursively
+	if err := copyDir(s.DataDir, backupPath); err != nil {
+		_ = os.RemoveAll(backupPath)
+		return fmt.Errorf("copy backup: %w", err)
+	}
+
 	return nil
 }
 
@@ -580,9 +853,33 @@ func (s *HubService) rollback(backupPath string) error {
 	return nil
 }
 
+// emptyDir removes all contents of a directory but leaves the directory itself.
+func emptyDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer d.Close()
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := os.RemoveAll(filepath.Join(dir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // extractTarGz validates and extracts archive into targetDir.
 func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir string) error {
-	if err := os.RemoveAll(targetDir); err != nil {
+	// Clear target directory contents instead of removing the directory itself
+	// to avoid "device or resource busy" errors if targetDir is a mount point.
+	if err := emptyDir(targetDir); err != nil {
 		return fmt.Errorf("clean target: %w", err)
 	}
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
@@ -648,10 +945,78 @@ func (s *HubService) extractTarGz(ctx context.Context, archive []byte, targetDir
 	return nil
 }
 
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat src: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("src is not a directory")
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("read dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := os.MkdirAll(dstPath, 0o755); err != nil {
+				return fmt.Errorf("mkdir %s: %w", dstPath, err)
+			}
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open src: %w", err)
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("stat src: %w", err)
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return fmt.Errorf("create dst: %w", err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+
+	return dstFile.Sync()
+}
+
 // peekFirstYAML attempts to extract the first YAML snippet for preview purposes.
 func (s *HubService) peekFirstYAML(archive []byte) string {
 	if preview := s.findPreviewFile(archive); preview != "" {
 		return preview
 	}
 	return ""
+}
+
+func isGzip(data []byte) bool {
+	if len(data) < 2 {
+		return false
+	}
+	return data[0] == 0x1f && data[1] == 0x8b
 }

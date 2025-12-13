@@ -114,3 +114,11 @@ repos:
         pass_filenames: false
         verbose: true
         stages: [manual]  # Only runs when explicitly called
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.43.0
+    hooks:
+      - id: markdownlint
+        args: ["--fix"]
+        exclude: '^(node_modules|\.venv|test-results|codeql-db|codeql-agent-results)/'
+        stages: [manual]

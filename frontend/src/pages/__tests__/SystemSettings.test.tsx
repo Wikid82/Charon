@@ -65,6 +65,7 @@ describe('SystemSettings', () => {
 
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.cerberus.enabled': false,
+      'feature.crowdsec.console_enrollment': false,
       'feature.uptime.enabled': false,
     })
 
@@ -397,6 +398,7 @@ describe('SystemSettings', () => {
     it('displays Cerberus Security Suite toggle', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
+        'feature.crowdsec.console_enrollment': false,
         'feature.uptime.enabled': false,
       })
 
@@ -411,10 +413,32 @@ describe('SystemSettings', () => {
       expect(tooltipParent?.getAttribute('title')).toContain('Advanced security features')
     })
 
+    it('displays CrowdSec Console Enrollment toggle', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': true,
+        'feature.uptime.enabled': false,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('CrowdSec Console Enrollment')).toBeTruthy()
+      })
+
+      const crowdsecLabel = screen.getByText('CrowdSec Console Enrollment')
+      const tooltipParent = crowdsecLabel.closest('[title]') as HTMLElement
+      expect(tooltipParent?.getAttribute('title')).toContain('CrowdSec Console')
+
+      const switchInput = tooltipParent?.querySelector('input[type="checkbox"]') as HTMLInputElement
+      expect(switchInput?.checked).toBe(true)
+    })
+
     it('displays Uptime Monitoring toggle', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
       })
 
       renderWithProviders(<SystemSettings />)
@@ -431,6 +455,7 @@ describe('SystemSettings', () => {
     it('shows Cerberus toggle as checked when enabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': true,
+        'feature.crowdsec.console_enrollment': false,
         'feature.uptime.enabled': false,
       })
 
@@ -451,6 +476,7 @@ describe('SystemSettings', () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
       })
 
       renderWithProviders(<SystemSettings />)
@@ -468,6 +494,7 @@ describe('SystemSettings', () => {
     it('shows Cerberus toggle as unchecked when disabled', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
         'feature.uptime.enabled': false,
       })
 
@@ -486,6 +513,7 @@ describe('SystemSettings', () => {
     it('toggles Cerberus feature flag when switch is clicked', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
         'feature.uptime.enabled': false,
       })
       vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
@@ -510,10 +538,39 @@ describe('SystemSettings', () => {
       })
     })
 
+    it('toggles CrowdSec Console Enrollment feature flag when switch is clicked', async () => {
+      vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
+        'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
+        'feature.uptime.enabled': false,
+      })
+      vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByText('CrowdSec Console Enrollment')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const crowdsecLabel = screen.getByText('CrowdSec Console Enrollment')
+      const parentDiv = crowdsecLabel.closest('.flex')
+      const switchInput = parentDiv?.querySelector('input[type="checkbox"]') as HTMLInputElement
+
+      await user.click(switchInput)
+
+      await waitFor(() => {
+        expect(featureFlagsApi.updateFeatureFlags).toHaveBeenCalledWith({
+          'feature.crowdsec.console_enrollment': true,
+        })
+      })
+    })
+
     it('toggles Uptime feature flag when switch is clicked', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.uptime.enabled': true,
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
       })
       vi.mocked(featureFlagsApi.updateFeatureFlags).mockResolvedValue(undefined)
 
@@ -552,6 +609,7 @@ describe('SystemSettings', () => {
     it('shows loading overlay while toggling a feature flag', async () => {
       vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
         'feature.cerberus.enabled': false,
+        'feature.crowdsec.console_enrollment': false,
         'feature.uptime.enabled': false,
       })
       vi.mocked(featureFlagsApi.updateFeatureFlags).mockImplementation(

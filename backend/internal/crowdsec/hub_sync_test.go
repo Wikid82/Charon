@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -156,6 +157,33 @@ func TestFetchIndexHTTPFallsBackToDefaultHub(t *testing.T) {
 	require.Len(t, idx.Items, 1)
 	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
 	require.Equal(t, []string{"https://hub.crowdsec.net/api/index.json", "https://hub-data.crowdsec.net/api/index.json"}, calls)
+}
+
+func TestFetchIndexFallsBackToMirrorOnForbidden(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+	svc.HubBaseURL = "https://hub-data.crowdsec.net"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	calls := make([]string, 0)
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://hub-data.crowdsec.net/api/index.json":
+			return newResponse(http.StatusForbidden, ""), nil
+		case defaultHubMirrorBaseURL + "/.index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	idx, err := svc.FetchIndex(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Contains(t, calls, defaultHubMirrorBaseURL+"/.index.json")
 }
 
 func TestPullCachesPreview(t *testing.T) {
@@ -317,6 +345,51 @@ func TestPullFallsBackToArchivePreview(t *testing.T) {
 	require.Contains(t, res.Preview, "title: demo")
 }
 
+func TestPullFallsBackToMirrorArchiveOnForbidden(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	dataDir := filepath.Join(t.TempDir(), "crowdsec")
+
+	archiveBytes := makeTarGz(t, map[string]string{"config.yml": "foo: bar"})
+	svc := NewHubService(nil, cache, dataDir)
+	svc.HubBaseURL = "https://primary.example"
+	svc.MirrorBaseURL = defaultHubMirrorBaseURL
+
+	calls := make([]string, 0)
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","etag":"etag1","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls = append(calls, req.URL.String())
+		switch req.URL.String() {
+		case "https://primary.example/api/index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		case "https://primary.example/crowdsecurity/demo.tgz":
+			return newResponse(http.StatusForbidden, ""), nil
+		case "https://primary.example/crowdsecurity/demo.yaml":
+			return newResponse(http.StatusForbidden, ""), nil
+		case defaultHubMirrorBaseURL + "/.index.json":
+			resp := newResponse(http.StatusOK, indexBody)
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.tgz":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archiveBytes)), Header: make(http.Header)}, nil
+		case defaultHubMirrorBaseURL + "/crowdsecurity/demo.yaml":
+			return newResponse(http.StatusOK, "mirror-preview"), nil
+		case defaultHubBaseURL + "/api/index.json":
+			return newResponse(http.StatusInternalServerError, ""), nil
+		default:
+			return newResponse(http.StatusNotFound, ""), nil
+		}
+	})}
+
+	res, err := svc.Pull(context.Background(), "crowdsecurity/demo")
+	require.NoError(t, err)
+	require.Contains(t, calls, defaultHubMirrorBaseURL+"/crowdsecurity/demo.tgz")
+	require.Equal(t, "mirror-preview", res.Preview)
+	require.FileExists(t, res.Meta.ArchivePath)
+}
+
 func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 	big := bytes.Repeat([]byte("a"), int(maxArchiveSize+10))
@@ -324,7 +397,7 @@ func TestFetchWithLimitRejectsLargePayload(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(big)), Header: make(http.Header)}, nil
 	})}
 
-	_, err := svc.fetchWithLimit(context.Background(), "http://example.com/large.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/large.tgz")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "payload too large")
 }
@@ -398,14 +471,14 @@ func TestPullValidatesSlugAndMissingPreset(t *testing.T) {
 
 func TestFetchPreviewRequiresURL(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
-	_, err := svc.fetchPreview(context.Background(), "")
+	_, err := svc.fetchPreview(context.Background(), nil)
 	require.Error(t, err)
 }
 
 func TestFetchWithLimitRequiresClient(t *testing.T) {
 	svc := NewHubService(nil, nil, t.TempDir())
 	svc.HTTPClient = nil
-	_, err := svc.fetchWithLimit(context.Background(), "http://example.com/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://example.com/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -455,7 +528,7 @@ func TestFetchWithLimitStatusError(t *testing.T) {
 		return newResponse(http.StatusNotFound, ""), nil
 	})}
 
-	_, err := svc.fetchWithLimit(context.Background(), "http://hub.example/demo.tgz")
+	_, err := svc.fetchWithLimitFromURL(context.Background(), "http://hub.example/demo.tgz")
 	require.Error(t, err)
 }
 
@@ -468,8 +541,8 @@ func TestApplyRollsBackWhenCacheMissing(t *testing.T) {
 	svc := NewHubService(nil, nil, dataDir)
 	res, err := svc.Apply(context.Background(), "crowdsecurity/demo")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "cscli unavailable")
-	require.Empty(t, res.BackupPath)
+	require.Contains(t, err.Error(), "cache unavailable")
+	require.NotEmpty(t, res.BackupPath)
 	require.Equal(t, "failed", res.Status)
 
 	content, readErr := os.ReadFile(filepath.Join(dataDir, "keep.txt"))
@@ -501,9 +574,9 @@ func TestNormalizeHubBaseURL(t *testing.T) {
 
 func TestBuildIndexURL(t *testing.T) {
 	tests := []struct {
-		name  string
-		base  string
-		want  string
+		name string
+		base string
+		want string
 	}{
 		{"empty base uses default", "", defaultHubBaseURL + defaultHubIndexPath},
 		{"standard base appends path", "https://hub.crowdsec.net", "https://hub.crowdsec.net" + defaultHubIndexPath},
@@ -637,5 +710,480 @@ func TestFindPreviewFileFromArchive(t *testing.T) {
 	t.Run("returns empty for invalid archive", func(t *testing.T) {
 		preview := svc.findPreviewFile([]byte("not a gzip archive"))
 		require.Empty(t, preview)
+	})
+}
+
+func TestApplyWithCopyBasedBackup(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "existing.txt"), []byte("old data"), 0o644))
+
+	// Create subdirectory with files
+	subDir := filepath.Join(dataDir, "subdir")
+	require.NoError(t, os.MkdirAll(subDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
+
+	archive := makeTarGz(t, map[string]string{"new/config.yaml": "new: config"})
+	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
+	require.NoError(t, err)
+
+	svc := NewHubService(nil, cache, dataDir)
+
+	res, err := svc.Apply(context.Background(), "test/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.NotEmpty(t, res.BackupPath)
+
+	// Verify backup was created with copy-based approach
+	require.FileExists(t, filepath.Join(res.BackupPath, "existing.txt"))
+	require.FileExists(t, filepath.Join(res.BackupPath, "subdir", "nested.txt"))
+
+	// Verify new config was applied
+	require.FileExists(t, filepath.Join(dataDir, "new", "config.yaml"))
+}
+
+func TestBackupExistingHandlesDeviceBusy(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := dataDir + ".backup.test"
+
+	// Even if rename fails, copy-based backup should work
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(backupPath, "file.txt"))
+}
+
+func TestCopyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcFile := filepath.Join(tmpDir, "source.txt")
+	dstFile := filepath.Join(tmpDir, "dest.txt")
+
+	// Create source file
+	content := []byte("test file content")
+	require.NoError(t, os.WriteFile(srcFile, content, 0o644))
+
+	// Test successful copy
+	err := copyFile(srcFile, dstFile)
+	require.NoError(t, err)
+	require.FileExists(t, dstFile)
+
+	// Verify content
+	dstContent, err := os.ReadFile(dstFile)
+	require.NoError(t, err)
+	require.Equal(t, content, dstContent)
+
+	// Test copy non-existent file
+	err = copyFile(filepath.Join(tmpDir, "nonexistent.txt"), dstFile)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "open src")
+
+	// Test copy to invalid destination
+	err = copyFile(srcFile, filepath.Join(tmpDir, "nonexistent", "dest.txt"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create dst")
+}
+
+func TestCopyDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, "source")
+	dstDir := filepath.Join(tmpDir, "dest")
+
+	// Create source directory structure
+	require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "file1.txt"), []byte("file1"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "subdir", "file2.txt"), []byte("file2"), 0o644))
+
+	// Create destination directory
+	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+	// Test successful copy
+	err := copyDir(srcDir, dstDir)
+	require.NoError(t, err)
+
+	// Verify files were copied
+	require.FileExists(t, filepath.Join(dstDir, "file1.txt"))
+	require.FileExists(t, filepath.Join(dstDir, "subdir", "file2.txt"))
+
+	// Verify content
+	content1, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("file1"), content1)
+
+	content2, err := os.ReadFile(filepath.Join(dstDir, "subdir", "file2.txt"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("file2"), content2)
+
+	// Test copy non-existent directory
+	err = copyDir(filepath.Join(tmpDir, "nonexistent"), dstDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stat src")
+
+	// Test copy file as directory (should fail)
+	fileNotDir := filepath.Join(tmpDir, "file.txt")
+	require.NoError(t, os.WriteFile(fileNotDir, []byte("test"), 0o644))
+	err = copyDir(fileNotDir, dstDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not a directory")
+}
+
+func TestFetchIndexHTTPAcceptsTextPlain(t *testing.T) {
+svc := NewHubService(nil, nil, t.TempDir())
+indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+resp := newResponse(http.StatusOK, indexBody)
+resp.Header.Set("Content-Type", "text/plain; charset=utf-8")
+return resp, nil
+})}
+
+idx, err := svc.fetchIndexHTTP(context.Background())
+require.NoError(t, err)
+require.Len(t, idx.Items, 1)
+require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+}
+
+// ============================================
+// emptyDir Tests
+// ============================================
+
+func TestEmptyDir(t *testing.T) {
+	t.Run("empties directory with files", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("content1"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("content2"), 0o644))
+
+		err := emptyDir(dir)
+		require.NoError(t, err)
+
+		// Directory should still exist
+		require.DirExists(t, dir)
+
+		// But be empty
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("empties directory with subdirectories", func(t *testing.T) {
+		dir := t.TempDir()
+		subDir := filepath.Join(dir, "subdir")
+		require.NoError(t, os.MkdirAll(subDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested"), 0o644))
+
+		err := emptyDir(dir)
+		require.NoError(t, err)
+
+		require.DirExists(t, dir)
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("handles non-existent directory", func(t *testing.T) {
+		err := emptyDir(filepath.Join(t.TempDir(), "nonexistent"))
+		require.NoError(t, err, "should not error on non-existent directory")
+	})
+
+	t.Run("handles empty directory", func(t *testing.T) {
+		dir := t.TempDir()
+		err := emptyDir(dir)
+		require.NoError(t, err)
+		require.DirExists(t, dir)
+	})
+}
+
+// ============================================
+// extractTarGz Tests
+// ============================================
+
+func TestExtractTarGz(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	t.Run("extracts valid archive", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{
+			"file1.txt":        "content1",
+			"subdir/file2.txt": "content2",
+		})
+
+		err := svc.extractTarGz(context.Background(), archive, targetDir)
+		require.NoError(t, err)
+
+		require.FileExists(t, filepath.Join(targetDir, "file1.txt"))
+		require.FileExists(t, filepath.Join(targetDir, "subdir", "file2.txt"))
+
+		content1, err := os.ReadFile(filepath.Join(targetDir, "file1.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "content1", string(content1))
+	})
+
+	t.Run("rejects path traversal", func(t *testing.T) {
+		targetDir := t.TempDir()
+
+		// Create malicious archive with path traversal
+		buf := &bytes.Buffer{}
+		gw := gzip.NewWriter(buf)
+		tw := tar.NewWriter(gw)
+
+		hdr := &tar.Header{Name: "../escape.txt", Mode: 0o644, Size: 7}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write([]byte("escaped"))
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+		require.NoError(t, gw.Close())
+
+		err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsafe path")
+	})
+
+	t.Run("rejects symlinks", func(t *testing.T) {
+		targetDir := t.TempDir()
+
+		buf := &bytes.Buffer{}
+		gw := gzip.NewWriter(buf)
+		tw := tar.NewWriter(gw)
+
+		hdr := &tar.Header{
+			Name:     "symlink",
+			Mode:     0o777,
+			Size:     0,
+			Typeflag: tar.TypeSymlink,
+			Linkname: "/etc/passwd",
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		require.NoError(t, tw.Close())
+		require.NoError(t, gw.Close())
+
+		err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "symlinks not allowed")
+	})
+
+	t.Run("handles corrupted gzip", func(t *testing.T) {
+		targetDir := t.TempDir()
+		err := svc.extractTarGz(context.Background(), []byte("not a gzip"), targetDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "gunzip")
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{"file.txt": "content"})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		err := svc.extractTarGz(ctx, archive, targetDir)
+		require.Error(t, err)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("creates nested directories", func(t *testing.T) {
+		targetDir := t.TempDir()
+		archive := makeTarGz(t, map[string]string{
+			"a/b/c/deep.txt": "deep content",
+		})
+
+		err := svc.extractTarGz(context.Background(), archive, targetDir)
+		require.NoError(t, err)
+
+		require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "deep.txt"))
+	})
+}
+
+// ============================================
+// backupExisting Tests
+// ============================================
+
+func TestBackupExisting(t *testing.T) {
+	t.Run("handles non-existent directory", func(t *testing.T) {
+		dataDir := filepath.Join(t.TempDir(), "nonexistent")
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := dataDir + ".backup"
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+		require.NoDirExists(t, backupPath)
+	})
+
+	t.Run("creates backup of existing directory", func(t *testing.T) {
+		dataDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte("config data"), 0o644))
+
+		subDir := filepath.Join(dataDir, "subdir")
+		require.NoError(t, os.MkdirAll(subDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested.txt"), []byte("nested data"), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := filepath.Join(t.TempDir(), "backup")
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+
+		// Verify backup exists
+		require.FileExists(t, filepath.Join(backupPath, "config.txt"))
+		require.FileExists(t, filepath.Join(backupPath, "subdir", "nested.txt"))
+	})
+
+	t.Run("backup contents match original", func(t *testing.T) {
+		dataDir := t.TempDir()
+		originalContent := "important config"
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "config.txt"), []byte(originalContent), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+		backupPath := filepath.Join(t.TempDir(), "backup")
+
+		err := svc.backupExisting(backupPath)
+		require.NoError(t, err)
+
+		backupContent, err := os.ReadFile(filepath.Join(backupPath, "config.txt"))
+		require.NoError(t, err)
+		require.Equal(t, originalContent, string(backupContent))
+	})
+}
+
+// ============================================
+// rollback Tests
+// ============================================
+
+func TestRollback(t *testing.T) {
+	t.Run("rollback with backup", func(t *testing.T) {
+		parentDir := t.TempDir()
+		dataDir := filepath.Join(parentDir, "data")
+		backupPath := filepath.Join(parentDir, "backup")
+
+		// Create backup first
+		require.NoError(t, os.MkdirAll(backupPath, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(backupPath, "backed_up.txt"), []byte("backup content"), 0o644))
+
+		// Create data dir with different content
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "current.txt"), []byte("current content"), 0o644))
+
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback(backupPath)
+		require.NoError(t, err)
+
+		// Data dir should now have backup contents
+		require.FileExists(t, filepath.Join(dataDir, "backed_up.txt"))
+		// Backup path should no longer exist (renamed to dataDir)
+		require.NoDirExists(t, backupPath)
+	})
+
+	t.Run("rollback with empty backup path", func(t *testing.T) {
+		dataDir := t.TempDir()
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback("")
+		require.NoError(t, err)
+	})
+
+	t.Run("rollback with non-existent backup", func(t *testing.T) {
+		dataDir := t.TempDir()
+		svc := NewHubService(nil, nil, dataDir)
+
+		err := svc.rollback(filepath.Join(t.TempDir(), "nonexistent"))
+		require.NoError(t, err)
+	})
+}
+
+// ============================================
+// hubHTTPError Tests
+// ============================================
+
+func TestHubHTTPErrorError(t *testing.T) {
+	t.Run("error with inner error", func(t *testing.T) {
+		inner := errors.New("connection refused")
+		err := hubHTTPError{
+			url:        "https://hub.example.com/index.json",
+			statusCode: 503,
+			inner:      inner,
+			fallback:   true,
+		}
+
+		msg := err.Error()
+		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "503")
+		require.Contains(t, msg, "connection refused")
+	})
+
+	t.Run("error without inner error", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com/index.json",
+			statusCode: 404,
+			inner:      nil,
+			fallback:   false,
+		}
+
+		msg := err.Error()
+		require.Contains(t, msg, "https://hub.example.com/index.json")
+		require.Contains(t, msg, "404")
+		require.NotContains(t, msg, "nil")
+	})
+}
+
+func TestHubHTTPErrorUnwrap(t *testing.T) {
+	t.Run("unwrap returns inner error", func(t *testing.T) {
+		inner := errors.New("underlying error")
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 500,
+			inner:      inner,
+		}
+
+		unwrapped := err.Unwrap()
+		require.Equal(t, inner, unwrapped)
+	})
+
+	t.Run("unwrap returns nil when no inner", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 500,
+			inner:      nil,
+		}
+
+		unwrapped := err.Unwrap()
+		require.Nil(t, unwrapped)
+	})
+
+	t.Run("errors.Is works through Unwrap", func(t *testing.T) {
+		inner := context.Canceled
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 0,
+			inner:      inner,
+		}
+
+		// errors.Is should work through Unwrap chain
+		require.True(t, errors.Is(err, context.Canceled))
+	})
+}
+
+func TestHubHTTPErrorCanFallback(t *testing.T) {
+	t.Run("returns true when fallback is true", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 503,
+			fallback:   true,
+		}
+
+		require.True(t, err.CanFallback())
+	})
+
+	t.Run("returns false when fallback is false", func(t *testing.T) {
+		err := hubHTTPError{
+			url:        "https://hub.example.com",
+			statusCode: 404,
+			fallback:   false,
+		}
+
+		require.False(t, err.CanFallback())
 	})
 }

@@ -11,9 +11,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
+    "pretype-check": "npm ci --silent",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --report-unused-disable-directives",
     "preview": "vite preview",
+    "test": "vitest run",
    "test:ci": "vitest run",
     "test:ui": "vitest --ui",
     "check-coverage": "bash ../scripts/frontend-test-coverage.sh",

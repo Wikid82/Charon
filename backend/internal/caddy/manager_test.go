@@ -378,7 +378,7 @@ func TestComputeEffectiveFlags_DB_CerberusDisabled(t *testing.T) {
 	manager := NewManager(nil, db, "", "", false, secCfg)
 
 	// Set runtime override to disable cerberus
-	res := db.Create(&models.Setting{Key: "security.cerberus.enabled", Value: "false"})
+	res := db.Create(&models.Setting{Key: "feature.cerberus.enabled", Value: "false"})
 	require.NoError(t, res.Error)
 
 	cerb, acl, waf, rl, cs := manager.computeEffectiveFlags(context.Background())

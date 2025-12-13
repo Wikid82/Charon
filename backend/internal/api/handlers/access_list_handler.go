@@ -10,14 +10,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// AccessListHandler handles access list API requests.
 type AccessListHandler struct {
 	service *services.AccessListService
 }
 
+// NewAccessListHandler creates a new AccessListHandler.
 func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
 	return &AccessListHandler{
 		service: services.NewAccessListService(db),
 	}
+}
+
+// SetGeoIPService sets the GeoIP service for geo-based ACL lookups.
+func (h *AccessListHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
+	h.service.SetGeoIPService(geoipSvc)
 }
 
 // Create handles POST /api/v1/access-lists

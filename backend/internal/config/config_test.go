@@ -86,3 +86,56 @@ func TestLoad_Error(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "ensure import directory")
 }
+
+func TestGetEnvAny(t *testing.T) {
+	// Test with no env vars set - should return fallback
+	result := getEnvAny("fallback_value", "NONEXISTENT_KEY1", "NONEXISTENT_KEY2")
+	assert.Equal(t, "fallback_value", result)
+
+	// Test with first key set
+	os.Setenv("TEST_KEY1", "value1")
+	defer os.Unsetenv("TEST_KEY1")
+	result = getEnvAny("fallback", "TEST_KEY1", "TEST_KEY2")
+	assert.Equal(t, "value1", result)
+
+	// Test with second key set (first takes precedence)
+	os.Setenv("TEST_KEY2", "value2")
+	defer os.Unsetenv("TEST_KEY2")
+	result = getEnvAny("fallback", "TEST_KEY1", "TEST_KEY2")
+	assert.Equal(t, "value1", result)
+
+	// Test with only second key set
+	os.Unsetenv("TEST_KEY1")
+	result = getEnvAny("fallback", "TEST_KEY1", "TEST_KEY2")
+	assert.Equal(t, "value2", result)
+
+	// Test with empty string value (should still be considered set)
+	os.Setenv("TEST_KEY3", "")
+	defer os.Unsetenv("TEST_KEY3")
+	result = getEnvAny("fallback", "TEST_KEY3")
+	assert.Equal(t, "fallback", result) // Empty strings are treated as not set
+}
+
+func TestLoad_SecurityConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Test security settings
+	os.Setenv("CERBERUS_SECURITY_CROWDSEC_MODE", "live")
+	os.Setenv("CERBERUS_SECURITY_WAF_MODE", "enabled")
+	os.Setenv("CERBERUS_SECURITY_CERBERUS_ENABLED", "true")
+	defer func() {
+		os.Unsetenv("CERBERUS_SECURITY_CROWDSEC_MODE")
+		os.Unsetenv("CERBERUS_SECURITY_WAF_MODE")
+		os.Unsetenv("CERBERUS_SECURITY_CERBERUS_ENABLED")
+	}()
+
+	cfg, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "live", cfg.Security.CrowdSecMode)
+	assert.Equal(t, "enabled", cfg.Security.WAFMode)
+	assert.True(t, cfg.Security.CerberusEnabled)
+}

@@ -1,3 +1,4 @@
+// Package models defines the database schema and domain types.
 package models
 
 import (

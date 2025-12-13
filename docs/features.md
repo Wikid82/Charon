@@ -6,7 +6,8 @@ Here's everything Charon can do for you, explained simply.
 
 ## \u2699\ufe0f Optional Features
 
-Charon includes optional features that can be toggled on or off based on your needs. All features are enabled by default, giving you the full Charon experience from the start.
+Charon includes optional features that can be toggled on or off based on your needs.
+All features are enabled by default, giving you the full Charon experience from the start.
 
 ### What Are Optional Features?
 
@@ -19,12 +20,15 @@ Charon includes optional features that can be toggled on or off based on your ne
 ### Available Optional Features
 
 #### Cerberus Security Suite
-- **What it is:** Complete security system including CrowdSec integration, country blocking, WAF protection, and access control
+
+- **What it is:** Complete security system including CrowdSec integration, country blocking,
+  WAF protection, and access control
 - **When enabled:** Cerberus/Dashboard entries appear in the sidebar, all protection features are active
 - **When disabled:** Security menu is hidden, all protection stops, but configuration data is preserved
 - **Default:** Enabled
 
 #### Uptime Monitoring
+
 - **What it is:** Background checks that monitor if your websites are responding
 - **When enabled:** Uptime menu appears in sidebar, automatic checks run every minute
 - **When disabled:** Uptime menu is hidden, background checks stop, but uptime history is preserved
@@ -39,7 +43,9 @@ When you disable a feature:
 - ✅ **API requests are blocked** — Feature-specific endpoints return appropriate errors
 - ✅ **Configuration data is preserved** — Your settings remain intact if you re-enable the feature
 
-**Important:** Disabling a feature does NOT delete your data. All your security rules, uptime history, and configurations stay safe in the database. You can re-enable features at any time without losing anything.
+**Important:** Disabling a feature does NOT delete your data.
+All your security rules, uptime history, and configurations stay safe in the database.
+You can re-enable features at any time without losing anything.
 
 ### How to Toggle Features
 
@@ -59,6 +65,7 @@ When you disable a feature:
 **Why you care:** Without it, browsers scream "NOT SECURE!" and people won't trust your site.
 
 **What you do:** Nothing. Charon gets free certificates from Let's Encrypt and renews them automatically.
+
 ### Choose Your SSL Provider
 
 **What it does:** Lets you select which Certificate Authority (CA) issues your SSL certificates.
@@ -69,21 +76,30 @@ When you disable a feature:
 
 **Available options:**
 
-- **Auto (Recommended)** — The smart default. Tries Let's Encrypt first, automatically falls back to ZeroSSL if there are any issues. Best reliability with zero configuration.
+- **Auto (Recommended)** — The smart default. Tries Let's Encrypt first,
+  automatically falls back to ZeroSSL if there are any issues.
+  Best reliability with zero configuration.
 
-- **Let's Encrypt (Prod)** — Uses only Let's Encrypt production servers. Choose this if you specifically need Let's Encrypt certificates and have no rate limit concerns.
+- **Let's Encrypt (Prod)** — Uses only Let's Encrypt production servers.
+  Choose this if you specifically need Let's Encrypt certificates and have no rate limit concerns.
 
-- **Let's Encrypt (Staging)** — For testing purposes only. Issues certificates that browsers won't trust, but lets you test your configuration without hitting rate limits. See [Testing SSL Certificates](acme-staging.md) for details.
+- **Let's Encrypt (Staging)** — For testing purposes only.
+  Issues certificates that browsers won't trust, but lets you test your configuration without hitting rate limits.
+  See [Testing SSL Certificates](acme-staging.md) for details.
 
-- **ZeroSSL** — Uses only ZeroSSL as your certificate provider. Choose this if you prefer ZeroSSL or are hitting Let's Encrypt rate limits.
+- **ZeroSSL** — Uses only ZeroSSL as your certificate provider.
+  Choose this if you prefer ZeroSSL or are hitting Let's Encrypt rate limits.
 
-**Recommended setting:** Leave it on "Auto (Recommended)" unless you have a specific reason to change it. The auto mode gives you the best of both worlds—Let's Encrypt's speed with ZeroSSL as a backup.
+**Recommended setting:** Leave it on "Auto (Recommended)" unless you have a specific reason to change it.
+The auto mode gives you the best of both worlds—Let's Encrypt's speed with ZeroSSL as a backup.
 
 **When to change it:**
+
 - Testing configurations → Use "Let's Encrypt (Staging)"
 - Hitting rate limits → Switch to "ZeroSSL"
 - Specific CA requirement → Choose that specific provider
 - Otherwise → Keep "Auto"
+
 ### Smart Certificate Cleanup
 
 **What it does:** When you delete websites, Charon asks if you want to delete unused certificates too.
@@ -91,30 +107,65 @@ When you disable a feature:
 **Why you care:** Custom and staging certificates can pile up over time. This helps you keep things tidy.
 
 **How it works:**
+
 - Delete a website → Charon checks if its certificate is used elsewhere
 - If the certificate is custom or staging (not Let's Encrypt) and orphaned → you get a prompt
 - Choose to keep or delete the certificate
 - Default is "keep" (safe choice)
 
 **When it prompts:**
+
 - ✅ Custom certificates you uploaded
 - ✅ Staging certificates (for testing)
 - ❌ Let's Encrypt certificates (managed automatically)
 
 **What you do:**
+
 - See the prompt after clicking Delete on a proxy host
 - Check the box if you want to delete the orphaned certificate
 - Leave unchecked to keep the certificate (in case you need it later)
 
 ---
 
+## 📊 Dashboard
+
+### Certificate Status Card
+
+**What it does:** Displays a real-time overview of all your SSL certificates directly on the Dashboard.
+
+**Why you care:** Know at a glance if any certificates need attention—expired, expiring soon, or still provisioning.
+
+**What you see:**
+
+- **Certificate Breakdown** — Visual count of certificates by status:
+  - ✅ Valid certificates (healthy, not expiring soon)
+  - ⚠️ Expiring certificates (within 30 days)
+  - 🧪 Staging certificates (for testing)
+  - ❌ Expired certificates (need immediate attention)
+- **Pending Indicator** — Shows when certificates are being provisioned with a progress bar
+- **Auto-Refresh** — Card automatically updates during certificate provisioning
+
+**How it works:**
+
+- The card polls for certificate status changes during active provisioning
+- Progress bar shows visual feedback while Let's Encrypt/ZeroSSL issues certificates
+- Once all certificates are ready, auto-refresh stops to save resources
+
+**What you do:** Check the Dashboard after adding new hosts to monitor certificate provisioning.
+If you see pending certificates, the system is working—just wait a moment for issuance to complete.
+
+---
+
 ## \ud83d\udee1\ufe0f Security (Optional)
 
-Charon includes **Cerberus**, a security system that blocks bad guys. It's off by default—turn it on when you're ready. The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
+Charon includes **Cerberus**, a security system that blocks bad guys.
+It's off by default—turn it on when you're ready.
+The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
 
 ### Block Bad IPs Automatically
 
-**What it does:** CrowdSec watches for attackers and blocks them before they can do damage. The overview now has a single Start/Stop toggle—no separate mode selector.
+**What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
+The overview now has a single Start/Stop toggle—no separate mode selector.
 
 **Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
@@ -135,35 +186,86 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 **Why you care:** Protects your apps even if they have bugs.
 
 **What you do:** Turn on "WAF" mode in security settings.
+
 ### Zero-Day Exploit Protection
 
-**What it does:** The WAF (Web Application Firewall) can detect and block many zero-day exploits before they reach your apps.
+**What it does:** The WAF (Web Application Firewall) can detect and block many zero-day exploits
+before they reach your apps.
 
-**Why you care:** Even if a brand-new vulnerability is discovered in your software, the WAF might catch it by recognizing the attack pattern.
+**Why you care:** Even if a brand-new vulnerability is discovered in your software, the WAF might
+catch it by recognizing the attack pattern.
 
 **How it works:**
+
 - Attackers use predictable patterns (SQL syntax, JavaScript tags, command injection)
 - The WAF inspects every request for these patterns
 - If detected, the request is blocked or logged (depending on mode)
 
 **What you do:**
+
 1. Enable WAF in "Monitor" mode first (logs only, doesn't block)
 2. Review logs for false positives
 3. Switch to "Block" mode when ready
 
 **Limitations:**
+
 - Only protects web-based exploits (HTTP/HTTPS traffic)
 - Does NOT protect against zero-days in Docker, Linux, or Charon itself
 - Does NOT replace regular security updates
 
 **Learn more:** [OWASP Core Rule Set](https://coreruleset.org/)
 
-### Configuration Packages
+### CrowdSec Integration
 
-- **Hub presets:** Pull presets from the CrowdSec Hub over HTTPS, use cache keys/ETags for faster repeat pulls, preview changes, then apply with an automatic backup and reload flag. Requires Cerberus to be enabled with admin scope; `cscli` is preferred for execution.
-- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
-- **Offline/curated:** If the Hub is unreachable or apply is not supported, curated/offline presets remain available.
-- **Validation:** Slugs are validated before apply. Hub errors surface cleanly (503 uses retry or cached data; 400 for bad slugs; apply failures prompt you to restore from the backup).
+**What it does:** Connects your Charon instance to the global CrowdSec network to share and receive threat intelligence.
+
+**Why you care:** Protects your server from IPs that are attacking other people,
+and lets you manage your security configuration easily.
+
+**Features:**
+
+- **Hub Presets:** Browse, search, and install security configurations from the CrowdSec Hub.
+  - **Search & Sort:** Easily find what you need with the new search bar and sorting options (by name, status, downloads).
+  - **One-Click Install:** Download and apply collections, parsers, and scenarios directly from the UI.
+  - **Smart Updates:** Checks for updates automatically using ETags to save bandwidth.
+  - **Safe Apply:** Automatically backs up your configuration before applying changes.
+
+- **Console Enrollment:** Connect your instance to the CrowdSec Console web interface.
+  - **Visual Dashboard:** See your alerts and decisions in a beautiful cloud dashboard.
+  - **Easy Setup:** Just click "Enroll" and paste your enrollment key.
+    Charon automatically handles CAPI registration if needed.
+  - **Configuration:** Uses the local configuration in `data/crowdsec/config.yaml` instead of system defaults.
+  - **Secure:** The enrollment key is passed securely to the CrowdSec agent.
+
+- **Live Decisions:** See exactly who is being blocked and why in real-time.
+
+### Rate Limiting
+
+**What it does:** Limits how many requests any single IP can make in a given time window.
+
+**Why you care:** Stops aggressive bots or abusive users from overwhelming your server.
+
+**Where to find it:** Cerberus → Dashboard → Rate Limiting card, or click "Configure"
+for full settings.
+
+**Dashboard features:**
+
+- **Status Badge:** The Rate Limiting card shows a clear "Active" or "Disabled" badge
+  so you know at a glance if protection is enabled.
+- **Quick View:** See the current configuration directly on the Security dashboard.
+
+**Configuration page features:**
+
+- **Active Summary Card:** When rate limiting is enabled, a green summary card at the
+  top shows your current settings (requests/sec, burst limit, time window).
+- **Real-time Updates:** Changes take effect immediately without server restart.
+
+**Settings:**
+
+- **Requests per Second:** Maximum sustained request rate (e.g., 10/sec)
+- **Burst Limit:** Allow short bursts above the limit (e.g., 20 requests)
+- **Time Window:** How long to track requests (e.g., 60 seconds)
+
 ---
 
 ## \ud83d\udc33 Docker Integration
@@ -196,6 +298,24 @@ Charon includes **Cerberus**, a security system that blocks bad guys. It's off b
 
 **[Detailed Import Guide](import-guide.md)**
 
+### Import Success Modal
+
+**What it does:** After importing a Caddyfile, displays a detailed summary modal showing exactly what happened.
+
+**Why you care:** Know immediately how your import went—no guessing or digging through logs.
+
+**What you see:**
+
+- **Hosts Created** — New proxy hosts that were added to your configuration
+- **Hosts Updated** — Existing hosts that were modified with new settings
+- **Hosts Skipped** — Entries that weren't imported (duplicates or unsupported)
+- **Certificate Guidance** — Instructions for SSL certificate provisioning
+- **Quick Navigation** — Buttons to go directly to Dashboard or Proxy Hosts
+
+**What you do:** Review the summary after each import.
+If hosts were skipped, check the details to understand why.
+Use the navigation buttons to proceed with your workflow.
+
 ---
 
 ## \u26a1 Zero Downtime Updates
@@ -214,17 +334,22 @@ When you make changes, Charon shows you themed animations so you know what's hap
 
 ### The Gold Coin (Login)
 
-When you log in, you see a spinning gold coin. In Greek mythology, people paid Charon the ferryman with a coin to cross the river into the afterlife. So logging in = paying for passage!
+When you log in, you see a spinning gold coin.
+In Greek mythology, people paid Charon the ferryman with a coin to cross the river into the afterlife.
+So logging in = paying for passage!
 
 ### The Blue Boat (Managing Websites)
 
-When you create or update websites, you see Charon's boat sailing across the river. He's literally "ferrying" your changes to the server.
+When you create or update websites, you see Charon's boat sailing across the river.
+He's literally "ferrying" your changes to the server.
 
 ### The Red Guardian (Security)
 
-When you change security settings, you see Cerberus—the three-headed guard dog. He protects the gates of the underworld, just like your security settings protect your apps.
+When you change security settings, you see Cerberus—the three-headed guard dog.
+He protects the gates of the underworld, just like your security settings protect your apps.
 
-**Why these exist:** Changes can take 1-10 seconds to apply. The animations tell you what's happening so you don't think it's broken.
+**Why these exist:** Changes can take 1-10 seconds to apply.
+The animations tell you what's happening so you don't think it's broken.
 
 ---
 
@@ -246,7 +371,8 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 
 **What you do:** View the "Uptime" page in the sidebar. Uptime checks run automatically in the background.
 
-**Optional:** You can disable this feature in System Settings → Optional Features if you don't need it. Your uptime history will be preserved.
+**Optional:** You can disable this feature in System Settings → Optional Features if you don't need it.
+Your uptime history will be preserved.
 
 ---
 
@@ -257,6 +383,83 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 **Why you care:** When something breaks, you can see exactly what went wrong.
 
 **What you do:** Click "Logs" in the sidebar.
+
+---
+
+## 🔴 Live Security Logs & Notifications
+
+**What it does:** Stream security events in real-time and get notified about critical threats.
+
+**Why you care:** See attacks as they happen, not hours later.
+Configure alerts for WAF blocks, ACL denials, and suspicious activity.
+
+### Live Log Viewer
+
+**Real-time streaming:** Watch security events appear instantly in the Cerberus Dashboard.
+Uses WebSocket technology to stream logs with zero delay.
+
+**What you see:**
+
+- WAF blocks (SQL injection attempts, XSS attacks, etc.)
+- CrowdSec decisions (blocked IPs and why)
+- Access control denials (geo-blocking, IP filtering)
+- Rate limit hits
+- All security-related events with full context
+
+**Controls:**
+
+- **Pause/Resume** — Stop the stream to examine specific entries
+- **Clear** — Remove old entries to focus on new activity
+- **Auto-scroll** — Automatically follows new entries (disable to scroll back)
+- **Filter** — Client-side filtering by level, source, or text search
+
+**Where to find it:** Cerberus → Dashboard → Live Activity section (bottom of page)
+
+**Query parameters:** The WebSocket endpoint supports server-side filtering:
+
+- `?level=error` — Only error-level logs
+- `?source=waf` — Only WAF-related events
+- `?source=cerberus` — All Cerberus security events
+
+### Notification System
+
+**What it does:** Sends alerts when security events match your configured criteria.
+
+**Where to configure:** Cerberus Dashboard → "Notification Settings" button (top-right)
+
+**Settings:**
+
+- **Enable/Disable** — Master toggle for all notifications
+- **Minimum Log Level** — Only notify for warnings and errors (ignore info/debug)
+- **Event Types:**
+  - WAF blocks (when the firewall stops an attack)
+  - ACL denials (when access control rules block a request)
+  - Rate limit hits (when traffic thresholds are exceeded)
+- **Webhook URL** — Send alerts to Discord, Slack, or custom integrations
+- **Email Recipients** — Comma-separated list of email addresses
+
+**Example use cases:**
+
+- Get a Slack message when your site is under attack
+- Email yourself when ACL rules block legitimate traffic (false positive alert)
+- Send all WAF blocks to your SIEM system for analysis
+
+**What you do:**
+
+1. Go to Cerberus Dashboard
+2. Click "Notification Settings"
+3. Enable notifications
+4. Set minimum level to "warn" or "error"
+5. Choose which event types to monitor
+6. Add your webhook URL or email addresses
+7. Save
+
+**Technical details:**
+
+- Notifications respect the minimum log level (e.g., only send errors)
+- Webhook payloads include full event context (IP, request details, rule matched)
+- Email delivery requires SMTP configuration (future feature)
+- Webhook retries with exponential backoff on failure
 
 ---
 
@@ -277,8 +480,6 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 **Why you care:** Apps like Discord bots, live dashboards, and chat servers need this to work.
 
 **What you do:** Nothing—WebSockets work automatically.
-
-
 
 ## \ud83d\udcf1 Mobile-Friendly Interface
 
@@ -307,6 +508,56 @@ When you change security settings, you see Cerberus—the three-headed guard dog
 **Why you care:** Automate repetitive tasks or integrate with other tools.
 
 **What you do:** See the [API Documentation](api.md).
+
+---
+
+## 🧪 Cerberus Security Testing
+
+The Cerberus security suite includes comprehensive testing to ensure all features work correctly together.
+
+### Full Integration Test Suite
+
+**What it does:** Validates that all Cerberus security layers (CrowdSec, WAF, ACL, Rate Limiting) work together without conflicts.
+
+**Why you care:** Ensures your security stack is reliable and that enabling one feature doesn't break another.
+
+**Test coverage includes:**
+
+- All features enabling simultaneously without errors
+- Correct security pipeline order verification (Decisions → CrowdSec → WAF → Rate Limit → ACL)
+- WAF blocking doesn't consume rate limit quota
+- Security decisions are enforced before rate limiting
+- Legitimate traffic flows through all security layers
+- Latency benchmarks to ensure minimal performance overhead
+
+**How to run tests:**
+
+```bash
+# Run full integration script
+bash scripts/cerberus_integration.sh
+
+# Or via Go test
+cd backend && go test -tags=integration ./integration -run TestCerberusIntegration -v
+```
+
+### UI/UX Test Coverage
+
+**What it does:** Ensures the Cerberus Dashboard and security configuration pages work correctly.
+
+**Coverage includes:**
+
+- Security card status display (Active/Disabled indicators)
+- Loading states and Cerberus-themed overlays
+- Error handling and toast notifications
+- Mobile responsive design testing
+
+**Mobile responsive testing:**
+
+- Dashboard cards stack on mobile (375px), 2-column on tablet (768px), 4-column on desktop
+- Touch-friendly toggle switches (minimum 44px targets)
+- Scrollable modals and overlays on small screens
+
+**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases.
 
 ---
 

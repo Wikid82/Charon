@@ -17,6 +17,8 @@ type LogsHandler struct {
 	service *services.LogService
 }
 
+var createTempFile = os.CreateTemp
+
 func NewLogsHandler(service *services.LogService) *LogsHandler {
 	return &LogsHandler{service: service}
 }
@@ -80,7 +82,7 @@ func (h *LogsHandler) Download(c *gin.Context) {
 
 	// Create a temporary file to serve a consistent snapshot
 	// This prevents Content-Length mismatches if the live log file grows during download
-	tmpFile, err := os.CreateTemp("", "charon-log-*.log")
+	tmpFile, err := createTempFile("", "charon-log-*.log")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file"})
 		return

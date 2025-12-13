@@ -1,9 +1,11 @@
 <!-- PR: History Rewrite & Large-file Removal -->
 
 ## Summary
+
 - Provide a short summary of why the history rewrite is needed.
 
 ## Checklist - required for history rewrite PRs
+
 - [ ] I have created a **local** backup branch: `backup/history-YYYYMMDD-HHMMSS` and verified it contains all refs.
 - [ ] I have pushed the backup branch to the remote origin and it is visible to reviewers.
 - [ ] I have run a dry-run locally: `scripts/history-rewrite/preview_removals.sh --paths 'backend/codeql-db,codeql-db,codeql-db-js,codeql-db-go' --strip-size 50` and attached the output or paste it below.
@@ -17,11 +19,14 @@
 **Note for maintainers**: `validate_after_rewrite.sh` will check that the `backups` and `backup_branch` are present and will fail if they are not. Provide `--backup-branch "backup/history-YYYYMMDD-HHMMSS"` when running the scripts or set the `BACKUP_BRANCH` environment variable so automated validation can find the backup branch.
 
 ## Attachments
+
 Attach the `preview_removals` output and `data/backups/history_cleanup-*.log` content and any `data/backups` tarball created for this PR.
 
 ## Approach
+
 Describe the paths to be removed, strip size, and whether additional blob stripping is required.
 
 # Notes for maintainers
+
 - The workflow `.github/workflows/dry-run-history-rewrite.yml` will run automatically on PR updates.
 - Please follow the checklist and only approve after offline confirmation.

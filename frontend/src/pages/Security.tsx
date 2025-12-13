@@ -3,15 +3,16 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
-import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken, useRuleSets } from '../hooks/useSecurity'
-import { exportCrowdsecConfig, startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
+import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
+import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
 import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
+import { LiveLogViewer } from '../components/LiveLogViewer'
+import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
 
 export default function Security() {
   const navigate = useNavigate()
@@ -20,8 +21,8 @@ export default function Security() {
     queryFn: getSecurityStatus,
   })
   const { data: securityConfig } = useSecurityConfig()
-  const { data: ruleSetsData } = useRuleSets()
   const [adminWhitelist, setAdminWhitelist] = useState<string>('')
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false)
   useEffect(() => {
     if (securityConfig && securityConfig.config) {
       setAdminWhitelist(securityConfig.config.admin_whitelist || '')
@@ -79,19 +80,7 @@ export default function Security() {
 
   useEffect(() => { fetchCrowdsecStatus() }, [])
 
-  const handleCrowdsecExport = async () => {
-    const defaultName = buildCrowdsecExportFilename()
-    const filename = promptCrowdsecFilename(defaultName)
-    if (!filename) return
 
-    try {
-      const resp = await exportCrowdsecConfig()
-      downloadCrowdsecExport(resp, filename)
-      toast.success('CrowdSec configuration exported')
-    } catch {
-      toast.error('Failed to export CrowdSec configuration')
-    }
-  }
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -178,7 +167,7 @@ export default function Security() {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Cerberus Disabled</h2>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-lg">
-        Cerberus powers CrowdSec, WAF, ACLs, and Rate Limiting. Enable the Cerberus toggle in System Settings to awaken the guardian, then configure each head below.
+        Cerberus powers CrowdSec, Coraza, ACLs, and Rate Limiting. Enable the Cerberus toggle in System Settings to awaken the guardian, then configure each head below.
       </p>
       <Button
         variant="primary"
@@ -209,7 +198,14 @@ export default function Security() {
           <ShieldCheck className="w-8 h-8 text-green-500" />
           Cerberus Dashboard
         </h1>
-          <div/>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowNotificationSettings(true)}
+              disabled={!status.cerberus?.enabled}
+            >
+              Notification Settings
+            </Button>
         <Button
           variant="secondary"
           onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
@@ -218,6 +214,7 @@ export default function Security() {
           <ExternalLink className="w-4 h-4" />
           Documentation
         </Button>
+          </div>
       </div>
 
       <div className="mt-4 p-4 bg-gray-800 rounded-lg">
@@ -260,25 +257,7 @@ export default function Security() {
             {crowdsecStatus && (
               <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
             )}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full text-xs"
-                onClick={() => navigate('/tasks/logs?search=crowdsec')}
-                disabled={crowdsecControlsDisabled}
-              >
-                Logs
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full text-xs"
-                onClick={handleCrowdsecExport}
-                disabled={crowdsecControlsDisabled}
-              >
-                Export
-              </Button>
+            <div className="mt-4">
               <Button
                 variant="secondary"
                 size="sm"
@@ -334,11 +313,11 @@ export default function Security() {
           </div>
         </Card>
 
-        {/* WAF - Layer 3: Request Inspection */}
+        {/* Coraza - Layer 3: Request Inspection */}
         <Card className={status.waf.enabled ? 'border-green-200 dark:border-green-900' : ''}>
           <div className="text-xs text-gray-400 mb-2">🛡️ Layer 3: Request Inspection</div>
           <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">WAF (Coraza)</h3>
+            <h3 className="text-sm font-medium text-white">Coraza</h3>
             <div className="flex items-center gap-3">
               <Switch
                 checked={status.waf.enabled}
@@ -358,43 +337,6 @@ export default function Security() {
                 ? `Protects against: SQL injection, XSS, RCE, zero-day exploits*`
                 : 'Web Application Firewall'}
             </p>
-            {status.waf.enabled && (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">WAF Mode</label>
-                  <select
-                    value={securityConfig?.config?.waf_mode || 'block'}
-                    onChange={(e) => updateSecurityConfigMutation.mutate({ name: 'default', waf_mode: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
-                    data-testid="waf-mode-select"
-                  >
-                    <option value="block">Block (deny malicious requests)</option>
-                    <option value="monitor">Monitor (log only, don't block)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Active Rule Set</label>
-                  <select
-                    value={securityConfig?.config?.waf_rules_source || ''}
-                    onChange={(e) => updateSecurityConfigMutation.mutate({ name: 'default', waf_rules_source: e.target.value || undefined })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
-                    data-testid="waf-ruleset-select"
-                  >
-                    <option value="">None (all rule sets)</option>
-                    {ruleSetsData?.rulesets?.map((rs) => (
-                      <option key={rs.id} value={rs.name}>
-                        {rs.name} ({rs.mode === 'blocking' ? 'blocking' : 'detection'})
-                      </option>
-                    ))}
-                  </select>
-                  {(!ruleSetsData?.rulesets || ruleSetsData.rulesets.length === 0) && (
-                    <p className="text-xs text-yellow-500 mt-1">
-                      No rule sets configured. Add one below.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
             <div className="mt-4">
               <Button
                 variant="secondary"
@@ -402,7 +344,7 @@ export default function Security() {
                 className="w-full"
                 onClick={() => navigate('/security/waf')}
               >
-                {status.waf.enabled ? 'Manage Rule Sets' : 'Configure'}
+                Configure
               </Button>
             </div>
           </div>
@@ -424,8 +366,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.rate_limit.enabled ? 'Active' : 'Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.rate_limit.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.rate_limit.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Protects against: DDoS attacks, credential stuffing, API abuse
@@ -445,6 +393,19 @@ export default function Security() {
           </div>
         </Card>
       </div>
+
+      {/* Live Activity Section */}
+      {status.cerberus?.enabled && (
+        <div className="mt-6">
+          <LiveLogViewer mode="security" securityFilters={{}} className="w-full" />
+        </div>
+      )}
+
+      {/* Notification Settings Modal */}
+      <SecurityNotificationSettingsModal
+        isOpen={showNotificationSettings}
+        onClose={() => setShowNotificationSettings(false)}
+      />
       </div>
     </>
   )

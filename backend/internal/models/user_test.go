@@ -13,6 +13,19 @@ func TestUser_SetPassword(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, u.PasswordHash)
 	assert.NotEqual(t, "password123", u.PasswordHash)
+
+	// Test with empty password (should still work but hash empty string)
+	u2 := &User{}
+	err = u2.SetPassword("")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, u2.PasswordHash)
+
+	// Test with special characters
+	u3 := &User{}
+	err = u3.SetPassword("P@ssw0rd!#$%^&*()")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, u3.PasswordHash)
+	assert.True(t, u3.CheckPassword("P@ssw0rd!#$%^&*()"))
 }
 
 func TestUser_CheckPassword(t *testing.T) {

@@ -121,11 +121,13 @@ body {
 ### Issue #5: Template Assignment UX Redesign
 
 **Current Flow**:
+
 1. User creates provider
 2. User separately manages templates
 3. No direct way to assign template to provider
 
 **New Flow**:
+
 1. Provider form includes template selector dropdown
 2. Dropdown shows: "Minimal (built-in)", "Detailed (built-in)", "Custom", and any saved external templates
 3. If "Custom" selected, inline textarea appears
@@ -160,6 +162,7 @@ body {
 ### Issue #6, #7, #8: Mobile/Desktop Header & Banner Fixes
 
 **Problems**:
+
 - Banner tiny on desktop header
 - Banner huge on mobile header
 - Drawer toggle icon on right (should be left)
@@ -264,6 +267,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 ### Issue #11: Sidebar Reorganization
 
 **Current Structure**:
+
 ```
 - Users (/users)
 - Settings
@@ -273,6 +277,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 ```
 
 **New Structure**:
+
 ```
 - Settings
   - System
@@ -284,6 +289,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 **Changes Required**:
 
 1. **Layout.tsx** - Update navigation array:
+
 ```tsx
 // Remove standalone Users item
 // Update Settings children:
@@ -301,6 +307,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 ```
 
 2. **App.tsx** - Update routes:
+
 ```tsx
 // Remove: <Route path="users" element={<UsersPage />} />
 // Add under settings:
@@ -314,6 +321,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 **Problem**: When adding/removing ACL from proxy host (single or bulk), no loading overlay appears during Caddy reload.
 
 **Current Code Analysis**: `ProxyHosts.tsx` uses `ConfigReloadOverlay` but the overlay condition checks:
+
 ```tsx
 const isApplyingConfig = isCreating || isUpdating || isDeleting || isBulkUpdating
 ```
@@ -342,7 +350,7 @@ const isApplyingConfig = isCreating || isUpdating || isDeleting || isBulkUpdatin
 
 ## 🏗️ Phase 1: Backend Implementation (Go)
 
-### Files to Modify:
+### Files to Modify
 
 1. **`backend/internal/services/uptime_service.go`**
    - Add `SyncMonitorForHost(hostID uint)` method
@@ -351,7 +359,7 @@ const isApplyingConfig = isCreating || isUpdating || isDeleting || isBulkUpdatin
 2. **`backend/internal/api/handlers/proxy_host_handler.go`**
    - In `updateProxyHost`, call uptime sync after successful update
 
-### New Method in uptime_service.go:
+### New Method in uptime_service.go
 
 ```go
 // SyncMonitorForHost updates the uptime monitor linked to a specific proxy host
@@ -390,7 +398,7 @@ func (s *UptimeService) SyncMonitorForHost(hostID uint) error {
 }
 ```
 
-### Handler modification in proxy_host_handler.go:
+### Handler modification in proxy_host_handler.go
 
 ```go
 // In UpdateProxyHost handler, after successful save:
@@ -417,7 +425,7 @@ func (h *ProxyHostHandler) UpdateProxyHost(c *gin.Context) {
 
 ## 🎨 Phase 2: Frontend Implementation (React)
 
-### Files to Modify:
+### Files to Modify
 
 | File | Changes |
 |------|---------|
@@ -429,7 +437,7 @@ func (h *ProxyHostHandler) UpdateProxyHost(c *gin.Context) {
 | `frontend/src/pages/CrowdSecConfig.tsx` | Fix loading/error states |
 | `frontend/src/App.tsx` | Route reorganization |
 
-### Implementation Priority:
+### Implementation Priority
 
 1. **Critical (Broken functionality)**:
    - Issue #10: CrowdSec blank page
@@ -453,7 +461,7 @@ func (h *ProxyHostHandler) UpdateProxyHost(c *gin.Context) {
 
 ## 🕵️ Phase 3: QA & Security
 
-### Test Scenarios:
+### Test Scenarios
 
 1. **Uptime Sync**:
    - Edit proxy host name → Verify uptime card updates
@@ -491,7 +499,8 @@ func (h *ProxyHostHandler) UpdateProxyHost(c *gin.Context) {
 
 ## 📚 Phase 4: Documentation
 
-### Files to Update:
+### Files to Update
+
 - `docs/features.md` - Update if any new features added
 - Component JSDoc comments for modified files
 

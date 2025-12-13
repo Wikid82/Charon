@@ -36,8 +36,9 @@ export default function Login() {
     setLoading(true)
 
     try {
-      await client.post('/auth/login', { email, password })
-      await login()
+      const res = await client.post('/auth/login', { email, password })
+      const token = (res.data as { token?: string }).token
+      await login(token)
       await queryClient.invalidateQueries({ queryKey: ['setupStatus'] })
       toast.success('Logged in successfully')
       navigate('/')

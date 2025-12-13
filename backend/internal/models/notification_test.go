@@ -26,3 +26,22 @@ func TestNotification_BeforeCreate(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, id, n2.ID)
 }
+
+func TestNotificationConfig_BeforeCreate(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	assert.NoError(t, err)
+	db.AutoMigrate(&NotificationConfig{})
+
+	// Case 1: ID is empty, should be generated
+	nc1 := &NotificationConfig{Enabled: true, MinLogLevel: "error"}
+	err = db.Create(nc1).Error
+	assert.NoError(t, err)
+	assert.NotEmpty(t, nc1.ID)
+
+	// Case 2: ID is provided, should be kept
+	id := "custom-config-id"
+	nc2 := &NotificationConfig{ID: id, Enabled: false, MinLogLevel: "warn"}
+	err = db.Create(nc2).Error
+	assert.NoError(t, err)
+	assert.Equal(t, id, nc2.ID)
+}

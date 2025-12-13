@@ -6,10 +6,11 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
   error?: string
   helperText?: string
+  errorTestId?: string
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, helperText, className, type, ...props }, ref) => {
+  ({ label, error, helperText, errorTestId, className, type, ...props }, ref) => {
     const [showPassword, setShowPassword] = useState(false)
     const isPassword = type === 'password'
 
@@ -53,7 +54,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
         {error && (
-          <p className="mt-1 text-sm text-red-400">{error}</p>
+          <p className="mt-1 text-sm text-red-400" data-testid={errorTestId}>{error}</p>
         )}
         {helperText && !error && (
           <p className="mt-1 text-sm text-gray-500">{helperText}</p>

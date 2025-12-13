@@ -31,9 +31,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "WAF enabled via settings overrides disabled config",
 			cfg: config.SecurityConfig{
-				WAFMode:       "disabled",
-				RateLimitMode: "disabled",
-				CrowdSecMode:  "disabled",
+				CerberusEnabled: true,
+				WAFMode:         "disabled",
+				RateLimitMode:   "disabled",
+				CrowdSecMode:    "disabled",
 			},
 			settings: []models.Setting{
 				{Key: "security.waf.enabled", Value: "true"},
@@ -45,9 +46,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "Rate Limit enabled via settings overrides disabled config",
 			cfg: config.SecurityConfig{
-				WAFMode:       "disabled",
-				RateLimitMode: "disabled",
-				CrowdSecMode:  "disabled",
+				CerberusEnabled: true,
+				WAFMode:         "disabled",
+				RateLimitMode:   "disabled",
+				CrowdSecMode:    "disabled",
 			},
 			settings: []models.Setting{
 				{Key: "security.rate_limit.enabled", Value: "true"},
@@ -59,9 +61,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "CrowdSec enabled via settings overrides disabled config",
 			cfg: config.SecurityConfig{
-				WAFMode:       "disabled",
-				RateLimitMode: "disabled",
-				CrowdSecMode:  "disabled",
+				CerberusEnabled: true,
+				WAFMode:         "disabled",
+				RateLimitMode:   "disabled",
+				CrowdSecMode:    "disabled",
 			},
 			settings: []models.Setting{
 				{Key: "security.crowdsec.enabled", Value: "true"},
@@ -73,9 +76,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "All modules enabled via settings",
 			cfg: config.SecurityConfig{
-				WAFMode:       "disabled",
-				RateLimitMode: "disabled",
-				CrowdSecMode:  "disabled",
+				CerberusEnabled: true,
+				WAFMode:         "disabled",
+				RateLimitMode:   "disabled",
+				CrowdSecMode:    "disabled",
 			},
 			settings: []models.Setting{
 				{Key: "security.waf.enabled", Value: "true"},
@@ -89,9 +93,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "WAF disabled via settings overrides enabled config",
 			cfg: config.SecurityConfig{
-				WAFMode:       "enabled",
-				RateLimitMode: "enabled",
-				CrowdSecMode:  "local",
+				CerberusEnabled: true,
+				WAFMode:         "enabled",
+				RateLimitMode:   "enabled",
+				CrowdSecMode:    "local",
 			},
 			settings: []models.Setting{
 				{Key: "security.waf.enabled", Value: "false"},
@@ -105,9 +110,10 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 		{
 			name: "No settings - falls back to config (enabled)",
 			cfg: config.SecurityConfig{
-				WAFMode:       "enabled",
-				RateLimitMode: "enabled",
-				CrowdSecMode:  "local",
+				CerberusEnabled: true,
+				WAFMode:         "enabled",
+				RateLimitMode:   "enabled",
+				CrowdSecMode:    "local",
 			},
 			settings:      []models.Setting{},
 			expectedWAF:   true,
@@ -164,7 +170,8 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 
 	// WAF config is disabled, but settings says enabled
 	cfg := config.SecurityConfig{
-		WAFMode: "disabled",
+		CerberusEnabled: true,
+		WAFMode:         "disabled",
 	}
 	db.Create(&models.Setting{Key: "security.waf.enabled", Value: "true"})
 
@@ -196,7 +203,8 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 
 	// Rate limit config is disabled, but settings says enabled
 	cfg := config.SecurityConfig{
-		RateLimitMode: "disabled",
+		CerberusEnabled: true,
+		RateLimitMode:   "disabled",
 	}
 	db.Create(&models.Setting{Key: "security.rate_limit.enabled", Value: "true"})
 
