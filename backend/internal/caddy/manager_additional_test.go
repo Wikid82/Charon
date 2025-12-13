@@ -721,14 +721,18 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 							// Validate directives field contains Include statement (coraza-caddy schema)
 							if dir, ok := handle["directives"].(string); ok && strings.Contains(dir, "Include") {
 								// Extract the file path from the Include directive
-								parts := strings.Split(dir, " ")
-								if len(parts) >= 2 {
-									rf := parts[len(parts)-1]
-									// Ensure file exists and contains our content
-									// Note: manager prepends SecRuleEngine On directives, so we check Contains
-									b, err := os.ReadFile(rf)
-									if err == nil && strings.Contains(string(b), "test-rule-content") {
-										found = true
+								// Format: "SecRuleEngine On\n...Include /path/to/file.conf\n"
+								lines := strings.Split(dir, "\n")
+								for _, line := range lines {
+									if strings.HasPrefix(line, "Include ") {
+										rf := strings.TrimPrefix(line, "Include ")
+										rf = strings.TrimSpace(rf)
+										// Ensure file exists and contains our content
+										b, err := os.ReadFile(rf)
+										if err == nil && strings.Contains(string(b), "test-rule-content") {
+											found = true
+											break
+										}
 									}
 								}
 							}

@@ -1,9 +1,11 @@
 # Beta Release Draft Pull Request
 
 ## Overview
+
 This draft PR merges recent beta preparation changes from `feature/beta-release` into `feature/alpha-completion` to align the alpha integration branch with the latest CI, workflow, and release process improvements.
 
 ## Changes Included
+
 1. Workflow Token Updates
    - Prefer `CHARON_TOKEN` with `CPMP_TOKEN` as a fallback to maintain backward compatibility.
    - Ensured consistent secret reference across `release.yml` and `renovate_prune.yml`.
@@ -16,6 +18,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
    - (Previously merged) Improvements to locate and package the `dlv` binary reliably in multi-arch builds.
 
 ## Commits Ahead of `feature/alpha-completion`
+
 - 6c8ba7b fix: replace CPMP_TOKEN with CPMP_TOKEN in workflows
 - de1160a fix: revert to CPMP_TOKEN
 - 7aee12b fix: use CPMP_TOKEN in release workflow
@@ -51,16 +54,20 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 - c99723d docs: update beta-release draft PR summary with twenty-ninth update
 
 ## Follow-ups (Not in This PR)
+
 - Frontend test coverage enhancement for `ProxyHostForm` (in progress separately).
 - Additional beta feature hardening tasks (observability, import validations) will come later.
 
 ## Verification Checklist
+
 - [x] Workflows pass YAML lint locally (pre-commit success)
 - [x] No removed secrets; only name substitutions
 - [ ] CI run on draft PR (expected)
 
 ## Request
+
 Marking this as a DRAFT to allow review of token changes before merge. Please:
+
 - Confirm `CHARON_TOKEN` (or `CPMP_TOKEN` fallback) exists in repo secrets.
 - Review for any missed workflow references.
 

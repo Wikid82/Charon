@@ -3,6 +3,8 @@ package caddy
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,15 +16,16 @@ import (
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
 func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
-	// Define log file paths
-	// We assume storageDir is like ".../data/caddy/data", so we go up to ".../data/logs"
-	// storageDir is .../data/caddy/data
-	// Dir -> .../data/caddy
-	// Dir -> .../data
-	logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
-	logFile := filepath.Join(logDir, "access.log")
+	// Define log file paths for Caddy access logs.
+	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
+	// location that CrowdSec's acquis.yaml is configured to monitor.
+	// Otherwise, we fall back to the storageDir-relative path for development/non-Docker use.
+	logFile := getAccessLogPath(storageDir, crowdsecEnabled)
 
 	config := &Config{
+		Admin: &AdminConfig{
+			Listen: "0.0.0.0:2019", // Bind to all interfaces for container access
+		},
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
 				"access": {
@@ -139,6 +142,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 	// Initialize routes slice
 	routes := make([]*Route, 0)
+	// Track IP-only hostnames to skip AutoHTTPS/ACME
+	ipSubjects := make([]string, 0)
 
 	// Track processed domains to prevent duplicates (Ghost Host fix)
 	processedDomains := make(map[string]bool)
@@ -177,6 +182,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Parse comma-separated domains
 		rawDomains := strings.Split(host.DomainNames, ",")
 		var uniqueDomains []string
+		isIPOnly := true
 
 		for _, d := range rawDomains {
 			d = strings.TrimSpace(d)
@@ -190,10 +196,17 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 			processedDomains[d] = true
 			uniqueDomains = append(uniqueDomains, d)
+			if net.ParseIP(d) == nil {
+				isIPOnly = false
+			}
 		}
 
 		if len(uniqueDomains) == 0 {
 			continue
+		}
+
+		if isIPOnly {
+			ipSubjects = append(ipSubjects, uniqueDomains...)
 		}
 
 		// Build handlers for this host
@@ -397,16 +410,34 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		routes = append(routes, catchAllRoute)
 	}
 
+	autoHTTPS := &AutoHTTPSConfig{Disable: false, DisableRedir: false}
+	if len(ipSubjects) > 0 {
+		// Skip AutoHTTPS/ACME for IP literals to avoid ERR_SSL_PROTOCOL_ERROR
+		autoHTTPS.Skip = append(autoHTTPS.Skip, ipSubjects...)
+	}
+
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
-		Listen: []string{":80", ":443"},
-		Routes: routes,
-		AutoHTTPS: &AutoHTTPSConfig{
-			Disable:      false,
-			DisableRedir: false,
-		},
+		Listen:    []string{":80", ":443"},
+		Routes:    routes,
+		AutoHTTPS: autoHTTPS,
 		Logs: &ServerLogs{
 			DefaultLoggerName: "access_log",
 		},
+	}
+
+	// Provide internal certificates for IP subjects when present so optional TLS can succeed without ACME
+	if len(ipSubjects) > 0 {
+		if config.Apps.TLS == nil {
+			config.Apps.TLS = &TLSApp{}
+		}
+		policy := &AutomationPolicy{
+			Subjects:   ipSubjects,
+			IssuersRaw: []interface{}{map[string]interface{}{"module": "internal"}},
+		}
+		if config.Apps.TLS.Automation == nil {
+			config.Apps.TLS.Automation = &AutomationConfig{}
+		}
+		config.Apps.TLS.Automation.Policies = append(config.Apps.TLS.Automation.Policies, policy)
 	}
 
 	return config, nil
@@ -708,8 +739,15 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 
 // buildCrowdSecHandler returns a CrowdSec handler for the caddy-crowdsec-bouncer plugin.
 // The plugin expects api_url and optionally api_key fields.
-// For local mode, we use the local LAPI address at http://localhost:8080.
-func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+// For local mode, we use the local LAPI address at http://127.0.0.1:8085.
+// NOTE: Port 8085 is used to avoid conflict with Charon management API on port 8080.
+//
+// Configuration options:
+//   - api_url: CrowdSec LAPI URL (default: http://127.0.0.1:8085)
+//   - api_key: Bouncer API key for authentication (from CROWDSEC_API_KEY env var)
+//   - streaming: Enable streaming mode for real-time decision updates
+//   - ticker_interval: How often to poll for decisions when not streaming (default: 60s)
+func buildCrowdSecHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
 	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
 	if !crowdsecEnabled {
 		return nil, nil
@@ -718,26 +756,108 @@ func buildCrowdSecHandler(host *models.ProxyHost, secCfg *models.SecurityConfig,
 	h := Handler{"handler": "crowdsec"}
 
 	// caddy-crowdsec-bouncer expects api_url and api_key
-	// For local mode, use the local LAPI address
+	// For local mode, use the local LAPI address (port 8085 to avoid conflict with Charon on 8080)
 	if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
 		h["api_url"] = secCfg.CrowdSecAPIURL
 	} else {
-		h["api_url"] = "http://localhost:8080"
+		h["api_url"] = "http://127.0.0.1:8085"
 	}
 
+	// Add API key if available from environment
+	// Check multiple env var names for flexibility
+	apiKey := getCrowdSecAPIKey()
+	if apiKey != "" {
+		h["api_key"] = apiKey
+	}
+
+	// Enable streaming mode for real-time decision updates from LAPI
+	// This is more efficient than polling and provides faster response to new bans
+	h["enable_streaming"] = true
+
+	// Set ticker interval for decision sync (fallback when streaming reconnects)
+	// Default to 60 seconds for balance between freshness and LAPI load
+	h["ticker_interval"] = "60s"
+
 	return h, nil
+}
+
+// getCrowdSecAPIKey retrieves the CrowdSec bouncer API key from environment variables.
+func getCrowdSecAPIKey() string {
+	envVars := []string{
+		"CROWDSEC_API_KEY",
+		"CROWDSEC_BOUNCER_API_KEY",
+		"CERBERUS_SECURITY_CROWDSEC_API_KEY",
+		"CHARON_SECURITY_CROWDSEC_API_KEY",
+		"CPM_SECURITY_CROWDSEC_API_KEY",
+	}
+
+	for _, key := range envVars {
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+// getAccessLogPath determines the appropriate path for Caddy access logs.
+// When CrowdSec is enabled or running in Docker (detected via /.dockerenv),
+// we use /var/log/caddy/access.log which is the standard location that
+// CrowdSec's acquis.yaml is configured to monitor.
+// Otherwise, we fall back to the storageDir-relative path for development use.
+//
+// The access logs written to this path include:
+//   - Standard HTTP fields (method, uri, status, duration, size)
+//   - Client IP for CrowdSec and security analysis
+//   - User-Agent for attack detection
+//   - Security-relevant response headers (X-Coraza-Id, X-RateLimit-Remaining)
+func getAccessLogPath(storageDir string, crowdsecEnabled bool) string {
+	// Standard CrowdSec-compatible path used in production Docker containers
+	const crowdsecLogPath = "/var/log/caddy/access.log"
+
+	// Use standard path when CrowdSec is enabled (explicit request)
+	if crowdsecEnabled {
+		return crowdsecLogPath
+	}
+
+	// Detect Docker environment via /.dockerenv file
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return crowdsecLogPath
+	}
+
+	// Check for CHARON_ENV=production or container-like environment
+	if env := os.Getenv("CHARON_ENV"); env == "production" {
+		return crowdsecLogPath
+	}
+
+	// Development fallback: use storageDir-relative path
+	// storageDir is .../data/caddy/data
+	// Dir -> .../data/caddy
+	// Dir -> .../data
+	logDir := filepath.Join(filepath.Dir(filepath.Dir(storageDir)), "logs")
+	return filepath.Join(logDir, "access.log")
 }
 
 // buildWAFHandler returns a WAF handler (Coraza) configuration.
 // The coraza-caddy plugin registers as http.handlers.waf and expects:
 // - handler: "waf"
 // - directives: ModSecurity directive string including Include statements
+//
+// This function builds a complete Coraza configuration with:
+// - SecRuleEngine (On/DetectionOnly based on mode)
+// - Paranoia level via SecAction
+// - Rule exclusions via SecRuleRemoveById
+// - Include statements for ruleset files
 func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, secCfg *models.SecurityConfig, wafEnabled bool) (Handler, error) {
-	// Early exit if WAF is disabled
+	// Early exit if WAF is disabled globally
 	if !wafEnabled {
 		return nil, nil
 	}
 	if secCfg != nil && secCfg.WAFMode == "disabled" {
+		return nil, nil
+	}
+
+	// Check per-host WAF toggle - if host has WAF disabled, skip
+	if host != nil && host.WAFDisabled {
 		return nil, nil
 	}
 
@@ -795,33 +915,116 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 		}
 	}
 
-	// Build the handler with directives
-	h := Handler{"handler": "waf"}
-	directivesSet := false
-
-	if selected != nil {
-		if rulesetPaths != nil {
-			if p, ok := rulesetPaths[selected.Name]; ok && p != "" {
-				h["directives"] = fmt.Sprintf("Include %s", p)
-				directivesSet = true
-			}
-		}
-	} else if secCfg != nil && secCfg.WAFRulesSource != "" {
-		// If there was a requested ruleset name but nothing matched, include path if known
-		if rulesetPaths != nil {
-			if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
-				h["directives"] = fmt.Sprintf("Include %s", p)
-				directivesSet = true
-			}
-		}
-	}
+	// Build the directives string for Coraza
+	directives := buildWAFDirectives(secCfg, selected, rulesetPaths)
 
 	// Bug fix: Don't return a WAF handler without directives - it creates a no-op WAF
-	if !directivesSet {
+	if directives == "" {
 		return nil, nil
 	}
 
+	h := Handler{
+		"handler":    "waf",
+		"directives": directives,
+	}
+
 	return h, nil
+}
+
+// buildWAFDirectives constructs the ModSecurity directive string for Coraza.
+// It includes:
+// - SecRuleEngine directive (On or DetectionOnly)
+// - SecRequestBodyAccess and SecResponseBodyAccess
+// - Paranoia level via SecAction
+// - Rule exclusions via SecRuleRemoveById
+// - Include statements for ruleset files
+//
+// Returns empty string if no ruleset Include can be generated, since a WAF
+// without loaded rules is essentially a no-op.
+func buildWAFDirectives(secCfg *models.SecurityConfig, ruleset *models.SecurityRuleSet, rulesetPaths map[string]string) string {
+	var directives strings.Builder
+
+	// Track if we found a ruleset to include
+	hasRuleset := false
+	var rulesetPath string
+
+	// Include ruleset file if available
+	if ruleset != nil && rulesetPaths != nil {
+		if p, ok := rulesetPaths[ruleset.Name]; ok && p != "" {
+			hasRuleset = true
+			rulesetPath = p
+		}
+	} else if secCfg != nil && secCfg.WAFRulesSource != "" && rulesetPaths != nil {
+		// Fallback: include path if known from WAFRulesSource
+		if p, ok := rulesetPaths[secCfg.WAFRulesSource]; ok && p != "" {
+			hasRuleset = true
+			rulesetPath = p
+		}
+	}
+
+	// If no ruleset to include, return empty - WAF without rules is a no-op
+	if !hasRuleset {
+		return ""
+	}
+
+	// Determine SecRuleEngine mode
+	engine := "On"
+	if secCfg != nil && secCfg.WAFMode == "monitor" {
+		engine = "DetectionOnly"
+	}
+	directives.WriteString(fmt.Sprintf("SecRuleEngine %s\n", engine))
+
+	// Enable request body inspection, disable response body for performance
+	directives.WriteString("SecRequestBodyAccess On\n")
+	directives.WriteString("SecResponseBodyAccess Off\n")
+
+	// Set paranoia level (default to 1 if not configured)
+	paranoiaLevel := 1
+	if secCfg != nil && secCfg.WAFParanoiaLevel >= 1 && secCfg.WAFParanoiaLevel <= 4 {
+		paranoiaLevel = secCfg.WAFParanoiaLevel
+	}
+	directives.WriteString(fmt.Sprintf("SecAction \"id:900000,phase:1,nolog,pass,t:none,setvar:tx.paranoia_level=%d\"\n", paranoiaLevel))
+
+	// Include the ruleset file
+	directives.WriteString(fmt.Sprintf("Include %s\n", rulesetPath))
+
+	// Process exclusions from SecurityConfig
+	if secCfg != nil && secCfg.WAFExclusions != "" {
+		exclusions := parseWAFExclusions(secCfg.WAFExclusions)
+		for _, excl := range exclusions {
+			if excl.Target != "" {
+				// Use SecRuleUpdateTargetById to exclude specific targets
+				directives.WriteString(fmt.Sprintf("SecRuleUpdateTargetById %d \"!%s\"\n", excl.RuleID, excl.Target))
+			} else {
+				// Remove the rule entirely
+				directives.WriteString(fmt.Sprintf("SecRuleRemoveById %d\n", excl.RuleID))
+			}
+		}
+	}
+
+	return directives.String()
+}
+
+// WAFExclusion represents a rule exclusion for false positive handling
+type WAFExclusion struct {
+	RuleID      int    `json:"rule_id"`
+	Target      string `json:"target,omitempty"`      // e.g., "ARGS:password"
+	Description string `json:"description,omitempty"` // Human-readable reason
+}
+
+// parseWAFExclusions parses the JSON array of WAF exclusions from SecurityConfig
+func parseWAFExclusions(exclusionsJSON string) []WAFExclusion {
+	if exclusionsJSON == "" {
+		return nil
+	}
+
+	var exclusions []WAFExclusion
+	if err := json.Unmarshal([]byte(exclusionsJSON), &exclusions); err != nil {
+		logger.Log().WithError(err).Warn("Failed to parse WAF exclusions JSON")
+		return nil
+	}
+
+	return exclusions
 }
 
 // buildRateLimitHandler returns a rate-limit handler using the caddy-ratelimit module.
@@ -832,7 +1035,10 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 //
 // Note: The rateLimitEnabled flag is already checked by the caller (GenerateConfig).
 // This function only validates that the config has positive request/window values.
-func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
+//
+// If RateLimitBypassList is configured, the rate limiter is wrapped in a subroute
+// that skips rate limiting for IPs matching the bypass CIDRs.
+func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (Handler, error) {
 	if secCfg == nil {
 		return nil, nil
 	}
@@ -840,14 +1046,87 @@ func buildRateLimitHandler(host *models.ProxyHost, secCfg *models.SecurityConfig
 		return nil, nil
 	}
 
-	// caddy-ratelimit format
-	h := Handler{"handler": "rate_limit"}
-	h["rate_limits"] = map[string]interface{}{
+	// Build the base rate_limit handler using caddy-ratelimit format
+	// Note: The caddy-ratelimit module uses a sliding window algorithm
+	// and does not have a separate burst parameter
+	rateLimitHandler := Handler{"handler": "rate_limit"}
+	rateLimitHandler["rate_limits"] = map[string]interface{}{
 		"static": map[string]interface{}{
 			"key":        "{http.request.remote.host}",
 			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
 			"max_events": secCfg.RateLimitRequests,
 		},
 	}
-	return h, nil
+
+	// Parse bypass list CIDRs if configured
+	bypassCIDRs := parseBypassCIDRs(secCfg.RateLimitBypassList)
+
+	// If no bypass list, return the plain rate_limit handler
+	if len(bypassCIDRs) == 0 {
+		return rateLimitHandler, nil
+	}
+
+	// Wrap in a subroute that skips rate limiting for bypass IPs
+	// Structure:
+	// 1. Match bypass IPs -> do nothing (skip rate limiting)
+	// 2. Everything else -> apply rate limiting
+	return Handler{
+		"handler": "subroute",
+		"routes": []map[string]interface{}{
+			{
+				// Route 1: Match bypass IPs - terminal with no handlers (skip rate limiting)
+				"match": []map[string]interface{}{
+					{
+						"remote_ip": map[string]interface{}{
+							"ranges": bypassCIDRs,
+						},
+					},
+				},
+				// No handlers - just pass through without rate limiting
+				"handle": []map[string]interface{}{},
+			},
+			{
+				// Route 2: Default - apply rate limiting to everyone else
+				"handle": []map[string]interface{}{
+					rateLimitHandler,
+				},
+			},
+		},
+	}, nil
+}
+
+// parseBypassCIDRs parses a comma-separated list of CIDRs and returns valid ones.
+// Invalid entries are silently ignored.
+func parseBypassCIDRs(bypassList string) []string {
+	if bypassList == "" {
+		return nil
+	}
+
+	var validCIDRs []string
+	parts := strings.Split(bypassList, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		// Validate CIDR format
+		_, _, err := net.ParseCIDR(p)
+		if err != nil {
+			// Try as plain IP - convert to CIDR
+			ip := net.ParseIP(p)
+			if ip != nil {
+				if ip.To4() != nil {
+					p += "/32"
+				} else {
+					p += "/128"
+				}
+				validCIDRs = append(validCIDRs, p)
+			}
+			// Skip invalid entries
+			continue
+		}
+		validCIDRs = append(validCIDRs, p)
+	}
+	return validCIDRs
 }

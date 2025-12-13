@@ -225,11 +225,15 @@ func TestBuildWAFHandler_HandlerStructure(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, directives, "Include /app/data/caddy/coraza/rulesets/integration-xss-a1b2c3d4.conf")
 
+	// Verify directives contain expected ModSecurity directives
+	require.Contains(t, directives, "SecRuleEngine On")
+	require.Contains(t, directives, "SecRequestBodyAccess On")
+
 	// Verify JSON marshaling produces expected structure
 	jsonBytes, err := json.Marshal(handler)
 	require.NoError(t, err)
 	require.Contains(t, string(jsonBytes), `"handler":"waf"`)
-	require.Contains(t, string(jsonBytes), `"directives":"Include`)
+	require.Contains(t, string(jsonBytes), `"directives":"SecRuleEngine`)
 }
 
 // TestBuildWAFHandler_AdvancedConfigParsing verifies advanced_config JSON parsing

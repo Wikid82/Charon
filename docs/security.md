@@ -4,7 +4,7 @@ Charon includes **Cerberus**, a security system that protects your websites. It'
 
 You can disable it in **System Settings → Optional Features** if you don't need it, or configure it using this guide. The sidebar now shows **Cerberus → Dashboard**; the page header reads **Cerberus Dashboard**.
 
-Want the quick reference? See https://wikid82.github.io/charon/security.
+Want the quick reference? See <https://wikid82.github.io/charon/security>.
 
 ---
 
@@ -76,6 +76,26 @@ That's it. CrowdSec starts automatically and begins blocking bad IPs.
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
+### Enroll with CrowdSec Console (optional)
+
+1. Enable the feature flag `crowdsec_console_enrollment` (off by default) so the Console enrollment button appears in Cerberus → CrowdSec.
+2. Click **Enroll with CrowdSec Console** and follow the on-screen prompt to generate or paste the Console enrollment key. The flow requests only the minimal scope needed for the embedded agent.
+3. Charon stores the enrollment secret internally (not logged or echoed) and completes the handshake without requiring sudo or shell access.
+4. After enrollment, the Console status shows in the CrowdSec card; you can revoke from either side if needed.
+
+### Hub Presets (Configuration Packages)
+
+Charon lets you install security configurations (Collections, Parsers, Scenarios) directly from the CrowdSec Hub.
+
+- **Search & Sort:** Use the search bar to find specific packages (e.g., "wordpress", "nginx"). Sort by name, status, or popularity.
+- **One-Click Install:** Click "Install" on any package. Charon handles the download and configuration.
+- **Safe Apply:** Changes are applied safely. If something goes wrong, Charon can restore the previous configuration.
+- **Updates:** Charon checks for updates automatically. You'll see an "Update" button when a new version is available.
+
+### Troubleshooting
+
+Having trouble with CrowdSec? Check out the [CrowdSec Troubleshooting Guide](troubleshooting/crowdsec.md).
+
 ---
 
 ## WAF (Block Bad Behavior)
@@ -133,37 +153,31 @@ Now only devices on `192.168.x.x` or `10.x.x.x` can access it. The public intern
 
 ---
 
-## Configuration Packages
-
-- **Import/Export:** You can import or export Cerberus configuration packages; exports prompt you to confirm the filename before saving.
-- **Presets (CrowdSec Hub):** Pull presets from the CrowdSec Hub over HTTPS using cache keys/ETags, prefer `cscli` execution, and require Cerberus to be enabled with an admin-scoped session. Workflow: pull → preview → apply with an automatic backup and reload flag.
-- **cscli availability:** Docker images (v1.7.4+) ship with cscli pre-installed. Bare-metal deployments can install cscli for Hub preset sync or use HTTP fallback with HUB_BASE_URL. Preset pull/apply requires either cscli or cached presets.
-- **Fallbacks:** If the Hub is unreachable (503 uses retry or cached data), curated/offline presets stay available; invalid slugs return a 400 with validation detail; apply failures remind you to restore from the backup; if apply is not supported (501), stay on curated/offline presets.
-
----
-
 ## Certificate Management Security
 
 **What it protects:** Certificate deletion is a destructive operation that requires proper authorization.
 
 **How it works:**
+
 - Certificates cannot be deleted while in use by proxy hosts (conflict error)
 - Automatic backup is created before any certificate deletion
 - Authentication required (when auth is implemented)
 
 **Backup & Recovery:**
+
 - Every certificate deletion triggers an automatic backup
 - Find backups in the "Backups" page
 - Restore from backup if you accidentally delete the wrong certificate
 
 **Best Practice:**
+
 - Review which proxy hosts use a certificate before deleting it
 - When deleting proxy hosts, use the cleanup prompt to delete orphaned certificates
 - Keep custom certificates you might reuse later
 
 ---
 
-## Don't Lock Yourself Out!
+## Don't Lock Yourself Out
 
 **Problem:** If you turn on security and misconfigure it, you might block yourself.
 
@@ -241,6 +255,179 @@ Allows friends to access, blocks obvious threat countries.
 
 ---
 
+## Live Security Monitoring
+
+### Live Log Viewer
+
+**What it does:** Stream security events in real-time directly in the Cerberus Dashboard.
+
+**Where to find it:** Cerberus → Dashboard → Scroll to "Live Activity" section
+
+**What you'll see:**
+
+- Real-time WAF blocks and detections
+- CrowdSec decisions as they happen
+- ACL denials (geo-blocking, IP filtering)
+- Rate limiting events
+- All Cerberus security activity
+
+**Controls:**
+
+- **Pause** — Stop the stream to examine specific events
+- **Clear** — Remove old entries from the display
+- **Auto-scroll** — Automatically follow new events
+- **Filter** — Search logs by text, level, or source
+
+**How to use it:**
+
+1. Open Cerberus Dashboard
+2. Scroll to the Live Activity section
+3. Watch events appear in real-time
+4. Click "Pause" to stop streaming and review events
+5. Use the filter box to search for specific IPs, rules, or messages
+6. Click "Clear" to remove old entries
+
+**Technical details:**
+
+- Uses WebSocket for real-time streaming (no polling)
+- Keeps last 500 entries by default (configurable)
+- Server-side filtering reduces bandwidth
+- Automatic reconnection on disconnect
+
+### Security Notifications
+
+**What it does:** Sends alerts when critical security events occur.
+
+**Why you care:** Get immediate notification of attacks or suspicious activity without watching the dashboard 24/7.
+
+#### Configure Notifications
+
+1. Go to **Cerberus Dashboard**
+2. Click **"Notification Settings"** button (top-right)
+3. Configure your preferences:
+
+**Basic Settings:**
+
+- **Enable Notifications** — Master toggle
+- **Minimum Log Level** — Choose: debug, info, warn, or error
+  - `error` — Only critical events (recommended)
+  - `warn` — Important warnings and errors
+  - `info` — Normal operations plus warnings/errors
+  - `debug` — Everything (very noisy, not recommended)
+
+**Event Types:**
+
+- **WAF Blocks** — Notify when firewall blocks an attack
+- **ACL Denials** — Notify when access control rules block requests
+- **Rate Limit Hits** — Notify when traffic thresholds are exceeded
+
+**Delivery Methods:**
+
+- **Webhook URL** — Send to Discord, Slack, or custom integrations
+- **Email Recipients** — Comma-separated email addresses (requires SMTP setup)
+
+#### Webhook Integration
+
+**Security considerations:**
+
+1. **Use HTTPS webhooks only** — Never send security alerts over unencrypted HTTP
+2. **Validate webhook endpoints** — Ensure the URL is correct before saving
+3. **Protect webhook secrets** — If your webhook requires authentication, use environment variables
+4. **Rate limiting** — Charon does NOT rate-limit webhook calls; configure your webhook provider to handle bursts
+5. **Sensitive data** — Webhook payloads may contain IP addresses, request URIs, and user agents
+
+**Supported platforms:**
+
+- Discord (use webhook URL from Server Settings → Integrations)
+- Slack (create incoming webhook in Slack Apps)
+- Microsoft Teams (use incoming webhook connector)
+- Custom HTTPS endpoints (any server that accepts POST requests)
+
+**Webhook payload example:**
+
+```json
+{
+  "event_type": "waf_block",
+  "severity": "error",
+  "timestamp": "2025-12-09T10:30:45Z",
+  "message": "WAF blocked SQL injection attempt",
+  "details": {
+    "ip": "203.0.113.42",
+    "rule_id": "942100",
+    "request_uri": "/api/users?id=1' OR '1'='1",
+    "user_agent": "curl/7.68.0"
+  }
+}
+```
+
+**Discord webhook format:**
+
+Charon automatically formats notifications for Discord:
+
+```json
+{
+  "embeds": [{
+    "title": "🛡️ WAF Block",
+    "description": "SQL injection attempt blocked",
+    "color": 15158332,
+    "fields": [
+      { "name": "IP Address", "value": "203.0.113.42", "inline": true },
+      { "name": "Rule", "value": "942100", "inline": true },
+      { "name": "URI", "value": "/api/users?id=1' OR '1'='1" }
+    ],
+    "timestamp": "2025-12-09T10:30:45Z"
+  }]
+}
+```
+
+**Testing your webhook:**
+
+1. Add your webhook URL in Notification Settings
+2. Save the settings
+3. Trigger a test event (try accessing a blocked URL)
+4. Check your Discord/Slack channel for the notification
+
+**Troubleshooting webhooks:**
+
+- No notifications? Check webhook URL is correct and HTTPS
+- Wrong format? Verify your platform's webhook documentation
+- Too many notifications? Increase minimum log level to "error" only
+- Notifications delayed? Check your network connection and firewall rules
+
+### Log Privacy Considerations
+
+**What's logged:**
+
+- IP addresses of blocked requests
+- Request URIs and query parameters
+- User-Agent strings
+- Rule IDs that triggered blocks
+- Timestamps of security events
+
+**What's NOT logged:**
+
+- Request bodies (POST data)
+- Authentication credentials
+- Session cookies
+- Response bodies
+
+**Privacy best practices:**
+
+1. **Filter logs before sharing** — Remove sensitive IPs or URIs before sharing logs externally
+2. **Secure webhook endpoints** — Use HTTPS and authenticate webhook requests
+3. **Respect GDPR** — IP addresses are personal data in some jurisdictions
+4. **Retention policy** — Live logs are kept for the current session only (not persisted to disk)
+5. **Access control** — Only authenticated users can access live logs (when auth is implemented)
+
+**Compliance notes:**
+
+- Live log streaming does NOT persist logs to disk
+- Logs are only stored in memory during active WebSocket sessions
+- Notification webhooks send log data to third parties (Discord, Slack)
+- Email notifications may contain sensitive data
+
+---
+
 ## Turn It Off
 
 If security is causing problems:
@@ -285,6 +472,7 @@ No. Use what you need:
 ### What We Protect Against
 
 **Web Application Exploits:**
+
 - ✅ SQL Injection (SQLi) — even zero-days using SQL syntax
 - ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
 - ✅ Remote Code Execution (RCE) — command injection patterns
@@ -328,6 +516,54 @@ https://yourapp.com/search?q=' OR '1'='1
 3. **Monitor security logs:**
    - Check "Security → Decisions" weekly
    - Set up alerts for high block rates
+
+---
+
+## Testing & Validation
+
+### Integration Testing
+
+Cerberus includes a comprehensive integration test suite to validate all security features work correctly together.
+
+**Run the full test suite:**
+
+```bash
+# Integration script
+bash scripts/cerberus_integration.sh
+
+# Go test wrapper
+cd backend && go test -tags=integration ./integration -run TestCerberusIntegration -v
+```
+
+**What's tested:**
+
+- ✅ All features enable without conflicts
+- ✅ Correct handler pipeline order
+- ✅ WAF doesn't interfere with rate limiting
+- ✅ Security decisions enforced at correct layer
+- ✅ Legitimate traffic passes through all layers
+- ✅ Performance benchmarks (< 50ms overhead)
+
+### UI/UX Testing
+
+The Cerberus Dashboard has extensive UI testing coverage:
+
+- Security card status display verification
+- Loading overlay animations
+- Error handling and toast notifications
+- Mobile responsive layout testing (375px → 1920px)
+
+**Test documentation:**
+
+- [Integration Testing Plan](plans/cerberus_integration_testing_plan.md)
+- [UI/UX Testing Plan](plans/cerberus_uiux_testing_plan.md)
+
+### VS Code Tasks
+
+Run tests directly from VS Code using the provided tasks:
+
+- **Cerberus: Run Full Integration Script** — Full shell-based integration test
+- **Cerberus: Run Full Integration Go Test** — Go test wrapper
 
 ---
 

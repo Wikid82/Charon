@@ -1,8 +1,10 @@
+// Package routes defines the API route registration and wiring.
 package routes
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/gzip"
@@ -48,6 +50,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.Notification{},
 		&models.NotificationProvider{},
 		&models.NotificationTemplate{},
+		&models.NotificationConfig{},
 		&models.UptimeMonitor{},
 		&models.UptimeHeartbeat{},
 		&models.UptimeHost{},
@@ -59,6 +62,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.SecurityRuleSet{},
 		&models.UserPermittedHost{}, // Join table for user permissions
 		&models.CrowdsecPresetEvent{},
+		&models.CrowdsecConsoleEnrollment{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -150,6 +154,13 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/logs", logsHandler.List)
 		protected.GET("/logs/:filename", logsHandler.Read)
 		protected.GET("/logs/:filename/download", logsHandler.Download)
+		protected.GET("/logs/live", handlers.LogsWebSocketHandler)
+
+		// Security Notification Settings
+		securityNotificationService := services.NewSecurityNotificationService(db)
+		securityNotificationHandler := handlers.NewSecurityNotificationHandler(securityNotificationService)
+		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
+		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
 
 		// Settings
 		settingsHandler := handlers.NewSettingsHandler(db)
@@ -243,6 +254,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.DELETE("/notifications/external-templates/:id", notificationTemplateHandler.Delete)
 		protected.POST("/notifications/external-templates/preview", notificationTemplateHandler.Preview)
 
+		// Ensure uptime feature flag exists to avoid record-not-found logs
+		defaultUptime := models.Setting{Key: "feature.uptime.enabled", Value: "true", Type: "bool", Category: "feature"}
+		if err := db.Where(models.Setting{Key: defaultUptime.Key}).Attrs(defaultUptime).FirstOrCreate(&defaultUptime).Error; err != nil {
+			logger.Log().WithError(err).Warn("Failed to ensure uptime feature flag default")
+		}
+
 		// Start background checker (every 1 minute)
 		go func() {
 			// Wait a bit for server to start
@@ -285,8 +302,30 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 
+		// Initialize GeoIP service if database exists
+		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
+		if geoipPath == "" {
+			geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
+		}
+
+		var geoipSvc *services.GeoIPService
+		if _, err := os.Stat(geoipPath); err == nil {
+			var geoErr error
+			geoipSvc, geoErr = services.NewGeoIPService(geoipPath)
+			if geoErr != nil {
+				logger.Log().WithError(geoErr).WithField("path", geoipPath).Warn("Failed to load GeoIP database - geo-blocking features will be unavailable")
+			} else {
+				logger.Log().WithField("path", geoipPath).Info("GeoIP database loaded successfully")
+			}
+		} else {
+			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
+		}
+
 		// Security Status
 		securityHandler := handlers.NewSecurityHandler(cfg.Security, db, caddyManager)
+		if geoipSvc != nil {
+			securityHandler.SetGeoIPService(geoipSvc)
+		}
 		protected.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
 		protected.GET("/security/config", securityHandler.GetConfig)
@@ -299,16 +338,43 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/rulesets", securityHandler.ListRuleSets)
 		protected.POST("/security/rulesets", securityHandler.UpsertRuleSet)
 		protected.DELETE("/security/rulesets/:id", securityHandler.DeleteRuleSet)
+		protected.GET("/security/rate-limit/presets", securityHandler.GetRateLimitPresets)
+		// GeoIP endpoints
+		protected.GET("/security/geoip/status", securityHandler.GetGeoIPStatus)
+		protected.POST("/security/geoip/reload", securityHandler.ReloadGeoIP)
+		protected.POST("/security/geoip/lookup", securityHandler.LookupGeoIP)
+		// WAF exclusion endpoints
+		protected.GET("/security/waf/exclusions", securityHandler.GetWAFExclusions)
+		protected.POST("/security/waf/exclusions", securityHandler.AddWAFExclusion)
+		protected.DELETE("/security/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
-		crowdsecDataDir := "data/crowdsec"
+		crowdsecDataDir := cfg.Security.CrowdSecConfigDir
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
+		// Cerberus Security Logs WebSocket
+		// Initialize log watcher for Caddy access logs (used by CrowdSec and security monitoring)
+		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
+		// or falls back to the configured storage directory for development
+		accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG")
+		if accessLogPath == "" {
+			accessLogPath = "/var/log/caddy/access.log"
+		}
+		logWatcher := services.NewLogWatcher(accessLogPath)
+		if err := logWatcher.Start(context.Background()); err != nil {
+			logger.Log().WithError(err).Error("Failed to start security log watcher")
+		}
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher)
+		protected.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+
 		// Access Lists
 		accessListHandler := handlers.NewAccessListHandler(db)
+		if geoipSvc != nil {
+			accessListHandler.SetGeoIPService(geoipSvc)
+		}
 		protected.GET("/access-lists/templates", accessListHandler.GetTemplates)
 		protected.GET("/access-lists", accessListHandler.List)
 		protected.POST("/access-lists", accessListHandler.Create)

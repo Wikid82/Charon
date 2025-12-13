@@ -6,10 +6,11 @@ interface SwitchProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, onCheckedChange, onChange, ...props }, ref) => {
+  ({ className, onCheckedChange, onChange, id, ...props }, ref) => {
     return (
-      <label className={cn("relative inline-flex items-center cursor-pointer", className)}>
+      <label htmlFor={id} className={cn("relative inline-flex items-center cursor-pointer", className)}>
         <input
+          id={id}
           type="checkbox"
           className="sr-only peer"
           ref={ref}

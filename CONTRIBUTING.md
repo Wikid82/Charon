@@ -35,12 +35,14 @@ This project follows a Code of Conduct that all contributors are expected to adh
 
 1. Fork the repository on GitHub
 2. Clone your fork locally:
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/charon.git
 cd charon
 ```
 
 3. Add the upstream remote:
+
 ```bash
 git remote add upstream https://github.com/Wikid82/charon.git
 ```
@@ -48,6 +50,7 @@ git remote add upstream https://github.com/Wikid82/charon.git
 ### Set Up Development Environment
 
 **Backend:**
+
 ```bash
 cd backend
 go mod download
@@ -56,6 +59,7 @@ go run ./cmd/api/main.go   # Start backend
 ```
 
 **Frontend:**
+
 ```bash
 cd frontend
 npm install
@@ -95,6 +99,7 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) specific
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation only
@@ -104,6 +109,7 @@ Follow the [Conventional Commits](https://www.conventionalcommits.org/) specific
 - `chore`: Maintenance tasks
 
 **Examples:**
+
 ```
 feat(proxy-hosts): add SSL certificate upload
 
@@ -143,6 +149,7 @@ git push origin development
 - Handle errors explicitly
 
 **Example:**
+
 ```go
 // GetProxyHost retrieves a proxy host by UUID.
 // Returns an error if the host is not found.
@@ -164,6 +171,7 @@ func GetProxyHost(uuid string) (*models.ProxyHost, error) {
 - Extract reusable logic into custom hooks
 
 **Example:**
+
 ```typescript
 interface ProxyHostFormProps {
   host?: ProxyHost
@@ -206,6 +214,7 @@ func TestGetProxyHost(t *testing.T) {
 ```
 
 **Run tests:**
+
 ```bash
 go test ./... -v
 go test -cover ./...
@@ -230,6 +239,7 @@ describe('ProxyHostForm', () => {
 ```
 
 **Run tests:**
+
 ```bash
 npm test              # Watch mode
 npm run test:coverage # Coverage report
@@ -246,6 +256,7 @@ npm run test:coverage # Coverage report
 ### Before Submitting
 
 1. **Ensure tests pass:**
+
 ```bash
 # Backend
 go test ./...
@@ -255,6 +266,7 @@ npm test -- --run
 ```
 
 2. **Check code quality:**
+
 ```bash
 # Go formatting
 go fmt ./...
@@ -270,6 +282,7 @@ npm run lint
 ### Submitting a Pull Request
 
 1. Push your branch to your fork:
+
 ```bash
 git push origin feature/your-feature-name
 ```

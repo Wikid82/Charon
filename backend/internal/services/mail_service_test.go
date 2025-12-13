@@ -411,3 +411,76 @@ func TestMailService_SendInvite_TokenFormat(t *testing.T) {
 func TestMailService_SaveSMTPConfig_Concurrent(t *testing.T) {
 	t.Skip("In-memory SQLite doesn't support concurrent writes - test real DB in integration")
 }
+
+// TestMailService_SendEmail_InvalidRecipient tests email sending with invalid recipient
+func TestMailService_SendEmail_InvalidRecipient(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	// Configure SMTP
+	config := &SMTPConfig{
+		Host:        "smtp.example.com",
+		Port:        587,
+		FromAddress: "noreply@example.com",
+	}
+	require.NoError(t, svc.SaveSMTPConfig(config))
+
+	// Try sending with invalid recipient
+	err := svc.SendEmail("invalid\r\nemail", "Subject", "Body")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid recipient")
+}
+
+// TestMailService_SendEmail_InvalidFromAddress tests email sending with invalid from address
+func TestMailService_SendEmail_InvalidFromAddress(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	// Configure SMTP with invalid from address
+	config := &SMTPConfig{
+		Host:        "smtp.example.com",
+		Port:        587,
+		FromAddress: "invalid\r\nfrom@example.com",
+	}
+	require.NoError(t, svc.SaveSMTPConfig(config))
+
+	// Try sending email - should fail on invalid from address
+	err := svc.SendEmail("test@example.com", "Subject", "Body")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid from address")
+}
+
+// TestMailService_SendEmail_EncryptionModes tests different encryption modes
+func TestMailService_SendEmail_EncryptionModes(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	tests := []struct {
+		name       string
+		encryption string
+	}{
+		{"ssl", "ssl"},
+		{"starttls", "starttls"},
+		{"none", "none"},
+		{"empty", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &SMTPConfig{
+				Host:        "smtp.example.com",
+				Port:        587,
+				Username:    "user",
+				Password:    "pass",
+				FromAddress: "test@example.com",
+				Encryption:  tt.encryption,
+			}
+			require.NoError(t, svc.SaveSMTPConfig(config))
+
+			// This will fail at connection/lookup time, but we're testing the path selection
+			err := svc.SendEmail("recipient@example.com", "Test", "Body")
+			assert.Error(t, err)
+			// Should fail on connection or lookup
+		})
+	}
+}

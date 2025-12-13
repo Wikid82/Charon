@@ -25,6 +25,12 @@ func NewFeatureFlagsHandler(db *gorm.DB) *FeatureFlagsHandler {
 var defaultFlags = []string{
 	"feature.cerberus.enabled",
 	"feature.uptime.enabled",
+	"feature.crowdsec.console_enrollment",
+}
+
+var defaultFlagValues = map[string]bool{
+	"feature.cerberus.enabled":            false, // Cerberus OFF by default
+	"feature.crowdsec.console_enrollment": false,
 }
 
 // GetFlags returns a map of feature flag -> bool. DB setting takes precedence
@@ -33,6 +39,10 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 	result := make(map[string]bool)
 
 	for _, key := range defaultFlags {
+		defaultVal := true
+		if v, ok := defaultFlagValues[key]; ok {
+			defaultVal = v
+		}
 		// Try DB
 		var s models.Setting
 		if err := h.DB.Where("key = ?", key).First(&s).Error; err == nil {
@@ -67,8 +77,8 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 			}
 		}
 
-		// Default true for core optional features
-		result[key] = true
+		// Default based on declared flag value
+		result[key] = defaultVal
 	}
 
 	c.JSON(http.StatusOK, result)

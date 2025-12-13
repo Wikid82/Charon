@@ -120,6 +120,7 @@ example.com {
 **Why:** Charon treats each domain as one proxy, not multiple paths.
 
 **Solution:** Create separate subdomains instead:
+
 - `api.example.com` → localhost:8080
 - `web.example.com` → localhost:3000
 
@@ -180,6 +181,7 @@ Always check the preview carefully. Make sure addresses and ports are correct.
 **Problem:** Your Caddyfile has syntax errors.
 
 **Solution:**
+
 1. Run `caddy validate --config Caddyfile` on your server
 2. Fix any errors it reports
 3. Try importing again

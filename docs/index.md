@@ -1,4 +1,4 @@
-# Welcome to Charon!
+# Welcome to Charon
 
 **You're in the right place.** These guides explain everything in plain English, no technical jargon.
 
@@ -14,8 +14,7 @@
 
 ## �️ Security (Optional)
 
-**[Security Features](security.md)** — Block bad guys, bad countries, or bad behavior
-**[Testing SSL Certificates](acme-staging.md)** — Practice without hitting limits
+**[Security Features](security.md)** — Block bad guys, bad countries, or bad behavior**[Live Logs & Notifications](live-logs-guide.md)** — Real-time security monitoring and alerts**[Testing SSL Certificates](acme-staging.md)** — Practice without hitting limits
 
 ---
 

@@ -68,6 +68,18 @@ func TestRemoteServerService_CRUD(t *testing.T) {
 	assert.NotZero(t, rs.ID)
 	assert.NotEmpty(t, rs.UUID)
 
+	// Test Create with duplicate name (should fail)
+	rs2 := &models.RemoteServer{
+		UUID:     uuid.NewString(),
+		Name:     "Test Server", // Duplicate name
+		Host:     "192.168.1.101",
+		Port:     22,
+		Provider: "manual",
+	}
+	err = service.Create(rs2)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
 	// GetByID
 	fetched, err := service.GetByID(rs.ID)
 	require.NoError(t, err)
@@ -87,10 +99,31 @@ func TestRemoteServerService_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Server", fetchedUpdated.Name)
 
+	// Test Update with conflicting name
+	rs3 := &models.RemoteServer{
+		UUID:     uuid.NewString(),
+		Name:     "Another Server",
+		Host:     "192.168.1.102",
+		Port:     22,
+		Provider: "manual",
+	}
+	require.NoError(t, service.Create(rs3))
+
+	// Try to update rs3 to have the same name as rs
+	rs3.Name = "Updated Server"
+	err = service.Update(rs3)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
 	// List
 	list, err := service.List(false)
 	require.NoError(t, err)
-	assert.Len(t, list, 1)
+	assert.GreaterOrEqual(t, len(list), 2)
+
+	// List with inactive
+	list, err = service.List(true)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(list), 2)
 
 	// Delete
 	err = service.Delete(rs.ID)
