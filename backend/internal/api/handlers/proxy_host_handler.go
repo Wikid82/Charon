@@ -25,6 +25,22 @@ type ProxyHostHandler struct {
 	uptimeService       *services.UptimeService
 }
 
+// safeIntToUint safely converts int to uint, returning false if negative (gosec G115)
+func safeIntToUint(i int) (uint, bool) {
+	if i < 0 {
+		return 0, false
+	}
+	return uint(i), true
+}
+
+// safeFloat64ToUint safely converts float64 to uint, returning false if invalid (gosec G115)
+func safeFloat64ToUint(f float64) (uint, bool) {
+	if f < 0 || f != float64(uint(f)) {
+		return 0, false
+	}
+	return uint(f), true
+}
+
 // NewProxyHostHandler creates a new proxy host handler.
 func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.NotificationService, uptimeService *services.UptimeService) *ProxyHostHandler {
 	return &ProxyHostHandler{
@@ -210,11 +226,13 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		} else {
 			switch t := v.(type) {
 			case float64:
-				id := uint(t)
-				host.CertificateID = &id
+				if id, ok := safeFloat64ToUint(t); ok {
+					host.CertificateID = &id
+				}
 			case int:
-				id := uint(t)
-				host.CertificateID = &id
+				if id, ok := safeIntToUint(t); ok {
+					host.CertificateID = &id
+				}
 			case string:
 				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
 					id := uint(n)
@@ -229,11 +247,13 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		} else {
 			switch t := v.(type) {
 			case float64:
-				id := uint(t)
-				host.AccessListID = &id
+				if id, ok := safeFloat64ToUint(t); ok {
+					host.AccessListID = &id
+				}
 			case int:
-				id := uint(t)
-				host.AccessListID = &id
+				if id, ok := safeIntToUint(t); ok {
+					host.AccessListID = &id
+				}
 			case string:
 				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
 					id := uint(n)
