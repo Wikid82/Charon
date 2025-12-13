@@ -60,6 +60,7 @@ Every session should improve the codebase, not just add to it. Actively refactor
 
 - **Triggers**: Use `feat:`, `fix:`, or `perf:` to trigger Docker builds. `chore:` skips builds.
 - **Beta**: `feature/beta-release` always builds.
+- **History-Rewrite PRs**: If a PR touches files in `scripts/history-rewrite/` or `docs/plans/history_rewrite.md`, the PR description MUST include the history-rewrite checklist from `.github/PULL_REQUEST_TEMPLATE/history-rewrite.md`. This is enforced by CI.
 
 ## ✅ Task Completion Protocol (Definition of Done)
 
