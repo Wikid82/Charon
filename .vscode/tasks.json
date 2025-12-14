@@ -113,14 +113,14 @@
         {
             "label": "Lint: Markdownlint",
             "type": "shell",
-            "command": "npx markdownlint '**/*.md' --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
+            "command": "markdownlint '**/*.md' --ignore node_modules --ignore frontend/node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Lint: Markdownlint (Fix)",
             "type": "shell",
-            "command": "npx markdownlint '**/*.md' --fix --ignore node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
+            "command": "markdownlint '**/*.md' --fix --ignore node_modules --ignore frontend/node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
             "group": "test",
             "problemMatcher": []
         },

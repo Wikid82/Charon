@@ -15,6 +15,7 @@ Trivy has identified CVE-2025-62408 in c-ares 1.34.5-r0. The fix requires rebuil
 **No Dockerfile changes required** - the existing `apk upgrade` command will automatically pull the patched version on the next build.
 
 See the full remediation plan for:
+
 - Root cause analysis
 - CVE details and impact assessment
 - Step-by-step implementation guide

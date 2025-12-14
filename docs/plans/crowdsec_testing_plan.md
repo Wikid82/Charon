@@ -94,27 +94,32 @@ All endpoints are under `/api/v1/admin/crowdsec/` and require authentication.
 **Objective:** Verify CrowdSec can be started via the Security dashboard
 
 **Prerequisites:**
+
 - Charon running with `FEATURE_CERBERUS_ENABLED=true`
 - CrowdSec binary available in container
 
 **Steps:**
+
 1. Navigate to Security Dashboard (`/security`)
 2. Locate CrowdSec status card
 3. Click "Start" button
 4. Observe loading animation
 
 **Expected Results:**
+
 - API returns `{"status": "started", "pid": <number>}`
 - Status changes to "Running"
 - PID file created at `data/crowdsec/crowdsec.pid`
 
 **Curl Command:**
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/start
 ```
 
 **Expected Response:**
+
 ```json
 {"status": "started", "pid": 12345}
 ```
@@ -126,21 +131,25 @@ curl -X POST -b "$COOKIE_FILE" \
 **Objective:** Verify CrowdSec status is correctly reported
 
 **Steps:**
+
 1. After TC-1, check status endpoint
 2. Verify UI shows "Running" badge
 
 **Curl Command:**
+
 ```bash
 curl -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/status
 ```
 
 **Expected Response (when running):**
+
 ```json
 {"running": true, "pid": 12345}
 ```
 
 **Expected Response (when stopped):**
+
 ```json
 {"running": false, "pid": 0}
 ```
@@ -152,28 +161,33 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Verify banned IPs table displays correctly
 
 **Steps:**
+
 1. Navigate to `/security/crowdsec`
 2. Scroll to "Banned IPs" section
 3. Verify table columns: IP, Reason, Duration, Banned At, Source, Actions
 
 **Curl Command (via cscli):**
+
 ```bash
 curl -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/decisions
 ```
 
 **Curl Command (via LAPI - preferred):**
+
 ```bash
 curl -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/decisions/lapi
 ```
 
 **Expected Response (empty):**
+
 ```json
 {"decisions": [], "total": 0}
 ```
 
 **Expected Response (with bans):**
+
 ```json
 {
   "decisions": [
@@ -200,11 +214,13 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Ban a test IP address with custom duration
 
 **Test Data:**
+
 - IP: `192.168.100.100`
 - Duration: `1h`
 - Reason: `Integration test ban`
 
 **Steps:**
+
 1. Navigate to `/security/crowdsec`
 2. Click "Ban IP" button
 3. Enter IP: `192.168.100.100`
@@ -213,6 +229,7 @@ curl -b "$COOKIE_FILE" \
 6. Click "Ban IP"
 
 **Curl Command:**
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   -H "Content-Type: application/json" \
@@ -221,11 +238,13 @@ curl -X POST -b "$COOKIE_FILE" \
 ```
 
 **Expected Response:**
+
 ```json
 {"status": "banned", "ip": "192.168.100.100", "duration": "1h"}
 ```
 
 **Validation:**
+
 ```bash
 # Verify via decisions list
 curl -b "$COOKIE_FILE" \
@@ -239,11 +258,13 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Confirm banned IP appears in the UI table
 
 **Steps:**
+
 1. After TC-4, refresh the page or observe real-time update
 2. Verify table shows the new ban entry
 3. Check columns display correct data
 
 **Expected Table Row:**
+
 | IP | Reason | Duration | Banned At | Source | Actions |
 |----|--------|----------|-----------|--------|---------|
 | 192.168.100.100 | manual ban: Integration test ban | 1h | (timestamp) | manual | [Unban] |
@@ -255,18 +276,21 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Remove ban from test IP
 
 **Steps:**
+
 1. In Banned IPs table, find `192.168.100.100`
 2. Click "Unban" button
 3. Confirm in modal dialog
 4. Observe IP removed from table
 
 **Curl Command:**
+
 ```bash
 curl -X DELETE -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/ban/192.168.100.100
 ```
 
 **Expected Response:**
+
 ```json
 {"status": "unbanned", "ip": "192.168.100.100"}
 ```
@@ -278,16 +302,19 @@ curl -X DELETE -b "$COOKIE_FILE" \
 **Objective:** Confirm IP no longer appears in banned list
 
 **Steps:**
+
 1. After TC-6, verify table no longer shows the IP
 2. Query decisions endpoint to confirm
 
 **Curl Command:**
+
 ```bash
 curl -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/decisions
 ```
 
 **Expected Response:**
+
 - IP `192.168.100.100` not present in decisions array
 
 ---
@@ -297,22 +324,26 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Export CrowdSec configuration as tar.gz
 
 **Steps:**
+
 1. Navigate to `/security/crowdsec`
 2. Click "Export" button
 3. Verify file downloads with timestamp filename
 
 **Curl Command:**
+
 ```bash
 curl -b "$COOKIE_FILE" -o crowdsec-export.tar.gz \
   http://localhost:8080/api/v1/admin/crowdsec/export
 ```
 
 **Expected Response:**
+
 - HTTP 200 with `Content-Type: application/gzip`
 - `Content-Disposition: attachment; filename=crowdsec-config-YYYYMMDD-HHMMSS.tar.gz`
 - Valid tar.gz archive containing config files
 
 **Validation:**
+
 ```bash
 tar -tzf crowdsec-export.tar.gz
 # Should list config files
@@ -325,15 +356,18 @@ tar -tzf crowdsec-export.tar.gz
 **Objective:** Import a CrowdSec configuration package
 
 **Prerequisites:**
+
 - Export file from TC-8 or test config archive
 
 **Steps:**
+
 1. Navigate to `/security/crowdsec`
 2. Select file for import
 3. Click "Import" button
 4. Verify backup created and config applied
 
 **Curl Command:**
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   -F "file=@crowdsec-export.tar.gz" \
@@ -341,6 +375,7 @@ curl -X POST -b "$COOKIE_FILE" \
 ```
 
 **Expected Response:**
+
 ```json
 {"status": "imported", "backup": "data/crowdsec.backup.YYYYMMDD-HHMMSS"}
 ```
@@ -352,17 +387,20 @@ curl -X POST -b "$COOKIE_FILE" \
 **Objective:** Verify LAPI connectivity status
 
 **Curl Command:**
+
 ```bash
 curl -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/lapi/health
 ```
 
 **Expected Response (healthy):**
+
 ```json
 {"healthy": true, "lapi_url": "http://127.0.0.1:8085", "status": 200}
 ```
 
 **Expected Response (unhealthy):**
+
 ```json
 {"healthy": false, "error": "LAPI unreachable", "lapi_url": "http://127.0.0.1:8085"}
 ```
@@ -374,21 +412,25 @@ curl -b "$COOKIE_FILE" \
 **Objective:** Verify CrowdSec can be stopped
 
 **Steps:**
+
 1. With CrowdSec running, click "Stop" button
 2. Verify status changes to "Stopped"
 
 **Curl Command:**
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   http://localhost:8080/api/v1/admin/crowdsec/stop
 ```
 
 **Expected Response:**
+
 ```json
 {"status": "stopped"}
 ```
 
 **Validation:**
+
 - PID file removed from `data/crowdsec/`
 - Status endpoint returns `{"running": false, "pid": 0}`
 
@@ -397,6 +439,7 @@ curl -X POST -b "$COOKIE_FILE" \
 ## Integration Test Script Requirements
 
 ### Script Location
+
 `scripts/crowdsec_decision_integration.sh`
 
 ### Script Outline
@@ -668,41 +711,50 @@ func TestCrowdsecDecisionsIntegration(t *testing.T) {
 ## Error Scenarios
 
 ### Invalid IP Format
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   -H "Content-Type: application/json" \
   -d '{"ip": "invalid-ip"}' \
   http://localhost:8080/api/v1/admin/crowdsec/ban
 ```
+
 **Expected:** HTTP 400 or underlying cscli error
 
 ### Missing IP Parameter
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   -H "Content-Type: application/json" \
   -d '{"duration": "1h"}' \
   http://localhost:8080/api/v1/admin/crowdsec/ban
 ```
+
 **Expected:** HTTP 400 `{"error": "ip is required"}`
 
 ### Empty IP String
+
 ```bash
 curl -X POST -b "$COOKIE_FILE" \
   -H "Content-Type: application/json" \
   -d '{"ip": "   "}' \
   http://localhost:8080/api/v1/admin/crowdsec/ban
 ```
+
 **Expected:** HTTP 400 `{"error": "ip cannot be empty"}`
 
 ### CrowdSec Not Available
+
 When `cscli` is not in PATH:
 **Expected:** HTTP 200 with `{"decisions": [], "error": "cscli not available or failed"}`
 
 ### Export When No Config
+
 ```bash
 # When data/crowdsec doesn't exist
 curl -b "$COOKIE_FILE" http://localhost:8080/api/v1/admin/crowdsec/export
 ```
+
 **Expected:** HTTP 404 `{"error": "crowdsec config not found"}`
 
 ---
