@@ -81,12 +81,7 @@ charon.db
 *~
 .DS_Store
 *.xcf
-# VS Code - ignore settings but keep shared configs
-.vscode/*
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-.vscode.backup*/
+
 
 # -----------------------------------------------------------------------------
 # Logs & Temp Files
