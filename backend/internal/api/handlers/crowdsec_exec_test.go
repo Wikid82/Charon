@@ -126,8 +126,8 @@ func TestDefaultCrowdsecExecutor_Stop_NoPidFile(t *testing.T) {
 
 	err := exec.Stop(context.Background(), tmpDir)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "pid file read")
+	// Stop should be idempotent - no PID file means already stopped
+	assert.NoError(t, err)
 }
 
 func TestDefaultCrowdsecExecutor_Stop_InvalidPid(t *testing.T) {
@@ -139,8 +139,12 @@ func TestDefaultCrowdsecExecutor_Stop_InvalidPid(t *testing.T) {
 
 	err := exec.Stop(context.Background(), tmpDir)
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid pid")
+	// Stop should clean up malformed PID file and succeed
+	assert.NoError(t, err)
+
+	// Verify PID file was cleaned up
+	_, statErr := os.Stat(filepath.Join(tmpDir, "crowdsec.pid"))
+	assert.True(t, os.IsNotExist(statErr), "PID file should be removed after Stop with invalid PID")
 }
 
 func TestDefaultCrowdsecExecutor_Stop_NonExistentProcess(t *testing.T) {
@@ -152,8 +156,26 @@ func TestDefaultCrowdsecExecutor_Stop_NonExistentProcess(t *testing.T) {
 
 	err := exec.Stop(context.Background(), tmpDir)
 
-	// Should fail with signal error
-	assert.Error(t, err)
+	// Stop should be idempotent - stale PID file means process already dead
+	assert.NoError(t, err)
+
+	// Verify PID file was cleaned up
+	_, statErr := os.Stat(filepath.Join(tmpDir, "crowdsec.pid"))
+	assert.True(t, os.IsNotExist(statErr), "Stale PID file should be cleaned up after Stop")
+}
+
+func TestDefaultCrowdsecExecutor_Stop_Idempotent(t *testing.T) {
+	exec := NewDefaultCrowdsecExecutor()
+	tmpDir := t.TempDir()
+
+	// Stop should succeed even when called multiple times
+	err1 := exec.Stop(context.Background(), tmpDir)
+	err2 := exec.Stop(context.Background(), tmpDir)
+	err3 := exec.Stop(context.Background(), tmpDir)
+
+	assert.NoError(t, err1)
+	assert.NoError(t, err2)
+	assert.NoError(t, err3)
 }
 
 func TestDefaultCrowdsecExecutor_Start_InvalidBinary(t *testing.T) {
