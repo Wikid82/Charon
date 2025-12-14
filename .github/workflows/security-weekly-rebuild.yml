@@ -122,7 +122,7 @@ jobs:
           echo "Checking key security packages:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           docker run --rm --entrypoint "" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
-            sh -c "apk info c-ares curl libcurl openssl" >> $GITHUB_STEP_SUMMARY
+            sh -c "apk update >/dev/null 2>&1 && apk info c-ares curl libcurl openssl" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Create security scan summary
