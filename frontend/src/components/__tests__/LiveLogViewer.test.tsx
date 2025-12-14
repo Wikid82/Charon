@@ -406,7 +406,7 @@ describe('LiveLogViewer', () => {
       // Use findBy queries (built-in waiting) instead of single waitFor with multiple assertions
       // This avoids race conditions where one failing assertion causes the entire block to retry
       await screen.findByText('10.0.0.1');
-      await screen.findByText(/BLOCKED: SQL injection detected/);
+      await screen.findByText(/🚫 BLOCKED: SQL injection detected/);
       await screen.findByText(/\[SQL injection detected\]/);
 
       // For getAllByText, keep in waitFor but separate from other assertions
