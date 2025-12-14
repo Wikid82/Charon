@@ -488,6 +488,96 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 // ============================================
+// LAPI Availability Check Retry Tests
+// ============================================
+
+// TestCheckLAPIAvailable_Retries verifies that checkLAPIAvailable retries 3 times with delays.
+func TestCheckLAPIAvailable_Retries(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
+			{out: []byte("ok"), err: nil},                     // Attempt 3: success
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	// Track start time to verify delays
+	start := time.Now()
+	err := svc.checkLAPIAvailable(context.Background())
+	elapsed := time.Since(start)
+
+	require.NoError(t, err, "should succeed on 3rd attempt")
+	require.Equal(t, 3, exec.callCount(), "should make 3 attempts")
+
+	// Verify delays were applied (should be at least 4 seconds: 2s + 2s delays)
+	require.GreaterOrEqual(t, elapsed, 4*time.Second, "should wait at least 4 seconds with 2 retries")
+
+	// Verify all calls were lapi status checks
+	for _, call := range exec.calls {
+		require.Contains(t, call.args, "lapi")
+		require.Contains(t, call.args, "status")
+	}
+}
+
+// TestCheckLAPIAvailable_RetriesExhausted verifies proper error message when all retries fail.
+func TestCheckLAPIAvailable_RetriesExhausted(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 3: fail
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	err := svc.checkLAPIAvailable(context.Background())
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "after 3 attempts")
+	require.Contains(t, err.Error(), "5-10 seconds")
+	require.Equal(t, 3, exec.callCount(), "should make exactly 3 attempts")
+}
+
+// TestCheckLAPIAvailable_FirstAttemptSuccess verifies no retries when LAPI is immediately available.
+func TestCheckLAPIAvailable_FirstAttemptSuccess(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: []byte("ok"), err: nil}, // Attempt 1: success
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	start := time.Now()
+	err := svc.checkLAPIAvailable(context.Background())
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, exec.callCount(), "should make only 1 attempt")
+
+	// Should complete quickly without delays
+	require.Less(t, elapsed, 1*time.Second, "should complete immediately")
+}
+
+// ============================================
 // LAPI Availability Check Tests
 // ============================================
 
@@ -500,7 +590,9 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 			out []byte
 			err error
 		}{
-			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 1
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 2
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 3
 		},
 	}
 	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
@@ -512,10 +604,10 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Local API is not running")
-	require.Contains(t, err.Error(), "Security dashboard")
+	require.Contains(t, err.Error(), "after 3 attempts")
 
-	// Verify that we called lapi status (first call)
-	require.Equal(t, 1, exec.callCount())
+	// Verify that we retried lapi status check 3 times
+	require.Equal(t, 3, exec.callCount())
 	require.Contains(t, exec.calls[0].args, "lapi")
 	require.Contains(t, exec.calls[0].args, "status")
 }

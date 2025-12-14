@@ -148,7 +148,7 @@ describe('Security page', () => {
 
     vi.mocked(api.getSecurityStatus).mockResolvedValue(baseStatus as SecurityStatus)
     vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
-    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue(undefined)
+    vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
     renderWithProviders(<Security />)

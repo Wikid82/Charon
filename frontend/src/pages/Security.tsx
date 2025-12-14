@@ -86,11 +86,13 @@ export default function Security() {
     mutationFn: async (enabled: boolean) => {
       await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
       if (enabled) {
-        await startCrowdsec()
+        toast.info('Starting CrowdSec... This may take up to 30 seconds')
+        const result = await startCrowdsec()
+        return result
       } else {
         await stopCrowdsec()
+        return { enabled: false }
       }
-      return enabled
     },
     onMutate: async (enabled: boolean) => {
       await queryClient.cancelQueries({ queryKey: ['security-status'] })
@@ -114,11 +116,20 @@ export default function Security() {
       toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
       fetchCrowdsecStatus()
     },
-    onSuccess: async (enabled: boolean) => {
+    onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
       await fetchCrowdsecStatus()
       queryClient.invalidateQueries({ queryKey: ['security-status'] })
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success(enabled ? 'CrowdSec started' : 'CrowdSec stopped')
+
+      if (typeof result === 'object' && result.lapi_ready === true) {
+        toast.success('CrowdSec started and LAPI is ready')
+      } else if (typeof result === 'object' && result.lapi_ready === false) {
+        toast.warning('CrowdSec started but LAPI is still initializing. Please wait before enrolling.')
+      } else if (typeof result === 'object' && result.enabled === false) {
+        toast.success('CrowdSec stopped')
+      } else {
+        toast.success('CrowdSec started')
+      }
     },
   })
 

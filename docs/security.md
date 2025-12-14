@@ -68,10 +68,35 @@ Restart again. Now bad guys actually get blocked.
 1. Navigate to **Security** dashboard in the sidebar
 2. Find the **CrowdSec** card
 3. Toggle the switch to **ON**
-4. Wait 10-15 seconds for the Local API (LAPI) to start
+4. **Wait 5-15 seconds** for the Local API (LAPI) to start
 5. Verify the status badge shows "Active" with a running PID
 
-✅ That's it! CrowdSec starts automatically and begins blocking bad IPs.
+**What happens during startup:**
+
+When you toggle CrowdSec ON, Charon:
+
+1. Starts the CrowdSec process
+2. Loads configuration, parsers, and security scenarios
+3. Initializes the Local API (LAPI) on port 8085
+4. Polls LAPI health every 500ms for up to 30 seconds
+5. Returns one of two states:
+   - ✅ **LAPI Ready** — "CrowdSec started and LAPI is ready" — You can immediately proceed to console enrollment
+   - ⚠️ **LAPI Initializing** — "CrowdSec started but LAPI is still initializing" — Wait 10 more seconds before enrolling
+
+**Expected timing:**
+
+- **Initial start:** 5-10 seconds
+- **First start after container restart:** 10-15 seconds
+- **Maximum wait:** 30 seconds (with automatic health checks)
+
+**What you'll see in the UI:**
+
+- **Loading overlay** with message "Starting CrowdSec... This may take up to 30 seconds"
+- **Success toast** when LAPI is ready
+- **Warning toast** if LAPI needs more time
+- **Status badge** changes from "Offline" → "Starting" → "Active"
+
+✅ That's it! CrowdSec starts automatically and begins blocking bad IPs once LAPI is ready.
 
 ⚠️ **DEPRECATED:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
 
@@ -86,16 +111,51 @@ Restart again. Now bad guys actually get blocked.
 ✅ **Feature flag enabled** — `crowdsec_console_enrollment` must be ON
 ✅ **Valid enrollment token** — Obtain from crowdsec.net
 
+**Understanding LAPI Readiness:**
+
+When you enable CrowdSec, the backend returns a response with a `lapi_ready` field:
+
+```json
+{
+  "status": "started",
+  "pid": 203,
+  "lapi_ready": true
+}
+```
+
+- **`lapi_ready: true`** — LAPI is fully initialized and ready for enrollment
+- **`lapi_ready: false`** — CrowdSec is running, but LAPI is still starting up (wait 10 seconds)
+
+**Checking LAPI Status Manually:**
+
+```bash
+# Quick status check
+docker exec charon cscli lapi status
+
+# Expected output when ready:
+# ✓ You can successfully interact with Local API (LAPI)
+
+# Health endpoint check
+docker exec charon curl -s http://localhost:8085/health
+
+# Expected response:
+# {"status":"up"}
+```
+
 **Enrollment Steps:**
 
-1. Ensure CrowdSec is **enabled** and **LAPI is running** (check prerequisites above)
-2. Navigate to **Cerberus → CrowdSec**
-3. Enable the feature flag `crowdsec_console_enrollment` if not already enabled
-4. Click **Enroll with CrowdSec Console**
-5. Paste the enrollment key from crowdsec.net
-6. Click **Submit**
-7. Wait for confirmation (this may take 30-60 seconds)
-8. Verify your instance appears on crowdsec.net dashboard
+1. **Ensure CrowdSec is enabled** and **LAPI is running** (check prerequisites above)
+2. **Verify LAPI readiness** — Check the success toast message:
+   - ✅ "CrowdSec started and LAPI is ready" → Proceed immediately
+   - ⚠️ "LAPI is still initializing" → Wait 10 more seconds
+3. Navigate to **Cerberus → CrowdSec**
+4. Enable the feature flag `crowdsec_console_enrollment` if not already enabled
+5. Click **Enroll with CrowdSec Console**
+6. Paste the enrollment key from crowdsec.net
+7. Click **Submit**
+8. **Automatic retry** — Charon checks LAPI availability (3 attempts, 2 seconds apart)
+9. Wait for confirmation (this may take 30-60 seconds)
+10. Verify your instance appears on crowdsec.net dashboard
 
 **Important Notes:**
 
@@ -110,26 +170,51 @@ Restart again. Now bad guys actually get blocked.
 If enrollment shows "enrolled" locally but doesn't appear on crowdsec.net:
 
 1. **Check LAPI status:**
+
    ```bash
    docker exec charon cscli lapi status
    ```
+
    Expected: `✓ You can successfully interact with Local API (LAPI)`
 
-2. **If LAPI is not running:**
-   - Go to Security dashboard
-   - Toggle CrowdSec OFF, then ON
-   - Wait 15 seconds
-   - Re-check LAPI status
+2. **Check LAPI health endpoint:**
 
-3. **Re-submit enrollment token:**
+   ```bash
+   docker exec charon curl -s http://localhost:8085/health
+   ```
+
+   Expected: `{"status":"up"}`
+
+3. **If LAPI is not running:**
+   - Go to Security dashboard
+   - Toggle CrowdSec **OFF**, then **ON**
+   - **Wait 15 seconds** (LAPI needs time to initialize)
+   - Re-check LAPI status
+   - Verify you see the success toast: "CrowdSec started and LAPI is ready"
+
+4. **Re-submit enrollment token:**
    - Same token works (enrollment tokens are reusable)
    - Go to Cerberus → CrowdSec
    - Paste token and submit again
+   - Charon automatically retries LAPI checks (3 attempts, 2s apart)
 
-4. **Check logs:**
+5. **Check logs:**
+
    ```bash
-   docker logs charon | grep crowdsec
+   docker logs charon | grep -i crowdsec
    ```
+
+   Look for:
+   - ✅ "CrowdSec Local API listening" — LAPI started
+   - ✅ "enrollment successful" — Registration completed
+   - ❌ "LAPI not available" — LAPI not ready (retry after waiting)
+   - ❌ "enrollment failed" — Check enrollment token validity
+
+6. **If enrollment keeps failing:**
+   - Verify your server has internet access to `api.crowdsec.net`
+   - Check firewall rules allow outbound HTTPS connections
+   - Ensure enrollment token is valid (check crowdsec.net)
+   - Try generating a new enrollment token
 
 See also: [CrowdSec Troubleshooting Guide](troubleshooting/crowdsec.md)
 

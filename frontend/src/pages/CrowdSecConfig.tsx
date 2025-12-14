@@ -49,12 +49,23 @@ export default function CrowdSecConfig() {
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
   const navigate = useNavigate()
+  const [initialCheckComplete, setInitialCheckComplete] = useState(false)
+
+  // Add initial delay to avoid false negative when LAPI is starting
+  useEffect(() => {
+    if (consoleEnrollmentEnabled && !initialCheckComplete) {
+      const timer = setTimeout(() => {
+        setInitialCheckComplete(true)
+      }, 3000) // Wait 3 seconds before first check
+      return () => clearTimeout(timer)
+    }
+  }, [consoleEnrollmentEnabled, initialCheckComplete])
 
   // Add LAPI status check with polling
   const lapiStatusQuery = useQuery({
     queryKey: ['crowdsec-lapi-status'],
     queryFn: statusCrowdsec,
-    enabled: consoleEnrollmentEnabled,
+    enabled: consoleEnrollmentEnabled && initialCheckComplete,
     refetchInterval: 5000, // Poll every 5 seconds
     retry: false,
   })
@@ -584,23 +595,37 @@ export default function CrowdSecConfig() {
             )}
 
             {/* Warning when CrowdSec LAPI is not running */}
-            {!lapiStatusQuery.data?.running && (
+            {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
                 <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-yellow-200 font-medium mb-2">
-                    CrowdSec Local API is not running
+                    CrowdSec Local API is initializing...
                   </p>
                   <p className="text-xs text-yellow-300 mb-3">
-                    Please enable CrowdSec using the toggle switch in the Security dashboard before enrolling in the Console.
+                    The CrowdSec process is running but the Local API (LAPI) is still starting up.
+                    This typically takes 5-10 seconds after enabling CrowdSec.
+                    {lapiStatusQuery.isRefetching && ' Checking again in 5 seconds...'}
                   </p>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => navigate('/security')}
-                  >
-                    Go to Security Dashboard
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => lapiStatusQuery.refetch()}
+                      disabled={lapiStatusQuery.isRefetching}
+                    >
+                      Check Now
+                    </Button>
+                    {!status?.crowdsec?.enabled && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => navigate('/security')}
+                      >
+                        Go to Security Dashboard
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -652,11 +677,11 @@ export default function CrowdSecConfig() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => submitConsoleEnrollment(false)}
-                disabled={isConsolePending || !lapiStatusQuery.data?.running || !enrollmentToken.trim()}
+                disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.running) || !enrollmentToken.trim()}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-enroll-btn"
                 title={
-                  !lapiStatusQuery.data?.running
+                  lapiStatusQuery.data && !lapiStatusQuery.data.running
                     ? 'CrowdSec LAPI must be running to enroll'
                     : !enrollmentToken.trim()
                     ? 'Enrollment token is required'
@@ -668,11 +693,11 @@ export default function CrowdSecConfig() {
               <Button
                 variant="secondary"
                 onClick={() => submitConsoleEnrollment(true)}
-                disabled={isConsolePending || !canRotateKey || !lapiStatusQuery.data?.running}
+                disabled={isConsolePending || !canRotateKey || (lapiStatusQuery.data && !lapiStatusQuery.data.running)}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-rotate-btn"
                 title={
-                  !lapiStatusQuery.data?.running
+                  lapiStatusQuery.data && !lapiStatusQuery.data.running
                     ? 'CrowdSec LAPI must be running to rotate key'
                     : undefined
                 }
@@ -683,11 +708,11 @@ export default function CrowdSecConfig() {
                 <Button
                   variant="secondary"
                   onClick={() => submitConsoleEnrollment(true)}
-                  disabled={isConsolePending || !lapiStatusQuery.data?.running}
+                  disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.running)}
                   isLoading={enrollConsoleMutation.isPending}
                   data-testid="console-retry-btn"
                   title={
-                    !lapiStatusQuery.data?.running
+                    lapiStatusQuery.data && !lapiStatusQuery.data.running
                       ? 'CrowdSec LAPI must be running to retry enrollment'
                       : undefined
                   }

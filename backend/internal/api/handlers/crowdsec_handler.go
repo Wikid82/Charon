@@ -181,15 +181,59 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 	return out
 }
 
-// Start starts the CrowdSec process.
+// Start starts the CrowdSec process and waits for LAPI to be ready.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	ctx := c.Request.Context()
+
+	// Start the process
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "started", "pid": pid})
+
+	// Wait for LAPI to be ready (with timeout)
+	lapiReady := false
+	maxWait := 30 * time.Second
+	pollInterval := 500 * time.Millisecond
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		// Check LAPI status using cscli
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+		}
+
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+
+		if err == nil {
+			lapiReady = true
+			break
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	if !lapiReady {
+		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "started",
+			"pid":        pid,
+			"lapi_ready": false,
+			"warning":    "Process started but LAPI initialization may take additional time",
+		})
+		return
+	}
+
+	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "started",
+		"pid":        pid,
+		"lapi_ready": true,
+	})
 }
 
 // Stop stops the CrowdSec process.

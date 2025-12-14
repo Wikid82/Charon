@@ -9,9 +9,11 @@
 ## 🎯 Key Findings
 
 ### Critical Discovery
+
 The `CHARON_SECURITY_CROWDSEC_MODE` environment variable is **LEGACY/DEPRECATED** technical debt from when Charon supported external CrowdSec instances (no longer supported). Now that Charon offers the **import config option**, CrowdSec should be **entirely GUI-controlled**, but the code still checks environment variables.
 
 ### Root Cause Chain
+
 1. User enables CrowdSec via GUI → Database updated (`security.crowdsec.enabled = true`)
 2. Backend sees CrowdSec enabled and allows Console enrollment
 3. **BUT** `docker-entrypoint.sh` checks `SECURITY_CROWDSEC_MODE` environment variable
@@ -20,12 +22,14 @@ The `CHARON_SECURITY_CROWDSEC_MODE` environment variable is **LEGACY/DEPRECATED*
 6. User sees "enrolled" in UI but nothing appears on crowdsec.net
 
 ### Why This is an Architecture Problem
+
 - **WAF, ACL, and Rate Limiting** are all GUI-controlled via Settings table
 - **CrowdSec** still has legacy environment variable checks in entrypoint script
 - Backend has proper `Start()` and `Stop()` handlers but they're not integrated with container lifecycle
 - This creates inconsistent UX where GUI toggle doesn't actually control the service
 
 ### Impact
+
 - **ALL users** attempting Console enrollment are affected
 - **Not a configuration issue** - users cannot fix this without workaround
 - **Technical debt** preventing proper GUI-based security orchestration
@@ -51,6 +55,7 @@ The CrowdSec console enrollment appears successful locally (green checkmark in C
 ### Current Architecture (INCORRECT)
 
 **Environment Variable Dependency:**
+
 ```bash
 # docker-entrypoint.sh checks this legacy env var:
 SECURITY_CROWDSEC_MODE=${CERBERUS_SECURITY_CROWDSEC_MODE:-${CHARON_SECURITY_CROWDSEC_MODE:-$CPM_SECURITY_CROWDSEC_MODE}}
@@ -61,6 +66,7 @@ fi
 ```
 
 **The Problem:**
+
 - User enables CrowdSec via GUI → `security.crowdsec.enabled = true` in database
 - Backend sees CrowdSec enabled and allows enrollment
 - But `docker-entrypoint.sh` checks **environment variable**, not database
@@ -73,16 +79,19 @@ fi
 **How Other Security Features Work (Pattern to Follow):**
 
 WAF, Rate Limiting, and ACL are all **GUI-controlled** through the Settings table:
+
 - `security.waf.enabled` → Controls WAF mode
 - `security.rate_limit.enabled` → Controls rate limiting
 - `security.acl.enabled` → Controls ACL mode
 
 These settings are read by:
+
 1. **Backend handlers** via `security_handler.go:GetStatus()`
 2. **Caddy config generator** via `caddy/manager.go:computeEffectiveFlags()`
 3. **Frontend** via API calls to `/api/v1/security/status`
 
 **CrowdSec Should Follow Same Pattern:**
+
 - GUI toggle → `security.crowdsec.enabled` in Settings table
 - Backend reads setting and manages CrowdSec process lifecycle
 - No environment variable dependency
@@ -90,11 +99,13 @@ These settings are read by:
 ### Import Config Feature (Why External Mode is Deprecated)
 
 The import config feature (`importCrowdsecConfig`) allows users to:
+
 1. Upload a complete CrowdSec configuration (tar.gz)
 2. Import pre-configured settings, collections, and bouncers
 3. Manage CrowdSec entirely through Charon's GUI
 
 **This replaced the need for "external" mode:**
+
 - Old way: Set `CROWDSEC_MODE=external` and point to external LAPI
 - New way: Import your existing config and let Charon manage it internally
 
@@ -105,6 +116,7 @@ The import config feature (`importCrowdsecConfig`) allows users to:
 ### Environment Status (Verified Dec 14, 2025)
 
 **✅ CAPI Registration:** Working
+
 ```bash
 $ docker exec charon cscli capi status
 ✓ Loaded credentials from /etc/crowdsec/online_api_credentials.yaml
@@ -112,18 +124,21 @@ $ docker exec charon cscli capi status
 ```
 
 **❌ LAPI Status:** NOT RUNNING
+
 ```bash
 $ docker exec charon cscli lapi status
 ✗ Error: dial tcp 127.0.0.1:8085: connection refused
 ```
 
 **❌ CrowdSec Agent:** NOT RUNNING
+
 ```bash
 $ docker exec charon ps aux | grep crowdsec
 (no processes found)
 ```
 
 **Environment Variables:**
+
 ```bash
 CHARON_SECURITY_CROWDSEC_MODE=disabled  # ← THIS IS THE PROBLEM
 ```
@@ -160,16 +175,19 @@ fi
 ```
 
 **Current State:**
+
 - GUI setting: `security.crowdsec.enabled = true` (in database)
 - Environment: `CHARON_SECURITY_CROWDSEC_MODE=disabled`
 - Result: LAPI NOT RUNNING
 
 **Correct Architecture:**
+
 - CrowdSec should be started/stopped by **backend handlers** (`Start()` and `Stop()` methods)
 - The GUI toggle should call these handlers, just like WAF and ACL
 - No environment variable checks in entrypoint script
 
 **Console Enrollment REQUIRES:**
+
 1. CrowdSec agent running
 2. Local API (LAPI) running on port 8085
 3. Active connection between LAPI and Console API (api.crowdsec.net)
@@ -258,6 +276,7 @@ Set the legacy environment variable to match the GUI state:
 **Step 1: Enable CrowdSec Local Mode (Environment Variable)**
 
 Update `docker-compose.yml` or `docker-compose.override.yml`:
+
 ```yaml
 services:
   charon:
@@ -266,24 +285,28 @@ services:
 ```
 
 **Step 2: Recreate Container**
+
 ```bash
 docker compose down
 docker compose up -d
 ```
 
 **Step 3: Verify LAPI is Running**
+
 ```bash
 # Wait 30 seconds for LAPI to start
 docker exec charon cscli lapi status
 ```
 
 Expected output:
+
 ```
 ✓ Loaded credentials from /etc/crowdsec/local_api_credentials.yaml
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **Step 4: Re-submit Enrollment Token**
+
 - Go to Charon UI → Cerberus → CrowdSec
 - Submit enrollment token (same token works!)
 - Verify instance appears on crowdsec.net dashboard
@@ -366,6 +389,7 @@ const crowdsecPowerMutation = useMutation({
 ```
 
 **Testing:**
+
 1. Remove env var from docker-compose.yml
 2. Start container (CrowdSec should NOT auto-start)
 3. Toggle CrowdSec in GUI (should start LAPI)
@@ -402,6 +426,7 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 ```
 
 Update `Enroll()` method:
+
 ```go
 // Before: if err := s.ensureCAPIRegistered(ctx); err != nil {
 if err := s.checkLAPIAvailable(ctx); err != nil {
@@ -469,6 +494,7 @@ const crowdsecStatusQuery = useQuery({
 **Solution:** Update docs to reflect GUI-only control, mark env vars as deprecated
 **Time:** 30 minutes
 **Files affected:**
+
 - `docs/security.md`
 - `docs/cerberus.md`
 - `docs/troubleshooting/crowdsec.md`
@@ -477,12 +503,14 @@ const crowdsecStatusQuery = useQuery({
 **Changes Needed:**
 
 1. **Mark Environment Variables as Deprecated:**
+
    ```md
    ⚠️ **DEPRECATED:** `CHARON_SECURITY_CROWDSEC_MODE` environment variable is no longer used.
    CrowdSec is now controlled via the GUI in the Security dashboard.
    ```
 
 2. **Add GUI Control Instructions:**
+
    ```md
    ## Enabling CrowdSec
 
@@ -495,6 +523,7 @@ const crowdsecStatusQuery = useQuery({
    ```
 
 3. **Update Console Enrollment Prerequisites:**
+
    ```md
    ## Console Enrollment Prerequisites
 
@@ -509,6 +538,7 @@ const crowdsecStatusQuery = useQuery({
    ```bash
    docker exec charon cscli lapi status
    ```
+
    ```
 
 ---
@@ -540,6 +570,7 @@ environment:
 ### Step 1: Remove Environment Variable
 
 Edit your `docker-compose.yml` and remove:
+
 ```yaml
 # REMOVE THIS LINE:
 - CHARON_SECURITY_CROWDSEC_MODE=local
@@ -561,6 +592,7 @@ docker compose up -d
 ### Step 4: Re-enroll Console (If Applicable)
 
 If you were enrolled in CrowdSec Console before:
+
 1. Your enrollment is preserved in the database
 2. No action needed unless enrollment was incomplete
 
@@ -574,12 +606,15 @@ If you were enrolled in CrowdSec Console before:
 ## Troubleshooting
 
 **Q: CrowdSec won't start after toggling?**
+
 - Check logs: `docker logs charon`
 - Verify config exists: `docker exec charon ls -la /app/data/crowdsec/config`
 
 **Q: Console enrollment fails?**
+
 - Verify LAPI is running: `docker exec charon cscli lapi status`
 - Check enrollment prerequisites in [docs/security.md](security.md)
+
 ```
 
 ---
@@ -619,6 +654,7 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 ```
 
 **Integration Test Script:**
+
 ```bash
 #!/bin/bash
 # scripts/crowdsec_lifecycle_test.sh
@@ -759,6 +795,7 @@ echo "✅ All GUI lifecycle tests passed"
 ### Manual Testing (For User - Workaround)
 
 1. **Set Environment Variable (Temporary)**
+
    ```bash
    # docker-compose.override.yml
    environment:
@@ -766,11 +803,13 @@ echo "✅ All GUI lifecycle tests passed"
    ```
 
 2. **Restart Container**
+
    ```bash
    docker compose down && docker compose up -d
    ```
 
 3. **Verify LAPI Running**
+
    ```bash
    docker exec charon cscli lapi status
    # Should show: "You can successfully interact with Local API (LAPI)"
@@ -791,16 +830,19 @@ echo "✅ All GUI lifecycle tests passed"
 ### Post-Fix Validation
 
 1. **Remove Environment Variable**
+
    ```bash
    # Ensure CHARON_SECURITY_CROWDSEC_MODE is NOT set
    ```
 
 2. **Start Container**
+
    ```bash
    docker compose up -d
    ```
 
 3. **Verify CrowdSec NOT Running**
+
    ```bash
    docker exec charon cscli lapi status
    # Should show: "connection refused"
@@ -811,6 +853,7 @@ echo "✅ All GUI lifecycle tests passed"
    - Wait 10 seconds
 
 5. **Verify LAPI Started**
+
    ```bash
    docker exec charon cscli lapi status
    # Should show: "successfully interact"
@@ -825,6 +868,7 @@ echo "✅ All GUI lifecycle tests passed"
    - Wait 5 seconds
 
 8. **Verify LAPI Stopped**
+
    ```bash
    docker exec charon cscli lapi status
    # Should show: "connection refused"
@@ -835,15 +879,18 @@ echo "✅ All GUI lifecycle tests passed"
 ## Files Requiring Changes
 
 ### Backend (Go)
+
 1. ✅ `docker-entrypoint.sh` - Remove env var check, initialize config only
 2. ✅ `backend/internal/crowdsec/console_enroll.go` - Add LAPI availability check
 3. ⚠️ `backend/internal/api/handlers/crowdsec_handler.go` - Already has Start/Stop (verify works)
 
 ### Frontend (TypeScript)
+
 1. ✅ `frontend/src/pages/CrowdSecConfig.tsx` - Add LAPI status warning
 2. ⚠️ `frontend/src/pages/Security.tsx` - Already calls start/stop (verify integration)
 
 ### Documentation
+
 1. ✅ `docs/security.md` - Remove env var instructions, add GUI instructions
 2. ✅ `docs/cerberus.md` - Mark env vars deprecated
 3. ✅ `docs/troubleshooting/crowdsec.md` - Update enrollment prerequisites
@@ -852,10 +899,12 @@ echo "✅ All GUI lifecycle tests passed"
 6. ✅ `docker-compose.yml` - Comment out deprecated env var
 
 ### Testing
+
 1. ✅ `backend/internal/crowdsec/console_enroll_test.go` - Add LAPI requirement test
 2. ✅ `scripts/crowdsec_lifecycle_test.sh` - New integration test for GUI control
 
 ### Configuration (Already Correct)
+
 1. ⚠️ `backend/internal/models/security_config.go` - CrowdSecMode field exists (DB)
 2. ⚠️ `backend/internal/api/handlers/security_handler.go` - Already reads from DB
 3. ⚠️ `frontend/src/api/crowdsec.ts` - Start/stop API calls already exist
@@ -865,20 +914,24 @@ echo "✅ All GUI lifecycle tests passed"
 ## Risk Assessment
 
 ### Low Risk Changes
+
 - ✅ Documentation updates
 - ✅ Frontend UI warnings
 - ✅ Backend LAPI availability check
 
 ### Medium Risk Changes
+
 - ⚠️ Removing env var logic from entrypoint (requires thorough testing)
 - ⚠️ Integration test for GUI lifecycle
 
 ### High Risk Areas (Existing Functionality - Verify)
+
 - ⚠️ Backend Start/Stop handlers (already exist, need to verify)
 - ⚠️ Frontend toggle integration (already exists, need to verify)
 - ⚠️ CrowdSec config persistence across restarts
 
 ### Migration Considerations
+
 - Users with `CHARON_SECURITY_CROWDSEC_MODE=local` set will need to:
   1. Remove environment variable
   2. Enable via GUI toggle
@@ -899,16 +952,19 @@ If the architectural changes cause issues:
 ## Files Inspected During Investigation
 
 ### Configuration ✅
+
 - `docker-compose.yml` - Volume mounts correct
 - `docker-entrypoint.sh` - Conditional CrowdSec startup logic
 - `Dockerfile` - CrowdSec installed correctly
 
 ### Backend ✅
+
 - `backend/internal/crowdsec/console_enroll.go` - Enrollment flow logic
 - `backend/internal/models/crowdsec_console_enrollment.go` - Database model
 - `backend/internal/api/handlers/crowdsec_handler.go` - API endpoint
 
 ### Runtime Verification ✅
+
 - `/etc/crowdsec` → `/app/data/crowdsec/config` (symlink correct)
 - `/app/data/crowdsec/config/online_api_credentials.yaml` exists (CAPI registered)
 - `/app/data/crowdsec/config/console.yaml` exists
@@ -922,6 +978,7 @@ If the architectural changes cause issues:
 **Root Cause (Updated with Architectural Analysis):** Console enrollment fails because of **architectural technical debt** - the legacy environment variable `CHARON_SECURITY_CROWDSEC_MODE` still controls LAPI startup in `docker-entrypoint.sh`, bypassing the GUI control system that users expect.
 
 **The Real Problem:** This is NOT a user configuration issue. It's a **code architecture issue** where:
+
 1. CrowdSec control was never fully migrated to GUI-based management
 2. The entrypoint script still checks deprecated environment variables
 3. Backend handlers (`Start()`/`Stop()`) exist but aren't properly integrated with container startup
@@ -930,6 +987,7 @@ If the architectural changes cause issues:
 **Immediate Fix (User Workaround):** Set `CHARON_SECURITY_CROWDSEC_MODE=local` environment variable to match GUI state.
 
 **Proper Fix (Development Required):**
+
 1. **CRITICAL:** Remove environment variable dependency from `docker-entrypoint.sh`
 2. **CRITICAL:** Ensure backend handlers control CrowdSec lifecycle (GUI → API → Process)
 3. **HIGH:** Add LAPI availability check before enrollment (prevents silent failures)
