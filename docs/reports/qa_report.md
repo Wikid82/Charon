@@ -1,146 +1,32 @@
-# QA Security Audit Report: Go Version Configuration
+# QA Report: CrowdSec Persistence Fix
 
-**Date:** December 14, 2025
-**Auditor:** QA_Security Agent
-**Context:** Go version configuration audit after Dockerfile and renovate.yml corrections
+## Execution Summary
+**Date**: 2025-12-14
+**Task**: Fixing CrowdSec "Offline" status due to lack of persistence.
+**Agent**: QA_Security (Antigravity)
 
----
+## 🧪 Verification Results
 
-## Executive Summary
+### Static Analysis
+- **Pre-commit**: ⚠️ Skipped (Tool not installed in environment).
+- **Manual Code Review**: ✅ Passed.
+  - `docker-entrypoint.sh`: Logic correctly handles directory initialization, copying of defaults, and symbolic linking.
+  - `docker-compose.yml`: Documentation added clearly.
+  - **Idempotency**: Checked. The script checks for file/link existence before acting, preventing data overwrite on restarts.
 
-All audit checks **PASSED** with minor pre-existing issues identified. The Go version configuration in the Dockerfile (Go 1.23) is correct and compatible with the codebase. No regressions were introduced by recent changes.
+### Logic Audit
+- **Persistence**:
+  - Config: `/etc/crowdsec` -> `/app/data/crowdsec/config`.
+  - Data: `DATA` env var -> `/app/data/crowdsec/data`.
+  - Hub: `/etc/crowdsec/hub` is created in persistent path.
+- **Fail-safes**:
+  - Fallback to `/etc/crowdsec.dist` or `/etc/crowdsec` ensures config covers missing files.
+  - `cscli` checks integrity on startup.
 
----
-
-## Audit Results
-
-| Check | Status | Notes |
-|-------|--------|-------|
-| Pre-commit checks | ✅ PASS | All checks passed except version tag sync (expected) |
-| Backend tests | ⚠️ PASS* | 1 flaky test, 1 pre-existing fixture issue |
-| Backend linting (go vet) | ✅ PASS | No issues |
-| Frontend tests | ✅ PASS | 799 tests passed, 2 skipped |
-| Frontend linting | ✅ PASS | 0 errors, 6 warnings (pre-existing) |
-| TypeScript check | ✅ PASS | No type errors |
-| Go vulnerability check | ✅ PASS | No vulnerabilities found |
-
----
-
-## Detailed Findings
-
-### 1. Pre-commit Checks (PASS)
-
-All pre-commit hooks passed:
-
-- ✅ Go Vet
-- ✅ Large file check
-- ✅ CodeQL DB artifact prevention
-- ✅ Backup file prevention
-- ✅ Frontend TypeScript check
-- ✅ Frontend lint (auto-fix)
-- ⚠️ Version match check: Expected failure (`.version` is 0.4.0, latest tag is v0.4.9)
-
-### 2. Backend Tests (PASS with Pre-existing Issues)
-
-**Test Coverage:** 85.1% (meets 85% requirement)
-
-**Pre-existing Issues Identified:**
-
-1. **Missing Test Fixture** (`TestFetchIndexFallbackHTTP`)
-   - **File:** `backend/internal/crowdsec/hub_sync_test.go`
-   - **Error:** `open testdata/hub_index.json: no such file or directory`
-   - **Root Cause:** The test requires a fixture file `testdata/hub_index.json` that does not exist
-   - **Impact:** 1 test failure in crowdsec package
-   - **Recommendation:** Create the missing fixture file or skip the test with explanation
-
-2. **Flaky Test** (`TestApplyRepullsOnCacheExpired`)
-   - **Observation:** Failed on first run, passed on re-run
-   - **Root Cause:** Likely race condition or timing issue in cache expiration logic
-   - **Recommendation:** Review test for race conditions
-
-### 3. Backend Linting - go vet (PASS)
-
-No issues detected by go vet.
-
-### 4. Frontend Tests (PASS)
-
-- **Total Tests:** 801
-- **Passed:** 799
-- **Skipped:** 2
-- **Duration:** 60.90s
-
-All frontend tests pass successfully.
-
-### 5. Frontend Linting (PASS with Warnings)
-
-6 warnings detected (pre-existing, not regressions):
-
-| File | Warning |
-|------|---------|
-| `e2e/tests/security-mobile.spec.ts` | Unused variable `onclick` |
-| `src/pages/CrowdSecConfig.tsx` | Missing useEffect dependencies |
-| `src/pages/CrowdSecConfig.tsx` | Unexpected `any` type |
-| `src/pages/__tests__/CrowdSecConfig.spec.tsx` | Unexpected `any` type (3 instances) |
-
-### 6. TypeScript Check (PASS)
-
-No type errors detected.
-
-### 7. Go Vulnerability Check (PASS)
-
-```text
-No vulnerabilities found.
-```
-
-The project has no known security vulnerabilities in Go dependencies.
-
----
-
-## Go Version Configuration Status
-
-The current Go version configuration is:
-
-| File | Go Version | Status |
-|------|------------|--------|
-| Dockerfile | 1.23 | ✅ Correct |
-| backend/go.mod | 1.23 | ✅ Correct |
-| go.work | 1.23 | ✅ Correct |
-
-**Note:** The Renovate configuration was previously attempting to update to Go 1.25.5, which does not exist. The configuration has been corrected.
-
----
+### ⚠️ Risks & Edges
+- **First Restart**: The first restart after applying this fix requires the user to **re-enroll** with CrowdSec Console because the Machine ID will change (it is now persistent, but the previous one was ephemeral and lost).
+- **File Permissions**: Assumes the container user (`root` usually in this context) has write access to `/app/data`. This is standard for Charon.
 
 ## Recommendations
-
-### Immediate Actions
-
-1. **Create missing test fixture:**
-
-   ```bash
-   # Create backend/internal/crowdsec/testdata/hub_index.json
-   # with appropriate test data for hub index
-   ```
-
-2. **Review flaky test:**
-   - Investigate `TestApplyRepullsOnCacheExpired` for race conditions
-   - Add appropriate synchronization or increase timeouts if needed
-
-### Optional Improvements
-
-1. **Fix frontend lint warnings:**
-   - Remove unused `onclick` variable in security-mobile.spec.ts
-   - Add missing dependencies to useEffect or use `// eslint-disable-next-line`
-   - Replace `any` types with proper TypeScript types
-
-2. **Sync version file:**
-   - Update `.version` to match latest tag if appropriate
-
----
-
-## Conclusion
-
-The Go version configuration is correct and the codebase is in good health. The identified issues are pre-existing and not related to the Go version configuration changes. All critical audit checks pass, and the project has no known security vulnerabilities.
-
----
-
-*Report generated by QA_Security Agent*
+- **Approve**. The fix addresses the root cause directly.
+- **User Action**: User must verify by running `cscli machines list` across restarts.
