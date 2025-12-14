@@ -14,8 +14,11 @@
   "labels": ["dependencies"],
   "rebaseWhen": "conflicted",
   "vulnerabilityAlerts": { "enabled": true },
-  "schedule": ["every weekday"],
+  "schedule": ["before 4am on Monday"],
   "rangeStrategy": "bump",
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": true,
   "customManagers": [
     {
       "customType": "regex",
@@ -29,6 +32,11 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Automerge digest updates (action pins, Docker SHAs)",
+      "matchUpdateTypes": ["digest", "pin"],
+      "automerge": true
+    },
     {
       "description": "Caddy transitive dependency patches in Dockerfile",
       "matchManagers": ["regex"],
@@ -55,7 +63,7 @@
       "matchManagers": ["gomod"],
       "labels": ["dependencies", "go"],
       "matchUpdateTypes": ["minor", "patch"],
-      "automerge": false
+      "automerge": true
     },
     {
       "description": "GitHub Actions updates",
