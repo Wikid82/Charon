@@ -20,10 +20,10 @@ jobs:
           fetch-depth: 1
       - name: Choose Renovate Token
         run: |
-          # Prefer explicit tokens (CHARON_TOKEN > CPMP_TOKEN) if provided; otherwise use the default GITHUB_TOKEN
-          if [ -n "${{ secrets.CHARON_TOKEN }}" ]; then
-            echo "Using CHARON_TOKEN" >&2
-            echo "GITHUB_TOKEN=${{ secrets.CHARON_TOKEN }}" >> $GITHUB_ENV
+          # Prefer explicit tokens (GITHUB_TOKEN > CPMP_TOKEN) if provided; otherwise use the default GITHUB_TOKEN
+          if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
+            echo "Using GITHUB_TOKEN" >&2
+            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
           else
             echo "Using default GITHUB_TOKEN from Actions" >&2
             echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
@@ -32,7 +32,7 @@ jobs:
       - name: Fail-fast if token not set
         run: |
           if [ -z "${{ env.GITHUB_TOKEN }}" ]; then
-            echo "ERROR: No Renovate token provided. Set CHARON_TOKEN, CPMP_TOKEN, or rely on default GITHUB_TOKEN." >&2
+            echo "ERROR: No Renovate token provided. Set GITHUB_TOKEN, CPMP_TOKEN, or rely on default GITHUB_TOKEN." >&2
             exit 1
           fi
 
