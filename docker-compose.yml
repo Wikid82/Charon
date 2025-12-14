@@ -22,6 +22,7 @@ services:
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
       # Security Services (Optional)
+      # To enable integrated CrowdSec, set MODE to 'local'. Data is persisted in /app/data/crowdsec.
       #- CERBERUS_SECURITY_CROWDSEC_MODE=disabled # disabled, local, external (CERBERUS_ preferred; CHARON_/CPM_ still supported)
       #- CERBERUS_SECURITY_CROWDSEC_API_URL= # Required if mode is external
       #- CERBERUS_SECURITY_CROWDSEC_API_KEY= # Required if mode is external

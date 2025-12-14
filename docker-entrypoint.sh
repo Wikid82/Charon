@@ -16,26 +16,36 @@ SECURITY_CROWDSEC_MODE=${CERBERUS_SECURITY_CROWDSEC_MODE:-${CHARON_SECURITY_CROW
 if command -v cscli >/dev/null; then
     echo "Initializing CrowdSec configuration..."
 
-    # Create all required directories
-    mkdir -p /etc/crowdsec
-    mkdir -p /etc/crowdsec/hub
-    mkdir -p /etc/crowdsec/acquis.d
-    mkdir -p /etc/crowdsec/bouncers
-    mkdir -p /etc/crowdsec/notifications
-    mkdir -p /var/lib/crowdsec/data
+    # Define persistent paths
+    CS_PERSIST_DIR="/app/data/crowdsec"
+    CS_CONFIG_DIR="$CS_PERSIST_DIR/config"
+    CS_DATA_DIR="$CS_PERSIST_DIR/data"
+
+    # Ensure persistent directories exist
+    mkdir -p "$CS_CONFIG_DIR"
+    mkdir -p "$CS_DATA_DIR"
     mkdir -p /var/log/crowdsec
     mkdir -p /var/log/caddy
 
-    # Copy base configuration if not exists
-    if [ ! -f "/etc/crowdsec/config.yaml" ]; then
-        echo "Copying base CrowdSec configuration..."
+    # Initialize persistent config if key files are missing
+    if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+        echo "Initializing persistent CrowdSec configuration..."
         if [ -d "/etc/crowdsec.dist" ]; then
-            cp -r /etc/crowdsec.dist/* /etc/crowdsec/ 2>/dev/null || true
+            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/"
+        elif [ -d "/etc/crowdsec" ]; then
+            # Fallback if .dist is missing
+            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/"
         fi
     fi
 
+    # Link /etc/crowdsec to persistent config for runtime compatibility
+    if [ ! -L "/etc/crowdsec" ]; then
+        echo "Relinking /etc/crowdsec to persistent storage..."
+        rm -rf /etc/crowdsec
+        ln -s "$CS_CONFIG_DIR" /etc/crowdsec
+    fi
+
     # Create/update acquisition config for Caddy logs
-    # This is CRITICAL - CrowdSec won't start without datasources
     if [ ! -f "/etc/crowdsec/acquis.yaml" ] || [ ! -s "/etc/crowdsec/acquis.yaml" ]; then
         echo "Creating acquisition configuration for Caddy logs..."
         cat > /etc/crowdsec/acquis.yaml << 'ACQUIS_EOF'
@@ -50,14 +60,12 @@ labels:
 ACQUIS_EOF
     fi
 
-    # Ensure data directories exist
-    mkdir -p /var/lib/crowdsec/data
+    # Ensure hub directory exists in persistent storage
     mkdir -p /etc/crowdsec/hub
 
-    # Perform variable substitution if needed (standard CrowdSec config uses $CFG, $DATA, etc.)
-    # We set standard paths for Alpine/Docker
+    # Perform variable substitution
     export CFG=/etc/crowdsec
-    export DATA=/var/lib/crowdsec/data
+    export DATA="$CS_DATA_DIR"
     export PID=/var/run/crowdsec.pid
     export LOG=/var/log/crowdsec.log
 
