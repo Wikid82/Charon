@@ -18,6 +18,7 @@ In version 1.x, CrowdSec had **inconsistent control**:
 - **CrowdSec:** Environment variable controlled via docker-compose.yml
 
 This created issues:
+
 - ❌ Users had to restart containers to enable/disable CrowdSec
 - ❌ GUI toggle didn't actually control the service
 - ❌ Console enrollment could fail silently when LAPI wasn't running
@@ -45,6 +46,7 @@ grep -i "CROWDSEC_MODE" docker-compose.yml
 ```
 
 If you see any of these:
+
 - `CHARON_SECURITY_CROWDSEC_MODE`
 - `CERBERUS_SECURITY_CROWDSEC_MODE`
 - `CPM_SECURITY_CROWDSEC_MODE`
@@ -63,6 +65,7 @@ If you see any of these:
 ```
 
 Also remove (if present):
+
 ```yaml
 # These are no longer used (external mode removed)
 - CERBERUS_SECURITY_CROWDSEC_API_URL=
@@ -70,6 +73,7 @@ Also remove (if present):
 ```
 
 **Example: Before**
+
 ```yaml
 services:
   charon:
@@ -80,6 +84,7 @@ services:
 ```
 
 **Example: After**
+
 ```yaml
 services:
   charon:
@@ -114,6 +119,7 @@ docker exec charon cscli lapi status
 ```
 
 **Expected output:**
+
 ```
 ✓ You can successfully interact with Local API (LAPI)
 ```
@@ -193,16 +199,19 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 **Solution:**
 
 1. Check container logs:
+
    ```bash
    docker logs charon | grep crowdsec
    ```
 
 2. Verify config directory exists:
+
    ```bash
    docker exec charon ls -la /app/data/crowdsec/config
    ```
 
 3. If missing, restart container:
+
    ```bash
    docker compose restart
    ```
@@ -214,6 +223,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 **Solution:**
 
 1. Verify LAPI is running:
+
    ```bash
    docker exec charon cscli lapi status
    ```
@@ -234,6 +244,7 @@ If enrollment was incomplete in v1.x (common issue), re-enroll now:
 **If you must:**
 
 The legacy environment variables still work in version 2.0 (for backward compatibility), but:
+
 - ⚠️ They will be removed in version 3.0
 - ⚠️ GUI toggle may not reflect actual state
 - ⚠️ You'll encounter issues with Console enrollment
@@ -246,16 +257,19 @@ The legacy environment variables still work in version 2.0 (for backward compati
 **Yes!** Use the Charon API:
 
 **Enable CrowdSec:**
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ```
 
 **Disable CrowdSec:**
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/admin/crowdsec/stop
 ```
 
 **Check status:**
+
 ```bash
 curl http://localhost:8080/api/v1/admin/crowdsec/status
 ```
@@ -269,12 +283,14 @@ See [API Documentation](api.md) for more details.
 If you encounter critical issues after migration, you can temporarily roll back to environment variable control:
 
 1. **Add back the environment variable:**
+
    ```yaml
    environment:
      - CHARON_SECURITY_CROWDSEC_MODE=local
    ```
 
 2. **Restart container:**
+
    ```bash
    docker compose down
    docker compose up -d
@@ -310,6 +326,7 @@ If you encounter critical issues after migration, you can temporarily roll back 
 ✅ **Re-enroll** in Console if needed (same token works)
 
 **Benefits:**
+
 - ⚡ Faster enable/disable (no container restart)
 - 👀 Real-time status visibility
 - 🎯 Consistent with other security features

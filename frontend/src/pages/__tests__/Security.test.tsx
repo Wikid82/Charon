@@ -193,7 +193,7 @@ describe('Security', () => {
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
-      vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ success: true })
+      vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
 
       await renderSecurityPage()
 

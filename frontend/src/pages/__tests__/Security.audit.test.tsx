@@ -30,6 +30,8 @@ vi.mock('../../utils/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
   },
 }))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
@@ -199,11 +201,12 @@ describe('Security Page - QA Security Audit', () => {
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       let callCount = 0
       vi.mocked(crowdsecApi.startCrowdsec).mockImplementation(async () => {
         callCount++
         await new Promise(resolve => setTimeout(resolve, 100))
-        return { success: true }
+        return { status: 'started', pid: 123, lapi_ready: true }
       })
 
       await renderSecurityPage()

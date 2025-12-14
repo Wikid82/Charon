@@ -67,6 +67,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached', cache_key: 'cache-123', etag: 'etag-123' })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true })
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.crowdsec.console_enrollment': false,
     })
@@ -132,8 +133,18 @@ describe('CrowdSecConfig', () => {
     renderWithProviders(<CrowdSecConfig />)
 
     const enrollBtn = await screen.findByTestId('console-enroll-btn')
+
+    // Button should be disabled when enrollment token is empty
+    expect(enrollBtn).toBeDisabled()
+
+    // Type only token (missing agent name, tenant, and ack)
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'token-123')
+
+    // Now button should be enabled, click it
+    await waitFor(() => expect(enrollBtn).not.toBeDisabled())
     await userEvent.click(enrollBtn)
 
+    // Should show validation errors for missing fields
     const errors = await screen.findAllByTestId('console-enroll-error')
     expect(errors.length).toBeGreaterThan(0)
     expect(consoleApi.enrollConsole).not.toHaveBeenCalled()

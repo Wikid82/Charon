@@ -41,33 +41,43 @@ You want your apps accessible online. You don't want to become a networking expe
 ## ✨ Top 10 Features
 
 ### 🎯 **Point & Click Management**
+
 No config files. No terminal commands. Just click, type your domain name, and you're live. If you can use a website, you can run Charon.
 
 ### 🔐 **Automatic HTTPS Certificates**
+
 Free SSL certificates that request, install, and renew themselves. Your sites get the green padlock without you lifting a finger.
 
 ### 🛡️ **Enterprise-Grade Security Built In**
+
 Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
 
 ### 🐳 **Instant Docker Discovery**
+
 Already running apps in Docker? Charon finds them automatically and offers one-click proxy setup. No manual configuration required.
 
 ### 📊 **Real-Time Monitoring & Logs**
+
 See exactly what's happening with live request logs, uptime monitoring, and instant notifications when something goes wrong.
 
 ### 📥 **Migration Made Easy**
+
 Import your existing Caddy configurations with one click. Already invested in another reverse proxy? Bring your work with you.
 
 ### ⚡ **Live Configuration Changes**
+
 Update domains, add security rules, or modify settings instantly—no container restarts needed.* Your sites stay up while you make changes.
 
 ### 🌍 **Multi-App Management**
+
 Run dozens of websites, APIs, or services from a single dashboard. Perfect for homelab enthusiasts and small teams managing multiple projects.
 
 ### 🚀 **Zero-Dependency Deployment**
+
 One Docker container. No databases to install. No external services required. No complexity—just pure simplicity.
 
 ### 💯 **100% Free & Open Source**
+
 No premium tiers. No feature paywalls. No usage limits. Everything you see is yours to use, forever, backed by the MIT license.
 
 <sup>* Note: Initial security engine setup (CrowdSec) requires a one-time container restart to initialize the protection layer. All subsequent changes happen live.</sup>

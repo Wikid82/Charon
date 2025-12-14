@@ -214,16 +214,34 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 
 // checkLAPIAvailable verifies that CrowdSec Local API is running and reachable.
 // This is critical for console enrollment as the enrollment process requires LAPI.
+// It retries up to 3 times with 2-second delays to handle LAPI initialization timing.
 func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
-	args := []string{"lapi", "status"}
-	if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+	maxRetries := 3
+	retryDelay := 2 * time.Second
+
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+		}
+
+		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
+		cancel()
+
+		if err == nil {
+			return nil // LAPI is available
+		}
+
+		lastErr = err
+		if i < maxRetries-1 {
+			logger.Log().WithError(err).WithField("attempt", i+1).Debug("LAPI not ready, retrying")
+			time.Sleep(retryDelay)
+		}
 	}
-	_, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil)
-	if err != nil {
-		return fmt.Errorf("CrowdSec Local API is not running - please enable CrowdSec via the Security dashboard first")
-	}
-	return nil
+
+	return fmt.Errorf("CrowdSec Local API is not running after %d attempts - please wait for LAPI to initialize (typically 5-10 seconds after enabling CrowdSec): %w", maxRetries, lastErr)
 }
 
 func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) error {

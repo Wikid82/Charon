@@ -12,6 +12,7 @@
 ✅ **PASSED** - The CrowdSec architectural refactoring has been successfully implemented and validated. CrowdSec now follows the same GUI-controlled pattern as WAF, ACL, and Rate Limiting features, eliminating the legacy environment variable dependencies.
 
 **Definition of Done Status:** ✅ **MET**
+
 - All pre-commit checks: **PASSED**
 - Backend compilation: **PASSED**
 - Backend tests: **PASSED**
@@ -42,29 +43,37 @@
 ### Phase 2: Backend Testing
 
 **Compilation:**
+
 ```bash
 cd backend && go build ./...
 ```
+
 ✅ **Result:** Compiled successfully with no errors
 
 **Unit Tests:**
+
 ```bash
 cd backend && go test ./...
 ```
+
 ✅ **Result:** All packages passed
+
 - Total: 20 packages tested
 - Failed: 0
 - Skipped: 3 (integration tests requiring external services)
 - Coverage: 85.1%
 
 **Linting:**
+
 ```bash
 cd backend && go vet ./...
 ```
+
 ✅ **Result:** No issues found
 
 **CrowdSec-Specific Tests:**
 All CrowdSec tests in `console_enroll_test.go` pass successfully, including:
+
 - LAPI availability checks
 - Console enrollment success/failure scenarios
 - Error handling with correlation IDs
@@ -73,24 +82,31 @@ All CrowdSec tests in `console_enroll_test.go` pass successfully, including:
 ### Phase 3: Frontend Testing
 
 **Build:**
+
 ```bash
 cd frontend && npm run build
 ```
+
 ✅ **Result:** Build completed successfully
 
 **Type Checking:**
+
 ```bash
 cd frontend && npm run type-check
 ```
+
 ✅ **Result:** TypeScript compilation successful
 
 **Linting:**
+
 ```bash
 cd frontend && npm run lint
 ```
+
 ✅ **Result:** ESLint passed with 6 warnings (0 errors)
 
 **Warnings (Non-blocking):**
+
 1. `e2e/tests/security-mobile.spec.ts:289` - unused variable (test file)
 2. `CrowdSecConfig.tsx:223` - missing useEffect dependencies (acceptable)
 3. `CrowdSecConfig.tsx:765` - explicit any type (intentional for API flexibility)
@@ -105,6 +121,7 @@ cd frontend && npm run lint
 **Verified:** CrowdSec agent is NOT auto-started in entrypoint script
 
 **Evidence:**
+
 - Line 12: `# Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.`
 - Line 113: `# However, the CrowdSec agent is NOT auto-started in the entrypoint.`
 - Line 117: Comment references GUI control via POST endpoints
@@ -116,6 +133,7 @@ cd frontend && npm run lint
 **Verified:** LAPI availability check implemented in `console_enroll.go`
 
 **Evidence:**
+
 - Line 141: `if err := s.checkLAPIAvailable(ctx); err != nil`
 - Line 215-217: `checkLAPIAvailable` function definition
 - Function verifies CrowdSec Local API is running before enrollment
@@ -127,6 +145,7 @@ cd frontend && npm run lint
 **Verified:** Status warnings present in `CrowdSecConfig.tsx`
 
 **Evidence:**
+
 - Line 586: `{/* Warning when CrowdSec LAPI is not running */}`
 - Line 588: Warning banner with data-testid="lapi-warning"
 - Line 850-851: Preset warnings displayed to users
@@ -138,6 +157,7 @@ cd frontend && npm run lint
 **Verified:** Documentation comprehensively updated across multiple files
 
 **Evidence:**
+
 - `docs/features.md`: Line 168 - "CrowdSec is now **GUI-controlled**"
 - `docs/cerberus.md`: Line 144 - Deprecation warning for environment variables
 - `docs/security.md`: Line 76 - Environment variables "**no longer used**"
@@ -151,6 +171,7 @@ cd frontend && npm run lint
 **Verified:** CrowdSec lifecycle handlers remain functional
 
 **Evidence:**
+
 - `crowdsec_handler.go`: Start/Stop/Status endpoints preserved
 - `crowdsec_exec.go`: Executor implementation intact
 - Test coverage maintained for all handlers
@@ -162,6 +183,7 @@ cd frontend && npm run lint
 **Verified:** CrowdSec follows same pattern as WAF/ACL/Rate Limiting
 
 **Evidence:**
+
 - All three features (WAF, ACL, Rate Limiting) are GUI-controlled via Settings table
 - CrowdSec now uses same architecture pattern
 - No environment variable dependencies in critical paths
@@ -173,18 +195,22 @@ cd frontend && npm run lint
 ## Regression Testing
 
 ### ✅ WAF Functionality
+
 - WAF continues to work as GUI-controlled feature
 - No test failures in WAF-related code
 
 ### ✅ ACL Functionality
+
 - ACL continues to work as GUI-controlled feature
 - No test failures in ACL-related code
 
 ### ✅ Rate Limiting
+
 - Rate limiting continues to work as GUI-controlled feature
 - No test failures in rate limiting code
 
 ### ✅ Other Security Features
+
 - All security-related handlers pass tests
 - No regressions detected in security service
 - Break-glass tokens, audit logging, and notifications all functional
@@ -206,6 +232,7 @@ Test fixture file was not included in repository, likely due to `.gitignore` or 
 
 **Fix Applied:**
 Created `hub_index.json` with correct structure:
+
 ```json
 {
   "collections": {
@@ -219,6 +246,7 @@ Created `hub_index.json` with correct structure:
 ```
 
 **Verification:**
+
 - Test now passes: `go test -run TestFetchIndexFallbackHTTP ./internal/crowdsec/`
 - All CrowdSec tests pass: `go test ./internal/crowdsec/`
 
@@ -227,6 +255,7 @@ Created `hub_index.json` with correct structure:
 ## Code Quality Assessment
 
 ### Backend Code Quality: ✅ EXCELLENT
+
 - Test coverage: 85.1% (meets requirement)
 - No go vet issues
 - Clear separation of concerns
@@ -234,12 +263,14 @@ Created `hub_index.json` with correct structure:
 - LAPI availability checks prevent runtime errors
 
 ### Frontend Code Quality: ✅ GOOD
+
 - TypeScript type checking passes
 - ESLint warnings are acceptable (6 non-critical)
 - React hooks dependencies could be optimized (not critical)
 - Clear UI warnings for user guidance
 
 ### Documentation Quality: ✅ EXCELLENT
+
 - Comprehensive coverage of architectural changes
 - Clear deprecation warnings
 - Migration guide provided
@@ -285,6 +316,7 @@ Created `hub_index.json` with correct structure:
 ### ✅ **APPROVED FOR MERGE**
 
 **Justification:**
+
 1. All mandatory checks pass (Definition of Done met)
 2. Architecture successfully refactored to GUI-controlled pattern
 3. No regressions detected in existing functionality

@@ -1208,6 +1208,157 @@ func TestTTLRemainingSecondsZeroTTL(t *testing.T) {
 }
 
 // ============================================
+// Start() LAPI Readiness Tests
+// ============================================
+
+type slowExec struct {
+	lapiStartDelay time.Duration
+	started        bool
+	lapiCallCount  int
+}
+
+func (s *slowExec) Start(ctx context.Context, binPath, configDir string) (int, error) {
+	s.started = true
+	return 12345, nil
+}
+
+func (s *slowExec) Stop(ctx context.Context, configDir string) error {
+	s.started = false
+	return nil
+}
+
+func (s *slowExec) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
+	if s.started {
+		return true, 12345, nil
+	}
+	return false, 0, nil
+}
+
+type lapiCheckExecutor struct {
+	lapiDelayUntilReady time.Duration
+	lapiStartTime       time.Time
+	callCount           int
+}
+
+func (e *lapiCheckExecutor) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	e.callCount++
+	if name == "cscli" && len(args) > 0 && args[len(args)-2] == "lapi" && args[len(args)-1] == "status" {
+		// Check if enough time has passed since start
+		if time.Since(e.lapiStartTime) >= e.lapiDelayUntilReady {
+			return []byte("LAPI is running"), nil
+		}
+		return nil, errors.New("LAPI not ready yet")
+	}
+	return []byte("ok"), nil
+}
+
+func TestCrowdsecHandler_StartWaitsForLAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create executor that simulates 3-second LAPI startup delay
+	lapiExec := &lapiCheckExecutor{
+		lapiDelayUntilReady: 3 * time.Second,
+		lapiStartTime:       time.Now(),
+	}
+
+	slowExec := &slowExec{}
+	h := NewCrowdsecHandler(db, slowExec, "/bin/false", tmpDir)
+	h.CmdExec = lapiExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// Call Start() and measure time
+	start := time.Now()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+	duration := time.Since(start)
+
+	// Verify it waited for LAPI (at least 3 seconds)
+	require.GreaterOrEqual(t, duration, 3*time.Second, "Start() should wait for LAPI")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.True(t, response["lapi_ready"].(bool), "lapi_ready should be true")
+	require.Equal(t, "started", response["status"])
+	require.NotNil(t, response["pid"])
+
+	// Verify LAPI was checked multiple times
+	require.Greater(t, lapiExec.callCount, 1, "LAPI should be polled multiple times")
+}
+
+func TestCrowdsecHandler_StartReturnsWarningIfLAPINotReady(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create executor where LAPI never becomes ready
+	lapiExec := &lapiCheckExecutor{
+		lapiDelayUntilReady: 60 * time.Second, // Will never be ready within 30s timeout
+		lapiStartTime:       time.Now(),
+	}
+
+	slowExec := &slowExec{}
+	h := NewCrowdsecHandler(db, slowExec, "/bin/false", tmpDir)
+	h.CmdExec = lapiExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// Call Start()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should still return 200 but with lapi_ready=false
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.False(t, response["lapi_ready"].(bool), "lapi_ready should be false")
+	require.Equal(t, "started", response["status"])
+	require.Contains(t, response["warning"], "LAPI initialization")
+}
+
+func TestCrowdsecHandler_StartReturnsImmediatelyIfProcessFailsToStart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create executor that fails to start
+	failExec := &failingExec{}
+
+	h := NewCrowdsecHandler(db, failExec, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Should return 500 immediately without waiting for LAPI
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+type failingExec struct{}
+
+func (f *failingExec) Start(ctx context.Context, binPath, configDir string) (int, error) {
+	return 0, errors.New("failed to start process")
+}
+func (f *failingExec) Stop(ctx context.Context, configDir string) error { return nil }
+func (f *failingExec) Status(ctx context.Context, configDir string) (bool, int, error) {
+	return false, 0, nil
+}
+
+// ============================================
 // hubEndpoints Tests
 // ============================================
 
