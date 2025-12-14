@@ -165,11 +165,13 @@ The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
 ### Block Bad IPs Automatically
 
 **What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
-The overview now has a single Start/Stop toggle—no separate mode selector.
+CrowdSec is now **GUI-controlled** through the Security dashboard—no environment variables needed.
 
 **Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
-**What you do:** Add one line to your docker-compose file. See [Security Guide](security.md).
+**What you do:** Toggle the CrowdSec switch in the Security dashboard. That's it! See [Security Guide](security.md).
+
+⚠️ **Note:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE` are **deprecated**. Use the GUI toggle instead.
 
 ### Block Entire Countries
 

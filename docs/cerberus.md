@@ -135,11 +135,21 @@ type SecurityConfig struct {
 If no database config exists, Charon reads from environment:
 
 - `CERBERUS_SECURITY_WAF_MODE` — `disabled` | `monitor` | `block`
-- `CERBERUS_SECURITY_CROWDSEC_MODE` — `disabled` | `local` | `external`
-- `CERBERUS_SECURITY_CROWDSEC_API_URL` — URL for external CrowdSec bouncer
-- `CERBERUS_SECURITY_CROWDSEC_API_KEY` — API key for external bouncer
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_MODE` — Use GUI toggle instead (see below)
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_URL` — External mode is no longer supported
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_KEY` — External mode is no longer supported
 - `CERBERUS_SECURITY_ACL_ENABLED` — `true` | `false`
 - `CERBERUS_SECURITY_RATELIMIT_ENABLED` — `true` | `false`
+
+⚠️ **IMPORTANT:** The `CHARON_SECURITY_CROWDSEC_MODE` (and legacy `CERBERUS_SECURITY_CROWDSEC_MODE`, `CPM_SECURITY_CROWDSEC_MODE`) environment variables are **DEPRECATED** as of version 2.0. CrowdSec is now **GUI-controlled** through the Security dashboard, just like WAF, ACL, and Rate Limiting.
+
+**Why the change?**
+- CrowdSec now works like all other security features (GUI-based)
+- No need to restart containers to enable/disable CrowdSec
+- Better integration with Charon's security orchestration
+- The import config feature replaced the need for external mode
+
+**Migration:** If you have `CHARON_SECURITY_CROWDSEC_MODE=local` in your docker-compose.yml, remove it and use the GUI toggle instead. See [Migration Guide](migration-guide.md) for step-by-step instructions.
 
 ---
 
@@ -254,22 +264,109 @@ Uses MaxMind GeoLite2-Country database:
 
 ## CrowdSec Integration
 
-### Current Status
+### GUI-Based Control (Current Architecture)
 
-**Placeholder.** Configuration models exist but bouncer integration is not yet implemented.
+CrowdSec is now **GUI-controlled**, matching the pattern used by WAF, ACL, and Rate Limiting. The environment variable control (`CHARON_SECURITY_CROWDSEC_MODE`) is **deprecated** and will be removed in a future version.
 
-### Planned Implementation
+### How to Enable CrowdSec
 
-**Local mode:**
+**Step 1: Access Security Dashboard**
 
-- Run CrowdSec agent inside Charon container
-- Parse logs from Caddy
-- Make decisions locally
+1. Navigate to **Security** in the sidebar
+2. Find the **CrowdSec** card
+3. Toggle the switch to **ON**
+4. Wait 10-15 seconds for LAPI to start
+5. Verify status shows "Active" with a running PID
 
-**External mode:**
+**Step 2: Verify LAPI is Running**
 
-- Connect to existing CrowdSec bouncer via API
-- Query IP reputation before allowing requests
+```bash
+docker exec charon cscli lapi status
+```
+
+Expected output:
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+**Step 3: (Optional) Enroll in CrowdSec Console**
+
+Once LAPI is running, you can enroll your instance:
+
+1. Go to **Cerberus → CrowdSec**
+2. Enable the Console enrollment feature flag (if not already enabled)
+3. Click **Enroll with CrowdSec Console**
+4. Paste your enrollment token from crowdsec.net
+5. Submit
+
+**Prerequisites for Console Enrollment:**
+- ✅ CrowdSec must be **enabled** via GUI toggle
+- ✅ LAPI must be **running** (verify with `cscli lapi status`)
+- ✅ Feature flag `feature.crowdsec.console_enrollment` must be enabled
+- ✅ Valid enrollment token from crowdsec.net
+
+⚠️ **Important:** Console enrollment requires an active LAPI connection. If LAPI is not running, the enrollment will appear successful locally but won't register on crowdsec.net.
+
+### How CrowdSec Works in Charon
+
+**Startup Flow:**
+
+1. Container starts → CrowdSec config initialized (but agent NOT started)
+2. User toggles CrowdSec switch in GUI → Frontend calls `/api/v1/admin/crowdsec/start`
+3. Backend handler starts LAPI process → PID tracked in backend
+4. User can verify status in Security dashboard
+5. User toggles OFF → Backend calls `/api/v1/admin/crowdsec/stop`
+
+**This matches the pattern used by other security features:**
+
+| Feature | Control Method | Status Endpoint | Lifecycle Handler |
+|---------|---------------|-----------------|-------------------|
+| **Cerberus** | GUI Toggle | `/security/status` | N/A (master switch) |
+| **WAF** | GUI Toggle | `/security/status` | Config regeneration |
+| **ACL** | GUI Toggle | `/security/status` | Config regeneration |
+| **Rate Limit** | GUI Toggle | `/security/status` | Config regeneration |
+| **CrowdSec** | ✅ GUI Toggle | `/security/status` | Start/Stop handlers |
+
+### Import Config Feature
+
+The import config feature (`importCrowdsecConfig`) allows you to:
+1. Upload a complete CrowdSec configuration (tar.gz)
+2. Import pre-configured settings, collections, and bouncers
+3. Manage CrowdSec entirely through Charon's GUI
+
+**This replaced the need for "external" mode:**
+- **Old way (deprecated):** Set `CROWDSEC_MODE=external` and point to external LAPI
+- **New way:** Import your existing config and let Charon manage it internally
+
+### Troubleshooting
+
+**Problem:** Console enrollment shows "enrolled" locally but doesn't appear on crowdsec.net
+
+**Solution:** LAPI must be running before enrollment. Check with:
+```bash
+docker exec charon cscli lapi status
+```
+
+If LAPI is not running:
+1. Go to Security dashboard
+2. Toggle CrowdSec OFF, then ON again
+3. Wait 15 seconds
+4. Verify LAPI is running
+5. Re-submit enrollment token
+
+**Problem:** CrowdSec won't start after toggling
+
+**Solution:** Check logs:
+```bash
+docker logs charon
+```
+
+Common issues:
+- Config directory missing (should auto-create)
+- Permissions issues (should be handled by entrypoint)
+- Port 8085 already in use (check for conflicting services)
+
+See also: [CrowdSec Troubleshooting Guide](troubleshooting/crowdsec.md)
 
 ---
 

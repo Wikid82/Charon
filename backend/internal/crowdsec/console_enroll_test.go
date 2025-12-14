@@ -76,9 +76,10 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 	require.True(t, status.KeyPresent)
 	require.NotEmpty(t, status.CorrelationID)
 
-	// Expect 2 calls: capi register, then console enroll
-	require.Equal(t, 2, exec.callCount())
-	require.Equal(t, []string{"capi", "register"}, exec.calls[0].args)
+	// Expect 3 calls: lapi status, capi register, then console enroll
+	require.Equal(t, 3, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Equal(t, []string{"capi", "register"}, exec.calls[1].args)
 	require.Equal(t, "abc123def4g", exec.lastArgs()[len(exec.lastArgs())-1])
 
 	var rec models.CrowdsecConsoleEnrollment
@@ -96,6 +97,7 @@ func TestConsoleEnrollFailureRedactsSecret(t *testing.T) {
 			out []byte
 			err error
 		}{
+			{out: nil, err: nil}, // lapi status success
 			{out: nil, err: nil}, // capi register success
 			{out: []byte("invalid secretKEY123"), err: fmt.Errorf("bad key secretKEY123")}, // enroll failure
 		},
@@ -116,13 +118,13 @@ func TestConsoleEnrollIdempotentWhenAlreadyEnrolled(t *testing.T) {
 
 	_, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, 2, exec.callCount()) // capi register + enroll
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "ignoredignored", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
 	require.Equal(t, consoleStatusEnrolled, status.Status)
-	// Should call capi register again (because file missing in temp dir), but then stop because already enrolled
-	require.Equal(t, 3, exec.callCount(), "second call should check capi then stop")
+	// Should call lapi status and capi register again, but then stop because already enrolled
+	require.Equal(t, 5, exec.callCount(), "second call should check lapi, then capi, then stop")
 	require.Equal(t, []string{"capi", "register"}, exec.lastArgs())
 }
 
@@ -136,9 +138,11 @@ func TestConsoleEnrollBlockedWhenInProgress(t *testing.T) {
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant", AgentName: "agent"})
 	require.Error(t, err)
 	require.Equal(t, consoleStatusEnrolling, status.Status)
-	// capi register is called before status check
-	require.Equal(t, 1, exec.callCount())
-	require.Equal(t, []string{"capi", "register"}, exec.lastArgs())
+	// lapi status and capi register are called before status check blocks enrollment
+	require.Equal(t, 2, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Contains(t, exec.calls[0].args, "status")
+	require.Equal(t, []string{"capi", "register"}, exec.calls[1].args)
 }
 
 func TestConsoleEnrollNormalizesFullCommand(t *testing.T) {
@@ -149,7 +153,7 @@ func TestConsoleEnrollNormalizesFullCommand(t *testing.T) {
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "sudo cscli console enroll cmj0r0uer000202lebd5luvxh", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
 	require.Equal(t, consoleStatusEnrolled, status.Status)
-	require.Equal(t, 2, exec.callCount())
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 	require.Equal(t, "cmj0r0uer000202lebd5luvxh", exec.lastArgs()[len(exec.lastArgs())-1])
 }
 
@@ -181,7 +185,7 @@ func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
 	require.Equal(t, consoleStatusEnrolled, status.Status)
 
 	// Verify that --tenant is NOT passed to the command arguments
-	require.Equal(t, 2, exec.callCount())
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 	require.NotContains(t, exec.lastArgs(), "--tenant")
 	// Also verify that the tenant value itself is not passed as a standalone arg just in case
 	require.NotContains(t, exec.lastArgs(), "some-tenant-id")
@@ -310,7 +314,8 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 				out []byte
 				err error
 			}{
-				{out: nil, err: nil},                                    // capi register success
+				{out: nil, err: nil}, // lapi status success
+				{out: nil, err: nil}, // capi register success
 				{out: []byte("error"), err: fmt.Errorf("enroll failed")}, // enroll failure
 			},
 		}
@@ -480,4 +485,37 @@ func TestEncryptDecrypt(t *testing.T) {
 		encrypted2, _ := svc.encrypt(original)
 		require.NotEqual(t, encrypted1, encrypted2, "encryptions should use different nonces")
 	})
+}
+
+// ============================================
+// LAPI Availability Check Tests
+// ============================================
+
+// TestEnroll_RequiresLAPI verifies that enrollment fails with proper error when LAPI is not running.
+// This ensures users get clear feedback to enable CrowdSec via GUI before attempting enrollment.
+func TestEnroll_RequiresLAPI(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails
+		},
+	}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	_, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{
+		EnrollmentKey: "test123token",
+		AgentName:     "agent",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Local API is not running")
+	require.Contains(t, err.Error(), "Security dashboard")
+
+	// Verify that we called lapi status (first call)
+	require.Equal(t, 1, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Contains(t, exec.calls[0].args, "status")
 }

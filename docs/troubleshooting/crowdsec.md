@@ -22,9 +22,9 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
 - Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
-- **Security Engine Offline**: If your dashboard says "Offline", it means your Charon instance forgot who it was after a restart.
-  - **Fix**: Update Charon. Ensure `CERBERUS_SECURITY_CROWDSEC_MODE=local` is set in `docker-compose.yml`.
-  - **Action**: Enroll your instance one last time. It will now remember its identity across restarts.
+- **Security Engine Offline**: If your dashboard says "Offline", it means CrowdSec LAPI is not running.
+  - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
+  - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
 
 ## Tips
 
@@ -34,9 +34,73 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
 
 ## Console Enrollment
 
+### Prerequisites
+
+Before attempting Console enrollment, ensure:
+
+✅ **CrowdSec is enabled** — Toggle must be ON in Security dashboard
+✅ **LAPI is running** — Check with: `docker exec charon cscli lapi status`
+✅ **Feature flag enabled** — `feature.crowdsec.console_enrollment` must be ON
+✅ **Valid token** — Obtain from crowdsec.net
+
 ### "missing login field" or CAPI errors
 
 Charon automatically attempts to register your instance with CrowdSec's Central API (CAPI) before enrolling. Ensure your server has internet access to `api.crowdsec.net`.
+
+### Enrollment shows "enrolled" but not on crowdsec.net
+
+**Root cause:** LAPI was not running when enrollment was attempted.
+
+**Solution:**
+
+1. Verify LAPI status:
+   ```bash
+   docker exec charon cscli lapi status
+   ```
+
+2. If LAPI is not running:
+   - Go to Security dashboard
+   - Toggle CrowdSec OFF
+   - Wait 5 seconds
+   - Toggle CrowdSec ON
+   - Wait 15 seconds
+   - Re-check LAPI status
+
+3. Re-submit enrollment token (same token works!)
+
+### CrowdSec won't start via GUI toggle
+
+**Solution:**
+
+1. Check container logs:
+   ```bash
+   docker logs charon | grep -i crowdsec
+   ```
+
+2. Verify config directory:
+   ```bash
+   docker exec charon ls -la /app/data/crowdsec/config
+   ```
+
+3. If missing, restart container:
+   ```bash
+   docker compose restart
+   ```
+
+4. Remove any deprecated environment variables from docker-compose.yml:
+   ```yaml
+   # REMOVE THESE:
+   - CHARON_SECURITY_CROWDSEC_MODE=local
+   - CERBERUS_SECURITY_CROWDSEC_MODE=local
+   ```
+
+5. Restart and try GUI toggle again
+
+### Environment Variable Migration
+
+🚨 **DEPRECATED:** The `CHARON_SECURITY_CROWDSEC_MODE` environment variable is no longer used.
+
+If you have this in your docker-compose.yml, remove it and use the GUI toggle instead. See [Migration Guide](../migration-guide.md) for step-by-step instructions.
 
 ### Configuration File
 
