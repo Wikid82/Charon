@@ -498,73 +498,79 @@ We will add a scripted integration test to run inside CI or locally with Docker.
   ```json
   {"name":"default","enabled":true,"rate_limit_enable":true,"rate_limit_requests":3,"rate_limit_window_sec":10,"rate_limit_burst":1}
   ```
- - Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
- - Execute the runtime checks:
-  - Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
-  - The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
-  - On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
-  - Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
 
- - Bypass List Validation:
-  - Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
+- Validate that Caddy Admin API at `http://localhost:2019/config` includes a `rate_limit` handler and, where applicable, a `subroute` with bypass CIDRs (if `RateLimitBypassList` set).
+- Execute the runtime checks:
+- Using a single client IP, send 3 requests in quick succession expecting HTTP 200.
+- The 4th request (same client IP) should return HTTP 429 (Too Many Requests) and include a `Retry-After` header.
+- On allowed responses, assert that `X-RateLimit-Limit` equals 3 and `X-RateLimit-Remaining` decrements.
+- Wait until the configured `RateLimitWindowSec` elapses, and confirm requests are allowed again (headers reset).
 
- - Multi-IP Isolation:
-  - Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
+- Bypass List Validation:
+- Set `RateLimitBypassList` to contain the requester's IP (or `127.0.0.1/32` when client runs from the host). Confirm repeated requests do not get `429`, and `X-RateLimit-*` headers may be absent or indicate non-enforcement.
 
- - X-Forwarded-For behavior (Confirm remote.host is used as key):
-  - Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
+- Multi-IP Isolation:
+- Spin up two client containers with different IPs (via Docker network `--subnet` + `--ip`). Each should have independent counters; both able to make configured number requests without affecting the other.
 
- - Test Example (Shell Snippet to assert headers)
+- X-Forwarded-For behavior (Confirm remote.host is used as key):
+- Send requests with `X-Forwarded-For` different than the container IP; observe rate counters still use the connection IP unless Caddy remote_ip plugin explicitly configured to respect XFF.
+
+- Test Example (Shell Snippet to assert headers)
+
   ```bash
   # Single request driver - check headers
   curl -s -D - -o /dev/null -H "Host: ratelimit.local" http://localhost/post
   # Expect headers: X-RateLimit-Limit: 3, X-RateLimit-Remaining: <number>
   ```
 
- - Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
+- Script name: `scripts/rate_limit_integration.sh` (mirrors style of `coraza_integration.sh`).
 
- - Manage flaky behavior:
-  - Retry a couple times and log Caddy admin API output on failure for debugging.
-+
+- Manage flaky behavior:
+- Retry a couple times and log Caddy admin API output on failure for debugging.
+-
+
 2.3.4 E2E Tests (Longer, optional)
+
 - Create `scripts/rate_limit_e2e.sh` which spins up the same environment but runs broader scenarios:
- - High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
- - Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
- - SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
+- High-rate bursts (WindowSec small and Requests small) to test burst allowance/consumption.
+- Multi-minute stress run (not for every CI pass) to check long-term behavior and reset across windows.
+- SPA / browser test using Playwright / Cypress to validate UI controls (admin toggles rate limit presets and sets bypass list) and ensures that applied config is effective at runtime.
 
 2.3.5 Mock/Stub Guidance
+
 - IP Addresses
- - Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
- - For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
+- Use Docker network subnets and `docker run --network containers_default --ip 172.25.0.10` to guarantee client IP addresses for tests and to exercise bypass list behavior.
+- For tests run from host with `curl`, include `--interface` or `--local-port` if needed to force source IP (less reliable than container-based approach).
 - X-Forwarded-For
- - Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
+- Add `-H "X-Forwarded-For: 10.0.0.5"` to `curl` requests; assert that plugin uses real connection IP by default. If future changes enable `real_ip` handling in Caddy, tests should be updated to reflect the new behavior.
 - Timing Windows
- - Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
+- Keep small values (2-10 seconds) while maintaining reliability (1s windows are often flaky). For CI environment, `RateLimitWindowSec=10` with `RateLimitRequests=3` and `Burst=1` is a stable, fast choice.
 
 2.3.6 Test Data and Assertions (Explicit)
+
 - Unit Test: `TestBuildRateLimitHandler_ValidConfig`
- - Input: secCfg{Requests:100, WindowSec:60, Burst:25}
- - Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
+- Input: secCfg{Requests:100, WindowSec:60, Burst:25}
+- Assert: `h["handler"] == "rate_limit"`, `static".max_events == 100`, `burst == 25`.
 
 - Integration Test: `TestRateLimit_Enforcement_Basic`
- - Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
- - Actions: Send 4 rapid requests using client container
- - Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
- - Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
+- Input: RateLimitRequests=3, RateLimitWindowSec=10, Burst=1, no bypass list
+- Actions: Send 4 rapid requests using client container
+- Expected outputs: [200, 200, 200, 429], 4th returns Retry-After or explicit block message
+- Assert: Allowed responses include `X-RateLimit-Limit: 3`, and `X-RateLimit-Remaining` decreasing
 
 - Integration Test: `TestRateLimit_BypassList_SkipsLimit`
- - Input: Same as above + `RateLimitBypassList` contains client IP CIDR
- - Expected outputs: All requests 200 (no 429)
+- Input: Same as above + `RateLimitBypassList` contains client IP CIDR
+- Expected outputs: All requests 200 (no 429)
 
 - Integration Test: `TestRateLimit_MultiClient_Isolation`
- - Input: As above
- - Actions: Client A sends 3 requests, Client B sends 3 requests
- - Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
+- Input: As above
+- Actions: Client A sends 3 requests, Client B sends 3 requests
+- Expected: Both clients unaffected by the other; both get 200 responses for their first 3 requests
 
 - Integration Test: `TestRateLimit_Window_Reset`
- - Input: As above
- - Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
- - Expected: New request is 200 again
+- Input: As above
+- Actions: Exhaust quota (get 429), wait `RateLimitWindowSec + 1`, issue a new request
+- Expected: New request is 200 again
 
 2.3.7 Test Harness - Example Go Integration Test
 Use the same approach as `backend/integration/coraza_integration_test.go`, run the script and check output for expected messages. Example test file: `backend/integration/rate_limit_integration_test.go`:
@@ -608,14 +614,14 @@ func TestRateLimitIntegration(t *testing.T) {
 2.3.9 .gitignore / .codecov.yml / Dockerfile changes
 
 - .gitignore
- 	- Add `test-results/rate_limit/` to avoid committing local script logs.
- 	- Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
+  - Add `test-results/rate_limit/` to avoid committing local script logs.
+  - Add `scripts/rate_limit_integration.sh` output files (if any) to ignore.
 - .codecov.yml
- 	- Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
+  - Optional: If you want integration test coverage included, remove `**/integration/**` from `ignore` or add a specific `backend/integration/*_test.go` to be included. (Caveat: integration coverage may not be reproducible across CI).
 - .dockerignore
- 	- Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
+  - Ensure `scripts/` and `backend/integration` are not copied to reduce build context size if not needed in Docker build.
 - Dockerfile
- 	- Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
+  - Confirm presence of `--with github.com/mholt/caddy-ratelimit` in the xcaddy build (it is present in base Dockerfile). Add comment and assert plugin presence in integration script by checking `caddy version` or `caddy list` available modules.
 
 2.3.10 Prioritization
 

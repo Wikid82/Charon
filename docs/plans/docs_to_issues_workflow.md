@@ -672,6 +672,7 @@ docs/
 ### 7.2 Issue Tracking
 
 Each created issue includes footer:
+
 ```markdown
 ---
 *Auto-created from [filename.md](link-to-source-commit)*
@@ -746,17 +747,20 @@ console.log(JSON.stringify(result.data, null, 2));
 ## 10. Implementation Phases
 
 ### Phase 1: Setup (15 min)
+
 1. Create `.github/workflows/docs-to-issues.yml`
 2. Create `docs/issues/created/.gitkeep`
 3. Create `docs/issues/_TEMPLATE.md`
 4. Create `docs/issues/README.md`
 
 ### Phase 2: File Migration (30 min)
+
 1. Add frontmatter to existing files (in order of priority)
 2. Test with dry_run mode
 3. Create one test issue to verify
 
 ### Phase 3: Validation (15 min)
+
 1. Verify issue creation
 2. Verify label creation
 3. Verify project board integration

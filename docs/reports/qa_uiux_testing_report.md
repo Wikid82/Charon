@@ -26,11 +26,13 @@
 **Command**: `npm run test`
 
 ### Results
+
 - **Test Files**: 87 passed (87)
 - **Tests**: 799 passed, 2 skipped (801)
 - **Duration**: ~58 seconds
 
 ### Test Categories
+
 | Category | Test Files | Description |
 |----------|------------|-------------|
 | Security Page | 6 files | Dashboard, loading overlays, error handling, spec tests |
@@ -41,6 +43,7 @@
 | Utils | 6 files | Utility function tests |
 
 ### Notable Test Suites
+
 - **Security.loading.test.tsx**: 12 tests verifying loading overlay behavior
 - **Security.dashboard.test.tsx**: 18 tests for security dashboard card status
 - **Security.errors.test.tsx**: 13 tests for error handling and toast notifications
@@ -54,6 +57,7 @@
 **Command**: `npm run type-check`
 
 ### Results
+
 - **Status**: ✅ Passed
 - **Errors**: 0
 - **Compiler**: `tsc --noEmit`
@@ -87,6 +91,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 | data/ | 93.33% | 100% | 80% | 95.83% |
 
 ### High Coverage Files (100%)
+
 - `api/accessLists.ts`
 - `api/backups.ts`
 - `api/certificates.ts`
@@ -105,6 +110,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 **Command**: `pre-commit run --all-files`
 
 ### Results
+
 | Hook | Status |
 |------|--------|
 | Go Vet | ✅ Passed |
@@ -117,6 +123,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 | Frontend Lint (Fix) | ✅ Passed |
 
 ### Backend Coverage
+
 - **Backend Coverage**: 85.2% (minimum required: 85%)
 - **Status**: ✅ Coverage requirement met
 
@@ -127,6 +134,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 **Command**: `npx markdownlint-cli2 "docs/**/*.md" "*.md"`
 
 ### Results
+
 - **Status**: ✅ Passed
 - **Errors**: 0 in project files
 - **Note**: External pip package files (in `.venv/lib/`) showed 4 warnings which are expected and not part of the project codebase
@@ -138,6 +146,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 **Command**: `npm run lint`
 
 ### Results
+
 - **Errors**: 0
 - **Warnings**: 6
 
@@ -148,7 +157,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 | e2e/tests/security-mobile.spec.ts | 289 | @typescript-eslint/no-unused-vars | 'onclick' assigned but never used |
 | src/pages/CrowdSecConfig.tsx | 212 | react-hooks/exhaustive-deps | Missing dependencies in useEffect |
 | src/pages/CrowdSecConfig.tsx | 715 | @typescript-eslint/no-explicit-any | Unexpected any type |
-| src/pages/__tests__/CrowdSecConfig.spec.tsx | 258, 284, 317 | @typescript-eslint/no-explicit-any | Unexpected any type (test file) |
+| src/pages/**tests**/CrowdSecConfig.spec.tsx | 258, 284, 317 | @typescript-eslint/no-explicit-any | Unexpected any type (test file) |
 
 **Note**: These warnings are non-critical and relate to existing code patterns. The `any` types in test files are acceptable for mocking purposes. The missing dependencies warning is a common pattern for intentional effect behavior.
 
@@ -159,6 +168,7 @@ All TypeScript types are valid and properly defined across the frontend codebase
 ### No Critical Issues
 
 All primary QA checks passed. The project maintains:
+
 - ✅ High test coverage (89.45% frontend, 85.2% backend)
 - ✅ Type safety with zero TypeScript errors
 - ✅ Code quality standards enforced via pre-commit

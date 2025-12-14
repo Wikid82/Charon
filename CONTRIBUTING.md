@@ -41,7 +41,7 @@ git clone https://github.com/YOUR_USERNAME/charon.git
 cd charon
 ```
 
-3. Add the upstream remote:
+1. Add the upstream remote:
 
 ```bash
 git remote add upstream https://github.com/Wikid82/charon.git
@@ -265,7 +265,7 @@ go test ./...
 npm test -- --run
 ```
 
-2. **Check code quality:**
+1. **Check code quality:**
 
 ```bash
 # Go formatting
@@ -275,9 +275,9 @@ go fmt ./...
 npm run lint
 ```
 
-3. **Update documentation** if needed
-4. **Add tests** for new functionality
-5. **Rebase on latest development** branch
+1. **Update documentation** if needed
+2. **Add tests** for new functionality
+3. **Rebase on latest development** branch
 
 ### Submitting a Pull Request
 
@@ -287,10 +287,10 @@ npm run lint
 git push origin feature/your-feature-name
 ```
 
-2. Open a Pull Request on GitHub
-3. Fill out the PR template completely
-4. Link related issues using "Closes #123" or "Fixes #456"
-5. Request review from maintainers
+1. Open a Pull Request on GitHub
+2. Fill out the PR template completely
+3. Link related issues using "Closes #123" or "Fixes #456"
+4. Request review from maintainers
 
 ### PR Template
 

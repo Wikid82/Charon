@@ -21,6 +21,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `.venv/bin/pre-commit run --all-files`
 - All hooks passed including:
   - Go Vet
@@ -39,6 +40,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `cd backend && go build ./...`
 - No compilation errors
 
@@ -49,6 +51,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `cd backend && go test ./...`
 - All test packages passed:
   - `internal/api/handlers` - 21.2s
@@ -65,6 +68,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `cd frontend && npm run type-check`
 - TypeScript compilation: No errors
 
@@ -75,6 +79,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `cd frontend && npm run test`
 - Results:
   - Test Files: **84 passed**
@@ -110,6 +115,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `docker build --build-arg VCS_REF=$(git rev-parse HEAD) -t charon:local .`
 - Image built successfully: `sha256:ee53c99130393bdd8a09f1d06bd55e31f82676ecb61bd03842cbbafb48eeea01`
 - Frontend build: ✓ built in 6.77s
@@ -122,6 +128,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 **Status:** ✅ PASS
 
 **Details:**
+
 - Ran: `bash scripts/crowdsec_startup_test.sh`
 - All 6 checks passed:
 
@@ -135,6 +142,7 @@ All mandatory checks passed successfully. Several linting issues were found and 
 | 6 | CrowdSec process running | ✅ PASS |
 
 **CrowdSec Components Verified:**
+
 - LAPI: `{"status":"up"}`
 - Acquisition: Configured for Caddy logs at `/var/log/caddy/access.log`
 - Parsers: crowdsecurity/caddy-logs, geoip-enrich, http-logs, syslog-logs

@@ -540,6 +540,7 @@ apply-preset-btn
 ### A. Existing Test Patterns (Reference)
 
 See existing test files for patterns:
+
 - [Security.test.tsx](frontend/src/pages/__tests__/Security.test.tsx)
 - [WafConfig.spec.tsx](frontend/src/pages/__tests__/WafConfig.spec.tsx)
 - [RateLimiting.spec.tsx](frontend/src/pages/__tests__/RateLimiting.spec.tsx)
