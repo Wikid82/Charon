@@ -63,6 +63,7 @@ This indicates that while CrowdSec binaries are installed and configuration file
 ### The Fatal Error Explained
 
 CrowdSec requires **datasources** to function. A datasource tells CrowdSec:
+
 1. Where to find logs (file path, journald, etc.)
 2. What parser to use for those logs
 3. Optional labels for categorization
@@ -72,11 +73,13 @@ Without datasources configured in `acquis.yaml`, CrowdSec has nothing to monitor
 ### Missing Acquisition Configuration
 
 The CrowdSec release tarball includes default config files, but the `acquis.yaml` in the tarball is either:
+
 1. Empty
 2. Contains example datasources that don't exist in the container (like syslog)
 3. Not present at all
 
 **Current entrypoint flow:**
+
 ```bash
 # Step 1: Copy base config (MISSING acquis.yaml or empty)
 cp -r /etc/crowdsec.dist/* /etc/crowdsec/
@@ -115,6 +118,7 @@ crowdsec &
    - `crowdsecurity/base-http-scenarios` for generic HTTP attacks
 
 4. **Acquisition Config**: Tells CrowdSec where to read logs
+
    ```yaml
    # /etc/crowdsec/acquis.yaml
    source: file
@@ -196,6 +200,7 @@ crowdsec &
 Create a default acquisition configuration that reads Caddy logs:
 
 **New file: `configs/crowdsec/acquis.yaml`**
+
 ```yaml
 # Charon/Caddy Log Acquisition Configuration
 # This file tells CrowdSec what logs to monitor
@@ -219,6 +224,7 @@ labels:
 #### 1.2 Create Default Config Template
 
 **New file: `configs/crowdsec/config.yaml.template`**
+
 ```yaml
 # CrowdSec Configuration for Charon
 # Generated at container startup
@@ -288,6 +294,7 @@ prometheus:
 #### 1.3 Create Local API Credentials Template
 
 **New file: `configs/crowdsec/local_api_credentials.yaml.template`**
+
 ```yaml
 # CrowdSec Local API Credentials
 # This file is auto-generated - do not edit manually
@@ -300,6 +307,7 @@ password: ${CROWDSEC_MACHINE_PASSWORD}
 #### 1.4 Create Bouncer Registration Script
 
 **New file: `configs/crowdsec/register_bouncer.sh`**
+
 ```bash
 #!/bin/sh
 # Register the Caddy bouncer with CrowdSec LAPI
@@ -346,6 +354,7 @@ echo "API Key: $API_KEY"
 #### 1.5 Create Hub Setup Script
 
 **New file: `configs/crowdsec/install_hub_items.sh`**
+
 ```bash
 #!/bin/sh
 # Install required CrowdSec hub items (parsers, scenarios, collections)
@@ -597,6 +606,7 @@ The existing `buildCrowdSecHandler` function already generates the correct forma
 **File: `backend/internal/caddy/config.go`**
 
 The function at line 752 is mostly correct. Verify it includes:
+
 - `api_url`: Points to `http://127.0.0.1:8085` (already done)
 - `api_key`: From environment variable (already done)
 - `enable_streaming`: For real-time updates (already done)
@@ -606,6 +616,7 @@ The function at line 752 is mostly correct. Verify it includes:
 Since there may not be an official `crowdsecurity/caddy-logs` parser, we need to create a custom parser or use the generic HTTP parser with appropriate normalization.
 
 **New file: `configs/crowdsec/parsers/caddy-json-logs.yaml`**
+
 ```yaml
 # Custom parser for Caddy JSON access logs
 # Install with: cscli parsers install ./caddy-json-logs.yaml --force
@@ -1996,11 +2007,13 @@ RUN chmod +x /usr/local/bin/register_bouncer.sh /usr/local/bin/install_hub_items
 ### Post-Implementation Testing
 
 1. **Build Test:**
+
    ```bash
    docker build -t charon:local .
    ```
 
 2. **Startup Test:**
+
    ```bash
    docker run --rm -d --name charon-test \
        -p 8080:8080 \
@@ -2011,11 +2024,13 @@ RUN chmod +x /usr/local/bin/register_bouncer.sh /usr/local/bin/install_hub_items
    ```
 
 3. **LAPI Health Test:**
+
    ```bash
    docker exec charon-test wget -q -O- http://127.0.0.1:8085/health
    ```
 
 4. **Integration Test:**
+
    ```bash
    bash scripts/crowdsec_decision_integration.sh
    ```
@@ -2028,6 +2043,7 @@ RUN chmod +x /usr/local/bin/register_bouncer.sh /usr/local/bin/install_hub_items
    - Verify removal
 
 6. **Unified Logging Test:**
+
    ```bash
    # Verify log watcher connects to Caddy logs
    curl -s http://localhost:8080/api/v1/status | jq '.log_watcher'

@@ -132,6 +132,7 @@ The hash is derived from content to ensure Caddy reloads when rules change.
 ### 2.3 Existing Integration Test Analysis
 
 The existing `coraza_integration.sh` tests:
+
 - ✅ XSS payload blocking (`<script>alert(1)</script>`)
 - ✅ BLOCK mode (expects HTTP 403)
 - ✅ MONITOR mode switching (expects HTTP 200 after mode change)
@@ -234,6 +235,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 **Objective:** Create a ruleset that blocks SQL injection patterns
 
 **Curl Command:**
+
 ```bash
 echo "=== TC-1: Create SQLi Ruleset ==="
 
@@ -252,6 +254,7 @@ echo "$RESP" | jq .
 ```
 
 **Expected Response:**
+
 ```json
 {
   "ruleset": {
@@ -271,6 +274,7 @@ echo "$RESP" | jq .
 **Objective:** Create a ruleset that blocks XSS patterns
 
 **Curl Command:**
+
 ```bash
 echo "=== TC-2: Create XSS Ruleset ==="
 
@@ -294,6 +298,7 @@ echo "$RESP" | jq .
 **Objective:** Set WAF mode to blocking with a specific ruleset
 
 **Curl Command:**
+
 ```bash
 echo "=== TC-3: Enable WAF (Block Mode) ==="
 
@@ -317,6 +322,7 @@ sleep 5
 ```
 
 **Verification:**
+
 ```bash
 # Check WAF status
 curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/security/status | jq '.waf'
@@ -362,6 +368,7 @@ echo "SQLi POST body: HTTP $RESP (expect 403)"
 ```
 
 **Expected Results:**
+
 - All requests return HTTP 403
 
 ---
@@ -371,6 +378,7 @@ echo "SQLi POST body: HTTP $RESP (expect 403)"
 **Objective:** Verify XSS patterns are blocked with HTTP 403
 
 **Curl Commands:**
+
 ```bash
 echo "=== TC-5: XSS Blocking ==="
 
@@ -404,6 +412,7 @@ echo "XSS script tag (JSON): HTTP $RESP (expect 403)"
 ```
 
 **Expected Results:**
+
 - All requests return HTTP 403
 
 ---
@@ -413,6 +422,7 @@ echo "XSS script tag (JSON): HTTP $RESP (expect 403)"
 **Objective:** Verify requests pass but are logged in monitor mode
 
 **Curl Commands:**
+
 ```bash
 echo "=== TC-6: Detection Mode ==="
 
@@ -440,6 +450,7 @@ docker exec charon-waf-test sh -c 'tail -50 /var/log/caddy/access.log 2>/dev/nul
 ```
 
 **Expected Results:**
+
 - HTTP 200 response (request passes through)
 - WAF detection logged (in Caddy access logs or Coraza logs)
 
@@ -450,6 +461,7 @@ docker exec charon-waf-test sh -c 'tail -50 /var/log/caddy/access.log 2>/dev/nul
 **Objective:** Verify both SQLi and XSS rules can be combined
 
 **Curl Commands:**
+
 ```bash
 echo "=== TC-7: Multiple Rulesets (Combined) ==="
 
@@ -498,6 +510,7 @@ echo "Combined - Legitimate: HTTP $RESP (expect 200)"
 **Objective:** Verify all rulesets are listed correctly
 
 **Curl Command:**
+
 ```bash
 echo "=== TC-8: List Rulesets ==="
 
@@ -506,6 +519,7 @@ echo "$RESP" | jq '.rulesets[] | {name, mode, last_updated}'
 ```
 
 **Expected Response:**
+
 ```json
 [
   {"name": "sqli-protection", "mode": "", "last_updated": "..."},
@@ -521,6 +535,7 @@ echo "$RESP" | jq '.rulesets[] | {name, mode, last_updated}'
 **Objective:** Add and remove WAF rule exclusions for false positives
 
 **Curl Commands:**
+
 ```bash
 echo "=== TC-9: WAF Rule Exclusions ==="
 
@@ -548,6 +563,7 @@ echo "Delete exclusion: $RESP"
 **Objective:** Confirm WAF handler is present in running Caddy config
 
 **Curl Command:**
+
 ```bash
 echo "=== TC-10: Verify Caddy Config ==="
 
@@ -585,6 +601,7 @@ fi
 **Objective:** Verify ruleset can be deleted
 
 **Curl Commands:**
+
 ```bash
 echo "=== TC-11: Delete Ruleset ==="
 
@@ -793,33 +810,33 @@ Location: `backend/integration/waf_integration_test.go`
 package integration
 
 import (
-	"context"
-	"os/exec"
-	"strings"
-	"testing"
-	"time"
+ "context"
+ "os/exec"
+ "strings"
+ "testing"
+ "time"
 )
 
 // TestWAFIntegration runs the scripts/waf_integration.sh and ensures it completes successfully.
 func TestWAFIntegration(t *testing.T) {
-	t.Parallel()
+ t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+ ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+ defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "./scripts/waf_integration.sh")
-	cmd.Dir = "../.."
+ cmd := exec.CommandContext(ctx, "bash", "./scripts/waf_integration.sh")
+ cmd.Dir = "../.."
 
-	out, err := cmd.CombinedOutput()
-	t.Logf("waf_integration script output:\n%s", string(out))
+ out, err := cmd.CombinedOutput()
+ t.Logf("waf_integration script output:\n%s", string(out))
 
-	if err != nil {
-		t.Fatalf("waf integration failed: %v", err)
-	}
+ if err != nil {
+  t.Fatalf("waf integration failed: %v", err)
+ }
 
-	if !strings.Contains(string(out), "All WAF tests passed") {
-		t.Fatalf("unexpected script output, expected pass assertion not found")
-	}
+ if !strings.Contains(string(out), "All WAF tests passed") {
+  t.Fatalf("unexpected script output, expected pass assertion not found")
+ }
 }
 ```
 
