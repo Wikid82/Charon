@@ -147,7 +147,7 @@ describe('Security page', () => {
     }
 
     vi.mocked(api.getSecurityStatus).mockResolvedValue(baseStatus as SecurityStatus)
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
@@ -161,7 +161,7 @@ describe('Security page', () => {
 
     const enabledStatus: SecurityStatus = { ...baseStatus, crowdsec: { enabled: true, mode: 'local' as const, api_url: '' } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(enabledStatus as SecurityStatus)
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123 })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
     vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue(undefined)
 
     renderWithProviders(<Security />)

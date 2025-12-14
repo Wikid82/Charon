@@ -246,7 +246,7 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
-// Status returns simple running state.
+// Status returns running state including LAPI availability check.
 func (h *CrowdsecHandler) Status(c *gin.Context) {
 	ctx := c.Request.Context()
 	running, pid, err := h.Executor.Status(ctx, h.DataDir)
@@ -254,7 +254,25 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"running": running, "pid": pid})
+
+	// Check LAPI connectivity if process is running
+	lapiReady := false
+	if running {
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, checkErr := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		lapiReady = (checkErr == nil)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"running":    running,
+		"pid":        pid,
+		"lapi_ready": lapiReady,
+	})
 }
 
 // ImportConfig accepts a tar.gz or zip upload and extracts into DataDir (backing up existing config).

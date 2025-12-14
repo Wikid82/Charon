@@ -40,7 +40,7 @@ describe('Security', () => {
     })
     vi.clearAllMocks()
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(window, 'open').mockImplementation(() => null)
@@ -192,7 +192,7 @@ describe('Security', () => {
         ...mockSecurityStatus,
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
 
       await renderSecurityPage()
@@ -212,7 +212,7 @@ describe('Security', () => {
     it('should stop CrowdSec when toggling off', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(crowdsecApi.stopCrowdsec).mockResolvedValue({ success: true })
 
       await renderSecurityPage()
@@ -297,7 +297,7 @@ describe('Security', () => {
         ...mockSecurityStatus,
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(crowdsecApi.startCrowdsec).mockImplementation(() => new Promise(() => {}))
 
       await renderSecurityPage()
@@ -312,7 +312,7 @@ describe('Security', () => {
     it('should show overlay when stopping CrowdSec', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(crowdsecApi.stopCrowdsec).mockImplementation(() => new Promise(() => {}))
 
       await renderSecurityPage()

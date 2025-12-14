@@ -67,7 +67,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached', cache_key: 'cache-123', etag: 'etag-123' })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.crowdsec.console_enrollment': false,
     })

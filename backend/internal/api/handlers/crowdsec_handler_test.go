@@ -1348,6 +1348,115 @@ func TestCrowdsecHandler_StartReturnsImmediatelyIfProcessFailsToStart(t *testing
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+// ============================================
+// Status Handler lapi_ready Tests
+// ============================================
+
+func TestCrowdsecHandler_StatusReturnsLAPIReadyWhenRunning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create an executor that reports as running
+	runningExec := &fakeExec{started: true}
+
+	// Create a command executor that succeeds (LAPI is ready)
+	successCmdExec := &mockCmdExec{err: nil}
+
+	h := NewCrowdsecHandler(db, runningExec, "/bin/false", tmpDir)
+	h.CmdExec = successCmdExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["running"])
+	require.Equal(t, float64(12345), response["pid"])
+	require.Equal(t, true, response["lapi_ready"], "lapi_ready should be true when cscli lapi status succeeds")
+}
+
+func TestCrowdsecHandler_StatusReturnsLAPINotReadyWhenCmdFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create an executor that reports as running
+	runningExec := &fakeExec{started: true}
+
+	// Create a command executor that fails (LAPI not ready)
+	failCmdExec := &mockCmdExec{err: errors.New("LAPI not initialized")}
+
+	h := NewCrowdsecHandler(db, runningExec, "/bin/false", tmpDir)
+	h.CmdExec = failCmdExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, true, response["running"])
+	require.Equal(t, float64(12345), response["pid"])
+	require.Equal(t, false, response["lapi_ready"], "lapi_ready should be false when cscli lapi status fails")
+}
+
+func TestCrowdsecHandler_StatusReturnsLAPINotReadyWhenStopped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+
+	// Create an executor that reports as stopped
+	stoppedExec := &fakeExec{started: false}
+
+	h := NewCrowdsecHandler(db, stoppedExec, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	require.Equal(t, false, response["running"])
+	require.Equal(t, float64(0), response["pid"])
+	require.Equal(t, false, response["lapi_ready"], "lapi_ready should be false when process is not running")
+}
+
+// mockCmdExec is a mock command executor for testing
+type mockCmdExec struct {
+	err    error
+	output []byte
+}
+
+func (m *mockCmdExec) Execute(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return m.output, m.err
+}
+
 type failingExec struct{}
 
 func (f *failingExec) Start(ctx context.Context, binPath, configDir string) (int, error) {
