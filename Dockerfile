@@ -18,6 +18,7 @@ ARG CADDY_VERSION=2.10.2
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
+# renovate: datasource=docker depName=alpine
 ARG CADDY_IMAGE=alpine:3.23
 
 # ---- Cross-Compilation Helpers ----
@@ -203,6 +204,7 @@ RUN mkdir -p /crowdsec-out/config && \
     cp -r config/* /crowdsec-out/config/ || true
 
 # ---- CrowdSec Fallback (for architectures where build fails) ----
+# renovate: datasource=docker depName=alpine
 FROM alpine:3.23 AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
