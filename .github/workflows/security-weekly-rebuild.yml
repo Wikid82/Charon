@@ -71,6 +71,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           no-cache: ${{ github.event_name == 'schedule' || inputs.force_rebuild }}
+          pull: true  # Always pull fresh base images to get latest security patches
           build-args: |
             VERSION=security-scan
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
