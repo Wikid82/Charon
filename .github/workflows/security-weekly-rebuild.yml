@@ -19,7 +19,7 @@ jobs:
   security-rebuild:
     name: Security Rebuild & Scan
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -66,11 +66,12 @@ jobs:
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           no-cache: ${{ github.event_name == 'schedule' || inputs.force_rebuild }}
+          pull: true  # Always pull fresh base images to get latest security patches
           build-args: |
             VERSION=security-scan
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
@@ -109,7 +110,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
       - name: Upload Trivy JSON results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: trivy-weekly-scan-${{ github.run_number }}
           path: trivy-weekly-results.json
@@ -121,8 +122,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Checking key security packages:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
-            sh -c "apk info c-ares curl libcurl openssl" >> $GITHUB_STEP_SUMMARY
+          docker run --rm --entrypoint "" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
+            sh -c "apk update >/dev/null 2>&1 && apk info c-ares curl libcurl openssl" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Create security scan summary

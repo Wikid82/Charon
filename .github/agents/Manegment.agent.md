@@ -43,6 +43,13 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 5. **Phase 5: Closure**:
     - **Docs**: Call `Docs_Writer`.
     - **Final Report**: Summarize the successful subagent runs.
+    - **Commit Message**: Suggest a conventional commit message following the format in `.github/copilot-instructions.md`:
+        - Use `feat:` for new user-facing features
+        - Use `fix:` for bug fixes in application code
+        - Use `chore:` for infrastructure, CI/CD, dependencies, tooling
+        - Use `docs:` for documentation-only changes
+        - Use `refactor:` for code restructuring without functional changes
+        - Include body with technical details and reference any issue numbers
 </workflow>
 
 ## DEFENITION OF DONE ##
