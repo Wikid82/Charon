@@ -14,7 +14,7 @@ Three GitHub Actions workflows have failed. This document provides root cause an
 
 ### 1.1 Frontend Test Timeout
 
-**File:** [frontend/src/components/__tests__/LiveLogViewer.test.tsx](../../frontend/src/components/__tests__/LiveLogViewer.test.tsx#L374)
+**File:** [frontend/src/components/**tests**/LiveLogViewer.test.tsx](../../frontend/src/components/__tests__/LiveLogViewer.test.tsx#L374)
 **Test:** "displays blocked requests with special styling" under "Security Mode"
 **Error:** `Test timed out in 5000ms`
 
@@ -319,6 +319,7 @@ The workflow at [.github/workflows/pr-checklist.yml](../../.github/workflows/pr-
 **When this check triggers:**
 
 The check only runs if the PR modifies files matching:
+
 - `scripts/history-rewrite/*`
 - `docs/plans/history_rewrite.md`
 - Any file containing `history-rewrite` in the path
@@ -342,6 +343,7 @@ Update the PR description to include all required checklist items from [.github/
 **Option B: If PR doesn't need history-rewrite validation**
 
 Ensure the PR doesn't modify files in:
+
 - `scripts/history-rewrite/`
 - `docs/plans/history_rewrite.md`
 - Any files with `history-rewrite` in the name
@@ -359,6 +361,7 @@ If the workflow is triggering incorrectly, check the file list detection logic a
 **Root Cause:**
 
 The `benchmark-action/github-action-benchmark@v1` action requires write permissions to push benchmark results to the repository. This fails on:
+
 - Pull requests from forks (restricted permissions)
 - PRs where `GITHUB_TOKEN` doesn't have `contents: write` permission
 
@@ -371,6 +374,7 @@ permissions:
 ```
 
 The error occurs because:
+
 1. On PRs, the token may not have write access
 2. The `auto-push: true` setting tries to push on main branch only, but the action still needs permissions to access the benchmark data
 
@@ -432,11 +436,13 @@ The 1.51x regression (165768 ns vs 109674 ns ≈ 56μs increase) likely comes fr
 **Investigation Steps:**
 
 1. Run benchmarks locally to establish baseline:
+
    ```bash
    cd backend && go test -bench=. -benchmem -benchtime=3s ./internal/api/handlers/... -run=^$
    ```
 
 2. Compare with previous commit:
+
    ```bash
    git stash
    git checkout HEAD~1
@@ -455,11 +461,13 @@ The 1.51x regression (165768 ns vs 109674 ns ≈ 56μs increase) likely comes fr
 **Recommended Actions:**
 
 **If real regression:**
+
 - Profile the affected handler using `go test -cpuprofile`
 - Review recent commits for inefficient code
 - Optimize the specific slow path
 
 **If CI flakiness:**
+
 - Increase `alert-threshold` to `175%` or `200%`
 - Add `-benchtime=3s` for more stable results
 - Consider running benchmarks multiple times and averaging
