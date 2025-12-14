@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-contrib/gzip"
@@ -355,6 +356,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
+		// Reconcile CrowdSec state on startup (handles container restarts)
+		go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, "crowdsec", crowdsecDataDir)
+
 		// Cerberus Security Logs WebSocket
 		// Initialize log watcher for Caddy access logs (used by CrowdSec and security monitoring)
 		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
@@ -363,6 +367,21 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		if accessLogPath == "" {
 			accessLogPath = "/var/log/caddy/access.log"
 		}
+
+		// Ensure log directory and file exist for LogWatcher
+		// This prevents failures after container restart when log file doesn't exist yet
+		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0755); err != nil {
+			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
+		}
+		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
+			if f, err := os.Create(accessLogPath); err == nil {
+				f.Close()
+				logger.Log().WithField("path", accessLogPath).Info("Created empty log file for LogWatcher")
+			} else {
+				logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log file for LogWatcher")
+			}
+		}
+
 		logWatcher := services.NewLogWatcher(accessLogPath)
 		if err := logWatcher.Start(context.Background()); err != nil {
 			logger.Log().WithError(err).Error("Failed to start security log watcher")

@@ -41,24 +41,44 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 	return pid, nil
 }
 
+// Stop stops the CrowdSec process. It is idempotent - stopping an already-stopped
+// service or one that was never started will succeed without error.
 func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
-	b, err := os.ReadFile(e.pidFile(configDir))
+	pidFilePath := e.pidFile(configDir)
+	b, err := os.ReadFile(pidFilePath)
 	if err != nil {
+		// If PID file doesn't exist, service is already stopped - return success
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("pid file read: %w", err)
 	}
+
 	pid, err := strconv.Atoi(string(b))
 	if err != nil {
-		return fmt.Errorf("invalid pid: %w", err)
+		// Malformed PID file - clean it up and return success
+		_ = os.Remove(pidFilePath)
+		return nil
 	}
+
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return err
+		// Process lookup failed - clean up PID file and return success
+		_ = os.Remove(pidFilePath)
+		return nil
 	}
+
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Check if process is already dead (ESRCH = no such process)
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone) {
+			_ = os.Remove(pidFilePath)
+			return nil
+		}
 		return err
 	}
-	// best-effort remove pid file
-	_ = os.Remove(e.pidFile(configDir))
+
+	// Successfully sent signal - remove PID file
+	_ = os.Remove(pidFilePath)
 	return nil
 }
 
