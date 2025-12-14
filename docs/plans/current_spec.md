@@ -1,528 +1,369 @@
-# CrowdSec LAPI Status Bug - Diagnostic & Fix Plan
+# Fix Plan: Critical Issues After Docker Rebuild
 
 **Date:** December 14, 2025
-**Issue:** CrowdSecConfig page persistently shows "LAPI is initializing" even when LAPI is running
-**Status:** 🎯 **ROOT CAUSE IDENTIFIED** - Status endpoint checks process, not LAPI connectivity
-**Priority:** HIGH (Blocks Console Enrollment Feature)
-**Previous Issue:** [crowdsec_lapi_error_diagnostic.md](crowdsec_lapi_error_diagnostic.md) - Race condition fix introduced this regression
+**Status:** Planning Phase
+**Priority:** P0 - Urgent
 
 ---
 
-## 🎯 Key Findings
+## Issue Summary
 
-### Critical Discovery
+After a Docker container rebuild, three critical issues were identified:
 
-After implementing fixes from `docs/plans/crowdsec_lapi_error_diagnostic.md`, the CrowdSecConfig page now persistently displays:
-
-> "CrowdSec Local API is initializing...
-> The CrowdSec process is running but the Local API (LAPI) is still starting up."
-
-This message appears **even when LAPI is actually running and reachable**. The fix introduced a regression where the Status endpoint was not updated to match the new LAPI-aware Start endpoint.
-
-### Root Cause Chain
-
-1. `Start()` handler was correctly updated to wait for LAPI and return `lapi_ready: true/false`
-2. **BUT** `Status()` handler was **NOT updated** - still only checks process status
-3. Frontend expects `running` to mean "LAPI responding"
-4. Backend returns `running: true` meaning only "process running"
-5. **MISMATCH:** Frontend needs `lapi_ready` field to determine actual LAPI status
-
-### Why This is a Regression
-
-- The original fix added LAPI readiness check to `Start()` handler ✅
-- But forgot to add the same check to `Status()` handler ❌
-- Frontend now uses `statusCrowdsec()` for polling LAPI status
-- This endpoint doesn't actually verify LAPI connectivity
-
-### Impact
-
-- Console enrollment section always shows "initializing" warning
-- Enroll button is disabled even when LAPI is working
-- Users cannot complete console enrollment despite CrowdSec being functional
-
----
-
-## Executive Summary
-
-The `Start()` handler was correctly updated to wait for LAPI readiness before returning (lines 201-236 in [crowdsec_handler.go](../../backend/internal/api/handlers/crowdsec_handler.go#L201-L236)):
-
-```go
-// Start() now waits for LAPI and returns lapi_ready: true/false
-c.JSON(http.StatusOK, gin.H{
-    "status":     "started",
-    "pid":        pid,
-    "lapi_ready": true,  // NEW: indicates LAPI is ready
-})
-```
-
-However, the `Status()` handler was **NOT updated** and still only checks process status (lines 287-294):
-
-```go
-func (h *CrowdsecHandler) Status(c *gin.Context) {
-    ctx := c.Request.Context()
-    running, pid, err := h.Executor.Status(ctx, h.DataDir)  // Only checks PID!
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"running": running, "pid": pid})  // Missing lapi_ready!
-}
-```
+1. **500 error on CrowdSec Stop()** - Toggling CrowdSec OFF returns "Failed to stop CrowdSec: Request failed with status code 500"
+2. **CrowdSec shows "not running"** - Despite database setting being enabled, the process isn't running after container restart
+3. **Live Logs Disconnected** - WebSocket shows disconnected state even when logs are being generated
 
 ---
 
 ## Root Cause Analysis
 
-### The Executor's Status() Method
+### Issue 1: 500 Error on Stop()
 
-The `DefaultCrowdsecExecutor.Status()` in [crowdsec_exec.go](../../backend/internal/api/handlers/crowdsec_exec.go#L65-L87) only checks:
+**Location:** [crowdsec_exec.go](../../backend/internal/api/handlers/crowdsec_exec.go#L36-L51)
 
-1. If PID file exists
-2. If process with that PID is running (via signal 0)
+**Root Cause:** The `Stop()` method in `DefaultCrowdsecExecutor` fails when there's no PID file.
+
+```go
+func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
+    b, err := os.ReadFile(e.pidFile(configDir))
+    if err != nil {
+        return fmt.Errorf("pid file read: %w", err)  // ← FAILS HERE with 500
+    }
+    // ...
+}
+```
+
+**Problem:** When the container restarts:
+1. The PID file (`/app/data/crowdsec/crowdsec.pid`) is deleted (ephemeral or process cleanup removes it)
+2. The database still has CrowdSec "enabled" = true
+3. User clicks "Disable" (which calls Stop())
+4. Stop() tries to read the PID file → fails → returns error → 500 response
+
+**Why it fails:** The code assumes a PID file always exists when stopping. But after container restart, there's no PID file because the CrowdSec process wasn't running (GUI-controlled lifecycle, NOT auto-started).
+
+### Issue 2: CrowdSec Shows "Not Running" After Restart
+
+**Location:** [docker-entrypoint.sh](../../docker-entrypoint.sh#L91-L97)
+
+**Root Cause:** CrowdSec is **intentionally NOT auto-started** in the entrypoint. The design is "GUI-controlled lifecycle."
+
+From the entrypoint:
+```bash
+# CrowdSec Lifecycle Management:
+# CrowdSec configuration is initialized above (symlinks, directories, hub updates)
+# However, the CrowdSec agent is NOT auto-started in the entrypoint.
+# Instead, CrowdSec lifecycle is managed by the backend handlers via GUI controls.
+```
+
+**Problem:** The database stores the user's "enabled" preference, but there's no reconciliation at startup:
+1. Container restarts
+2. Database says CrowdSec `enabled = true` (user's previous preference)
+3. But CrowdSec process is NOT started (by design)
+4. UI shows "enabled" but status shows "not running" → confusing state mismatch
+
+**Missing Logic:** No startup reconciliation to check "if DB says enabled, start CrowdSec process."
+
+### Issue 3: Live Logs Disconnected
+
+**Location:** [logs_ws.go](../../backend/internal/api/handlers/logs_ws.go) and [log_watcher.go](../../backend/internal/services/log_watcher.go)
+
+**Root Cause:** There are **two separate WebSocket log systems** that may be misconfigured:
+
+1. **`/api/v1/logs/live`** (logs_ws.go) - Streams application logs via `logger.GetBroadcastHook()`
+2. **`/api/v1/cerberus/logs/ws`** (cerberus_logs_ws.go) - Streams Caddy access logs via `LogWatcher`
+
+**Potential Issues:**
+
+a) **LogWatcher not started:** The `LogWatcher` must be explicitly started with `Start(ctx)`. If the watcher isn't started during server initialization, no logs are broadcast.
+
+b) **Log file doesn't exist:** The LogWatcher waits for `/var/log/caddy/access.log` to exist. After container restart with no traffic, this file may not exist yet.
+
+c) **WebSocket connection path mismatch:** Frontend might connect to wrong endpoint or with invalid token.
+
+d) **CSP blocking WebSocket:** Security middleware's Content-Security-Policy must allow `ws:` and `wss:` protocols.
+
+---
+
+## Detailed Code Analysis
+
+### Stop() Method - Full Code Review
+
+```go
+// File: backend/internal/api/handlers/crowdsec_exec.go
+func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
+    b, err := os.ReadFile(e.pidFile(configDir))
+    if err != nil {
+        return fmt.Errorf("pid file read: %w", err)  // ← CRITICAL: Returns error on ENOENT
+    }
+    pid, err := strconv.Atoi(string(b))
+    if err != nil {
+        return fmt.Errorf("invalid pid: %w", err)
+    }
+    proc, err := os.FindProcess(pid)
+    if err != nil {
+        return err
+    }
+    if err := proc.Signal(syscall.SIGTERM); err != nil {
+        return err
+    }
+    _ = os.Remove(e.pidFile(configDir))
+    return nil
+}
+```
+
+The problem is clear: `os.ReadFile()` returns `os.ErrNotExist` when the PID file doesn't exist, and this is propagated as a 500 error.
+
+### Status() Method - Already Handles Missing PID Gracefully
 
 ```go
 func (e *DefaultCrowdsecExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
     b, err := os.ReadFile(e.pidFile(configDir))
     if err != nil {
-        // Missing pid file is treated as not running
+        // Missing pid file is treated as not running ← GOOD PATTERN
         return false, 0, nil
     }
-    // ... check if process is alive via signal 0 ...
-    return true, pid, nil
+    // ...
 }
 ```
 
-It does **NOT** check if LAPI HTTP endpoint is responding.
-
-### Frontend Expectation Mismatch
-
-The frontend in [CrowdSecConfig.tsx](../../frontend/src/pages/CrowdSecConfig.tsx#L71-L77) queries LAPI status:
-
-```tsx
-const lapiStatusQuery = useQuery({
-  queryKey: ['crowdsec-lapi-status'],
-  queryFn: statusCrowdsec,
-  enabled: consoleEnrollmentEnabled && initialCheckComplete,
-  refetchInterval: 5000, // Poll every 5 seconds
-  retry: false,
-})
-```
-
-And displays a warning based on `running` field (lines 207-231):
-
-```tsx
-{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
-  <div className="..." data-testid="lapi-warning">
-    <p>CrowdSec Local API is initializing...</p>
-  </div>
-)}
-```
-
-**The Problem:** The frontend checks `lapiStatusQuery.data?.running` expecting it to indicate LAPI connectivity. But the backend returns `running: true` which only means "process is running", not "LAPI is responding".
-
-### Evidence Chain
-
-| Component | File | Line | Returns | Actually Checks |
-|-----------|------|------|---------|-----------------|
-| Backend Handler | crowdsec_handler.go | 287-294 | `{running, pid}` | Process running via PID |
-| Backend Executor | crowdsec_exec.go | 65-87 | `(running, pid, err)` | PID file + signal 0 |
-| Frontend API | crowdsec.ts | 18-21 | `resp.data` | N/A (passthrough) |
-| Frontend Query | CrowdSecConfig.tsx | 71-77 | `lapiStatusQuery.data` | Checks `.running` field |
-| Frontend UI | CrowdSecConfig.tsx | 207-231 | Shows warning | `!running` |
-
-**Bug:** Frontend interprets `running` as "LAPI responding" but backend returns "process running".
+**Key Insight:** `Status()` already handles missing PID file gracefully by returning `(false, 0, nil)`. The `Stop()` method should follow the same pattern.
 
 ---
 
-## Detailed Analysis: Why Warning Always Shows
+## Fix Plan
 
-Looking at the conditional again:
+### Fix 1: Make Stop() Idempotent (No Error When Already Stopped)
 
-```tsx
-{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
-```
+**File:** `backend/internal/api/handlers/crowdsec_exec.go`
 
-This shows the warning when:
-- `lapiStatusQuery.data` is truthy ✓
-- `!lapiStatusQuery.data.running` is truthy (i.e., `running` is falsy)
-- `initialCheckComplete` is truthy ✓
-
-**Re-analyzing:** If `running: true`, then `!true = false`, so warning should NOT show.
-
-**But user reports it DOES show!**
-
-**Possible causes:**
-
-1. **Process not actually running:** The `Status()` endpoint returns `running: false` because CrowdSec process crashed or PID file is missing/stale
-2. **Different `running` field:** Frontend might be checking a different property
-3. **Query state issue:** React Query might be returning stale data
-
-**Most Likely:** Looking at the message being displayed:
-
-> "CrowdSec Local API is **initializing**..."
-
-This message was designed for the case where **process IS running** but **LAPI is NOT ready yet**. But the current conditional shows it when `running` is false!
-
-**The Fix Needed:** The conditional should check:
-- Process running (`running: true`) AND
-- LAPI not ready (`lapi_ready: false`)
-
-NOT just:
-- Process not running (`running: false`)
-
----
-
-## The Complete Fix
-
-### Files to Modify
-
-1. **Backend:** [backend/internal/api/handlers/crowdsec_handler.go](../../backend/internal/api/handlers/crowdsec_handler.go#L287-L294)
-2. **Frontend API:** [frontend/src/api/crowdsec.ts](../../frontend/src/api/crowdsec.ts#L18-L21)
-3. **Frontend UI:** [frontend/src/pages/CrowdSecConfig.tsx](../../frontend/src/pages/CrowdSecConfig.tsx#L207-L231)
-4. **Tests:** [backend/internal/api/handlers/crowdsec_handler_test.go](../../backend/internal/api/handlers/crowdsec_handler_test.go)
-
-### Change 1: Backend Status Handler
-
-**File:** `backend/internal/api/handlers/crowdsec_handler.go`
-**Location:** Lines 287-294
-
-**Before:**
+**Current Code (lines 36-51):**
 ```go
-// Status returns simple running state.
-func (h *CrowdsecHandler) Status(c *gin.Context) {
-	ctx := c.Request.Context()
-	running, pid, err := h.Executor.Status(ctx, h.DataDir)
+func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
+	b, err := os.ReadFile(e.pidFile(configDir))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return fmt.Errorf("pid file read: %w", err)
 	}
-	c.JSON(http.StatusOK, gin.H{"running": running, "pid": pid})
+	pid, err := strconv.Atoi(string(b))
+	if err != nil {
+		return fmt.Errorf("invalid pid: %w", err)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		return err
+	}
+	// best-effort remove pid file
+	_ = os.Remove(e.pidFile(configDir))
+	return nil
 }
 ```
 
-**After:**
+**Fixed Code:**
 ```go
-// Status returns running state including LAPI availability check.
-func (h *CrowdsecHandler) Status(c *gin.Context) {
-	ctx := c.Request.Context()
-	running, pid, err := h.Executor.Status(ctx, h.DataDir)
+func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
+	b, err := os.ReadFile(e.pidFile(configDir))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Check LAPI connectivity if process is running
-	lapiReady := false
-	if running {
-		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+		if os.IsNotExist(err) {
+			// No PID file means process isn't running - that's OK for Stop()
+			// This makes Stop() idempotent (safe to call multiple times)
+			return nil
 		}
-		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_, checkErr := h.CmdExec.Execute(checkCtx, "cscli", args...)
-		cancel()
-		lapiReady = (checkErr == nil)
+		return fmt.Errorf("pid file read: %w", err)
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"running":    running,
-		"pid":        pid,
-		"lapi_ready": lapiReady,
-	})
+	pid, err := strconv.Atoi(string(b))
+	if err != nil {
+		// Malformed PID file - remove it and treat as not running
+		_ = os.Remove(e.pidFile(configDir))
+		return nil
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		// Process lookup failed - clean up PID file
+		_ = os.Remove(e.pidFile(configDir))
+		return nil
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Process may already be dead - clean up PID file
+		_ = os.Remove(e.pidFile(configDir))
+		// Only return error if it's not "process doesn't exist"
+		if !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	// best-effort remove pid file
+	_ = os.Remove(e.pidFile(configDir))
+	return nil
 }
 ```
 
-### Change 2: Frontend API Type
+**Rationale:** Stop() should be idempotent. Stopping an already-stopped service shouldn't error.
 
-**File:** `frontend/src/api/crowdsec.ts`
-**Location:** Lines 18-21
+### Fix 2: Add CrowdSec Startup Reconciliation
 
-**Before:**
-```typescript
-export async function statusCrowdsec() {
-  const resp = await client.get('/admin/crowdsec/status')
-  return resp.data
+**File:** `backend/internal/api/routes/routes.go` (or create `backend/internal/services/crowdsec_startup.go`)
+
+**New Function:**
+```go
+// ReconcileCrowdSecOnStartup checks if CrowdSec should be running based on DB settings
+// and starts it if necessary. This handles the case where the container restarts
+// but the user's preference was to have CrowdSec enabled.
+func ReconcileCrowdSecOnStartup(db *gorm.DB, executor handlers.CrowdsecExecutor, binPath, dataDir string) {
+    if db == nil {
+        return
+    }
+
+    var secCfg models.SecurityConfig
+    if err := db.First(&secCfg).Error; err != nil {
+        // No config yet or error - nothing to reconcile
+        logger.Log().WithError(err).Debug("No security config found for CrowdSec reconciliation")
+        return
+    }
+
+    // Check if CrowdSec should be running based on mode
+    if secCfg.CrowdSecMode != "local" {
+        logger.Log().WithField("mode", secCfg.CrowdSecMode).Debug("CrowdSec mode is not 'local', skipping auto-start")
+        return
+    }
+
+    // Check if already running
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    running, _, _ := executor.Status(ctx, dataDir)
+    if running {
+        logger.Log().Info("CrowdSec already running, no action needed")
+        return
+    }
+
+    // Start CrowdSec since DB says it should be enabled
+    logger.Log().Info("CrowdSec mode is 'local' but process not running, starting...")
+    _, err := executor.Start(ctx, binPath, dataDir)
+    if err != nil {
+        logger.Log().WithError(err).Warn("Failed to auto-start CrowdSec on startup reconciliation")
+    } else {
+        logger.Log().Info("CrowdSec started successfully via startup reconciliation")
+    }
 }
 ```
 
-**After:**
-```typescript
-export interface CrowdSecStatus {
-  running: boolean
-  pid: number
-  lapi_ready: boolean
-}
-
-export async function statusCrowdsec(): Promise<CrowdSecStatus> {
-  const resp = await client.get<CrowdSecStatus>('/admin/crowdsec/status')
-  return resp.data
+**Integration Point:** Call this function after database migration in server initialization:
+```go
+// In routes.go or server.go, after DB is ready and handlers are created
+if crowdsecHandler != nil {
+    ReconcileCrowdSecOnStartup(db, crowdsecHandler.Executor, crowdsecHandler.BinPath, crowdsecHandler.DataDir)
 }
 ```
 
-### Change 3: Frontend CrowdSecConfig Conditional Logic
+### Fix 3: Ensure LogWatcher is Started and Log File Exists
 
-**File:** `frontend/src/pages/CrowdSecConfig.tsx`
-**Location:** Lines 207-231
+**File:** `backend/internal/api/routes/routes.go`
 
-**Before:**
-```tsx
-{/* Warning when CrowdSec LAPI is not running */}
-{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
-  <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
-    <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-    <div className="flex-1">
-      <p className="text-sm text-yellow-200 font-medium mb-2">
-        CrowdSec Local API is initializing...
-      </p>
-      <p className="text-xs text-yellow-300 mb-3">
-        The CrowdSec process is running but the Local API (LAPI) is still starting up.
-        This typically takes 5-10 seconds after enabling CrowdSec.
-        {lapiStatusQuery.isRefetching && ' Checking again in 5 seconds...'}
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => lapiStatusQuery.refetch()}
-          disabled={lapiStatusQuery.isRefetching}
-        >
-          Check Now
-        </Button>
-        {!status?.crowdsec?.enabled && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate('/security')}
-          >
-            Go to Security Dashboard
-          </Button>
-        )}
-      </div>
-    </div>
-  </div>
-)}
-```
+**Check that LogWatcher.Start() is called:**
+```go
+// Ensure LogWatcher is started with proper log path
+logPath := "/var/log/caddy/access.log"
 
-**After:**
-```tsx
-{/* Warning when CrowdSec process is running but LAPI is not ready */}
-{lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
-  <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
-    <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-    <div className="flex-1">
-      <p className="text-sm text-yellow-200 font-medium mb-2">
-        CrowdSec Local API is initializing...
-      </p>
-      <p className="text-xs text-yellow-300 mb-3">
-        The CrowdSec process is running but the Local API (LAPI) is still starting up.
-        This typically takes 5-10 seconds after enabling CrowdSec.
-        {lapiStatusQuery.isRefetching && ' Checking again in 5 seconds...'}
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => lapiStatusQuery.refetch()}
-          disabled={lapiStatusQuery.isRefetching}
-        >
-          Check Now
-        </Button>
-      </div>
-    </div>
-  </div>
-)}
+// Ensure log directory exists
+if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+    logger.Log().WithError(err).Warn("Failed to create log directory")
+}
 
-{/* Warning when CrowdSec is not running at all */}
-{lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
-  <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg" data-testid="crowdsec-not-running-warning">
-    <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-    <div className="flex-1">
-      <p className="text-sm text-red-200 font-medium mb-2">
-        CrowdSec is not running
-      </p>
-      <p className="text-xs text-red-300 mb-3">
-        Please enable CrowdSec using the toggle switch in the Security dashboard before enrolling in the Console.
-      </p>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => navigate('/security')}
-      >
-        Go to Security Dashboard
-      </Button>
-    </div>
-  </div>
-)}
-```
+// Create empty log file if it doesn't exist (allows LogWatcher to start tailing immediately)
+if _, err := os.Stat(logPath); os.IsNotExist(err) {
+    if f, err := os.Create(logPath); err == nil {
+        f.Close()
+        logger.Log().WithField("path", logPath).Info("Created empty log file for LogWatcher")
+    }
+}
 
-### Change 4: Update Enrollment Button Disabled State
-
-**File:** `frontend/src/pages/CrowdSecConfig.tsx`
-**Location:** Lines 255-289 (Enroll, Rotate key, and Retry enrollment buttons)
-
-**Before:**
-```tsx
-disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.running) || !enrollmentToken.trim()}
-```
-
-**After:**
-```tsx
-disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready) || !enrollmentToken.trim()}
-```
-
-Also update the `title` attributes:
-
-**Before:**
-```tsx
-title={
-  lapiStatusQuery.data && !lapiStatusQuery.data.running
-    ? 'CrowdSec LAPI must be running to enroll'
-    : ...
+// Create and start the LogWatcher
+watcher := services.NewLogWatcher(logPath)
+if err := watcher.Start(context.Background()); err != nil {
+    logger.Log().WithError(err).Error("Failed to start LogWatcher")
 }
 ```
 
-**After:**
-```tsx
-title={
-  lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
-    ? 'CrowdSec LAPI must be running to enroll'
-    : ...
-}
+**Additionally, verify CSP allows WebSocket:**
+The security middleware in `backend/internal/api/middleware/security.go` already has:
+```go
+directives["connect-src"] = "'self' ws: wss:" // WebSocket for HMR
+```
+
+This should allow WebSocket connections.
+
+---
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `backend/internal/api/handlers/crowdsec_exec.go` | Make `Stop()` idempotent for missing PID file |
+| `backend/internal/api/routes/routes.go` | Add CrowdSec startup reconciliation call |
+| `backend/internal/services/crowdsec_startup.go` | (NEW) Create startup reconciliation function |
+| `backend/internal/api/handlers/crowdsec_exec_test.go` | Add tests for Stop() idempotency |
+
+---
+
+## Testing Plan
+
+### Test 1: Stop() Idempotency
+```bash
+# Start container fresh (no CrowdSec running)
+docker compose down -v && docker compose up -d
+
+# Call Stop() without starting CrowdSec first
+curl -X POST http://localhost:8080/api/v1/admin/crowdsec/stop \
+  -H "Authorization: Bearer $TOKEN"
+
+# Expected: 200 OK {"status": "stopped"}
+# NOT: 500 Internal Server Error
+```
+
+### Test 2: Startup Reconciliation
+```bash
+# Enable CrowdSec via API
+curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start \
+  -H "Authorization: Bearer $TOKEN"
+
+# Verify running
+curl http://localhost:8080/api/v1/admin/crowdsec/status \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: {"running": true, "pid": xxx, "lapi_ready": true}
+
+# Restart container
+docker compose restart charon
+
+# Wait for startup
+sleep 10
+
+# Verify CrowdSec auto-started
+curl http://localhost:8080/api/v1/admin/crowdsec/status \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: {"running": true, "pid": xxx, "lapi_ready": true}
+```
+
+### Test 3: Live Logs
+```bash
+# Connect to WebSocket
+websocat "ws://localhost:8080/api/v1/logs/live?token=$TOKEN"
+
+# In another terminal, generate traffic
+curl http://localhost:8080/api/v1/health
+
+# Verify log entries appear in WebSocket connection
 ```
 
 ---
 
-## Testing Steps
+## Implementation Order
 
-### Unit Test: Backend Status Handler
-
-Add test in `backend/internal/api/handlers/crowdsec_handler_test.go`:
-
-```go
-func TestCrowdsecHandler_Status_IncludesLAPIReady(t *testing.T) {
-    mockExec := &fakeExec{running: true, pid: 1234}
-    mockCmdExec := &mockCommandExecutor{returnErr: nil} // cscli lapi status succeeds
-
-    handler := &CrowdsecHandler{
-        Executor: mockExec,
-        CmdExec:  mockCmdExec,
-        DataDir:  "/app/data",
-    }
-
-    w := httptest.NewRecorder()
-    c, _ := gin.CreateTestContext(w)
-    c.Request = httptest.NewRequest(http.MethodGet, "/admin/crowdsec/status", nil)
-
-    handler.Status(c)
-
-    assert.Equal(t, http.StatusOK, w.Code)
-
-    var response map[string]interface{}
-    json.Unmarshal(w.Body.Bytes(), &response)
-
-    assert.True(t, response["running"].(bool))
-    assert.Equal(t, float64(1234), response["pid"].(float64))
-    assert.True(t, response["lapi_ready"].(bool)) // NEW: Check lapi_ready is present and true
-}
-
-func TestCrowdsecHandler_Status_LAPINotReady(t *testing.T) {
-    mockExec := &fakeExec{running: true, pid: 1234}
-    mockCmdExec := &mockCommandExecutor{returnErr: errors.New("connection refused")} // cscli lapi status fails
-
-    handler := &CrowdsecHandler{
-        Executor: mockExec,
-        CmdExec:  mockCmdExec,
-        DataDir:  "/app/data",
-    }
-
-    w := httptest.NewRecorder()
-    c, _ := gin.CreateTestContext(w)
-    c.Request = httptest.NewRequest(http.MethodGet, "/admin/crowdsec/status", nil)
-
-    handler.Status(c)
-
-    assert.Equal(t, http.StatusOK, w.Code)
-
-    var response map[string]interface{}
-    json.Unmarshal(w.Body.Bytes(), &response)
-
-    assert.True(t, response["running"].(bool))
-    assert.Equal(t, float64(1234), response["pid"].(float64))
-    assert.False(t, response["lapi_ready"].(bool)) // LAPI not ready
-}
-
-func TestCrowdsecHandler_Status_ProcessNotRunning(t *testing.T) {
-    mockExec := &fakeExec{running: false, pid: 0}
-    mockCmdExec := &mockCommandExecutor{}
-
-    handler := &CrowdsecHandler{
-        Executor: mockExec,
-        CmdExec:  mockCmdExec,
-        DataDir:  "/app/data",
-    }
-
-    w := httptest.NewRecorder()
-    c, _ := gin.CreateTestContext(w)
-    c.Request = httptest.NewRequest(http.MethodGet, "/admin/crowdsec/status", nil)
-
-    handler.Status(c)
-
-    assert.Equal(t, http.StatusOK, w.Code)
-
-    var response map[string]interface{}
-    json.Unmarshal(w.Body.Bytes(), &response)
-
-    assert.False(t, response["running"].(bool))
-    assert.False(t, response["lapi_ready"].(bool)) // LAPI can't be ready if process not running
-}
-```
-
-### Manual Testing Procedure
-
-1. **Start Fresh:**
-   ```bash
-   docker compose down -v
-   docker compose up -d
-   ```
-
-2. **Enable CrowdSec:**
-   - Go to Security dashboard
-   - Toggle CrowdSec ON
-   - Wait for toast "CrowdSec started and LAPI is ready"
-
-3. **Navigate to Config:**
-   - Click "Config" button
-   - Verify NO "initializing" warning shows
-   - Console enrollment section should be enabled
-
-4. **Verify API Response:**
-   ```bash
-   curl -s http://localhost:8080/api/v1/admin/crowdsec/status | jq
-   ```
-   Expected:
-   ```json
-   {
-     "running": true,
-     "pid": 123,
-     "lapi_ready": true
-   }
-   ```
-
-5. **Test LAPI Down Scenario:**
-   - SSH into container: `docker exec -it charon bash`
-   - Stop CrowdSec: `pkill -f crowdsec`
-   - Call API:
-     ```bash
-     curl -s http://localhost:8080/api/v1/admin/crowdsec/status | jq
-     ```
-   - Expected: `{"running": false, "pid": 0, "lapi_ready": false}`
-   - Refresh CrowdSecConfig page
-   - Should show "CrowdSec is not running" error (red)
-
-6. **Test Restart Scenario:**
-   - Re-enable CrowdSec via Security dashboard
-   - Immediately navigate to CrowdSecConfig
-   - Should show "initializing" briefly (yellow) then clear when `lapi_ready: true`
+1. **Fix 1 (Stop Idempotency)** - Quick fix, high impact, unblocks users immediately
+2. **Fix 2 (Startup Reconciliation)** - Core fix for state mismatch after restart
+3. **Fix 3 (Live Logs)** - May need more investigation; likely already working if LogWatcher is started
 
 ---
 
@@ -530,46 +371,16 @@ func TestCrowdsecHandler_Status_ProcessNotRunning(t *testing.T) {
 
 | Change | Risk | Mitigation |
 |--------|------|------------|
-| Backend Status handler modification | Low | Status handler is read-only, adds 2s timeout check |
-| LAPI check timeout (2s) | Low | Short timeout prevents blocking; async refresh handles retries |
-| Frontend conditional logic change | Low | More precise state handling, clear error states |
-| Type definition update | Low | TypeScript will catch any mismatches at compile time |
-| Two separate warning states | Low | Better UX with distinct yellow (initializing) vs red (not running) |
+| Stop() idempotency | Very Low | Makes existing code more robust |
+| Startup reconciliation | Low | Only runs once at startup, respects DB state |
+| Log file creation | Very Low | Standard file operations with error handling |
 
 ---
 
-## Summary
+## Notes
 
-**Root Cause:** The `Status()` endpoint was not updated when `Start()` was modified to check LAPI readiness. The frontend expects the status endpoint to indicate LAPI availability, but it only returns process status.
-
-**Fix:** Add `lapi_ready` field to `Status()` response by checking `cscli lapi status`, update frontend to use this new field for the warning display logic.
-
-**Files Changed:**
-1. `backend/internal/api/handlers/crowdsec_handler.go` - Add LAPI check to Status()
-2. `frontend/src/api/crowdsec.ts` - Add TypeScript interface with `lapi_ready`
-3. `frontend/src/pages/CrowdSecConfig.tsx` - Update conditional logic:
-   - Yellow warning: process running, LAPI not ready
-   - Red warning: process not running
-   - No warning: process running AND LAPI ready
-4. `backend/internal/api/handlers/crowdsec_handler_test.go` - Add unit tests
-
-**Estimated Time:** 1-2 hours including testing
-
-**Commit Message:**
-```
-fix: add LAPI readiness check to CrowdSec status endpoint
-
-The Status() handler was only checking if the CrowdSec process was
-running, not if LAPI was actually responding. This caused the
-CrowdSecConfig page to always show "LAPI is initializing" even when
-LAPI was fully operational.
-
-Changes:
-- Backend: Add `lapi_ready` field to /admin/crowdsec/status response
-- Frontend: Add CrowdSecStatus TypeScript interface
-- Frontend: Update conditional logic to check `lapi_ready` not `running`
-- Frontend: Separate warnings for "initializing" vs "not running"
-- Tests: Add unit tests for Status handler LAPI check
-
-Fixes regression from crowdsec_lapi_error_diagnostic.md fixes.
-```
+- The CrowdSec PID file path is `${dataDir}/crowdsec.pid` (e.g., `/app/data/crowdsec/crowdsec.pid`)
+- The LogWatcher monitors `/var/log/caddy/access.log` by default
+- WebSocket ping interval is 30 seconds for keep-alive
+- CrowdSec LAPI runs on port 8085 (not 8080) to avoid conflict with Charon
+- The `Status()` handler already includes `lapi_ready` field (from previous fix)
