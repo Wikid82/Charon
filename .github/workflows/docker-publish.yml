@@ -114,6 +114,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Always pull fresh base images to get latest security patches
+          pull: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |

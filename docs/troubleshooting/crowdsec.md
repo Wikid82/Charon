@@ -22,6 +22,9 @@ Keep Cerberus terminology and the Configuration Packages flow in mind while debu
 - Bad preset slug (400): the slug must match Hub naming; correct the slug before retrying.
 - Apply failed: review the apply response and restore from the backup that was taken automatically, then retry after fixing the underlying issue.
 - Apply not supported (501): use curated/offline presets; Hub apply will be re-enabled when supported in your environment.
+- **Security Engine Offline**: If your dashboard says "Offline", it means your Charon instance forgot who it was after a restart.
+  - **Fix**: Update Charon. Ensure `CERBERUS_SECURITY_CROWDSEC_MODE=local` is set in `docker-compose.yml`.
+  - **Action**: Enroll your instance one last time. It will now remember its identity across restarts.
 
 ## Tips
 

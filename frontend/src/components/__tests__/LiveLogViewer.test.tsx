@@ -321,7 +321,9 @@ describe('LiveLogViewer', () => {
 
     await waitFor(() => expect(screen.getByText('Connected')).toBeTruthy());
 
-    mockOnClose?.();
+    act(() => {
+      mockOnClose?.();
+    });
 
     await waitFor(() => expect(screen.getByText('Disconnected')).toBeTruthy());
   });

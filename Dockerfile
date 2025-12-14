@@ -18,6 +18,7 @@ ARG CADDY_VERSION=2.10.2
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
 ## upstream caddy image tags while still shipping a pinned caddy binary.
+# renovate: datasource=docker depName=alpine
 ARG CADDY_IMAGE=alpine:3.23
 
 # ---- Cross-Compilation Helpers ----
@@ -48,7 +49,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -98,7 +99,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Caddy Builder ----
 # Build Caddy from source to ensure we use the latest Go version and dependencies
 # This fixes vulnerabilities found in the pre-built Caddy images (e.g. CVE-2025-59530, stdlib issues)
-FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS caddy-builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS caddy-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -158,11 +159,53 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         rm -rf /tmp/buildenv_* /tmp/caddy-temp; \
         /usr/bin/caddy version'
 
-# ---- CrowdSec Installer ----
-# CrowdSec requires CGO (mattn/go-sqlite3), so we cannot build from source
-# with CGO_ENABLED=0. Instead, we download prebuilt static binaries for amd64
-# or install from packages. For other architectures, CrowdSec is skipped.
-FROM alpine:3.23 AS crowdsec-installer
+# ---- CrowdSec Builder ----
+# Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
+# (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS crowdsec-builder
+COPY --from=xx / /
+
+WORKDIR /tmp/crowdsec
+
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+# CrowdSec version - Renovate can update this
+# renovate: datasource=github-releases depName=crowdsecurity/crowdsec
+ARG CROWDSEC_VERSION=1.7.4
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache git clang lld
+# hadolint ignore=DL3018,DL3059
+RUN xx-apk add --no-cache gcc musl-dev
+
+# Clone CrowdSec source
+RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
+
+# Build CrowdSec binaries for target architecture
+# hadolint ignore=DL3059
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 xx-go build -o /crowdsec-out/crowdsec \
+        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        ./cmd/crowdsec && \
+    xx-verify /crowdsec-out/crowdsec
+
+# hadolint ignore=DL3059
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 xx-go build -o /crowdsec-out/cscli \
+        -ldflags "-s -w -X github.com/crowdsecurity/crowdsec/pkg/cwversion.Version=v${CROWDSEC_VERSION}" \
+        ./cmd/crowdsec-cli && \
+    xx-verify /crowdsec-out/cscli
+
+# Copy config files
+RUN mkdir -p /crowdsec-out/config && \
+    cp -r config/* /crowdsec-out/config/ || true
+
+# ---- CrowdSec Fallback (for architectures where build fails) ----
+# renovate: datasource=docker depName=alpine
+FROM alpine:3.23 AS crowdsec-fallback
 
 WORKDIR /tmp/crowdsec
 
@@ -174,32 +217,27 @@ ARG CROWDSEC_VERSION=1.7.4
 # hadolint ignore=DL3018
 RUN apk add --no-cache curl tar
 
-# Download static binaries (only available for amd64)
+# Download static binaries as fallback (only available for amd64)
 # For other architectures, create empty placeholder files so COPY doesn't fail
 # hadolint ignore=DL3059,SC2015
 RUN set -eux; \
     mkdir -p /crowdsec-out/bin /crowdsec-out/config; \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        echo "Downloading CrowdSec binaries for amd64..."; \
+        echo "Downloading CrowdSec binaries for amd64 (fallback)..."; \
         curl -fSL "https://github.com/crowdsecurity/crowdsec/releases/download/v${CROWDSEC_VERSION}/crowdsec-release.tgz" \
             -o /tmp/crowdsec.tar.gz && \
         tar -xzf /tmp/crowdsec.tar.gz -C /tmp && \
-        # Binaries are in cmd/crowdsec-cli/cscli and cmd/crowdsec/crowdsec
         cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec-cli/cscli" /crowdsec-out/bin/ && \
         cp "/tmp/crowdsec-v${CROWDSEC_VERSION}/cmd/crowdsec/crowdsec" /crowdsec-out/bin/ && \
         chmod +x /crowdsec-out/bin/* && \
-        # Copy config files from the release tarball
         if [ -d "/tmp/crowdsec-v${CROWDSEC_VERSION}/config" ]; then \
             cp -r "/tmp/crowdsec-v${CROWDSEC_VERSION}/config/"* /crowdsec-out/config/; \
         fi && \
-        echo "CrowdSec binaries installed successfully"; \
+        echo "CrowdSec fallback binaries installed successfully"; \
     else \
         echo "CrowdSec binaries not available for $TARGETARCH - skipping"; \
-        # Create empty placeholder so COPY doesn't fail
         touch /crowdsec-out/bin/.placeholder /crowdsec-out/config/.placeholder; \
-    fi; \
-    # Show what we have
-    ls -la /crowdsec-out/bin/ /crowdsec-out/config/ || true
+    fi
 
 # ---- Final Runtime with Caddy ----
 FROM ${CADDY_IMAGE}
@@ -220,18 +258,19 @@ RUN mkdir -p /app/data/geoip && \
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
-# Copy CrowdSec binaries from the crowdsec-installer stage (optional - only amd64)
-# The installer creates placeholders for non-amd64 architectures
-COPY --from=crowdsec-installer /crowdsec-out/bin/* /usr/local/bin/
-COPY --from=crowdsec-installer /crowdsec-out/config /etc/crowdsec.dist
+# Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.25.5+)
+# This ensures we don't have stdlib vulnerabilities from older Go versions
+COPY --from=crowdsec-builder /crowdsec-out/crowdsec /usr/local/bin/crowdsec
+COPY --from=crowdsec-builder /crowdsec-out/cscli /usr/local/bin/cscli
+COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
 
-# Clean up placeholder files and verify CrowdSec (if available)
-RUN rm -f /usr/local/bin/.placeholder /etc/crowdsec.dist/.placeholder 2>/dev/null || true; \
+# Verify CrowdSec binaries
+RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     if [ -x /usr/local/bin/cscli ]; then \
-        echo "CrowdSec installed:"; \
+        echo "CrowdSec installed (built from source with Go 1.25):"; \
         cscli version || echo "CrowdSec version check failed"; \
     else \
-        echo "CrowdSec not available for this architecture - skipping verification"; \
+        echo "CrowdSec not available for this architecture"; \
     fi
 
 # Create required CrowdSec directories in runtime image
