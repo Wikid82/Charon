@@ -23,10 +23,12 @@ jobs:
         with:
           # The prefix to use to create tags
           tag_prefix: "v"
-          # A string which, if present in the git log, indicates that a major version increase is required
-          major_pattern: "(MAJOR)"
-          # A string which, if present in the git log, indicates that a minor version increase is required
-          minor_pattern: "(feat)"
+          # Regex pattern for major version bump (breaking changes)
+          # Matches: "feat!:", "fix!:", "BREAKING CHANGE:" in commit messages
+          major_pattern: "/!:|BREAKING CHANGE:/"
+          # Regex pattern for minor version bump (new features)
+          # Matches: "feat:" prefix in commit messages (Conventional Commits)
+          minor_pattern: "/feat:/"
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
           # If no tags are found, this version is used
