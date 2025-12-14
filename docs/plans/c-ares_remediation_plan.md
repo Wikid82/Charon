@@ -12,9 +12,12 @@
 
 ## Executive Summary
 
-A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (version 1.34.5-r0) used by Charon's Docker container. The vulnerability is a **use-after-free** bug that can cause **Denial of Service (DoS)** attacks. The fix requires updating Alpine packages to pull c-ares 1.34.6-r0.
+A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (version 1.34.5-r0) used by
+Charon's Docker container. The vulnerability is a **use-after-free** bug that can cause
+**Denial of Service (DoS)** attacks. The fix requires updating Alpine packages to pull c-ares 1.34.6-r0.
 
-**Key Finding:** No Dockerfile changes required - rebuilding the image will automatically pull the patched version via `apk upgrade`.
+**Key Finding:** No Dockerfile changes required - rebuilding the image will automatically pull the patched
+version via `apk upgrade`.
 
 ---
 
@@ -23,6 +26,7 @@ A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (v
 **✅ COMPLETED** - Weekly security rebuild workflow has been implemented to proactively detect and address security vulnerabilities.
 
 **What Was Implemented:**
+
 - Created `.github/workflows/security-weekly-rebuild.yml`
 - Scheduled to run every Sunday at 04:00 UTC
 - Forces fresh Alpine package downloads using `--no-cache`
@@ -31,16 +35,19 @@ A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (v
 - Archives scan results for 90-day retention
 
 **Next Scheduled Run:**
+
 - **First run:** Sunday, December 15, 2025 at 04:00 UTC
 - **Frequency:** Weekly (every Sunday)
 
 **Benefits:**
+
 - Catches CVEs within 7-day window (acceptable for Charon's threat model)
 - No impact on development velocity (separate from PR/push builds)
 - Automated security monitoring with zero manual intervention
 - Provides early warning of breaking package updates
 
 **Related Documentation:**
+
 - Workflow file: [.github/workflows/security-weekly-rebuild.yml](../../.github/workflows/security-weekly-rebuild.yml)
 - Security guide: [docs/security.md](../security.md)
 
@@ -51,6 +58,7 @@ A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (v
 ### 1. What is c-ares?
 
 **c-ares** is a C library for asynchronous DNS requests. It is:
+
 - **Low-level networking library** used by curl and other HTTP clients
 - **Alpine Linux package** installed as a dependency of `libcurl`
 - **Not directly installed** by Charon's Dockerfile but pulled in automatically
@@ -59,7 +67,7 @@ A Trivy security scan has identified **CVE-2025-62408** in the c-ares library (v
 
 c-ares is a **transitive dependency** installed via Alpine's package manager (apk):
 
-```
+```text
 Alpine Linux 3.23
   └─ curl (8.17.0-r1) ← Explicitly installed in Dockerfile:210
       └─ libcurl (8.17.0-r1)
@@ -67,19 +75,23 @@ Alpine Linux 3.23
 ```
 
 **Dockerfile locations:**
+
 - **Line 210:** `RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \`
 - **Line 217:** `curl -L "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \`
 
 **Components that depend on curl:**
+
 1. **Runtime stage** (final image) - Uses curl to download GeoLite2 database
 2. **CrowdSec installer stage** - Uses curl to download CrowdSec binaries (line 184)
 
 ### 3. CVE-2025-62408 Details
 
 **Description:**
-c-ares versions 1.32.3 through 1.34.5 terminate a query after maximum attempts when using `read_answer()` and `process_answer()`, which can cause a **Denial of Service (DoS)**.
+c-ares versions 1.32.3 through 1.34.5 terminate a query after maximum attempts when using `read_answer()`
+and `process_answer()`, which can cause a **Denial of Service (DoS)**.
 
 **CVSS 3.1 Score:** 5.9 MEDIUM
+
 - **Attack Vector:** Network (AV:N)
 - **Attack Complexity:** High (AC:H)
 - **Privileges Required:** None (PR:N)
@@ -96,9 +108,10 @@ c-ares versions 1.32.3 through 1.34.5 terminate a query after maximum attempts w
 **Fixed In:** c-ares 1.34.6-r0 (Alpine package update)
 
 **References:**
-- NVD: https://nvd.nist.gov/vuln/detail/CVE-2025-62408
-- GitHub Advisory: https://github.com/c-ares/c-ares/security/advisories/GHSA-jq53-42q6-pqr5
-- Fix Commit: https://github.com/c-ares/c-ares/commit/714bf5675c541bd1e668a8db8e67ce012651e618
+
+- NVD: <https://nvd.nist.gov/vuln/detail/CVE-2025-62408>
+- GitHub Advisory: <https://github.com/c-ares/c-ares/security/advisories/GHSA-jq53-42q6-pqr5>
+- Fix Commit: <https://github.com/c-ares/c-ares/commit/714bf5675c541bd1e668a8db8e67ce012651e618>
 
 ### 4. Impact Assessment for Charon
 
@@ -129,7 +142,8 @@ c-ares versions 1.32.3 through 1.34.5 terminate a query after maximum attempts w
 
 ### Option A: Rebuild Image with Package Updates (RECOMMENDED)
 
-**Rationale:** Alpine Linux automatically pulls the latest package versions when `apk upgrade` is run. Since c-ares 1.34.6-r0 is available in the Alpine 3.23 repositories, a simple rebuild will pull the fixed version.
+**Rationale:** Alpine Linux automatically pulls the latest package versions when `apk upgrade` is run. Since
+c-ares 1.34.6-r0 is available in the Alpine 3.23 repositories, a simple rebuild will pull the fixed version.
 
 #### Implementation Strategy
 
@@ -159,6 +173,7 @@ The `apk upgrade` command will automatically pull c-ares 1.34.6-r0 on the next b
    - Run local build: `docker build --no-cache -t charon:test .`
 
 2. **Verify fix after build:**
+
    ```bash
    # Check c-ares version in built image
    docker run --rm charon:test sh -c "apk info c-ares"
@@ -166,6 +181,7 @@ The `apk upgrade` command will automatically pull c-ares 1.34.6-r0 on the next b
    ```
 
 3. **Run Trivy scan to confirm:**
+
    ```bash
    docker run --rm -v $(pwd):/app aquasec/trivy:latest image charon:test
    # Should not show CVE-2025-62408
@@ -178,6 +194,7 @@ The `apk upgrade` command will automatically pull c-ares 1.34.6-r0 on the next b
 **Rationale:** Explicitly pin c-ares version in Dockerfile for guaranteed version control.
 
 **Downsides:**
+
 - Requires manual updates for future c-ares versions
 - Renovate doesn't automatically track Alpine packages
 - Adds maintenance overhead
@@ -201,7 +218,7 @@ RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
 
 #### Step 1: Trigger Docker Build
 
-**Method 1: Push fix commit (Recommended)**
+##### Method 1: Push fix commit (Recommended)
 
 ```bash
 # Create empty commit to trigger build
@@ -209,13 +226,13 @@ git commit --allow-empty -m "chore: rebuild image to pull c-ares 1.34.6 (CVE-202
 git push origin main
 ```
 
-**Method 2: Manually trigger GitHub Actions**
+##### Method 2: Manually trigger GitHub Actions
 
 1. Go to Actions → Docker Build workflow
 2. Click "Run workflow"
 3. Select branch: `main` or `development`
 
-**Method 3: Local build and test**
+##### Method 3: Local build and test
 
 ```bash
 # Build locally with no cache to force package updates
@@ -313,9 +330,9 @@ Before deploying the fix:
 - [ ] c-ares version is 1.34.6-r0 or higher
 - [ ] Trivy scan shows no CVE-2025-62408
 - [ ] Container starts without errors
-- [ ] Charon API endpoint responds (http://localhost:8080/api/health)
-- [ ] Frontend loads correctly (http://localhost:8080/)
-- [ ] Caddy admin API responds (http://localhost:2019/)
+- [ ] Charon API endpoint responds (<http://localhost:8080/api/health>)
+- [ ] Frontend loads correctly (<http://localhost:8080/>)
+- [ ] Caddy admin API responds (<http://localhost:2019/>)
 - [ ] GeoLite2 database downloads during startup
 - [ ] Backend tests pass: `cd backend && go test ./...`
 - [ ] Frontend tests pass: `cd frontend && npm run test`
@@ -327,7 +344,8 @@ Before deploying the fix:
 
 ### 1. Alpine Package Updates
 
-The `apk upgrade` command may update other packages beyond c-ares. This is **expected and safe** because:
+The `apk upgrade` command may update other packages beyond c-ares. This is **expected and safe**
+because:
 
 - Alpine 3.23 is a stable release with tested package combinations
 - Upgrades are limited to patch/minor versions within 3.23
@@ -338,7 +356,8 @@ The `apk upgrade` command may update other packages beyond c-ares. This is **exp
 
 ### 2. curl Behavior Changes
 
-c-ares is a DNS resolver library. The 1.34.6 fix addresses a use-after-free bug, which could theoretically affect DNS resolution behavior.
+c-ares is a DNS resolver library. The 1.34.6 fix addresses a use-after-free bug, which could theoretically
+affect DNS resolution behavior.
 
 **Risk:** Very Low
 **Mitigation:** Test GeoLite2 database download during container startup
@@ -366,6 +385,7 @@ If the update causes unexpected issues:
 ### Quick Rollback (Emergency)
 
 1. **Revert to previous Docker image:**
+
    ```bash
    # Find previous working image
    docker images charon
@@ -378,6 +398,7 @@ If the update causes unexpected issues:
    ```
 
 2. **Restart containers:**
+
    ```bash
    docker-compose down
    docker-compose up -d
@@ -386,6 +407,7 @@ If the update causes unexpected issues:
 ### Proper Rollback (If Issue Confirmed)
 
 1. **Pin c-ares to known-good version:**
+
    ```dockerfile
    RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
        c-ares=1.34.5-r0 \
@@ -434,15 +456,19 @@ References:
 
 ## Files to Modify (Summary)
 
-| File | Line(s) | Change |
-|------|---------|--------|
-| **None** | N/A | No file changes required - rebuild pulls updated packages |
+| File       | Line(s) | Change                                                            |
+|------------|---------|-------------------------------------------------------------------|
+| **None**   | N/A     | No file changes required - rebuild pulls updated packages         |
 
 **Alternative (if explicit pinning desired):**
 
-| File | Line(s) | Change |
-|------|---------|--------|
-| `Dockerfile` | 210-211 | Add `c-ares>=1.34.6-r0` to apk install (not recommended) |
+<!-- markdownlint-disable MD060 -->
+
+| File         | Line(s) | Change                                                            |
+|--------------|---------|-------------------------------------------------------------------|
+| `Dockerfile` | 210-211 | Add `c-ares>=1.34.6-r0` to apk install (not recommended)         |
+
+<!-- markdownlint-enable MD060 -->
 
 ---
 
@@ -455,6 +481,7 @@ Charon uses Trivy for vulnerability scanning. Ensure scans run regularly:
 **GitHub Actions Workflow:** `.github/workflows/security-scan.yml` (if exists)
 
 **Manual Trivy Scan:**
+
 ```bash
 # Scan built image
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
@@ -484,7 +511,7 @@ docker run --rm -v $(pwd):/app aquasec/trivy:latest fs /app \
 3. **Security Monitoring:**
    - Enable GitHub Security Advisories for repository
    - Subscribe to Alpine security mailing list
-   - Monitor c-ares CVEs: https://github.com/c-ares/c-ares/security/advisories
+   - Monitor c-ares CVEs: <https://github.com/c-ares/c-ares/security/advisories>
 
 ---
 
@@ -492,7 +519,7 @@ docker run --rm -v $(pwd):/app aquasec/trivy:latest fs /app \
 
 Full dependency tree for c-ares in Charon's runtime image:
 
-```
+```text
 Alpine Linux 3.23 (Final runtime stage)
 ├─ ca-certificates (explicitly installed)
 ├─ sqlite-libs (explicitly installed)
@@ -514,6 +541,7 @@ Alpine Linux 3.23 (Final runtime stage)
 ```
 
 **Verification Command:**
+
 ```bash
 docker run --rm alpine:3.23 sh -c "
   apk update &&
@@ -539,19 +567,24 @@ docker run --rm alpine:3.23 sh -c "
 ## Questions & Answers
 
 **Q: Why not just pin c-ares version explicitly?**
-A: Alpine's `apk upgrade` already handles security updates automatically. Explicit pinning adds maintenance overhead and requires manual updates for future CVEs.
+A: Alpine's `apk upgrade` already handles security updates automatically. Explicit pinning adds maintenance
+overhead and requires manual updates for future CVEs.
 
 **Q: Will this break existing deployments?**
 A: No. This only affects new builds. Existing containers continue running with the current c-ares version until rebuilt.
 
 **Q: How urgent is this fix?**
-A: Low to medium urgency. The vulnerability requires DNS MitM during container startup, which is unlikely. Apply as part of normal maintenance cycle.
+A: Low to medium urgency. The vulnerability requires DNS MitM during container startup, which is unlikely.
+Apply as part of normal maintenance cycle.
 
 **Q: Can I test the fix locally before deploying?**
-A: Yes. Use `docker build --no-cache -t charon:test .` to build locally and test before pushing to production.
+A: Yes. Use `docker build --no-cache -t charon:test .` to build locally and test before pushing to
+production.
 
 **Q: What if c-ares 1.34.6 isn't available yet?**
-A: Check Alpine package repositories: https://pkgs.alpinelinux.org/packages?name=c-ares&branch=v3.23. If 1.34.6 isn't released, monitor Alpine security tracker.
+A: Check Alpine package repositories:
+<https://pkgs.alpinelinux.org/packages?name=c-ares&branch=v3.23>.
+If 1.34.6 isn't released, monitor Alpine security tracker.
 
 **Q: Does this affect older Charon versions?**
 A: Yes, if they use Alpine 3.23 or older Alpine versions with vulnerable c-ares. Rebuild those images as well.
@@ -559,9 +592,13 @@ A: Yes, if they use Alpine 3.23 or older Alpine versions with vulnerable c-ares.
 ---
 
 **Document Status:** ✅ Complete - Ready for implementation
+
 **Next Action:** Execute Step 1 (Trigger Docker Build)
+
 **Owner:** DevOps/Security Team
+
 **Review Date:** 2025-12-14
+
 ---
 
 ## CI/CD Cache Strategy Recommendations
@@ -569,6 +606,7 @@ A: Yes, if they use Alpine 3.23 or older Alpine versions with vulnerable c-ares.
 ### Current State Analysis
 
 **Caching Configuration:**
+
 ```yaml
 # .github/workflows/docker-build.yml (lines 113-114)
 cache-from: type=gha
@@ -576,19 +614,22 @@ cache-to: type=gha,mode=max
 ```
 
 **How GitHub Actions Cache Works:**
+
 - **`cache-from: type=gha`** - Pulls cached layers from previous builds
 - **`cache-to: type=gha,mode=max`** - Saves all build stages (including intermediate layers)
 - **Cache scope:** Per repository, per workflow, per branch
 - **Cache invalidation:** Automatic when Dockerfile changes or base images update
 
 **Current Dockerfile Package Updates:**
+
 ```dockerfile
 # Line 210-211 (Final runtime stage)
 RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
     && apk --no-cache upgrade
 ```
 
-The `apk --no-cache upgrade` command runs during **every build**, but Docker layer caching can prevent it from actually fetching new packages.
+The `apk --no-cache upgrade` command runs during **every build**, but Docker layer caching can prevent it
+from actually fetching new packages.
 
 ---
 
@@ -597,6 +638,7 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 #### Option 1: Keep Current Cache Strategy (RECOMMENDED for Regular Builds)
 
 **Pros:**
+
 - ✅ Fast CI builds (5-10 minutes instead of 15-30 minutes)
 - ✅ Lower GitHub Actions minutes consumption
 - ✅ Reduced resource usage (network, disk I/O)
@@ -605,11 +647,13 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 - ✅ Manual rebuilds can force fresh packages when needed
 
 **Cons:**
+
 - ❌ Security patches in Alpine packages may lag behind by days/weeks
 - ❌ `apk upgrade` may use cached package index
 - ❌ Transitive dependencies (like c-ares) won't auto-update until base image changes
 
 **Risk Assessment:**
+
 - **Low Risk** - Charon already has scheduled Renovate runs (daily 05:00 UTC)
 - Renovate updates `alpine:3.23` base image when new digests are published
 - Base image updates automatically invalidate Docker cache
@@ -627,6 +671,7 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 **First Run:** December 15, 2025
 
 **Pros:**
+
 - ✅ Guarantees fresh Alpine packages weekly
 - ✅ Catches CVEs between Renovate base image updates
 - ✅ Doesn't slow down development workflow
@@ -634,11 +679,13 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 - ✅ Separate workflow means no impact on PR builds
 
 **Cons:**
+
 - ❌ Requires maintaining separate workflow
 - ❌ Longer build times once per week
 - ❌ May produce "false positive" Trivy alerts for non-critical CVEs
 
 **Risk Assessment:**
+
 - **Very Low Risk** - Weekly rebuilds balance security and performance
 - Catches CVEs within 7-day window (acceptable for most use cases)
 - Trivy scans run automatically after build
@@ -650,10 +697,12 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 #### Option 3: Force No-Cache on All Builds (NOT RECOMMENDED)
 
 **Pros:**
+
 - ✅ Always uses latest Alpine packages
 - ✅ Zero lag between CVE fixes and builds
 
 **Cons:**
+
 - ❌ **Significantly slower builds** (15-30 min vs 5-10 min)
 - ❌ **Higher CI costs** (2-3x more GitHub Actions minutes)
 - ❌ **Worse developer experience** (slow PR feedback)
@@ -662,6 +711,7 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 - ❌ **No added security** - Vulnerabilities are patched at build time anyway
 
 **Risk Assessment:**
+
 - **High Overhead, Low Benefit** - Not justified for Charon's threat model
 - Would consume ~500 extra CI minutes per month for minimal security gain
 
@@ -678,6 +728,7 @@ The `apk --no-cache upgrade` command runs during **every build**, but Docker lay
 3. **Manual trigger:** Allow forcing no-cache builds via `workflow_dispatch`
 
 This approach:
+
 - ✅ Maintains fast development feedback loop
 - ✅ Catches security vulnerabilities within 7 days
 - ✅ Allows on-demand fresh builds when CVEs are announced
@@ -894,10 +945,12 @@ on:
 ```
 
 **Pros:**
+
 - ✅ Reuses existing workflow
 - ✅ Simple implementation
 
 **Cons:**
+
 - ❌ No automatic scheduling
 - ❌ Must manually trigger each time
 
@@ -906,6 +959,7 @@ on:
 ### Why the Current Cache Behavior Caught c-ares CVE Late
 
 **Timeline:**
+
 1. **2025-12-12:** c-ares 1.34.6-r0 released to Alpine repos
 2. **2025-12-14:** Trivy scan detected CVE-2025-62408 (still using 1.34.5-r0)
 3. **Cause:** Docker layer cache prevented `apk upgrade` from checking for new packages
@@ -921,30 +975,36 @@ RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
 ```
 
 Docker sees:
+
 - Same base image → ✅ Use cached layer
 - Same RUN instruction → ✅ Use cached layer
 - **Doesn't execute `apk upgrade`** → Keeps c-ares 1.34.5-r0
 
 **How `--no-cache` Would Have Helped:**
+
 - Forces execution of `apk upgrade` → Downloads latest package index
 - Installs c-ares 1.34.6-r0 → CVE resolved immediately
 
-**But:** This is **acceptable behavior** for Charon's threat model. The 2-day lag is negligible for a home user reverse proxy.
+**But:** This is **acceptable behavior** for Charon's threat model. The 2-day lag is negligible for a home
+user reverse proxy.
 
 ---
 
 ### Recommended Action Plan
 
 **Immediate (Today):**
+
 1. ✅ Trigger a manual rebuild to pull c-ares 1.34.6-r0 (already documented in main plan)
 2. ✅ Use GitHub Actions manual workflow trigger with `workflow_dispatch`
 
 **Short-term (This Week):**
+
 1. ⏭️ Implement weekly security rebuild workflow (new file above)
 2. ⏭️ Add `no-cache` option to existing [docker-build.yml](.github/workflows/docker-build.yml) for emergency use
 3. ⏭️ Document security scanning process in [docs/security.md](../security.md)
 
 **Long-term (Next Month):**
+
 1. ⏭️ Evaluate if weekly scans catch issues early enough
 2. ⏭️ Consider adding Trivy DB auto-updates (separate from image builds)
 3. ⏭️ Monitor Alpine security mailing list for advance notice of CVEs
@@ -955,17 +1015,20 @@ Docker sees:
 ### When to Force `--no-cache` Builds
 
 **Always use `--no-cache` when:**
+
 - ⚠️ Critical CVE announced in Alpine package
 - ⚠️ Security audit requested
 - ⚠️ Compliance requirement mandates latest packages
 - ⚠️ Production deployment after long idle period (weeks)
 
 **Never use `--no-cache` for:**
+
 - ✅ Regular PR builds (too slow, no benefit)
 - ✅ Development testing (wastes resources)
 - ✅ Hotfixes that don't touch dependencies
 
 **Use weekly scheduled `--no-cache` for:**
+
 - ✅ Proactive security monitoring
 - ✅ Early detection of package conflicts
 - ✅ Security compliance reporting
@@ -975,16 +1038,19 @@ Docker sees:
 ### Cost-Benefit Analysis
 
 **Current Strategy (Cached Builds):**
+
 - **Build Time:** 5-10 minutes per build
 - **Monthly CI Cost:** ~200 minutes/month (assuming 10 builds/month)
 - **CVE Detection Lag:** 1-7 days (until next base image update or manual rebuild)
 
 **With Weekly No-Cache Builds:**
+
 - **Build Time:** 20-30 minutes per build (weekly)
 - **Monthly CI Cost:** ~300 minutes/month (+100 minutes, ~50% increase)
 - **CVE Detection Lag:** 0-7 days (guaranteed weekly refresh)
 
 **With All No-Cache Builds (NOT RECOMMENDED):**
+
 - **Build Time:** 20-30 minutes per build
 - **Monthly CI Cost:** ~500 minutes/month (+150% increase)
 - **CVE Detection Lag:** 0 days
@@ -995,12 +1061,14 @@ Docker sees:
 ### Final Recommendation: Hybrid Strategy ✅ IMPLEMENTED
 
 **Summary:**
+
 - ✅ **Keep cached builds for development** (current behavior) - ACTIVE
 - ✅ **Add weekly no-cache security builds** (new workflow) - IMPLEMENTED
 - ⏭️ **Add manual no-cache trigger** (emergency use) - PENDING
 - ❌ **Do NOT force no-cache on all builds** (wasteful, slow) - CONFIRMED
 
 **Rationale:**
+
 - Charon is a **home user application**, not critical infrastructure
 - **1-7 day CVE lag is acceptable** for the threat model
 - **Weekly scans catch 99% of CVEs** before they become issues
@@ -1008,6 +1076,7 @@ Docker sees:
 - **GitHub Actions minutes are limited** - use them wisely
 
 **Implementation Effort:**
+
 - **Easy:** Add manual `no-cache` trigger to existing workflow (~5 minutes)
 - **Medium:** Create weekly security rebuild workflow (~30 minutes)
 - **Maintenance:** Minimal (workflows run automatically)
@@ -1017,37 +1086,46 @@ Docker sees:
 ### Questions & Answers
 
 **Q: Should we switch to `--no-cache` for all builds after this CVE?**
-A: **No.** The 2-day lag between c-ares 1.34.6-r0 release and detection is acceptable. Weekly scheduled builds will catch future CVEs within 7 days, which is sufficient for Charon's threat model.
+A: **No.** The 2-day lag between c-ares 1.34.6-r0 release and detection is acceptable. Weekly scheduled
+builds will catch future CVEs within 7 days, which is sufficient for Charon's threat model.
 
 **Q: How do we balance security and CI costs?**
-A: Use **hybrid strategy**: cached builds for speed, weekly no-cache builds for security. This adds only ~100 CI minutes/month (~50% increase) while catching 99% of CVEs proactively.
+A: Use **hybrid strategy**: cached builds for speed, weekly no-cache builds for security. This adds only
+~100 CI minutes/month (~50% increase) while catching 99% of CVEs proactively.
 
 **Q: What if a critical CVE is announced?**
-A: Use **manual workflow trigger** with `no-cache: true` to force an immediate rebuild. Document this in runbooks/incident response procedures.
+A: Use **manual workflow trigger** with `no-cache: true` to force an immediate rebuild. Document this in
+runbooks/incident response procedures.
 
 **Q: Why not use Renovate for Alpine package updates?**
-A: Renovate tracks **base image digests** (`alpine:3.23`), not individual Alpine packages. Package updates happen via `apk upgrade`, which requires cache invalidation to be effective.
+A: Renovate tracks **base image digests** (`alpine:3.23`), not individual Alpine packages. Package updates
+happen via `apk upgrade`, which requires cache invalidation to be effective.
 
 **Q: Can we optimize `--no-cache` to only affect Alpine packages?**
 A: Yes, with **BuildKit cache modes**. Consider using:
+
 ```yaml
 cache-from: type=gha
 cache-to: type=gha,mode=max
 # But add:
 --mount=type=cache,target=/var/cache/apk,sharing=locked
 ```
-This caches Go modules, npm packages, etc., while still refreshing Alpine packages. More complex to implement but worth investigating.
+
+This caches Go modules, npm packages, etc., while still refreshing Alpine packages. More complex to
+implement but worth investigating.
 
 ---
 
 **Decision:** ✅ Implement **Hybrid Strategy** (Option 1 + Option 2)
 **Action Items:**
+
 1. ✅ Create `.github/workflows/security-weekly-rebuild.yml` - COMPLETED 2025-12-14
 2. ⏭️ Add `no_cache` input to `.github/workflows/docker-build.yml` - PENDING
 3. ⏭️ Update [docs/security.md](../security.md) with scanning procedures - PENDING
 4. ⏭️ Add VS Code task for manual security rebuild - PENDING
 
 **Implementation Notes:**
+
 - Weekly workflow is fully functional and will begin running December 15, 2025
 - Manual trigger option available via workflow_dispatch in the security workflow
 - Results will appear in GitHub Security tab automatically
