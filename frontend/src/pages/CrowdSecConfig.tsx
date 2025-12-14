@@ -7,7 +7,7 @@ import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { getSecurityStatus } from '../api/security'
 import { getFeatureFlags } from '../api/featureFlags'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec, CrowdSecStatus } from '../api/crowdsec'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { createBackup } from '../api/backups'
 import { updateSetting } from '../api/settings'
@@ -62,7 +62,7 @@ export default function CrowdSecConfig() {
   }, [consoleEnrollmentEnabled, initialCheckComplete])
 
   // Add LAPI status check with polling
-  const lapiStatusQuery = useQuery({
+  const lapiStatusQuery = useQuery<CrowdSecStatus>({
     queryKey: ['crowdsec-lapi-status'],
     queryFn: statusCrowdsec,
     enabled: consoleEnrollmentEnabled && initialCheckComplete,
@@ -594,8 +594,8 @@ export default function CrowdSecConfig() {
               <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.submit}</p>
             )}
 
-            {/* Warning when CrowdSec LAPI is not running */}
-            {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
+            {/* Yellow warning: Process running but LAPI initializing */}
+            {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
               <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
                 <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -616,15 +616,38 @@ export default function CrowdSecConfig() {
                     >
                       Check Now
                     </Button>
-                    {!status?.crowdsec?.enabled && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => navigate('/security')}
-                      >
-                        Go to Security Dashboard
-                      </Button>
-                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Red warning: Process not running at all */}
+            {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
+              <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-700/50 rounded-lg" data-testid="lapi-not-running-warning">
+                <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm text-red-200 font-medium mb-2">
+                    CrowdSec is not running
+                  </p>
+                  <p className="text-xs text-red-300 mb-3">
+                    The CrowdSec process is not currently running. Enable CrowdSec from the Security Dashboard to use console enrollment features.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => lapiStatusQuery.refetch()}
+                      disabled={lapiStatusQuery.isRefetching}
+                    >
+                      Check Now
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => navigate('/security')}
+                    >
+                      Go to Security Dashboard
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -677,12 +700,12 @@ export default function CrowdSecConfig() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => submitConsoleEnrollment(false)}
-                disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.running) || !enrollmentToken.trim()}
+                disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready) || !enrollmentToken.trim()}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-enroll-btn"
                 title={
-                  lapiStatusQuery.data && !lapiStatusQuery.data.running
-                    ? 'CrowdSec LAPI must be running to enroll'
+                  lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
+                    ? 'CrowdSec LAPI must be ready to enroll'
                     : !enrollmentToken.trim()
                     ? 'Enrollment token is required'
                     : undefined
@@ -693,12 +716,12 @@ export default function CrowdSecConfig() {
               <Button
                 variant="secondary"
                 onClick={() => submitConsoleEnrollment(true)}
-                disabled={isConsolePending || !canRotateKey || (lapiStatusQuery.data && !lapiStatusQuery.data.running)}
+                disabled={isConsolePending || !canRotateKey || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready)}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-rotate-btn"
                 title={
-                  lapiStatusQuery.data && !lapiStatusQuery.data.running
-                    ? 'CrowdSec LAPI must be running to rotate key'
+                  lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
+                    ? 'CrowdSec LAPI must be ready to rotate key'
                     : undefined
                 }
               >
@@ -708,12 +731,12 @@ export default function CrowdSecConfig() {
                 <Button
                   variant="secondary"
                   onClick={() => submitConsoleEnrollment(true)}
-                  disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.running)}
+                  disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready)}
                   isLoading={enrollConsoleMutation.isPending}
                   data-testid="console-retry-btn"
                   title={
-                    lapiStatusQuery.data && !lapiStatusQuery.data.running
-                      ? 'CrowdSec LAPI must be running to retry enrollment'
+                    lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
+                      ? 'CrowdSec LAPI must be ready to retry enrollment'
                       : undefined
                   }
                 >

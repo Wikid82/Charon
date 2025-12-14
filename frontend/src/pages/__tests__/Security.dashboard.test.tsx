@@ -71,7 +71,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       },
     })
     vi.clearAllMocks()
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(window, 'open').mockImplementation(() => null)
@@ -128,7 +128,7 @@ describe('Security Dashboard - Card Status Tests', () => {
   describe('SD-02: CrowdSec Card Active Status', () => {
     it('should show "Active" when crowdsec.enabled=true', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 
@@ -143,7 +143,7 @@ describe('Security Dashboard - Card Status Tests', () => {
 
     it('should show running PID when CrowdSec is running', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 

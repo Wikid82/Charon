@@ -19,8 +19,14 @@ export async function stopCrowdsec() {
   return resp.data
 }
 
-export async function statusCrowdsec() {
-  const resp = await client.get('/admin/crowdsec/status')
+export interface CrowdSecStatus {
+  running: boolean
+  pid: number
+  lapi_ready: boolean
+}
+
+export async function statusCrowdsec(): Promise<CrowdSecStatus> {
+  const resp = await client.get<CrowdSecStatus>('/admin/crowdsec/status')
   return resp.data
 }
 

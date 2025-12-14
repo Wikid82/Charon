@@ -63,7 +63,7 @@ describe('Security Loading Overlay Tests', () => {
       },
     })
     vi.clearAllMocks()
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(window, 'open').mockImplementation(() => null)
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
@@ -116,7 +116,7 @@ describe('Security Loading Overlay Tests', () => {
     it('should show specific message for CrowdSec start operation', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCrowdsecDisabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       // Never-resolving promise to keep loading state
       vi.mocked(crowdsecApi.startCrowdsec).mockImplementation(() => new Promise(() => {}))
@@ -138,7 +138,7 @@ describe('Security Loading Overlay Tests', () => {
     it('should show specific message for CrowdSec stop operation', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       // Never-resolving promise to keep loading state
       vi.mocked(crowdsecApi.stopCrowdsec).mockImplementation(() => new Promise(() => {}))
