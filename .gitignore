@@ -81,9 +81,7 @@ charon.db
 *~
 .DS_Store
 *.xcf
-.vscode/
-.vscode/launch.json
-.vscode.backup*/
+
 
 # -----------------------------------------------------------------------------
 # Logs & Temp Files

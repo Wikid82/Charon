@@ -13,10 +13,10 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     env:
-      # Use the built-in CHARON_TOKEN by default for GitHub API operations.
-      # If you need to provide a PAT with elevated permissions, add a CHARON_TOKEN secret
+      # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
+      # If you need to provide a PAT with elevated permissions, add a GITHUB_TOKEN secret
       # at the repo or organization level and update the env here accordingly.
-      CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
@@ -26,12 +26,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
-          go-version: '1.25.5'
+          go-version: '1.23.x'
 
       - name: Set up Node.js
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
         with:
-          node-version: '24.12.0'
+          node-version: '20.x'
 
       - name: Build Frontend
         working-directory: frontend
@@ -47,7 +47,7 @@ jobs:
         with:
           version: 0.13.0
 
-      # CHARON_TOKEN is set from CHARON_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+      # GITHUB_TOKEN is set from GITHUB_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
 
 
       - name: Run GoReleaser
@@ -56,4 +56,6 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # CGO settings are handled in .goreleaser.yaml via Zig

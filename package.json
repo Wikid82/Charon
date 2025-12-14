@@ -8,6 +8,6 @@
     "tldts": "^7.0.19"
   },
   "devDependencies": {
-    "markdownlint-cli2": "^0.15.0"
+    "markdownlint-cli2": "^0.20.0"
   }
 }

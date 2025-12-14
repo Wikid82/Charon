@@ -35,19 +35,24 @@ When the `/api/v1/security/status` endpoint is called, the system:
 ## Supported Settings Table Keys
 
 ### Cerberus (Master Switch)
+
 - `feature.cerberus.enabled` - "true"/"false" - Enables/disables all security features
 
 ### WAF (Web Application Firewall)
+
 - `security.waf.enabled` - "true"/"false" - Overrides WAF mode
 
 ### Rate Limiting
+
 - `security.rate_limit.enabled` - "true"/"false" - Overrides rate limit mode
 
 ### CrowdSec
+
 - `security.crowdsec.enabled` - "true"/"false" - Sets CrowdSec to local/disabled
 - `security.crowdsec.mode` - "local"/"disabled" - Direct mode override
 
 ### ACL (Access Control Lists)
+
 - `security.acl.enabled` - "true"/"false" - Overrides ACL mode
 
 ## Examples
@@ -127,6 +132,7 @@ config.SecurityConfig{
 ## Testing
 
 Comprehensive unit tests verify the priority chain:
+
 - `TestSecurityHandler_Priority_SettingsOverSecurityConfig` - Tests all three priority levels
 - `TestSecurityHandler_Priority_AllModules` - Tests all security modules together
 - `TestSecurityHandler_GetStatus_RespectsSettingsTable` - Tests Settings table overrides
@@ -178,6 +184,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 ## QA Verification
 
 All previously failing tests now pass:
+
 - ✅ `TestCertificateHandler_Delete_NotificationRateLimiting`
 - ✅ `TestSecurityHandler_ACL_DBOverride`
 - ✅ `TestSecurityHandler_CrowdSec_Mode_DBOverride`
@@ -188,6 +195,7 @@ All previously failing tests now pass:
 ## Migration Notes
 
 For existing deployments:
+
 1. No database migration required - Settings table already exists
 2. SecurityConfig records work as before
 3. New Settings table overrides are optional

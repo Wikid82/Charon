@@ -306,7 +306,7 @@ if (!status) return <div className="p-8 text-center text-gray-400">No security s
 }
 ```
 
-2. **App.tsx** - Update routes:
+1. **App.tsx** - Update routes:
 
 ```tsx
 // Remove: <Route path="users" element={<UsersPage />} />

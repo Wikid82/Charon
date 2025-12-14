@@ -1,0 +1,252 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build: Local Docker Image",
+            "type": "shell",
+            "command": "docker build -t charon:local .",
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Build: Backend",
+            "type": "shell",
+            "command": "cd backend && go build ./...",
+            "group": "build",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Build: Frontend",
+            "type": "shell",
+            "command": "cd frontend && npm run build",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build: All",
+            "type": "shell",
+            "dependsOn": ["Build: Backend", "Build: Frontend"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend Unit Tests",
+            "type": "shell",
+            "command": "cd backend && go test ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Test: Backend with Coverage",
+            "type": "shell",
+            "command": "scripts/go-test-coverage.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend",
+            "type": "shell",
+            "command": "cd frontend && npm run test",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Frontend with Coverage",
+            "type": "shell",
+            "command": "scripts/frontend-test-coverage.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Pre-commit (All Files)",
+            "type": "shell",
+            "command": "source .venv/bin/activate && pre-commit run --all-files",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Lint: Go Vet",
+            "type": "shell",
+            "command": "cd backend && go vet ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Lint: GolangCI-Lint (Docker)",
+            "type": "shell",
+            "command": "cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Frontend",
+            "type": "shell",
+            "command": "cd frontend && npm run lint",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Frontend (Fix)",
+            "type": "shell",
+            "command": "cd frontend && npm run lint -- --fix",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: TypeScript Check",
+            "type": "shell",
+            "command": "cd frontend && npm run type-check",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Markdownlint",
+            "type": "shell",
+            "command": "markdownlint '**/*.md' --ignore node_modules --ignore frontend/node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Markdownlint (Fix)",
+            "type": "shell",
+            "command": "markdownlint '**/*.md' --fix --ignore node_modules --ignore frontend/node_modules --ignore .venv --ignore test-results --ignore codeql-db --ignore codeql-agent-results",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Lint: Hadolint Dockerfile",
+            "type": "shell",
+            "command": "docker run --rm -i hadolint/hadolint < Dockerfile",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Trivy Scan",
+            "type": "shell",
+            "command": "docker run --rm -v $(pwd):/app aquasec/trivy:latest fs --scanners vuln,secret,misconfig /app",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Go Vulnerability Check",
+            "type": "shell",
+            "command": "cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker: Start Dev Environment",
+            "type": "shell",
+            "command": "docker compose -f docker-compose.dev.yml up -d",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker: Stop Dev Environment",
+            "type": "shell",
+            "command": "docker compose -f docker-compose.dev.yml down",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker: Start Local Environment",
+            "type": "shell",
+            "command": "docker compose -f docker-compose.local.yml up -d",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker: Stop Local Environment",
+            "type": "shell",
+            "command": "docker compose -f docker-compose.local.yml down",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Docker: View Logs",
+            "type": "shell",
+            "command": "docker compose logs -f",
+            "group": "none",
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "Docker: Prune Unused Resources",
+            "type": "shell",
+            "command": "docker system prune -f",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: Run All",
+            "type": "shell",
+            "command": "scripts/integration-test.sh",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Integration: Coraza WAF",
+            "type": "shell",
+            "command": "scripts/coraza_integration.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: CrowdSec",
+            "type": "shell",
+            "command": "scripts/crowdsec_integration.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: CrowdSec Decisions",
+            "type": "shell",
+            "command": "scripts/crowdsec_decision_integration.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Integration: CrowdSec Startup",
+            "type": "shell",
+            "command": "scripts/crowdsec_startup_test.sh",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Utility: Check Version Match Tag",
+            "type": "shell",
+            "command": "scripts/check-version-match-tag.sh",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Utility: Clear Go Cache",
+            "type": "shell",
+            "command": "scripts/clear-go-cache.sh",
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "Utility: Bump Beta Version",
+            "type": "shell",
+            "command": "scripts/bump_beta.sh",
+            "group": "none",
+            "problemMatcher": []
+        }
+    ]
+}

@@ -23,10 +23,12 @@ jobs:
         with:
           # The prefix to use to create tags
           tag_prefix: "v"
-          # A string which, if present in the git log, indicates that a major version increase is required
-          major_pattern: "(MAJOR)"
-          # A string which, if present in the git log, indicates that a minor version increase is required
-          minor_pattern: "(feat)"
+          # Regex pattern for major version bump (breaking changes)
+          # Matches: "feat!:", "fix!:", "BREAKING CHANGE:" in commit messages
+          major_pattern: "/!:|BREAKING CHANGE:/"
+          # Regex pattern for minor version bump (new features)
+          # Matches: "feat:" prefix in commit messages (Conventional Commits)
+          minor_pattern: "/feat:/"
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
           # If no tags are found, this version is used
@@ -66,7 +68,7 @@ jobs:
           # Export the tag for downstream steps
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
         env:
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Determine tag
         id: determine_tag
@@ -87,14 +89,14 @@ jobs:
         run: |
           TAG=${{ steps.determine_tag.outputs.tag }}
           echo "Checking for release for tag: ${TAG}"
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${CHARON_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") || true
           if [ "${STATUS}" = "200" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
         env:
-          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release (tag-only, no workspace changes)
         if: ${{ steps.semver.outputs.changed == 'true' && steps.check_release.outputs.exists == 'false' }}
