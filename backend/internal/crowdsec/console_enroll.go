@@ -136,6 +136,12 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 		return ConsoleEnrollmentStatus{}, fmt.Errorf("executor unavailable")
 	}
 
+	// CRITICAL: Check that LAPI is running before attempting enrollment
+	// Console enrollment requires an active LAPI connection to register with crowdsec.net
+	if err := s.checkLAPIAvailable(ctx); err != nil {
+		return ConsoleEnrollmentStatus{}, err
+	}
+
 	if err := s.ensureCAPIRegistered(ctx); err != nil {
 		return ConsoleEnrollmentStatus{}, err
 	}
@@ -204,6 +210,20 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 
 	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("crowdsec console enrollment succeeded")
 	return s.statusFromModel(rec), nil
+}
+
+// checkLAPIAvailable verifies that CrowdSec Local API is running and reachable.
+// This is critical for console enrollment as the enrollment process requires LAPI.
+func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
+	args := []string{"lapi", "status"}
+	if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
+		args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+	}
+	_, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil)
+	if err != nil {
+		return fmt.Errorf("CrowdSec Local API is not running - please enable CrowdSec via the Security dashboard first")
+	}
+	return nil
 }
 
 func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) error {

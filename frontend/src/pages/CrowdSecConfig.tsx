@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { getSecurityStatus } from '../api/security'
 import { getFeatureFlags } from '../api/featureFlags'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec } from '../api/crowdsec'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { createBackup } from '../api/backups'
 import { updateSetting } from '../api/settings'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { Shield, ShieldOff, Trash2, Search } from 'lucide-react'
+import { Shield, ShieldOff, Trash2, Search, AlertTriangle } from 'lucide-react'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole } from '../hooks/useConsoleEnrollment'
@@ -47,6 +48,16 @@ export default function CrowdSecConfig() {
   const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
+  const navigate = useNavigate()
+
+  // Add LAPI status check with polling
+  const lapiStatusQuery = useQuery({
+    queryKey: ['crowdsec-lapi-status'],
+    queryFn: statusCrowdsec,
+    enabled: consoleEnrollmentEnabled,
+    refetchInterval: 5000, // Poll every 5 seconds
+    retry: false,
+  })
 
   const backupMutation = useMutation({ mutationFn: () => createBackup() })
   const importMutation = useMutation({
@@ -572,6 +583,28 @@ export default function CrowdSecConfig() {
               <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.submit}</p>
             )}
 
+            {/* Warning when CrowdSec LAPI is not running */}
+            {!lapiStatusQuery.data?.running && (
+              <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg" data-testid="lapi-warning">
+                <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm text-yellow-200 font-medium mb-2">
+                    CrowdSec Local API is not running
+                  </p>
+                  <p className="text-xs text-yellow-300 mb-3">
+                    Please enable CrowdSec using the toggle switch in the Security dashboard before enrolling in the Console.
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => navigate('/security')}
+                  >
+                    Go to Security Dashboard
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input
                 label="crowdsec.net enroll token"
@@ -619,18 +652,30 @@ export default function CrowdSecConfig() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => submitConsoleEnrollment(false)}
-                disabled={isConsolePending}
+                disabled={isConsolePending || !lapiStatusQuery.data?.running || !enrollmentToken.trim()}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-enroll-btn"
+                title={
+                  !lapiStatusQuery.data?.running
+                    ? 'CrowdSec LAPI must be running to enroll'
+                    : !enrollmentToken.trim()
+                    ? 'Enrollment token is required'
+                    : undefined
+                }
               >
                 Enroll
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => submitConsoleEnrollment(true)}
-                disabled={isConsolePending || !canRotateKey}
+                disabled={isConsolePending || !canRotateKey || !lapiStatusQuery.data?.running}
                 isLoading={enrollConsoleMutation.isPending}
                 data-testid="console-rotate-btn"
+                title={
+                  !lapiStatusQuery.data?.running
+                    ? 'CrowdSec LAPI must be running to rotate key'
+                    : undefined
+                }
               >
                 Rotate key
               </Button>
@@ -638,9 +683,14 @@ export default function CrowdSecConfig() {
                 <Button
                   variant="secondary"
                   onClick={() => submitConsoleEnrollment(true)}
-                  disabled={isConsolePending}
+                  disabled={isConsolePending || !lapiStatusQuery.data?.running}
                   isLoading={enrollConsoleMutation.isPending}
                   data-testid="console-retry-btn"
+                  title={
+                    !lapiStatusQuery.data?.running
+                      ? 'CrowdSec LAPI must be running to retry enrollment'
+                      : undefined
+                  }
                 >
                   Retry enrollment
                 </Button>

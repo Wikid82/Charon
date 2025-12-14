@@ -38,16 +38,41 @@ You want your apps accessible online. You don't want to become a networking expe
 
 ---
 
-## What Can It Do?
+## ✨ Top 10 Features
 
-🔐 **Automatic HTTPS** — Free certificates that renew themselves
-🛡️ **Optional Security** — Block bad guys, bad countries, or bad behavior
-🐳 **Finds Docker Apps** — Sees your containers and sets them up instantly
-📥 **Imports Old Configs** — Bring your Caddy setup with you
-⚡ **No Downtime** — Changes happen instantly, no restarts needed
-🎨 **Dark Mode UI** — Easy on the eyes, works on phones
+### 🎯 **Point & Click Management**
+No config files. No terminal commands. Just click, type your domain name, and you're live. If you can use a website, you can run Charon.
 
-**[See everything it can do →](https://wikid82.github.io/charon/features)**
+### 🔐 **Automatic HTTPS Certificates**
+Free SSL certificates that request, install, and renew themselves. Your sites get the green padlock without you lifting a finger.
+
+### 🛡️ **Enterprise-Grade Security Built In**
+Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
+
+### 🐳 **Instant Docker Discovery**
+Already running apps in Docker? Charon finds them automatically and offers one-click proxy setup. No manual configuration required.
+
+### 📊 **Real-Time Monitoring & Logs**
+See exactly what's happening with live request logs, uptime monitoring, and instant notifications when something goes wrong.
+
+### 📥 **Migration Made Easy**
+Import your existing Caddy configurations with one click. Already invested in another reverse proxy? Bring your work with you.
+
+### ⚡ **Live Configuration Changes**
+Update domains, add security rules, or modify settings instantly—no container restarts needed.* Your sites stay up while you make changes.
+
+### 🌍 **Multi-App Management**
+Run dozens of websites, APIs, or services from a single dashboard. Perfect for homelab enthusiasts and small teams managing multiple projects.
+
+### 🚀 **Zero-Dependency Deployment**
+One Docker container. No databases to install. No external services required. No complexity—just pure simplicity.
+
+### 💯 **100% Free & Open Source**
+No premium tiers. No feature paywalls. No usage limits. Everything you see is yours to use, forever, backed by the MIT license.
+
+<sup>* Note: Initial security engine setup (CrowdSec) requires a one-time container restart to initialize the protection layer. All subsequent changes happen live.</sup>
+
+**[Explore All Features →](https://wikid82.github.io/charon/features)**
 
 ---
 
@@ -73,6 +98,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
+
 ```
 
 Then run:
@@ -106,24 +132,6 @@ docker run -d \
 
 ---
 
-## Optional: Turn On Security
-
-Charon includes **Cerberus**, a security guard for your apps. It's turned off by default so it doesn't get in your way.
-
-When you're ready, add these lines to enable protection:
-
-```yaml
-environment:
-  - CERBERUS_SECURITY_WAF_MODE=monitor        # Watch for attacks
-  - CERBERUS_SECURITY_CROWDSEC_MODE=local     # Block bad IPs automatically
-```
-
-**Start with "monitor" mode** — it watches but doesn't block. Once you're comfortable, change `monitor` to `block`.
-
-**[Learn about security features →](https://wikid82.github.io/charon/security)**
-
----
-
 ## Getting Help
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
@@ -136,10 +144,6 @@ environment:
 ## Contributing
 
 Want to help make Charon better? Check out [CONTRIBUTING.md](CONTRIBUTING.md)
-
----
-
-## ✨ Top Features
 
 ---
 

@@ -63,25 +63,75 @@ Restart again. Now bad guys actually get blocked.
 
 ### How to Enable It
 
-- **Web UI:** The Cerberus Dashboard shows a single **Start/Stop** toggle. Use it to run or stop CrowdSec; there is no separate mode selector.
-- **Configuration page:** Uses a simple **Disabled / Local** toggle (no Mode dropdown). Choose Local to run the embedded CrowdSec agent.
-- **Environment variables (optional):**
+**Via Web UI (Recommended):**
 
-```yaml
-environment:
-  - CERBERUS_SECURITY_CROWDSEC_MODE=local
-```
+1. Navigate to **Security** dashboard in the sidebar
+2. Find the **CrowdSec** card
+3. Toggle the switch to **ON**
+4. Wait 10-15 seconds for the Local API (LAPI) to start
+5. Verify the status badge shows "Active" with a running PID
 
-That's it. CrowdSec starts automatically and begins blocking bad IPs.
+✅ That's it! CrowdSec starts automatically and begins blocking bad IPs.
+
+⚠️ **DEPRECATED:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
 ### Enroll with CrowdSec Console (optional)
 
-1. Enable the feature flag `crowdsec_console_enrollment` (off by default) so the Console enrollment button appears in Cerberus → CrowdSec.
-2. Click **Enroll with CrowdSec Console** and follow the on-screen prompt to generate or paste the Console enrollment key. The flow requests only the minimal scope needed for the embedded agent.
-3. Charon stores the enrollment secret internally (not logged or echoed) and completes the handshake without requiring sudo or shell access.
-4. After enrollment, the Console status shows in the CrowdSec card; you can revoke from either side if needed.
+**Prerequisites:**
+
+✅ **CrowdSec must be enabled** via the GUI toggle (see above)
+✅ **LAPI must be running** — Verify with: `docker exec charon cscli lapi status`
+✅ **Feature flag enabled** — `crowdsec_console_enrollment` must be ON
+✅ **Valid enrollment token** — Obtain from crowdsec.net
+
+**Enrollment Steps:**
+
+1. Ensure CrowdSec is **enabled** and **LAPI is running** (check prerequisites above)
+2. Navigate to **Cerberus → CrowdSec**
+3. Enable the feature flag `crowdsec_console_enrollment` if not already enabled
+4. Click **Enroll with CrowdSec Console**
+5. Paste the enrollment key from crowdsec.net
+6. Click **Submit**
+7. Wait for confirmation (this may take 30-60 seconds)
+8. Verify your instance appears on crowdsec.net dashboard
+
+**Important Notes:**
+
+- 🚨 Enrollment **requires an active LAPI connection**. If LAPI is not running, the enrollment will show "enrolled" locally but won't register on crowdsec.net.
+- ✅ Enrollment tokens are **reusable** — you can re-submit the same token if enrollment fails
+- 🔒 Charon stores the enrollment secret internally (not logged or echoed)
+- ♻️ After enrollment, the Console status shows in the CrowdSec card
+- 🗑️ You can revoke enrollment from either Charon or crowdsec.net
+
+**Troubleshooting:**
+
+If enrollment shows "enrolled" locally but doesn't appear on crowdsec.net:
+
+1. **Check LAPI status:**
+   ```bash
+   docker exec charon cscli lapi status
+   ```
+   Expected: `✓ You can successfully interact with Local API (LAPI)`
+
+2. **If LAPI is not running:**
+   - Go to Security dashboard
+   - Toggle CrowdSec OFF, then ON
+   - Wait 15 seconds
+   - Re-check LAPI status
+
+3. **Re-submit enrollment token:**
+   - Same token works (enrollment tokens are reusable)
+   - Go to Cerberus → CrowdSec
+   - Paste token and submit again
+
+4. **Check logs:**
+   ```bash
+   docker logs charon | grep crowdsec
+   ```
+
+See also: [CrowdSec Troubleshooting Guide](troubleshooting/crowdsec.md)
 
 ### Hub Presets (Configuration Packages)
 

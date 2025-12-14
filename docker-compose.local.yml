@@ -22,7 +22,8 @@ services:
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
       - CHARON_ACME_STAGING=false
-      - CHARON_SECURITY_CROWDSEC_MODE=disabled
+      # 🚨 DEPRECATED: Remove this line and use GUI toggle instead
+      - CHARON_SECURITY_CROWDSEC_MODE=disabled # ⚠️ Use Security dashboard GUI
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:
