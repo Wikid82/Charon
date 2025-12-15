@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build: Local Docker Image",
+            "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local .",
+            "command": "docker build -t charon:local . && docker compose -f docker-compose.override.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
             "problemMatcher": [],
             "presentation": {
