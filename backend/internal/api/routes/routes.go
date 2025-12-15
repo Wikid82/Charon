@@ -352,15 +352,19 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		// CrowdSec process management and import
 		// Data dir for crowdsec (persisted on host via volumes)
 		crowdsecDataDir := cfg.Security.CrowdSecConfigDir
+
+		// Use full path to CrowdSec binary to ensure it's found regardless of PATH
+		crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
+		if crowdsecBinPath == "" {
+			crowdsecBinPath = "/usr/local/bin/crowdsec" // Default location in Alpine container
+		}
+
 		crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, "crowdsec", crowdsecDataDir)
+		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
 		// Reconcile CrowdSec state on startup (handles container restarts)
-		go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, "crowdsec", crowdsecDataDir)
-
-		// Cerberus Security Logs WebSocket
-		// Initialize log watcher for Caddy access logs (used by CrowdSec and security monitoring)
+		go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
 		// or falls back to the configured storage directory for development
 		accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG")
