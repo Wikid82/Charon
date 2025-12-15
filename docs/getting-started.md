@@ -67,6 +67,62 @@ docker run -d \
 
 ---
 
+## Step 1.5: Database Migrations (If Upgrading)
+
+If you're **upgrading from a previous version** and using a persistent database, you may need to run migrations to ensure all security features work correctly.
+
+### When to Run Migrations
+
+Run the migration command if:
+
+- ✅ You're upgrading from an older version of Charon
+- ✅ You're using a persistent volume for `/app/data`
+- ✅ CrowdSec features aren't working after upgrade
+
+**Skip this step if:**
+- ❌ This is a fresh installation (migrations run automatically)
+- ❌ You're not using persistent storage
+
+### How to Run Migrations
+
+**Docker Compose:**
+
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Docker Run:**
+
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Expected Output:**
+
+```json
+{"level":"info","msg":"Running database migrations for security tables...","time":"..."}
+{"level":"info","msg":"Migration completed successfully","time":"..."}
+```
+
+**What This Does:**
+
+- Creates or updates security-related database tables
+- Adds CrowdSec integration support
+- Ensures all features work after upgrade
+- **Safe to run multiple times** (idempotent)
+
+**After Migration:**
+
+If you enabled CrowdSec before the migration, restart the container:
+
+```bash
+docker restart charon
+```
+
+CrowdSec will automatically start if it was previously enabled. See [CrowdSec Troubleshooting](troubleshooting/crowdsec.md) if you encounter issues.
+
+---
+
 ## Step 2: Add Your First Website
 
 Let's say you have an app running at `192.168.1.100:3000` and you want it available at `myapp.example.com`.
