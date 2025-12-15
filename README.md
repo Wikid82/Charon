@@ -149,7 +149,9 @@ docker exec charon /app/charon migrate
 docker restart charon
 ```
 
-This ensures security features (especially CrowdSec) work correctly. See [Migration Guide](https://wikid82.github.io/charon/migration-guide) for details.
+This ensures security features (especially CrowdSec) work correctly.
+
+**Important:** If you had CrowdSec enabled before the upgrade, it will **automatically restart** after migration. You don't need to manually re-enable it via the GUI. See [Migration Guide](https://wikid82.github.io/charon/migration-guide) for details.
 
 ---
 

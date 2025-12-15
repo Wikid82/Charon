@@ -29,6 +29,9 @@ func TestLogsWebSocketHandler_ReceiveLogEntries(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live")
 
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
+
 	server.sendEntry(t, logrus.InfoLevel, "hello", logrus.Fields{"source": "api", "user": "alice"})
 
 	received := readLogEntry(t, conn)
@@ -41,6 +44,9 @@ func TestLogsWebSocketHandler_ReceiveLogEntries(t *testing.T) {
 func TestLogsWebSocketHandler_LevelFilter(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live?level=error")
+
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
 
 	server.sendEntry(t, logrus.InfoLevel, "info", logrus.Fields{"source": "api"})
 	server.sendEntry(t, logrus.ErrorLevel, "error", logrus.Fields{"source": "api"})
@@ -58,6 +64,9 @@ func TestLogsWebSocketHandler_SourceFilter(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live?source=api")
 
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
+
 	server.sendEntry(t, logrus.InfoLevel, "backend", logrus.Fields{"source": "backend"})
 	server.sendEntry(t, logrus.InfoLevel, "api", logrus.Fields{"source": "api"})
 
@@ -68,6 +77,9 @@ func TestLogsWebSocketHandler_SourceFilter(t *testing.T) {
 func TestLogsWebSocketHandler_CombinedFilters(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live?level=error&source=api")
+
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
 
 	server.sendEntry(t, logrus.WarnLevel, "warn api", logrus.Fields{"source": "api"})
 	server.sendEntry(t, logrus.ErrorLevel, "error api", logrus.Fields{"source": "api"})
@@ -81,6 +93,9 @@ func TestLogsWebSocketHandler_CombinedFilters(t *testing.T) {
 func TestLogsWebSocketHandler_CaseInsensitiveFilters(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live?level=ERROR&source=API")
+
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
 
 	server.sendEntry(t, logrus.ErrorLevel, "error api", logrus.Fields{"source": "api"})
 	received := readLogEntry(t, conn)
@@ -156,6 +171,9 @@ func TestLogsWebSocketHandler_HighVolumeLogging(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live")
 
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
+
 	for i := 0; i < 200; i++ {
 		server.sendEntry(t, logrus.InfoLevel, fmt.Sprintf("msg-%d", i), logrus.Fields{"source": "api"})
 		received := readLogEntry(t, conn)
@@ -166,6 +184,9 @@ func TestLogsWebSocketHandler_HighVolumeLogging(t *testing.T) {
 func TestLogsWebSocketHandler_EmptyLogFields(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live")
+
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
 
 	server.sendEntry(t, logrus.InfoLevel, "no fields", nil)
 	first := readLogEntry(t, conn)
@@ -191,6 +212,9 @@ func TestLogsWebSocketHandler_WithRealLogger(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live")
 
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
+
 	loggerEntry := logger.Log().WithField("source", "api")
 	loggerEntry.Info("from logger")
 
@@ -202,6 +226,9 @@ func TestLogsWebSocketHandler_WithRealLogger(t *testing.T) {
 func TestLogsWebSocketHandler_ConnectionLifecycle(t *testing.T) {
 	server := newWebSocketTestServer(t)
 	conn := server.dial(t, "/logs/live")
+
+	// Wait for the WebSocket handler to fully subscribe before sending entries
+	waitForListenerCount(t, server.hook, 1)
 
 	server.sendEntry(t, logrus.InfoLevel, "first", logrus.Fields{"source": "api"})
 	first := readLogEntry(t, conn)

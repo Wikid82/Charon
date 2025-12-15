@@ -185,9 +185,45 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	ctx := c.Request.Context()
 
+	// UPDATE SecurityConfig to persist user's intent
+	var cfg models.SecurityConfig
+	if err := h.DB.First(&cfg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// Create default config with CrowdSec enabled
+			cfg = models.SecurityConfig{
+				UUID:         "default",
+				Name:         "Default Security Config",
+				Enabled:      true,
+				CrowdSecMode: "local",
+			}
+			if err := h.DB.Create(&cfg).Error; err != nil {
+				logger.Log().WithError(err).Error("Failed to create SecurityConfig")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+				return
+			}
+		} else {
+			logger.Log().WithError(err).Error("Failed to read SecurityConfig")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read configuration"})
+			return
+		}
+	} else {
+		// Update existing config
+		cfg.CrowdSecMode = "local"
+		cfg.Enabled = true
+		if err := h.DB.Save(&cfg).Error; err != nil {
+			logger.Log().WithError(err).Error("Failed to update SecurityConfig")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+			return
+		}
+	}
+
 	// Start the process
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
+		// Revert config on failure
+		cfg.CrowdSecMode = "disabled"
+		cfg.Enabled = false
+		h.DB.Save(&cfg)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -243,6 +279,17 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// UPDATE SecurityConfig to persist user's intent
+	var cfg models.SecurityConfig
+	if err := h.DB.First(&cfg).Error; err == nil {
+		cfg.CrowdSecMode = "disabled"
+		cfg.Enabled = false
+		if err := h.DB.Save(&cfg).Error; err != nil {
+			logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 

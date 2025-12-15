@@ -190,11 +190,255 @@ charon-local-machine     127.0.0.1      password     v1.x.x
   - **Fix**: Ensure CrowdSec is **enabled via GUI toggle** in the Security dashboard. Do NOT use environment variables.
   - **Action**: Go to Security dashboard, toggle CrowdSec ON, wait 15 seconds, verify status shows "Active".
 
+## CrowdSec Not Starting After Container Restart
+
+### Problem: Toggle shows ON but CrowdSec is not running
+
+**Symptoms:**
+
+- Container restarted (reboot, Docker restart, etc.)
+- Security dashboard toggle shows "ON"
+- Status badge shows "Not Running" or "Offline"
+- Manually toggling OFF then ON fixes it
+
+**Root Cause:**
+
+The reconciliation function couldn't determine if CrowdSec should auto-start. This happens when:
+
+1. **SecurityConfig table is missing/corrupted** (database issue)
+2. **Settings table and SecurityConfig are out of sync** (partial update)
+3. **Reconciliation logs show silent exit** (no "starting based on" message)
+
+### Diagnosis: Check Reconciliation Logs
+
+**View container startup logs:**
+
+```bash
+docker logs charon | grep -i "crowdsec reconciliation"
+```
+
+**Expected output when working correctly:**
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting startup check","time":"..."}
+{"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'","time":"..."}
+{"level":"info","msg":"CrowdSec Local API listening on 127.0.0.1:8085","time":"..."}
+```
+
+**Problematic output (silent exit - BUG):**
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting startup check","time":"..."}
+[NO FURTHER LOGS - Function exited without starting CrowdSec]
+```
+
+This indicates reconciliation found conflicting state between Settings and SecurityConfig tables.
+
+### Solution 1: Verify Database State
+
+**Check Settings table:**
+
+```bash
+docker exec charon sqlite3 /app/data/charon.db \
+  "SELECT key, value FROM settings WHERE key = 'security.crowdsec.enabled';"
+```
+
+**Expected output:**
+
+```
+security.crowdsec.enabled|true
+```
+
+**Check SecurityConfig table:**
+
+```bash
+docker exec charon sqlite3 /app/data/charon.db \
+  "SELECT uuid, crowdsec_mode, enabled FROM security_configs WHERE uuid = 'default';"
+```
+
+**Expected output:**
+
+```
+default|local|1
+```
+
+**Mismatch scenarios:**
+
+| Settings | SecurityConfig | Behavior | Fix Needed |
+|----------|----------------|----------|------------|
+| `true` | `local` | ✅ Auto-starts | None |
+| `true` | `disabled` | ❌ Does NOT start | Run Solution 2 |
+| `true` | (missing) | ⚠️ Should auto-create | Run Solution 3 |
+| `false` | `local` | ⚠️ Conflicting state | Run Solution 2 |
+| `false` | `disabled` | ✅ Correctly skipped | None (expected) |
+
+### Solution 2: Manually Sync SecurityConfig to Settings
+
+**If you want CrowdSec enabled (Settings = true, SecurityConfig = disabled):**
+
+```bash
+docker exec charon sqlite3 /app/data/charon.db \
+  "UPDATE security_configs SET crowdsec_mode = 'local', enabled = 1 WHERE uuid = 'default';"
+
+docker restart charon
+```
+
+**If you want CrowdSec disabled (Settings = false, SecurityConfig = local):**
+
+```bash
+docker exec charon sqlite3 /app/data/charon.db \
+  "UPDATE security_configs SET crowdsec_mode = 'disabled', enabled = 0 WHERE uuid = 'default';"
+
+# Also update Settings for consistency
+docker exec charon sqlite3 /app/data/charon.db \
+  "UPDATE settings SET value = 'false' WHERE key = 'security.crowdsec.enabled';"
+
+docker restart charon
+```
+
+### Solution 3: Force Recreation of SecurityConfig
+
+**If SecurityConfig table is missing (record not found):**
+
+```bash
+# Delete SecurityConfig (if partial record exists)
+docker exec charon sqlite3 /app/data/charon.db \
+  "DELETE FROM security_configs WHERE uuid = 'default';"
+
+# Restart container - reconciliation will auto-create matching Settings state
+docker restart charon
+
+# Wait 15 seconds for startup
+sleep 15
+
+# Verify CrowdSec started
+docker exec charon cscli lapi status
+```
+
+**Expected behavior:**
+
+- Reconciliation detects missing SecurityConfig
+- Checks Settings table for user preference
+- Creates SecurityConfig with matching state
+- Starts CrowdSec if Settings = true
+
+**Check logs to confirm:**
+
+```bash
+docker logs charon | grep "default SecurityConfig created"
+```
+
+Expected:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: default SecurityConfig created from Settings preference","crowdsec_mode":"local","enabled":true,"source":"settings_table"}
+```
+
+### Solution 4: Use GUI Toggle (Safest)
+
+**The GUI toggle synchronizes both tables atomically:**
+
+1. Go to **Security** dashboard
+2. Toggle CrowdSec **OFF** (if it shows ON)
+3. Wait 5 seconds
+4. Toggle CrowdSec **ON**
+5. Wait 15 seconds for LAPI to initialize
+6. Verify status shows "Active"
+
+**Why this works:**
+
+- Toggle updates Settings table
+- Toggle updates SecurityConfig table
+- Start handler ensures both tables match
+- Future restarts use reconciliation correctly
+
+### Solution 5: Manual Reset (Nuclear Option)
+
+**If all else fails, reset both tables:**
+
+```bash
+# Stop CrowdSec if running
+docker exec charon pkill crowdsec || true
+
+# Reset both tables
+docker exec charon sqlite3 /app/data/charon.db <<EOF
+UPDATE settings SET value = 'false' WHERE key = 'security.crowdsec.enabled';
+DELETE FROM security_configs WHERE uuid = 'default';
+EOF
+
+# Restart container
+docker restart charon
+
+# Re-enable via GUI
+# Go to Security dashboard and toggle CrowdSec ON
+```
+
+### Prevention: Verify After Manual Database Changes
+
+**If you manually edit the database:**
+
+```bash
+# Always verify both tables match
+docker exec charon sqlite3 /app/data/charon.db <<EOF
+SELECT 'Settings:' as table_name, value as state
+FROM settings WHERE key = 'security.crowdsec.enabled'
+UNION ALL
+SELECT 'SecurityConfig:', crowdsec_mode
+FROM security_configs WHERE uuid = 'default';
+EOF
+```
+
+**Expected output (both enabled):**
+
+```
+Settings:|true
+SecurityConfig:|local
+```
+
+**Expected output (both disabled):**
+
+```
+Settings:|false
+SecurityConfig:|disabled
+```
+
+### When to Contact Support
+
+If after following all solutions:
+
+- ❌ Reconciliation logs still show silent exit
+- ❌ Both tables show correct state but CrowdSec doesn't start
+- ❌ Manual `cscli lapi status` fails even after toggle
+
+**Gather diagnostic info:**
+
+```bash
+# Collect logs
+docker logs charon > charon-logs.txt 2>&1
+
+# Collect database state
+docker exec charon sqlite3 /app/data/charon.db ".dump security_configs" > db-state.sql
+docker exec charon sqlite3 /app/data/charon.db ".dump settings" >> db-state.sql
+
+# Collect process state
+docker exec charon ps aux > process-state.txt
+```
+
+**Report issue:** <https://github.com/Wikid82/charon/issues>
+
+Include:
+
+- Output of all diagnostic commands above
+- Steps you tried from this guide
+- Container restart logs showing reconciliation behavior
+
 ## Tips
 
 - Keep the CrowdSec Hub reachable over HTTPS; HTTP is blocked.
 - If you switch to offline mode, clear pending Hub pulls before retrying so cache keys/ETags refresh cleanly.
 - After restoring from a backup, re-run preview before applying again to verify changes.
+- **Always use the GUI toggle** for enabling/disabling CrowdSec—it ensures Settings and SecurityConfig stay synchronized.
+- **Check reconciliation logs** after container restart to verify auto-start behavior.
 
 ## Database Migrations After Upgrade
 

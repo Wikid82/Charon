@@ -43,11 +43,56 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	var cfg models.SecurityConfig
 	if err := db.First(&cfg).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			logger.Log().Debug("CrowdSec reconciliation skipped: no SecurityConfig record found")
+			// AUTO-INITIALIZE: Create default SecurityConfig by checking Settings table
+			logger.Log().Info("CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference")
+
+			// Check if user has already enabled CrowdSec via Settings table (from toggle or legacy config)
+			var settingOverride struct{ Value string }
+			crowdSecEnabledInSettings := false
+			if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
+				crowdSecEnabledInSettings = strings.EqualFold(settingOverride.Value, "true")
+				logger.Log().WithFields(map[string]interface{}{
+					"setting_value": settingOverride.Value,
+					"enabled":       crowdSecEnabledInSettings,
+				}).Info("CrowdSec reconciliation: found existing Settings table preference")
+			}
+
+			// Create SecurityConfig that matches Settings table state
+			crowdSecMode := "disabled"
+			if crowdSecEnabledInSettings {
+				crowdSecMode = "local"
+			}
+
+			defaultCfg := models.SecurityConfig{
+				UUID:               "default",
+				Name:               "Default Security Config",
+				Enabled:            crowdSecEnabledInSettings,
+				CrowdSecMode:       crowdSecMode,
+				WAFMode:            "disabled",
+				WAFParanoiaLevel:   1,
+				RateLimitMode:      "disabled",
+				RateLimitBurst:     10,
+				RateLimitRequests:  100,
+				RateLimitWindowSec: 60,
+			}
+
+			if err := db.Create(&defaultCfg).Error; err != nil {
+				logger.Log().WithError(err).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
+				return
+			}
+
+			logger.Log().WithFields(map[string]interface{}{
+				"crowdsec_mode": defaultCfg.CrowdSecMode,
+				"enabled":       defaultCfg.Enabled,
+				"source":        "settings_table",
+			}).Info("CrowdSec reconciliation: default SecurityConfig created from Settings preference")
+
+			// Continue to process the config (DON'T return early)
+			cfg = defaultCfg
+		} else {
+			logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
 			return
 		}
-		logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
-		return
 	}
 
 	// Also check for runtime setting override in settings table
@@ -66,8 +111,15 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		logger.Log().WithFields(map[string]interface{}{
 			"db_mode":         cfg.CrowdSecMode,
 			"setting_enabled": crowdSecEnabled,
-		}).Debug("CrowdSec reconciliation skipped: mode is not 'local' and setting not enabled")
+		}).Info("CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled")
 		return
+	}
+
+	// Log which source triggered the start
+	if cfg.CrowdSecMode == "local" {
+		logger.Log().WithField("mode", cfg.CrowdSecMode).Info("CrowdSec reconciliation: starting based on SecurityConfig mode='local'")
+	} else if crowdSecEnabled {
+		logger.Log().WithField("setting", "true").Info("CrowdSec reconciliation: starting based on Settings table override")
 	}
 
 	// VALIDATE: Ensure binary exists
