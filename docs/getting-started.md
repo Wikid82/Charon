@@ -119,7 +119,37 @@ If you enabled CrowdSec before the migration, restart the container:
 docker restart charon
 ```
 
-CrowdSec will automatically start if it was previously enabled. See [CrowdSec Troubleshooting](troubleshooting/crowdsec.md) if you encounter issues.
+**Auto-Start Behavior:**
+
+CrowdSec will automatically start if it was previously enabled. The reconciliation function runs at startup and checks:
+
+1. **SecurityConfig table** for `crowdsec_mode = "local"`
+2. **Settings table** for `security.crowdsec.enabled = "true"`
+3. **Starts CrowdSec** if either condition is true
+
+You'll see this in the logs:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'"}
+```
+
+**Verification:**
+
+```bash
+# Wait 15 seconds for LAPI to initialize
+sleep 15
+
+# Check if CrowdSec auto-started
+docker exec charon cscli lapi status
+```
+
+Expected output:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+**If auto-start didn't work:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart) for detailed troubleshooting steps.
 
 ---
 

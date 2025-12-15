@@ -98,6 +98,38 @@ When you toggle CrowdSec ON, Charon:
 
 ✅ That's it! CrowdSec starts automatically and begins blocking bad IPs once LAPI is ready.
 
+**Persistence Across Restarts:**
+
+Once enabled, CrowdSec **automatically starts** when the container restarts:
+
+- ✅ Server reboot → CrowdSec auto-starts
+- ✅ Docker restart → CrowdSec auto-starts
+- ✅ Container update → CrowdSec auto-starts
+- ❌ Manual toggle OFF → CrowdSec stays disabled until you re-enable
+
+**How it works:**
+
+- Your preference is stored in two places (Settings and SecurityConfig tables)
+- Reconciliation function runs at container startup
+- Checks both tables to determine if CrowdSec should auto-start
+- Logs show: "CrowdSec reconciliation: starting based on SecurityConfig mode='local'"
+
+**Verification after restart:**
+
+```bash
+docker restart charon
+sleep 15
+docker exec charon cscli lapi status
+```
+
+Expected output:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+**Troubleshooting auto-start:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart)
+
 ⚠️ **DEPRECATED:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.

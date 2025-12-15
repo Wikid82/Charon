@@ -241,6 +241,80 @@ and lets you manage your security configuration easily.
 
 - **Live Decisions:** See exactly who is being blocked and why in real-time.
 
+#### Automatic Startup & Persistence
+
+**What it does:** CrowdSec automatically starts when the container restarts if you previously enabled it.
+
+**Why you care:** Your security protection persists across container restarts and server reboots—no manual re-enabling needed.
+
+**How it works:**
+
+When you toggle CrowdSec ON:
+
+1. **Settings table** stores your preference (`security.crowdsec.enabled = true`)
+2. **SecurityConfig table** tracks the operational state (`crowdsec_mode = local`)
+3. **Reconciliation function** checks both tables on container startup
+
+When the container restarts:
+
+1. **Reconciliation runs automatically** at startup
+2. **Checks SecurityConfig table** for `crowdsec_mode = local`
+3. **Falls back to Settings table** if SecurityConfig is missing
+4. **Auto-starts CrowdSec** if either table indicates enabled
+5. **Creates SecurityConfig** if missing (synced to Settings state)
+
+**What you see in logs:**
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'","time":"..."}
+```
+
+Or if Settings table is used:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on Settings table override","time":"..."}
+```
+
+Or if both are disabled:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled","time":"..."}
+```
+
+**Settings/SecurityConfig Synchronization:**
+
+- **Enable via toggle:** Both tables update automatically
+- **Disable via toggle:** Both tables update automatically
+- **Container restart:** Reconciliation syncs SecurityConfig to Settings if missing
+- **Database corruption:** Reconciliation recreates SecurityConfig from Settings
+
+**When auto-start happens:**
+
+✅ SecurityConfig has `crowdsec_mode = "local"`
+✅ Settings table has `security.crowdsec.enabled = "true"`
+✅ Either condition triggers auto-start (logical OR)
+
+**When auto-start is skipped:**
+
+❌ Both tables indicate disabled
+❌ Fresh install with no Settings entry (defaults to disabled)
+
+**Verification:**
+
+Check CrowdSec status after container restart:
+
+```bash
+docker restart charon
+sleep 15
+docker exec charon cscli lapi status
+```
+
+Expected output when auto-start worked:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
 ### Rate Limiting
 
 **What it does:** Limits how many requests any single IP can make in a given time window.
