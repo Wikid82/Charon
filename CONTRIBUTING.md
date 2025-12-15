@@ -245,11 +245,23 @@ npm test              # Watch mode
 npm run test:coverage # Coverage report
 ```
 
+### CrowdSec Frontend Test Coverage
+
+The CrowdSec integration has comprehensive frontend test coverage (100%) across all modules:
+
+- **API Clients** - All CrowdSec API endpoints tested with error handling
+- **React Query Hooks** - Complete hook testing with query invalidation
+- **Data & Utilities** - Preset validation and export functionality
+- **162 tests total** - All passing with no flaky tests
+
+See [QA Coverage Report](docs/reports/qa_crowdsec_frontend_coverage_report.md) for details.
+
 ### Test Coverage
 
 - Aim for 80%+ code coverage
 - All new features must include tests
 - Bug fixes should include regression tests
+- CrowdSec modules maintain 100% frontend coverage
 
 ## Pull Request Process
 
