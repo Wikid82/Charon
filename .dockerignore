@@ -72,6 +72,7 @@ backend/tr_no_cover.txt
 backend/nohup.out
 backend/package.json
 backend/package-lock.json
+backend/internal/api/tests/data/
 
 # Backend data (created at runtime)
 backend/data/
