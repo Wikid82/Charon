@@ -68,6 +68,8 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 
   1. Edge Cases: {List specific scenarios to test}
   2. Security: Run CodeQL and Trivy scans. Triage and fix any new errors or warnings.
+  3. Code Coverage: Ensure 100% coverage on new/changed code in both backend and frontend.
+  4. Linting: Run `pre-commit` hooks on all files and triage anything not auto-fixed.
 
 ### 📚 Phase 4: Documentation
 
@@ -86,4 +88,9 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 - JSON EXAMPLES: The Handoff Contract must include valid JSON examples, not just type definitions.
 
 - New Code and Edits: Don't just suggest adding or editing code. Deep research all possible impacts and dependencies before making changes. If X file is changed, what other files are affected? Do those need changes too? New code and partial edits are both leading causes of bugs when the entire scope isn't considered.
+
+- Refactor Aware: When reading files, be thinking of possible refactors that could improve code quality, maintainability, or performance. Suggest those as part of the plan if relevant. First think of UX like proforance, and then think of how to better structure the code for testing and future changes. Include those suggestions in the plan.
+
+- Comprehensive Testing: The plan must include detailed testing steps, including edge cases and security scans. Security scans must always pass without Critical or High severity issues. Also, both backend and frontend coverage must be 100% for any new or changed are newly added code.
+
 </constraints>
