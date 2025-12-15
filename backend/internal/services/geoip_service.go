@@ -4,9 +4,10 @@ package services
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/geoip2-golang/v2"
 )
 
 var (
@@ -26,7 +27,7 @@ type GeoIPService struct {
 }
 
 type geoIPCountryReader interface {
-	Country(ip net.IP) (*geoip2.Country, error)
+	Country(ip netip.Addr) (*geoip2.Country, error)
 	Close() error
 }
 
@@ -89,16 +90,22 @@ func (s *GeoIPService) LookupCountry(ipStr string) (string, error) {
 		return "", ErrInvalidGeoIP
 	}
 
-	record, err := s.db.Country(ip)
+	// Convert net.IP to netip.Addr for v2 API
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return "", ErrInvalidGeoIP
+	}
+
+	record, err := s.db.Country(addr)
 	if err != nil {
 		return "", err
 	}
 
-	if record.Country.IsoCode == "" {
+	if record.Country.ISOCode == "" {
 		return "", ErrCountryNotFound
 	}
 
-	return record.Country.IsoCode, nil
+	return record.Country.ISOCode, nil
 }
 
 // IsLoaded returns true if the GeoIP database is currently loaded.

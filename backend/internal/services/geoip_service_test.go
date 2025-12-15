@@ -2,12 +2,12 @@ package services
 
 import (
 	"errors"
-	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/geoip2-golang/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +17,12 @@ type fakeGeoIPReader struct {
 	err     error
 }
 
-func (f *fakeGeoIPReader) Country(_ net.IP) (*geoip2.Country, error) {
+func (f *fakeGeoIPReader) Country(_ netip.Addr) (*geoip2.Country, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	rec := &geoip2.Country{}
-	rec.Country.IsoCode = f.isoCode
+	rec.Country.ISOCode = f.isoCode
 	return rec, nil
 }
 
