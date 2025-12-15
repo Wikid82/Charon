@@ -93,4 +93,8 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 
 - Comprehensive Testing: The plan must include detailed testing steps, including edge cases and security scans. Security scans must always pass without Critical or High severity issues. Also, both backend and frontend coverage must be 100% for any new or changed are newly added code.
 
+- Ignore Files: Always keep the .gitignore, .dockerignore, and .codecove.yml files in mind when suggesting new files or directories.
+
+- Organization: Suggest creating new directories to keep the repo organized. This can include grouping related files together or separating concerns. Include already existing files in the new structure if relevant. Keep track in /docs/plans/structure.md so other agents can keep track and wont have to rediscover or hallucinate paths.
+
 </constraints>
