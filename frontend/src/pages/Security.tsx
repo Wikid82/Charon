@@ -84,42 +84,50 @@ export default function Security() {
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
+      // Update setting first
       await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
+
       if (enabled) {
         toast.info('Starting CrowdSec... This may take up to 30 seconds')
         const result = await startCrowdsec()
+
+        // VERIFY: Check if it actually started
+        const status = await statusCrowdsec()
+        if (!status.running) {
+          // Revert the setting since process didn't start
+          await updateSetting('security.crowdsec.enabled', 'false', 'security', 'bool')
+          throw new Error('CrowdSec process failed to start. Check server logs for details.')
+        }
+
         return result
       } else {
         await stopCrowdsec()
+
+        // VERIFY: Check if it actually stopped (with brief delay for cleanup)
+        await new Promise(resolve => setTimeout(resolve, 500))
+        const status = await statusCrowdsec()
+        if (status.running) {
+          throw new Error('CrowdSec process still running. Check server logs for details.')
+        }
+
         return { enabled: false }
       }
     },
-    onMutate: async (enabled: boolean) => {
-      await queryClient.cancelQueries({ queryKey: ['security-status'] })
-      const previous = queryClient.getQueryData(['security-status'])
-      queryClient.setQueryData(['security-status'], (old: unknown) => {
-        if (!old || typeof old !== 'object') return old
-        const copy = { ...(old as SecurityStatus) }
-        if (copy.crowdsec && typeof copy.crowdsec === 'object') {
-          copy.crowdsec = { ...copy.crowdsec, enabled } as never
-        }
-        return copy
-      })
-      setCrowdsecStatus(prev => prev ? { ...prev, running: enabled } : prev)
-      return { previous }
-    },
-    onError: (err: unknown, enabled: boolean, context: unknown) => {
-      if (context && typeof context === 'object' && 'previous' in context) {
-        queryClient.setQueryData(['security-status'], context.previous)
-      }
+    // NO optimistic updates - wait for actual confirmation
+    onError: (err: unknown, enabled: boolean) => {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
+      // Force refresh status from backend to ensure UI matches reality
+      queryClient.invalidateQueries({ queryKey: ['security-status'] })
       fetchCrowdsecStatus()
     },
     onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
-      await fetchCrowdsecStatus()
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      // Refresh all related queries to ensure consistency
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['security-status'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+        fetchCrowdsecStatus(),
+      ])
 
       if (typeof result === 'object' && result.lapi_ready === true) {
         toast.success('CrowdSec started and LAPI is ready')

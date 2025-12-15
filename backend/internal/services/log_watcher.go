@@ -230,33 +230,54 @@ func (w *LogWatcher) ParseLogEntry(line string) *models.SecurityLogEntry {
 
 // detectSecurityEvent analyzes the log entry and sets security-related fields.
 func (w *LogWatcher) detectSecurityEvent(entry *models.SecurityLogEntry, caddyLog *models.CaddyAccessLog) {
-	// Check for WAF blocks (typically 403 with specific headers or logger)
-	if caddyLog.Status == 403 {
+	loggerLower := strings.ToLower(caddyLog.Logger)
+
+	// Check for WAF/Coraza indicators (highest priority for 403s)
+	if strings.Contains(loggerLower, "waf") ||
+		strings.Contains(loggerLower, "coraza") ||
+		hasHeader(caddyLog.RespHeaders, "X-Coraza-Id") ||
+		hasHeader(caddyLog.RespHeaders, "X-Coraza-Rule-Id") {
 		entry.Blocked = true
+		entry.Source = "waf"
 		entry.Level = "warn"
+		entry.BlockReason = "WAF rule triggered"
 
-		// Check for WAF/Coraza indicators
-		if caddyLog.Logger == "http.handlers.waf" ||
-			hasHeader(caddyLog.RespHeaders, "X-Coraza-Id") ||
-			strings.Contains(caddyLog.Logger, "coraza") {
-			entry.Source = "waf"
-			entry.BlockReason = "WAF rule triggered"
-
-			// Try to extract rule ID from headers
-			if ruleID, ok := caddyLog.RespHeaders["X-Coraza-Id"]; ok && len(ruleID) > 0 {
-				entry.Details["rule_id"] = ruleID[0]
-			}
-		} else if hasHeader(caddyLog.RespHeaders, "X-Crowdsec-Decision") ||
-			strings.Contains(caddyLog.Logger, "crowdsec") {
-			entry.Source = "crowdsec"
-			entry.BlockReason = "CrowdSec decision"
-		} else if hasHeader(caddyLog.Request.Headers, "X-Acl-Denied") {
-			entry.Source = "acl"
-			entry.BlockReason = "Access list denied"
-		} else {
-			entry.Source = "cerberus"
-			entry.BlockReason = "Access denied"
+		// Try to extract rule ID from headers
+		if ruleID, ok := caddyLog.RespHeaders["X-Coraza-Id"]; ok && len(ruleID) > 0 {
+			entry.Details["rule_id"] = ruleID[0]
 		}
+		if ruleID, ok := caddyLog.RespHeaders["X-Coraza-Rule-Id"]; ok && len(ruleID) > 0 {
+			entry.Details["rule_id"] = ruleID[0]
+		}
+		return
+	}
+
+	// Check for CrowdSec indicators
+	if strings.Contains(loggerLower, "crowdsec") ||
+		strings.Contains(loggerLower, "bouncer") ||
+		hasHeader(caddyLog.RespHeaders, "X-Crowdsec-Decision") ||
+		hasHeader(caddyLog.RespHeaders, "X-Crowdsec-Origin") {
+		entry.Blocked = true
+		entry.Source = "crowdsec"
+		entry.Level = "warn"
+		entry.BlockReason = "CrowdSec decision"
+
+		// Extract CrowdSec-specific headers
+		if origin, ok := caddyLog.RespHeaders["X-Crowdsec-Origin"]; ok && len(origin) > 0 {
+			entry.Details["crowdsec_origin"] = origin[0]
+		}
+		return
+	}
+
+	// Check for ACL blocks
+	if strings.Contains(loggerLower, "acl") ||
+		hasHeader(caddyLog.RespHeaders, "X-Acl-Denied") ||
+		hasHeader(caddyLog.RespHeaders, "X-Blocked-By-Acl") {
+		entry.Blocked = true
+		entry.Source = "acl"
+		entry.Level = "warn"
+		entry.BlockReason = "Access list denied"
+		return
 	}
 
 	// Check for rate limiting (429 Too Many Requests)
@@ -273,6 +294,19 @@ func (w *LogWatcher) detectSecurityEvent(entry *models.SecurityLogEntry, caddyLo
 		if reset, ok := caddyLog.RespHeaders["X-Ratelimit-Reset"]; ok && len(reset) > 0 {
 			entry.Details["ratelimit_reset"] = reset[0]
 		}
+		if limit, ok := caddyLog.RespHeaders["X-Ratelimit-Limit"]; ok && len(limit) > 0 {
+			entry.Details["ratelimit_limit"] = limit[0]
+		}
+		return
+	}
+
+	// Check for other 403s (generic security block)
+	if caddyLog.Status == 403 {
+		entry.Blocked = true
+		entry.Source = "cerberus"
+		entry.Level = "warn"
+		entry.BlockReason = "Access denied"
+		return
 	}
 
 	// Check for authentication failures
@@ -280,11 +314,22 @@ func (w *LogWatcher) detectSecurityEvent(entry *models.SecurityLogEntry, caddyLo
 		entry.Level = "warn"
 		entry.Source = "auth"
 		entry.Details["auth_failure"] = true
+		return
 	}
 
 	// Check for server errors
 	if caddyLog.Status >= 500 {
 		entry.Level = "error"
+		return
+	}
+
+	// Normal traffic - set appropriate level based on status
+	entry.Source = "normal"
+	entry.Blocked = false
+	if caddyLog.Status >= 400 {
+		entry.Level = "warn"
+	} else {
+		entry.Level = "info"
 	}
 }
 
