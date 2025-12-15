@@ -53,42 +53,71 @@ func main() {
 	logger.Init(false, mw)
 
 	// Handle CLI commands
-	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
-		if len(os.Args) != 4 {
-			log.Fatalf("Usage: %s reset-password <email> <new-password>", os.Args[0])
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "migrate":
+			cfg, err := config.Load()
+			if err != nil {
+				log.Fatalf("load config: %v", err)
+			}
+
+			db, err := database.Connect(cfg.DatabasePath)
+			if err != nil {
+				log.Fatalf("connect database: %v", err)
+			}
+
+			logger.Log().Info("Running database migrations for security tables...")
+			if err := db.AutoMigrate(
+				&models.SecurityConfig{},
+				&models.SecurityDecision{},
+				&models.SecurityAudit{},
+				&models.SecurityRuleSet{},
+				&models.CrowdsecPresetEvent{},
+				&models.CrowdsecConsoleEnrollment{},
+			); err != nil {
+				log.Fatalf("migration failed: %v", err)
+			}
+
+			logger.Log().Info("Migration completed successfully")
+			return
+
+		case "reset-password":
+			if len(os.Args) != 4 {
+				log.Fatalf("Usage: %s reset-password <email> <new-password>", os.Args[0])
+			}
+			email := os.Args[2]
+			newPassword := os.Args[3]
+
+			cfg, err := config.Load()
+			if err != nil {
+				log.Fatalf("load config: %v", err)
+			}
+
+			db, err := database.Connect(cfg.DatabasePath)
+			if err != nil {
+				log.Fatalf("connect database: %v", err)
+			}
+
+			var user models.User
+			if err := db.Where("email = ?", email).First(&user).Error; err != nil {
+				log.Fatalf("user not found: %v", err)
+			}
+
+			if err := user.SetPassword(newPassword); err != nil {
+				log.Fatalf("failed to hash password: %v", err)
+			}
+
+			// Unlock account if locked
+			user.LockedUntil = nil
+			user.FailedLoginAttempts = 0
+
+			if err := db.Save(&user).Error; err != nil {
+				log.Fatalf("failed to save user: %v", err)
+			}
+
+			logger.Log().Infof("Password updated successfully for user %s", email)
+			return
 		}
-		email := os.Args[2]
-		newPassword := os.Args[3]
-
-		cfg, err := config.Load()
-		if err != nil {
-			log.Fatalf("load config: %v", err)
-		}
-
-		db, err := database.Connect(cfg.DatabasePath)
-		if err != nil {
-			log.Fatalf("connect database: %v", err)
-		}
-
-		var user models.User
-		if err := db.Where("email = ?", email).First(&user).Error; err != nil {
-			log.Fatalf("user not found: %v", err)
-		}
-
-		if err := user.SetPassword(newPassword); err != nil {
-			log.Fatalf("failed to hash password: %v", err)
-		}
-
-		// Unlock account if locked
-		user.LockedUntil = nil
-		user.FailedLoginAttempts = 0
-
-		if err := db.Save(&user).Error; err != nil {
-			log.Fatalf("failed to save user: %v", err)
-		}
-
-		logger.Log().Infof("Password updated successfully for user %s", email)
-		return
 	}
 
 	logger.Log().Infof("starting %s backend on version %s", version.Name, version.Full())
@@ -101,6 +130,33 @@ func main() {
 	db, err := database.Connect(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("connect database: %v", err)
+	}
+
+	// Verify critical security tables exist before starting server
+	// This prevents silent failures in CrowdSec reconciliation
+	securityModels := []interface{}{
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
+		&models.CrowdsecPresetEvent{},
+		&models.CrowdsecConsoleEnrollment{},
+	}
+
+	missingTables := false
+	for _, model := range securityModels {
+		if !db.Migrator().HasTable(model) {
+			missingTables = true
+			logger.Log().Warnf("Missing security table for model %T - running migration", model)
+		}
+	}
+
+	if missingTables {
+		logger.Log().Warn("Security tables missing - running auto-migration")
+		if err := db.AutoMigrate(securityModels...); err != nil {
+			log.Fatalf("failed to migrate security tables: %v", err)
+		}
+		logger.Log().Info("Security tables migrated successfully")
 	}
 
 	router := server.NewRouter(cfg.FrontendDir)

@@ -36,7 +36,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 
 	// Check if SecurityConfig table exists and has a record with CrowdSecMode = "local"
 	if !db.Migrator().HasTable(&models.SecurityConfig{}) {
-		logger.Log().Debug("CrowdSec reconciliation skipped: SecurityConfig table not found")
+		logger.Log().Warn("CrowdSec reconciliation skipped: SecurityConfig table not found - run 'charon migrate' to fix")
 		return
 	}
 

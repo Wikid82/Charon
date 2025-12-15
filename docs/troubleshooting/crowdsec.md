@@ -196,6 +196,93 @@ charon-local-machine     127.0.0.1      password     v1.x.x
 - If you switch to offline mode, clear pending Hub pulls before retrying so cache keys/ETags refresh cleanly.
 - After restoring from a backup, re-run preview before applying again to verify changes.
 
+## Database Migrations After Upgrade
+
+### Problem: CrowdSec not starting after upgrading Charon
+
+**Symptoms:**
+
+- CrowdSec toggle appears enabled but status shows "Not Running"
+- CrowdSec console shows "Starting..." indefinitely
+- Container logs show: `WARN CrowdSec reconciliation: security tables missing`
+- Console enrollment fails immediately
+
+**Root Cause:**
+
+Upgrading from an older version with a **persistent database** may be missing the new security tables introduced in version 2.0. The database schema needs to be migrated.
+
+**Solution: Run Database Migration**
+
+1. **Execute the migration command:**
+
+   ```bash
+   docker exec charon /app/charon migrate
+   ```
+
+   **Expected output:**
+
+   ```json
+   {"level":"info","msg":"Running database migrations for security tables...","time":"..."}
+   {"level":"info","msg":"Migration completed successfully","time":"..."}
+   ```
+
+2. **Verify tables were created:**
+
+   ```bash
+   docker exec charon sqlite3 /app/data/charon.db ".tables"
+   ```
+
+   **Expected tables include:**
+   - `security_configs`
+   - `security_decisions`
+   - `security_audits`
+   - `security_rule_sets`
+   - `crowdsec_preset_events`
+   - `crowdsec_console_enrollments`
+
+3. **Restart container to apply changes:**
+
+   ```bash
+   docker restart charon
+   ```
+
+4. **Verify CrowdSec starts automatically:**
+
+   If you had CrowdSec enabled before the upgrade:
+
+   ```bash
+   # Wait 15 seconds after restart, then check
+   docker exec charon cscli lapi status
+   ```
+
+   **Expected output:**
+
+   ```
+   ✓ You can successfully interact with Local API (LAPI)
+   ```
+
+5. **If CrowdSec doesn't auto-start:**
+
+   Enable it manually via the GUI:
+   - Go to **Security** dashboard
+   - Toggle CrowdSec **ON**
+   - Wait 15 seconds
+   - Verify status shows "Active"
+
+**Why This Happens:**
+
+Charon version 2.0 moved CrowdSec configuration from environment variables to the database (see [Migration Guide](../migration-guide.md)). Persistent databases from older versions need the new security tables added via migration.
+
+**Prevention:**
+
+Future upgrades will run migrations automatically on startup. For now, manual migration is required for existing installations.
+
+**Related Documentation:**
+- [Getting Started - Database Migrations](../getting-started.md#step-15-database-migrations-if-upgrading)
+- [Migration Guide - CrowdSec Control](../migration-guide.md)
+
+---
+
 ## Console Enrollment
 
 ### Prerequisites

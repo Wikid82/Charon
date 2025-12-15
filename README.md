@@ -140,6 +140,17 @@ docker run -d \
 
 **Open <http://localhost:8080>** and start adding your websites!
 
+### Upgrading? Run Migrations
+
+If you're upgrading from a previous version with persistent data:
+
+```bash
+docker exec charon /app/charon migrate
+docker restart charon
+```
+
+This ensures security features (especially CrowdSec) work correctly. See [Migration Guide](https://wikid82.github.io/charon/migration-guide) for details.
+
 ---
 
 ## Getting Help

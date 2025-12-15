@@ -128,6 +128,149 @@ If you see this, migration is complete! ✅
 
 ---
 
+---
+
+## Database Migrations for Upgrades
+
+### What Are Database Migrations?
+
+Charon version 2.0 introduced new database tables to support security features like CrowdSec, WAF configurations, and security audit logs. If you're upgrading from version 1.x **with persistent data**, you need to run migrations to add these tables.
+
+### Do I Need to Run Migrations?
+
+**Yes, if:**
+
+- ✅ You're upgrading from Charon 1.x to 2.x
+- ✅ You're using a persistent volume for `/app/data`
+- ✅ You see "CrowdSec not starting" after upgrade
+- ✅ Container logs show: `WARN security tables missing`
+
+**No, if:**
+
+- ❌ This is a fresh installation (tables created automatically)
+- ❌ You're not using persistent storage
+- ❌ You've already run migrations once
+
+### How to Run Migrations
+
+**Step 1: Execute Migration Command**
+
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Expected Output:**
+
+```json
+{"level":"info","msg":"Running database migrations for security tables...","time":"2025-12-15T..."}
+{"level":"info","msg":"Migration completed successfully","time":"2025-12-15T..."}
+```
+
+**Step 2: Verify Tables Created**
+
+```bash
+docker exec charon sqlite3 /app/data/charon.db ".tables"
+```
+
+**You should see these tables:**
+
+- `security_configs` — Security feature settings (replaces environment variables)
+- `security_decisions` — CrowdSec blocking decisions
+- `security_audits` — Security event audit log
+- `security_rule_sets` — WAF and rate limiting rules
+- `crowdsec_preset_events` — CrowdSec Hub preset tracking
+- `crowdsec_console_enrollments` — CrowdSec Console enrollment state
+
+**Step 3: Restart Container**
+
+If you had CrowdSec enabled before the upgrade, restart to apply changes:
+
+```bash
+docker restart charon
+```
+
+CrowdSec will automatically start if it was previously enabled.
+
+**Step 4: Verify CrowdSec Status**
+
+Wait 15 seconds after restart, then check:
+
+```bash
+docker exec charon cscli lapi status
+```
+
+**Expected Output (if CrowdSec was enabled):**
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+### What Gets Migrated?
+
+The migration creates **empty tables with the correct schema**. Your existing data (proxy hosts, certificates, users, etc.) is **not modified**.
+
+**New tables added:**
+
+1. **SecurityConfig**: Stores security feature state (on/off)
+2. **SecurityDecision**: Tracks CrowdSec blocking decisions
+3. **SecurityAudit**: Logs security-related actions
+4. **SecurityRuleSet**: Stores WAF rules and rate limits
+5. **CrowdsecPresetEvent**: Tracks Hub preset installations
+6. **CrowdsecConsoleEnrollment**: Stores Console enrollment tokens
+
+### Migration is Safe
+
+✅ **Idempotent**: Safe to run multiple times (no duplicates)
+✅ **Non-destructive**: Only adds tables, never deletes data
+✅ **Fast**: Completes in <1 second
+✅ **No downtime**: Container stays running during migration
+
+### Troubleshooting Migrations
+
+#### "Migration command not found"
+
+**Cause**: You're running an older version of Charon that doesn't include the migrate command.
+
+**Solution**: Pull the latest image first:
+
+```bash
+docker compose pull
+docker compose up -d
+docker exec charon /app/charon migrate
+```
+
+#### "Database is locked"
+
+**Cause**: Another process is accessing the database.
+
+**Solution**: Retry in a few seconds:
+
+```bash
+sleep 5
+docker exec charon /app/charon migrate
+```
+
+#### "Permission denied accessing database"
+
+**Cause**: Database file has incorrect permissions.
+
+**Solution**: Fix ownership (run on host):
+
+```bash
+sudo chown -R 1000:1000 ./charon-data
+docker exec charon /app/charon migrate
+```
+
+#### "CrowdSec still not starting after migration"
+
+See [CrowdSec Troubleshooting](troubleshooting/crowdsec.md#database-migrations-after-upgrade) for detailed diagnostics.
+
+### When Will This Be Automatic?
+
+Future versions will detect missing tables on startup and run migrations automatically. For now, manual migration is required when upgrading from version 1.x.
+
+---
+
 ## Console Enrollment (If Applicable)
 
 If you were enrolled in CrowdSec Console **before migration**:
