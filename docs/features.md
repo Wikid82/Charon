@@ -224,6 +224,9 @@ catch it by recognizing the attack pattern.
 **Why you care:** Protects your server from IPs that are attacking other people,
 and lets you manage your security configuration easily.
 
+**Test Coverage:** 100% frontend test coverage achieved with 162 comprehensive tests covering all CrowdSec features,
+API clients, hooks, and utilities. See [QA Report](reports/qa_crowdsec_frontend_coverage_report.md) for details.
+
 **Features:**
 
 - **Hub Presets:** Browse, search, and install security configurations from the CrowdSec Hub.
@@ -633,7 +636,31 @@ cd backend && go test -tags=integration ./integration -run TestCerberusIntegrati
 - Touch-friendly toggle switches (minimum 44px targets)
 - Scrollable modals and overlays on small screens
 
-**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases.
+### CrowdSec Frontend Test Coverage
+
+**What it does:** Comprehensive frontend test suite for all CrowdSec features with 100% code coverage.
+
+**Test files created:**
+
+1. **API Client Tests** (`api/__tests__/`)
+   - `presets.test.ts` - 26 tests for preset management API
+   - `consoleEnrollment.test.ts` - 25 tests for Console enrollment API
+
+2. **Data & Utilities Tests**
+   - `data/__tests__/crowdsecPresets.test.ts` - 38 tests validating all 30 presets
+   - `utils/__tests__/crowdsecExport.test.ts` - 48 tests for export functionality
+
+3. **React Query Hooks Tests**
+   - `hooks/__tests__/useConsoleEnrollment.test.tsx` - 25 tests for enrollment hooks
+
+**Coverage metrics:**
+
+- 162 total CrowdSec-specific tests
+- 100% code coverage for all CrowdSec modules
+- All tests passing with no flaky tests
+- Pre-commit checks validated
+
+**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases and the [QA Coverage Report](reports/qa_crowdsec_frontend_coverage_report.md).
 
 ---
 
