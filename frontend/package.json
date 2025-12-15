@@ -56,10 +56,10 @@
     "@vitest/coverage-istanbul": "^4.0.15",
 
     "@vitest/ui": "^4.0.15",
-    "autoprefixer": "^10.4.22",
+    "autoprefixer": "^10.4.23",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
+    "eslint-plugin-react-refresh": "^0.4.25",
     "jsdom": "^27.3.0",
     "knip": "^5.73.4",
     "postcss": "^8.5.6",
