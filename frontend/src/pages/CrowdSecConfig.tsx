@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
-import { Switch } from '../components/ui/Switch'
 import { getSecurityStatus } from '../api/security'
 import { getFeatureFlags } from '../api/featureFlags'
-import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec, CrowdSecStatus } from '../api/crowdsec'
+import { exportCrowdsecConfig, importCrowdsecConfig, listCrowdsecFiles, readCrowdsecFile, writeCrowdsecFile, listCrowdsecDecisions, banIP, unbanIP, CrowdSecDecision, statusCrowdsec, CrowdSecStatus, startCrowdsec } from '../api/crowdsec'
 import { listCrowdsecPresets, pullCrowdsecPreset, applyCrowdsecPreset, getCrowdsecPresetCache } from '../api/presets'
 import { createBackup } from '../api/backups'
-import { updateSetting } from '../api/settings'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
@@ -39,6 +37,7 @@ export default function CrowdSecConfig() {
   const [applyInfo, setApplyInfo] = useState<{ status?: string; backup?: string; reloadHint?: boolean; usedCscli?: boolean; cacheKey?: string } | null>(null)
   const queryClient = useQueryClient()
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
+  // Note: CrowdSec mode is now controlled via Security Dashboard toggle
   const { data: featureFlags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags })
   const consoleEnrollmentEnabled = Boolean(featureFlags?.['feature.crowdsec.console_enrollment'])
   const [enrollmentToken, setEnrollmentToken] = useState('')
@@ -87,17 +86,6 @@ export default function CrowdSecConfig() {
   const listMutation = useQuery({ queryKey: ['crowdsec-files'], queryFn: listCrowdsecFiles })
   const readMutation = useMutation({ mutationFn: (path: string) => readCrowdsecFile(path), onSuccess: (data) => setFileContent(data.content) })
   const writeMutation = useMutation({ mutationFn: async ({ path, content }: { path: string; content: string }) => writeCrowdsecFile(path, content), onSuccess: () => { toast.success('File saved'); queryClient.invalidateQueries({ queryKey: ['crowdsec-files'] }) } })
-  const updateModeMutation = useMutation({
-    mutationFn: async (mode: string) => updateSetting('security.crowdsec.mode', mode, 'security', 'string'),
-    onSuccess: (_data, mode) => {
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      toast.success(mode === 'disabled' ? 'CrowdSec disabled' : 'CrowdSec set to Local mode')
-    },
-    onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Failed to update mode'
-      toast.error(msg)
-    },
-  })
 
   const presetsQuery = useQuery({
     queryKey: ['crowdsec-presets'],
@@ -380,11 +368,6 @@ export default function CrowdSecConfig() {
     }
   }
 
-  const handleModeToggle = (nextEnabled: boolean) => {
-    const mode = nextEnabled ? 'local' : 'disabled'
-    updateModeMutation.mutate(mode)
-  }
-
   const applyPresetLocally = async (reason?: string) => {
     if (!selectedPreset) {
       toast.error('Select a preset to apply')
@@ -497,7 +480,6 @@ export default function CrowdSecConfig() {
   const isApplyingConfig =
     importMutation.isPending ||
     writeMutation.isPending ||
-    updateModeMutation.isPending ||
     backupMutation.isPending ||
     pullPresetMutation.isPending ||
     isApplyingPreset ||
@@ -517,9 +499,6 @@ export default function CrowdSecConfig() {
     }
     if (writeMutation.isPending) {
       return { message: 'Guardian inscribes...', submessage: 'Saving configuration file' }
-    }
-    if (updateModeMutation.isPending) {
-      return { message: 'Three heads turn...', submessage: 'CrowdSec mode updating' }
     }
     if (banMutation.isPending) {
       return { message: 'Guardian raises shield...', submessage: 'Banning IP address' }
@@ -548,26 +527,13 @@ export default function CrowdSecConfig() {
       )}
       <div className="space-y-6">
       <h1 className="text-2xl font-bold">CrowdSec Configuration</h1>
-      <Card>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold">CrowdSec Mode</h2>
-            <p className="text-sm text-gray-400">
-              {isLocalMode ? 'CrowdSec runs locally; disable to pause decisions.' : 'CrowdSec decisions are paused; enable to resume local protection.'}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400">Disabled</span>
-            <Switch
-              checked={isLocalMode}
-              onChange={(e) => handleModeToggle(e.target.checked)}
-              disabled={updateModeMutation.isPending}
-              data-testid="crowdsec-mode-toggle"
-            />
-            <span className="text-sm text-gray-200">Local</span>
-          </div>
-        </div>
-      </Card>
+      <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-4">
+        <p className="text-sm text-blue-200">
+          <strong>Note:</strong> CrowdSec is controlled via the toggle on the{' '}
+          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">Security Dashboard</Link>.
+          Enable or disable CrowdSec there, then configure presets and enrollment here.
+        </p>
+      </div>
 
       {consoleEnrollmentEnabled && (
         <Card data-testid="console-enrollment-card">
@@ -633,6 +599,24 @@ export default function CrowdSecConfig() {
                     The CrowdSec process is not currently running. Enable CrowdSec from the Security Dashboard to use console enrollment features.
                   </p>
                   <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await startCrowdsec();
+                          toast.info('Starting CrowdSec...');
+                          // Refetch status after a delay to allow startup
+                          setTimeout(() => {
+                            lapiStatusQuery.refetch();
+                          }, 3000);
+                        } catch {
+                          toast.error('Failed to start CrowdSec');
+                        }
+                      }}
+                    >
+                      Start CrowdSec
+                    </Button>
                     <Button
                       variant="secondary"
                       size="sm"

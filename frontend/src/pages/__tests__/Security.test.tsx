@@ -264,6 +264,8 @@ describe('Security', () => {
 
     it('should display threat protection summaries', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      // CrowdSec must be running to show threat protection descriptions
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))

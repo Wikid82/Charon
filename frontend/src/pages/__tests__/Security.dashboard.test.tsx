@@ -263,6 +263,8 @@ describe('Security Dashboard - Card Status Tests', () => {
   describe('SD-08: Threat Protection Summaries', () => {
     it('should display threat protection descriptions for each card', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+      // CrowdSec must be running to show threat protection descriptions
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 

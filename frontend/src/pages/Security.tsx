@@ -248,28 +248,28 @@ export default function Security() {
       <Outlet />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* CrowdSec - Layer 1: IP Reputation (first line of defense) */}
-        <Card className={status.crowdsec.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+        <Card className={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'border-green-200 dark:border-green-900' : ''}>
           <div className="text-xs text-gray-400 mb-2">🛡️ Layer 1: IP Reputation</div>
           <div className="flex flex-row items-center justify-between pb-2">
             <h3 className="text-sm font-medium text-white">CrowdSec</h3>
             <div className="flex items-center gap-3">
               <Switch
-                checked={status.crowdsec.enabled}
+                checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
                 disabled={crowdsecToggleDisabled}
                 onChange={(e) => {
                   crowdsecPowerMutation.mutate(e.target.checked)
                 }}
                 data-testid="toggle-crowdsec"
               />
-              <ShieldAlert className={`w-4 h-4 ${status.crowdsec.enabled ? 'text-green-500' : 'text-gray-400'}`} />
+              <ShieldAlert className={`w-4 h-4 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-green-500' : 'text-gray-400'}`} />
             </div>
           </div>
           <div>
             <div className="text-2xl font-bold mb-1 text-white">
-              {status.crowdsec.enabled ? 'Active' : 'Disabled'}
+              {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'Active' : 'Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {status.crowdsec.enabled
+              {(crowdsecStatus?.running ?? status.crowdsec.enabled)
                 ? `Protects against: Known attackers, botnets, brute-force`
                 : 'Intrusion Prevention System'}
             </p>

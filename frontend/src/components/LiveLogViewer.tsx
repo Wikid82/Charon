@@ -152,6 +152,12 @@ export function LiveLogViewer({
   const logContainerRef = useRef<HTMLDivElement>(null);
   const closeConnectionRef = useRef<(() => void) | null>(null);
   const shouldAutoScroll = useRef(true);
+  const isPausedRef = useRef(isPaused);
+
+  // Keep ref in sync with state for use in WebSocket handlers
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // Handle mode change - clear logs and update filters
   const handleModeChange = useCallback((newMode: LogMode) => {
@@ -189,13 +195,13 @@ export function LiveLogViewer({
     if (currentMode === 'security') {
       // Connect to security logs endpoint
       const handleSecurityMessage = (entry: SecurityLogEntry) => {
-        if (!isPaused) {
-          const displayEntry = toDisplayFromSecurity(entry);
-          setLogs((prev) => {
-            const updated = [...prev, displayEntry];
-            return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
-          });
-        }
+        // Use ref to check paused state - avoids WebSocket reconnection when pausing
+        if (isPausedRef.current) return;
+        const displayEntry = toDisplayFromSecurity(entry);
+        setLogs((prev) => {
+          const updated = [...prev, displayEntry];
+          return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
+        });
       };
 
       // Build filters including blocked_only if selected
@@ -214,13 +220,13 @@ export function LiveLogViewer({
     } else {
       // Connect to application logs endpoint
       const handleLiveMessage = (entry: LiveLogEntry) => {
-        if (!isPaused) {
-          const displayEntry = toDisplayFromLive(entry);
-          setLogs((prev) => {
-            const updated = [...prev, displayEntry];
-            return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
-          });
-        }
+        // Use ref to check paused state - avoids WebSocket reconnection when pausing
+        if (isPausedRef.current) return;
+        const displayEntry = toDisplayFromLive(entry);
+        setLogs((prev) => {
+          const updated = [...prev, displayEntry];
+          return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
+        });
       };
 
       closeConnectionRef.current = connectLiveLogs(
@@ -239,7 +245,8 @@ export function LiveLogViewer({
       }
       setIsConnected(false);
     };
-  }, [currentMode, filters, securityFilters, isPaused, maxLogs, showBlockedOnly]);
+    // Note: isPaused is intentionally excluded - we use isPausedRef to avoid reconnecting when pausing
+  }, [currentMode, filters, securityFilters, maxLogs, showBlockedOnly]);
 
   // Auto-scroll effect
   useEffect(() => {

@@ -217,6 +217,12 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		}
 	}
 
+	// After updating SecurityConfig, also sync settings table for state consistency
+	if h.DB != nil {
+		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}
+		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	}
+
 	// Start the process
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
@@ -224,6 +230,11 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 		cfg.CrowdSecMode = "disabled"
 		cfg.Enabled = false
 		h.DB.Save(&cfg)
+		// Also revert settings table
+		if h.DB != nil {
+			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
+			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -288,6 +299,12 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		if err := h.DB.Save(&cfg).Error; err != nil {
 			logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
 		}
+	}
+
+	// After updating SecurityConfig, also sync settings table for state consistency
+	if h.DB != nil {
+		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
+		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})

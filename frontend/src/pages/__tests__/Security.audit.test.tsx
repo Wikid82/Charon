@@ -114,6 +114,8 @@ describe('Security Page - QA Security Audit', () => {
     it('displays error toast when toggle mutation fails', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      // CrowdSec is not running, so toggle will try to START it
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('Network error'))
 
       await renderSecurityPage()
@@ -123,7 +125,7 @@ describe('Security Page - QA Security Audit', () => {
       await user.click(toggle)
 
       await waitFor(() => {
-        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to stop CrowdSec'))
+        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to start CrowdSec'))
       })
     })
 
@@ -352,6 +354,8 @@ describe('Security Page - QA Security Audit', () => {
 
     it('threat summaries match spec when services enabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      // CrowdSec must be running to show threat protection descriptions
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 
