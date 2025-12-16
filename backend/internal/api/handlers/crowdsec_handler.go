@@ -937,6 +937,29 @@ func (h *CrowdsecHandler) ConsoleStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+// DeleteConsoleEnrollment clears the local enrollment state to allow fresh enrollment.
+// DELETE /api/v1/admin/crowdsec/console/enrollment
+// Note: This does NOT unenroll from crowdsec.net - that must be done manually on the console.
+func (h *CrowdsecHandler) DeleteConsoleEnrollment(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment service not available"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	if err := h.Console.ClearEnrollment(ctx); err != nil {
+		logger.Log().WithError(err).Warn("failed to clear console enrollment state")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "enrollment state cleared"})
+}
+
 // GetCachedPreset returns cached preview for a slug when available.
 func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 	if !h.isCerberusEnabled() {
@@ -1474,6 +1497,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
+	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)

@@ -160,6 +160,11 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	}
 	// If already enrolled or pending acceptance, skip unless Force is set
 	if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
+		logger.Log().WithFields(map[string]interface{}{
+			"status":     rec.Status,
+			"agent_name": rec.AgentName,
+			"tenant":     rec.Tenant,
+		}).Info("console enrollment skipped: already enrolled or pending acceptance - use force=true to re-enroll")
 		return s.statusFromModel(rec), nil
 	}
 
@@ -337,6 +342,31 @@ func (s *ConsoleEnrollmentService) load(ctx context.Context) (*models.CrowdsecCo
 		return nil, err
 	}
 	return &rec, nil
+}
+
+// ClearEnrollment resets the enrollment state to allow fresh enrollment.
+// This does NOT unenroll from crowdsec.net - that must be done manually on the console.
+func (s *ConsoleEnrollmentService) ClearEnrollment(ctx context.Context) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	var rec models.CrowdsecConsoleEnrollment
+	if err := s.db.WithContext(ctx).First(&rec).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // Already cleared
+		}
+		return fmt.Errorf("failed to find enrollment record: %w", err)
+	}
+
+	logger.Log().WithField("previous_status", rec.Status).Info("clearing console enrollment state")
+
+	// Delete the record
+	if err := s.db.WithContext(ctx).Delete(&rec).Error; err != nil {
+		return fmt.Errorf("failed to delete enrollment record: %w", err)
+	}
+
+	return nil
 }
 
 func (s *ConsoleEnrollmentService) statusFromModel(rec *models.CrowdsecConsoleEnrollment) ConsoleEnrollmentStatus {
