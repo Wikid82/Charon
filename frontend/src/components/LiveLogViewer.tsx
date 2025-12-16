@@ -134,9 +134,13 @@ const getLevelColor = (level: string): string => {
   return 'text-gray-300';
 };
 
+// Stable default filter objects to prevent useEffect re-triggers on parent re-render
+const EMPTY_LIVE_FILTER: LiveLogFilter = {};
+const EMPTY_SECURITY_FILTER: SecurityLogFilter = {};
+
 export function LiveLogViewer({
-  filters = {},
-  securityFilters = {},
+  filters = EMPTY_LIVE_FILTER,
+  securityFilters = EMPTY_SECURITY_FILTER,
   mode = 'security',
   maxLogs = 500,
   className = '',

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
@@ -32,6 +32,8 @@ export default function Security() {
   const generateBreakGlassMutation = useGenerateBreakGlassToken()
   const queryClient = useQueryClient()
   const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
+  // Stable reference to prevent WebSocket reconnection loops in LiveLogViewer
+  const emptySecurityFilters = useMemo(() => ({}), [])
   // Generic toggle mutation for per-service settings
   const toggleServiceMutation = useMutation({
     mutationFn: async ({ key, enabled }: { key: string; enabled: boolean }) => {
@@ -266,7 +268,7 @@ export default function Security() {
           </div>
           <div>
             <div className="text-2xl font-bold mb-1 text-white">
-              {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'Active' : 'Disabled'}
+              {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? '● Active' : '○ Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {(crowdsecStatus?.running ?? status.crowdsec.enabled)
@@ -307,7 +309,7 @@ export default function Security() {
           </div>
           <div>
             <div className="text-2xl font-bold mb-1 text-white">
-              {status.acl.enabled ? 'Active' : 'Disabled'}
+              {status.acl.enabled ? '● Active' : '○ Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Protects against: Unauthorized IPs, geo-based attacks, insider threats
@@ -349,7 +351,7 @@ export default function Security() {
           </div>
           <div>
             <div className="text-2xl font-bold mb-1 text-white">
-              {status.waf.enabled ? 'Active' : 'Disabled'}
+              {status.waf.enabled ? '● Active' : '○ Disabled'}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {status.waf.enabled
@@ -416,7 +418,7 @@ export default function Security() {
       {/* Live Activity Section */}
       {status.cerberus?.enabled && (
         <div className="mt-6">
-          <LiveLogViewer mode="security" securityFilters={{}} className="w-full" />
+          <LiveLogViewer mode="security" securityFilters={emptySecurityFilters} className="w-full" />
         </div>
       )}
 
