@@ -506,6 +506,90 @@ func TestReconcileCrowdSecOnStartup_DBError(t *testing.T) {
 	assert.False(t, exec.startCalled)
 }
 
+func TestReconcileCrowdSecOnStartup_CreateConfigDBError(t *testing.T) {
+	db := setupCrowdsecTestDB(t)
+	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
+	defer cleanup()
+
+	exec := &smartMockCrowdsecExecutor{
+		startPid: 99999,
+	}
+
+	// Close DB immediately to cause Create() to fail
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Should handle DB error during Create gracefully (no panic)
+	// This tests line 78-80: DB error after creating SecurityConfig
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+
+	// Should not start if SecurityConfig creation fails
+	assert.False(t, exec.startCalled)
+}
+
+func TestReconcileCrowdSecOnStartup_SettingsTableQueryError(t *testing.T) {
+	db := setupCrowdsecTestDB(t)
+	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
+	defer cleanup()
+
+	exec := &smartMockCrowdsecExecutor{
+		startPid: 99999,
+	}
+
+	// Create SecurityConfig with mode=remote (not local)
+	cfg := models.SecurityConfig{
+		CrowdSecMode: "remote",
+		Enabled:      false,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	// Don't create Settings table - this will cause the RAW query to fail
+	// But gorm will still return nil error with empty result
+	// This tests lines 83-90: Settings table query handling
+
+	// Should handle missing settings table gracefully
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+
+	// Should not start since mode is not local and no settings override
+	assert.False(t, exec.startCalled)
+}
+
+func TestReconcileCrowdSecOnStartup_SettingsOverrideNonLocalMode(t *testing.T) {
+	db := setupCrowdsecTestDB(t)
+	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
+	defer cleanup()
+
+	// Create Settings table and add override
+	err := db.AutoMigrate(&models.Setting{})
+	require.NoError(t, err)
+
+	setting := models.Setting{
+		Key:      "security.crowdsec.enabled",
+		Value:    "true",
+		Type:     "bool",
+		Category: "security",
+	}
+	require.NoError(t, db.Create(&setting).Error)
+
+	// Create SecurityConfig with mode=remote (not local)
+	cfg := models.SecurityConfig{
+		CrowdSecMode: "remote",
+		Enabled:      false,
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	exec := &smartMockCrowdsecExecutor{
+		startPid: 12345,
+	}
+
+	// This tests lines 92-99: Settings override with non-local mode
+	// Should start based on Settings override even though SecurityConfig says mode=remote
+	ReconcileCrowdSecOnStartup(db, exec, binPath, dataDir)
+
+	assert.True(t, exec.startCalled, "Should start when Settings override is true even if mode is not local")
+}
+
 // ==========================================================
 // Helper Mocks for Edge Case Tests
 // ==========================================================

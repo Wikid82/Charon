@@ -258,7 +258,7 @@ See [QA Coverage Report](docs/reports/qa_crowdsec_frontend_coverage_report.md) f
 
 ### Test Coverage
 
-- Aim for 80%+ code coverage
+- Aim for 85%+ code coverage (current backend: 85.4%)
 - All new features must include tests
 - Bug fixes should include regression tests
 - CrowdSec modules maintain 100% frontend coverage

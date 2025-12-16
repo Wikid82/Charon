@@ -7,7 +7,7 @@ coverage:
   status:
     project:
       default:
-        target: 75%
+        target: 85%
         threshold: 0%
 
 # Fail CI if Codecov upload/report indicates a problem

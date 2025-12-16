@@ -12,12 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setupCrowdDBWithSettings creates a test database with both SecurityConfig and Setting tables.
-func setupCrowdDBWithSettings(t *testing.T) *testing.T {
-	t.Helper()
-	return t
-}
-
 // TestStartSyncsSettingsTable verifies that Start() updates the settings table.
 func TestStartSyncsSettingsTable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
