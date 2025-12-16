@@ -29,7 +29,12 @@ export async function enrollConsole(payload: ConsoleEnrollPayload): Promise<Cons
   return resp.data
 }
 
+export async function clearConsoleEnrollment(): Promise<void> {
+  await client.delete('/admin/crowdsec/console/enrollment')
+}
+
 export default {
   getConsoleStatus,
   enrollConsole,
+  clearConsoleEnrollment,
 }

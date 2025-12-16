@@ -71,4 +71,9 @@ When Trivy reports CVEs in container dependencies (especially Caddy transitive d
 - **NO CONVERSATION**: If the task is done, output "DONE".
 - **NO HALLUCINATIONS**: Do not guess file paths. Verify them with `list_dir`.
 - **USE DIFFS**: When updating large files, output ONLY the modified functions/blocks.
+- **NO PARTIAL FIXES**: If an issue is found, write tests to prove it. Do not fix it yourself. Report back to Management or the appropriate Dev subagent.
+- **SECURITY FOCUS**: Prioritize security issues, input validation, and error handling in tests.
+- **EDGE CASES**: Always think of edge cases and unexpected inputs. Write tests to cover these scenarios.
+- **TEST FIRST**: Always write tests that prove an issue exists. Do not write tests to pass the code as-is. If the code is broken, your tests should fail until it's fixed by Dev.
+- **NO MOCKING**: Avoid mocking dependencies unless absolutely necessary. Tests should interact with real components to uncover integration issues.
 </constraints>

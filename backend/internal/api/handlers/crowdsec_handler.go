@@ -181,15 +181,106 @@ func (h *CrowdsecHandler) hubEndpoints() []string {
 	return out
 }
 
-// Start starts the CrowdSec process.
+// Start starts the CrowdSec process and waits for LAPI to be ready.
 func (h *CrowdsecHandler) Start(c *gin.Context) {
 	ctx := c.Request.Context()
+
+	// UPDATE SecurityConfig to persist user's intent
+	var cfg models.SecurityConfig
+	if err := h.DB.First(&cfg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// Create default config with CrowdSec enabled
+			cfg = models.SecurityConfig{
+				UUID:         "default",
+				Name:         "Default Security Config",
+				Enabled:      true,
+				CrowdSecMode: "local",
+			}
+			if err := h.DB.Create(&cfg).Error; err != nil {
+				logger.Log().WithError(err).Error("Failed to create SecurityConfig")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+				return
+			}
+		} else {
+			logger.Log().WithError(err).Error("Failed to read SecurityConfig")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read configuration"})
+			return
+		}
+	} else {
+		// Update existing config
+		cfg.CrowdSecMode = "local"
+		cfg.Enabled = true
+		if err := h.DB.Save(&cfg).Error; err != nil {
+			logger.Log().WithError(err).Error("Failed to update SecurityConfig")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist configuration"})
+			return
+		}
+	}
+
+	// After updating SecurityConfig, also sync settings table for state consistency
+	if h.DB != nil {
+		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "true", Category: "security", Type: "bool"}
+		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	}
+
+	// Start the process
 	pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
 	if err != nil {
+		// Revert config on failure
+		cfg.CrowdSecMode = "disabled"
+		cfg.Enabled = false
+		h.DB.Save(&cfg)
+		// Also revert settings table
+		if h.DB != nil {
+			revertSetting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
+			h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(revertSetting).FirstOrCreate(&revertSetting)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "started", "pid": pid})
+
+	// Wait for LAPI to be ready (with timeout)
+	lapiReady := false
+	maxWait := 30 * time.Second
+	pollInterval := 500 * time.Millisecond
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		// Check LAPI status using cscli
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+		}
+
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+
+		if err == nil {
+			lapiReady = true
+			break
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	if !lapiReady {
+		logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "started",
+			"pid":        pid,
+			"lapi_ready": false,
+			"warning":    "Process started but LAPI initialization may take additional time",
+		})
+		return
+	}
+
+	logger.Log().WithField("pid", pid).Info("CrowdSec started and LAPI is ready")
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "started",
+		"pid":        pid,
+		"lapi_ready": true,
+	})
 }
 
 // Stop stops the CrowdSec process.
@@ -199,10 +290,27 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// UPDATE SecurityConfig to persist user's intent
+	var cfg models.SecurityConfig
+	if err := h.DB.First(&cfg).Error; err == nil {
+		cfg.CrowdSecMode = "disabled"
+		cfg.Enabled = false
+		if err := h.DB.Save(&cfg).Error; err != nil {
+			logger.Log().WithError(err).Warn("Failed to update SecurityConfig after stopping CrowdSec")
+		}
+	}
+
+	// After updating SecurityConfig, also sync settings table for state consistency
+	if h.DB != nil {
+		setting := models.Setting{Key: "security.crowdsec.enabled", Value: "false", Category: "security", Type: "bool"}
+		h.DB.Where(models.Setting{Key: "security.crowdsec.enabled"}).Assign(setting).FirstOrCreate(&setting)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
-// Status returns simple running state.
+// Status returns running state including LAPI availability check.
 func (h *CrowdsecHandler) Status(c *gin.Context) {
 	ctx := c.Request.Context()
 	running, pid, err := h.Executor.Status(ctx, h.DataDir)
@@ -210,7 +318,25 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"running": running, "pid": pid})
+
+	// Check LAPI connectivity if process is running
+	lapiReady := false
+	if running {
+		args := []string{"lapi", "status"}
+		if _, err := os.Stat(filepath.Join(h.DataDir, "config.yaml")); err == nil {
+			args = append([]string{"-c", filepath.Join(h.DataDir, "config.yaml")}, args...)
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, checkErr := h.CmdExec.Execute(checkCtx, "cscli", args...)
+		cancel()
+		lapiReady = (checkErr == nil)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"running":    running,
+		"pid":        pid,
+		"lapi_ready": lapiReady,
+	})
 }
 
 // ImportConfig accepts a tar.gz or zip upload and extracts into DataDir (backing up existing config).
@@ -811,6 +937,29 @@ func (h *CrowdsecHandler) ConsoleStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+// DeleteConsoleEnrollment clears the local enrollment state to allow fresh enrollment.
+// DELETE /api/v1/admin/crowdsec/console/enrollment
+// Note: This does NOT unenroll from crowdsec.net - that must be done manually on the console.
+func (h *CrowdsecHandler) DeleteConsoleEnrollment(c *gin.Context) {
+	if !h.isConsoleEnrollmentEnabled() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "console enrollment disabled"})
+		return
+	}
+	if h.Console == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "console enrollment service not available"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	if err := h.Console.ClearEnrollment(ctx); err != nil {
+		logger.Log().WithError(err).Warn("failed to clear console enrollment state")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "enrollment state cleared"})
+}
+
 // GetCachedPreset returns cached preview for a slug when available.
 func (h *CrowdsecHandler) GetCachedPreset(c *gin.Context) {
 	if !h.isCerberusEnabled() {
@@ -1348,6 +1497,7 @@ func (h *CrowdsecHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/admin/crowdsec/presets/cache/:slug", h.GetCachedPreset)
 	rg.POST("/admin/crowdsec/console/enroll", h.ConsoleEnroll)
 	rg.GET("/admin/crowdsec/console/status", h.ConsoleStatus)
+	rg.DELETE("/admin/crowdsec/console/enrollment", h.DeleteConsoleEnrollment)
 	// Decision management endpoints (Banned IP Dashboard)
 	rg.GET("/admin/crowdsec/decisions", h.ListDecisions)
 	rg.GET("/admin/crowdsec/decisions/lapi", h.GetLAPIDecisions)

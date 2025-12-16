@@ -71,7 +71,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       },
     })
     vi.clearAllMocks()
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(window, 'open').mockImplementation(() => null)
@@ -128,12 +128,12 @@ describe('Security Dashboard - Card Status Tests', () => {
   describe('SD-02: CrowdSec Card Active Status', () => {
     it('should show "Active" when crowdsec.enabled=true', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 
       await waitFor(() => {
-        const cards = screen.getAllByText('Active')
+        const cards = screen.getAllByText(/● Active/)
         expect(cards.length).toBeGreaterThan(0)
       })
 
@@ -143,7 +143,7 @@ describe('Security Dashboard - Card Status Tests', () => {
 
     it('should show running PID when CrowdSec is running', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 
@@ -201,7 +201,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).toBeChecked()
-        expect(screen.getByText(/● Active/)).toBeInTheDocument()
+        const activeElements = screen.getAllByText(/● Active/)
+        expect(activeElements.length).toBeGreaterThan(0)
       })
     })
 
@@ -215,7 +216,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).not.toBeChecked()
-        expect(screen.getByText(/○ Disabled/)).toBeInTheDocument()
+        const disabledElements = screen.getAllByText(/○ Disabled/)
+        expect(disabledElements.length).toBeGreaterThan(0)
       })
     })
   })
@@ -263,6 +265,8 @@ describe('Security Dashboard - Card Status Tests', () => {
   describe('SD-08: Threat Protection Summaries', () => {
     it('should display threat protection descriptions for each card', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+      // CrowdSec must be running to show threat protection descriptions
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 

@@ -16,6 +16,20 @@ Every session should improve the codebase, not just add to it. Actively refactor
 - **Single Backend Source**: All backend code MUST reside in `backend/`.
 - **No Python**: This is a Go (Backend) + React/TypeScript (Frontend) project. Do not introduce Python scripts or requirements.
 
+ ## 🛑 Root Cause Analysis Protocol (MANDATORY)
+**Constraint:** You must NEVER patch a symptom without tracing the root cause.
+If a bug is reported, do NOT stop at the first error message found.
+
+**The "Context First" Rule:**
+Before proposing ANY code change or fix, you must build a mental map of the feature:
+1.  **Entry Point:** Where does the data enter? (API Route / UI Event)
+2.  **Transformation:** How is the data modified? (Handlers / Middleware)
+3.  **Persistence:** Where is it stored? (DB Models / Files)
+4.  **Exit Point:** How is it returned to the user?
+
+**Anti-Pattern Warning:** - Do not assume the error log is the *cause*; it is often just the *victim* of an upstream failure.
+- If you find an error, search for "upstream callers" to see *why* that data was bad in the first place.
+
 ## Big Picture
 
 - Charon is a self-hosted web app for managing reverse proxy host configurations with the novice user in mind. Everything should prioritize simplicity, usability, reliability, and security, all rolled into one simple binary + static assets deployment. No external dependencies.

@@ -58,6 +58,7 @@ backend/nohup.out
 backend/charon
 backend/codeql-db/
 backend/.venv/
+backend/internal/api/tests/data/
 
 # -----------------------------------------------------------------------------
 # Databases

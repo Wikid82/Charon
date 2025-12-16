@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
@@ -32,6 +32,8 @@ export default function Security() {
   const generateBreakGlassMutation = useGenerateBreakGlassToken()
   const queryClient = useQueryClient()
   const [crowdsecStatus, setCrowdsecStatus] = useState<{ running: boolean; pid?: number } | null>(null)
+  // Stable reference to prevent WebSocket reconnection loops in LiveLogViewer
+  const emptySecurityFilters = useMemo(() => ({}), [])
   // Generic toggle mutation for per-service settings
   const toggleServiceMutation = useMutation({
     mutationFn: async ({ key, enabled }: { key: string; enabled: boolean }) => {
@@ -84,41 +86,60 @@ export default function Security() {
 
   const crowdsecPowerMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
+      // Update setting first
       await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
+
       if (enabled) {
-        await startCrowdsec()
+        toast.info('Starting CrowdSec... This may take up to 30 seconds')
+        const result = await startCrowdsec()
+
+        // VERIFY: Check if it actually started
+        const status = await statusCrowdsec()
+        if (!status.running) {
+          // Revert the setting since process didn't start
+          await updateSetting('security.crowdsec.enabled', 'false', 'security', 'bool')
+          throw new Error('CrowdSec process failed to start. Check server logs for details.')
+        }
+
+        return result
       } else {
         await stopCrowdsec()
-      }
-      return enabled
-    },
-    onMutate: async (enabled: boolean) => {
-      await queryClient.cancelQueries({ queryKey: ['security-status'] })
-      const previous = queryClient.getQueryData(['security-status'])
-      queryClient.setQueryData(['security-status'], (old: unknown) => {
-        if (!old || typeof old !== 'object') return old
-        const copy = { ...(old as SecurityStatus) }
-        if (copy.crowdsec && typeof copy.crowdsec === 'object') {
-          copy.crowdsec = { ...copy.crowdsec, enabled } as never
+
+        // VERIFY: Check if it actually stopped (with brief delay for cleanup)
+        await new Promise(resolve => setTimeout(resolve, 500))
+        const status = await statusCrowdsec()
+        if (status.running) {
+          throw new Error('CrowdSec process still running. Check server logs for details.')
         }
-        return copy
-      })
-      setCrowdsecStatus(prev => prev ? { ...prev, running: enabled } : prev)
-      return { previous }
-    },
-    onError: (err: unknown, enabled: boolean, context: unknown) => {
-      if (context && typeof context === 'object' && 'previous' in context) {
-        queryClient.setQueryData(['security-status'], context.previous)
+
+        return { enabled: false }
       }
+    },
+    // NO optimistic updates - wait for actual confirmation
+    onError: (err: unknown, enabled: boolean) => {
       const msg = err instanceof Error ? err.message : String(err)
       toast.error(enabled ? `Failed to start CrowdSec: ${msg}` : `Failed to stop CrowdSec: ${msg}`)
+      // Force refresh status from backend to ensure UI matches reality
+      queryClient.invalidateQueries({ queryKey: ['security-status'] })
       fetchCrowdsecStatus()
     },
-    onSuccess: async (enabled: boolean) => {
-      await fetchCrowdsecStatus()
-      queryClient.invalidateQueries({ queryKey: ['security-status'] })
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success(enabled ? 'CrowdSec started' : 'CrowdSec stopped')
+    onSuccess: async (result: { lapi_ready?: boolean; enabled?: boolean } | boolean) => {
+      // Refresh all related queries to ensure consistency
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['security-status'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+        fetchCrowdsecStatus(),
+      ])
+
+      if (typeof result === 'object' && result.lapi_ready === true) {
+        toast.success('CrowdSec started and LAPI is ready')
+      } else if (typeof result === 'object' && result.lapi_ready === false) {
+        toast.warning('CrowdSec started but LAPI is still initializing. Please wait before enrolling.')
+      } else if (typeof result === 'object' && result.enabled === false) {
+        toast.success('CrowdSec stopped')
+      } else {
+        toast.success('CrowdSec started')
+      }
     },
   })
 
@@ -229,28 +250,34 @@ export default function Security() {
       <Outlet />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* CrowdSec - Layer 1: IP Reputation (first line of defense) */}
-        <Card className={status.crowdsec.enabled ? 'border-green-200 dark:border-green-900' : ''}>
+        <Card className={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'border-green-200 dark:border-green-900' : ''}>
           <div className="text-xs text-gray-400 mb-2">🛡️ Layer 1: IP Reputation</div>
           <div className="flex flex-row items-center justify-between pb-2">
             <h3 className="text-sm font-medium text-white">CrowdSec</h3>
             <div className="flex items-center gap-3">
               <Switch
-                checked={status.crowdsec.enabled}
+                checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
                 disabled={crowdsecToggleDisabled}
                 onChange={(e) => {
                   crowdsecPowerMutation.mutate(e.target.checked)
                 }}
                 data-testid="toggle-crowdsec"
               />
-              <ShieldAlert className={`w-4 h-4 ${status.crowdsec.enabled ? 'text-green-500' : 'text-gray-400'}`} />
+              <ShieldAlert className={`w-4 h-4 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-green-500' : 'text-gray-400'}`} />
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.crowdsec.enabled ? 'Active' : 'Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                (crowdsecStatus?.running ?? status.crowdsec.enabled)
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {status.crowdsec.enabled
+              {(crowdsecStatus?.running ?? status.crowdsec.enabled)
                 ? `Protects against: Known attackers, botnets, brute-force`
                 : 'Intrusion Prevention System'}
             </p>
@@ -287,8 +314,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.acl.enabled ? 'Active' : 'Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.acl.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.acl.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Protects against: Unauthorized IPs, geo-based attacks, insider threats
@@ -329,8 +362,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.waf.enabled ? 'Active' : 'Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.waf.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.waf.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {status.waf.enabled
@@ -397,7 +436,7 @@ export default function Security() {
       {/* Live Activity Section */}
       {status.cerberus?.enabled && (
         <div className="mt-6">
-          <LiveLogViewer mode="security" securityFilters={{}} className="w-full" />
+          <LiveLogViewer mode="security" securityFilters={emptySecurityFilters} className="w-full" />
         </div>
       )}
 

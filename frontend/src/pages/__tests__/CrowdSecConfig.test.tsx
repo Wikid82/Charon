@@ -75,23 +75,12 @@ describe('CrowdSecConfig', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
 
-  it('toggles mode between local and disabled', async () => {
+  it('shows info banner directing to Security Dashboard', async () => {
     renderWithProviders()
 
-    await waitFor(() => screen.getByTestId('crowdsec-mode-toggle'))
-    const toggle = screen.getByTestId('crowdsec-mode-toggle')
-
-    await userEvent.click(toggle)
-
-    await waitFor(() => {
-      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-        'security.crowdsec.mode',
-        'disabled',
-        'security',
-        'string'
-      )
-      expect(toast.success).toHaveBeenCalledWith('CrowdSec disabled')
-    })
+    await waitFor(() => screen.getByText(/CrowdSec is controlled via the toggle on the/i))
+    expect(screen.getByText(/Security Dashboard/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
   })
 
   it('exports configuration packages with prompted filename', async () => {

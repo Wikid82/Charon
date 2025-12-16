@@ -8,7 +8,6 @@ import CrowdSecConfig from '../CrowdSecConfig'
 import * as api from '../../api/security'
 import * as crowdsecApi from '../../api/crowdsec'
 import * as backupsApi from '../../api/backups'
-import * as settingsApi from '../../api/settings'
 import * as presetsApi from '../../api/presets'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as consoleApi from '../../api/consoleEnrollment'
@@ -67,6 +66,7 @@ describe('CrowdSecConfig', () => {
     })
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached', cache_key: 'cache-123', etag: 'etag-123' })
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
     vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({
       'feature.crowdsec.console_enrollment': false,
     })
@@ -132,8 +132,18 @@ describe('CrowdSecConfig', () => {
     renderWithProviders(<CrowdSecConfig />)
 
     const enrollBtn = await screen.findByTestId('console-enroll-btn')
+
+    // Button should be disabled when enrollment token is empty
+    expect(enrollBtn).toBeDisabled()
+
+    // Type only token (missing agent name, tenant, and ack)
+    await userEvent.type(screen.getByTestId('console-enrollment-token'), 'token-123')
+
+    // Now button should be enabled, click it
+    await waitFor(() => expect(enrollBtn).not.toBeDisabled())
     await userEvent.click(enrollBtn)
 
+    // Should show validation errors for missing fields
     const errors = await screen.findAllByTestId('console-enroll-error')
     expect(errors.length).toBeGreaterThan(0)
     expect(consoleApi.enrollConsole).not.toHaveBeenCalled()
@@ -228,17 +238,15 @@ describe('CrowdSecConfig', () => {
     await waitFor(() => expect(crowdsecApi.writeCrowdsecFile).toHaveBeenCalledWith('conf.d/a.conf', 'updated'))
   })
 
-  it('persists crowdsec.mode via settings when changed', async () => {
-    const status = { crowdsec: { enabled: true, mode: 'disabled' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
+  it('shows info banner directing to Security Dashboard for mode control', async () => {
+    const status = { crowdsec: { enabled: true, mode: 'local' as const, api_url: '' }, cerberus: { enabled: true }, waf: { enabled: false, mode: 'disabled' as const }, rate_limit: { enabled: false }, acl: { enabled: false } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status)
     vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: [] })
-    vi.mocked(settingsApi.updateSetting).mockResolvedValue(undefined)
 
     renderWithProviders(<CrowdSecConfig />)
     await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
-    const modeToggle = screen.getByTestId('crowdsec-mode-toggle')
-    await userEvent.click(modeToggle)
-    await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.mode', 'local', 'security', 'string'))
+    expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
   })
 
   it('renders preset preview and applies with backup when backend apply is unavailable', async () => {
