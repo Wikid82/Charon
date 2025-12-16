@@ -244,9 +244,11 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon (no bash needed)
+# Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
 RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
-    && apk --no-cache upgrade
+    && apk --no-cache upgrade \
+    && apk --no-cache upgrade c-ares
 
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
