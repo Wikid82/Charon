@@ -128,8 +128,8 @@ export const connectLiveLogs = (
   if (filters.level) params.append('level', filters.level);
   if (filters.source) params.append('source', filters.source);
 
-  // Get auth token from localStorage
-  const token = localStorage.getItem('token');
+  // Get auth token from localStorage (key: charon_auth_token)
+  const token = localStorage.getItem('charon_auth_token');
   if (token) {
     params.append('token', token);
   }
@@ -196,8 +196,8 @@ export const connectSecurityLogs = (
   if (filters.host) params.append('host', filters.host);
   if (filters.blocked_only) params.append('blocked_only', 'true');
 
-  // Get auth token from localStorage
-  const token = localStorage.getItem('token');
+  // Get auth token from localStorage (key: charon_auth_token)
+  const token = localStorage.getItem('charon_auth_token');
   if (token) {
     params.append('token', token);
   }
