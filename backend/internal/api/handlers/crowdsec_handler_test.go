@@ -1009,3 +1009,166 @@ labels:
 	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNotFound,
 		"expected 200 or 404, got %d", w.Code)
 }
+
+// ============================================
+// DeleteConsoleEnrollment Tests
+// ============================================
+
+func TestDeleteConsoleEnrollmentDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// Feature flag not set, should return 404
+
+	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "disabled")
+}
+
+func TestDeleteConsoleEnrollmentServiceUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	// Create handler with nil Console service
+	db := OpenTestDB(t)
+	h := &CrowdsecHandler{
+		DB:       db,
+		Executor: &fakeExec{},
+		CmdExec:  &RealCommandExecutor{},
+		BinPath:  "/bin/false",
+		DataDir:  t.TempDir(),
+		Console:  nil, // Explicitly nil
+	}
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "not available")
+}
+
+func TestDeleteConsoleEnrollmentSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	// First create an enrollment record
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, h.DB.Create(rec).Error)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// Delete the enrollment
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "cleared")
+
+	// Verify the record is gone
+	var count int64
+	h.DB.Model(&models.CrowdsecConsoleEnrollment{}).Count(&count)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteConsoleEnrollmentNoRecordSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	// Don't create any record - deletion should still succeed
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "cleared")
+}
+
+func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// First enroll
+	body := `{"enrollment_key": "abc123456789", "agent_name": "test-agent-1"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/console/enroll", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Check status shows pending_acceptance
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusOK, w2.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
+	require.Equal(t, "pending_acceptance", resp["status"])
+	require.Equal(t, "test-agent-1", resp["agent_name"])
+
+	// Delete enrollment
+	w3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w3, req3)
+	require.Equal(t, http.StatusOK, w3.Code)
+
+	// Check status shows not_enrolled
+	w4 := httptest.NewRecorder()
+	req4 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w4, req4)
+	require.Equal(t, http.StatusOK, w4.Code)
+	var resp2 map[string]interface{}
+	require.NoError(t, json.Unmarshal(w4.Body.Bytes(), &resp2))
+	require.Equal(t, "not_enrolled", resp2["status"])
+
+	// Re-enroll with NEW agent name - should work WITHOUT force
+	body2 := `{"enrollment_key": "newkey123456", "agent_name": "test-agent-2"}`
+	w5 := httptest.NewRecorder()
+	req5 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/console/enroll", strings.NewReader(body2))
+	req5.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w5, req5)
+	require.Equal(t, http.StatusOK, w5.Code)
+
+	// Check status shows new agent name
+	w6 := httptest.NewRecorder()
+	req6 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w6, req6)
+	require.Equal(t, http.StatusOK, w6.Code)
+	var resp3 map[string]interface{}
+	require.NoError(t, json.Unmarshal(w6.Body.Bytes(), &resp3))
+	require.Equal(t, "pending_acceptance", resp3["status"])
+	require.Equal(t, "test-agent-2", resp3["agent_name"])
+}

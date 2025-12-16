@@ -1,12 +1,15 @@
 package crowdsec
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -771,4 +774,204 @@ func TestEnroll_RequiresLAPI(t *testing.T) {
 	require.Equal(t, 3, exec.callCount())
 	require.Contains(t, exec.calls[0].args, "lapi")
 	require.Contains(t, exec.calls[0].args, "status")
+}
+
+// ============================================
+// ClearEnrollment Tests
+// ============================================
+
+func TestConsoleEnrollService_ClearEnrollment(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an enrollment record
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Verify record exists
+	var countBefore int64
+	db.Model(&models.CrowdsecConsoleEnrollment{}).Count(&countBefore)
+	require.Equal(t, int64(1), countBefore)
+
+	// Clear it
+	err := svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+
+	// Verify it's gone
+	var countAfter int64
+	db.Model(&models.CrowdsecConsoleEnrollment{}).Count(&countAfter)
+	assert.Equal(t, int64(0), countAfter)
+}
+
+func TestConsoleEnrollService_ClearEnrollment_NoRecord(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Should not error when no record exists
+	err := svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+}
+
+func TestConsoleEnrollService_ClearEnrollment_NilDB(t *testing.T) {
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(nil, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Should error when DB is nil
+	err := svc.ClearEnrollment(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "database not initialized")
+}
+
+func TestConsoleEnrollService_ClearEnrollment_ThenReenroll(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// First enrollment
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+	})
+	require.NoError(t, err)
+
+	// Verify enrolled
+	status, err := svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Clear enrollment
+	err = svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+
+	// Verify status is now not_enrolled (new record will be created on next Status call)
+	status, err = svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusNotEnrolled, status.Status)
+
+	// Re-enroll with new key should work without force
+	_, err = svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "agent-two",
+		Force:         false, // Force NOT required after clear
+	})
+	require.NoError(t, err)
+
+	// Verify new enrollment
+	status, err = svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, "agent-two", status.AgentName)
+}
+
+// ============================================
+// Logging When Skipped Tests
+// ============================================
+
+func TestConsoleEnrollService_LogsWhenSkipped(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	// Use a test logger that captures output
+	logger := logrus.New()
+	var logBuf bytes.Buffer
+	logger.SetOutput(&logBuf)
+	logger.SetLevel(logrus.InfoLevel)
+	logger.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll without force - this should be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         false,
+	})
+	require.NoError(t, err)
+
+	// Enrollment should be skipped - status remains enrolled
+	require.Equal(t, "enrolled", status.Status)
+
+	// The actual logging is done via the logger package, which uses a global logger.
+	// We can't easily capture that here without modifying the package.
+	// Instead, we verify the behavior is correct by checking exec.callCount()
+	// - if skipped properly, we should see lapi + capi calls but NO enroll call
+	require.Equal(t, 2, exec.callCount(), "should only call lapi status and capi register, not enroll")
+}
+
+func TestConsoleEnrollService_LogsWhenSkipped_PendingAcceptance(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment with pending_acceptance status
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    consoleStatusPendingAcceptance,
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll without force - this should also be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         false,
+	})
+	require.NoError(t, err)
+
+	// Enrollment should be skipped - status remains pending_acceptance
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, 2, exec.callCount(), "should only call lapi status and capi register, not enroll")
+}
+
+func TestConsoleEnrollService_ForceOverridesSkip(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll WITH force - this should NOT be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         true,
+	})
+	require.NoError(t, err)
+
+	// Force enrollment should proceed - status becomes pending_acceptance
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, "new-agent", status.AgentName)
+	require.Equal(t, 3, exec.callCount(), "should call lapi status, capi register, AND enroll")
 }

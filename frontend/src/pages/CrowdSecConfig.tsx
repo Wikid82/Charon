@@ -12,10 +12,10 @@ import { createBackup } from '../api/backups'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
-import { Shield, ShieldOff, Trash2, Search, AlertTriangle } from 'lucide-react'
+import { Shield, ShieldOff, Trash2, Search, AlertTriangle, ExternalLink } from 'lucide-react'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
-import { useConsoleStatus, useEnrollConsole } from '../hooks/useConsoleEnrollment'
+import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 
 export default function CrowdSecConfig() {
   const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
@@ -47,6 +47,8 @@ export default function CrowdSecConfig() {
   const [consoleErrors, setConsoleErrors] = useState<{ token?: string; agent?: string; tenant?: string; ack?: string; submit?: string }>({})
   const consoleStatusQuery = useConsoleStatus(consoleEnrollmentEnabled)
   const enrollConsoleMutation = useEnrollConsole()
+  const clearEnrollmentMutation = useClearConsoleEnrollment()
+  const [showReenrollForm, setShowReenrollForm] = useState(false)
   const navigate = useNavigate()
   const [initialCheckComplete, setInitialCheckComplete] = useState(false)
 
@@ -286,12 +288,13 @@ export default function CrowdSecConfig() {
       })
       setConsoleErrors({})
       setEnrollmentToken('')
+      setShowReenrollForm(false)
       if (!consoleTenant.trim()) {
         setConsoleTenant(tenantValue)
       }
       toast.success(
         force
-          ? 'Enrollment token rotated - please accept the new enrollment on app.crowdsec.net'
+          ? 'Enrollment submitted! Accept the request on app.crowdsec.net to complete.'
           : 'Enrollment request sent! Accept the enrollment on app.crowdsec.net to complete registration.'
       )
     } catch (err) {
@@ -750,6 +753,118 @@ export default function CrowdSecConfig() {
                   </a>.
                   Your CrowdSec engine will appear in the console after acceptance.
                 </p>
+              </div>
+            )}
+
+            {/* Re-enrollment Section - shown when enrolled or pending */}
+            {(normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'pending_acceptance') && (
+              <div className="border border-blue-500/30 bg-blue-500/5 rounded-lg p-4" data-testid="reenroll-section">
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-100">Re-enroll Console</h3>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Need to connect to a different CrowdSec account or reset your enrollment?
+                      </p>
+                    </div>
+                  </div>
+
+                  {!showReenrollForm ? (
+                    <div className="flex flex-wrap gap-3">
+                      <a
+                        href="https://app.crowdsec.net/security-engines"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Get new enrollment key from CrowdSec Console
+                      </a>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowReenrollForm(true)}
+                        data-testid="show-reenroll-form-btn"
+                      >
+                        Re-enroll with new key
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 pt-2 border-t border-gray-700">
+                      {/* Re-enrollment form */}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                            New Enrollment Key
+                          </label>
+                          <Input
+                            type="text"
+                            value={enrollmentToken}
+                            onChange={(e) => setEnrollmentToken(e.target.value)}
+                            placeholder="Paste your new enrollment key"
+                            data-testid="reenroll-token-input"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                            Agent Name
+                          </label>
+                          <Input
+                            type="text"
+                            value={consoleAgentName}
+                            onChange={(e) => setConsoleAgentName(e.target.value)}
+                            placeholder="e.g., Charon-Home"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">
+                            Tenant / Organization (optional)
+                          </label>
+                          <Input
+                            type="text"
+                            value={consoleTenant}
+                            onChange={(e) => setConsoleTenant(e.target.value)}
+                            placeholder="Your organization name"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <Button
+                          variant="primary"
+                          onClick={() => submitConsoleEnrollment(true)}
+                          disabled={!enrollmentToken.trim() || enrollConsoleMutation.isPending}
+                          isLoading={enrollConsoleMutation.isPending}
+                          data-testid="reenroll-submit-btn"
+                        >
+                          {enrollConsoleMutation.isPending ? 'Re-enrolling...' : 'Re-enroll'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setShowReenrollForm(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clear enrollment option */}
+                  <div className="pt-3 border-t border-gray-700">
+                    <button
+                      onClick={() => {
+                        if (window.confirm('Clear enrollment state? You will need to re-enroll with a new key.')) {
+                          clearEnrollmentMutation.mutate()
+                        }
+                      }}
+                      className="text-sm text-gray-500 hover:text-gray-400"
+                      disabled={clearEnrollmentMutation.isPending}
+                      data-testid="clear-enrollment-btn"
+                    >
+                      {clearEnrollmentMutation.isPending ? 'Clearing...' : 'Clear enrollment state'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

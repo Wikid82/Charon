@@ -1,20 +1,600 @@
 # Investigation Report: CrowdSec Enrollment & Live Log Viewer Issues
 
-**Date:** December 15, 2025
+**Date:** December 15, 2025 (Updated: December 16, 2025)
 **Investigator:** GitHub Copilot
-**Status:** ✅ Issue A RESOLVED - Issue B Analysis Pending
+**Status:** ✅ Analysis Complete - Re-Enrollment UX Options Evaluated
 
 ---
 
-## Executive Summary (Updated December 16, 2025)
+## 📋 CrowdSec Re-Enrollment UX Research (December 16, 2025)
 
-This document covers TWO issues:
+### CrowdSec CLI Capabilities
 
-1. **CrowdSec Enrollment** ✅ **FIXED**: Shows success locally but engine doesn't appear in CrowdSec.net dashboard
-   - **Root Cause**: Code incorrectly set status to `enrolled` after `cscli console enroll` succeeded, but CrowdSec's help explicitly states users must "validate the enrollment in the webapp"
-   - **Fix Applied**: Changed status to `pending_acceptance` and updated frontend to inform users they must accept on app.crowdsec.net
+**Available Console Commands (`cscli console --help`):**
+
+```text
+Available Commands:
+  disable     Disable a console option
+  enable      Enable a console option
+  enroll      Enroll this instance to https://app.crowdsec.net
+  status      Shows status of the console options
+```
+
+**Enroll Command Flags (`cscli console enroll --help`):**
+
+```text
+Flags:
+  -d, --disable strings   Disable console options
+  -e, --enable strings    Enable console options
+  -h, --help              help for enroll
+  -n, --name string       Name to display in the console
+      --overwrite         Force enroll the instance  ← KEY FLAG FOR RE-ENROLLMENT
+  -t, --tags strings      Tags to display in the console
+```
+
+**Key Finding: NO "unenroll" or "disconnect" command exists in CrowdSec CLI.**
+
+The `disable --all` command only disables data sharing options (custom, tainted, manual, context, console_management) - it does NOT unenroll from the console.
+
+### Current Data Model Analysis
+
+**Model: `CrowdsecConsoleEnrollment`** ([crowdsec_console_enrollment.go](../../backend/internal/models/crowdsec_console_enrollment.go)):
+
+```go
+type CrowdsecConsoleEnrollment struct {
+    ID                 uint       // Primary key
+    UUID               string     // Unique identifier
+    Status             string     // not_enrolled, enrolling, pending_acceptance, enrolled, failed
+    Tenant             string     // Organization identifier
+    AgentName          string     // Display name in console
+    EncryptedEnrollKey string     // ← KEY IS STORED (encrypted with AES-GCM)
+    LastError          string     // Error message if failed
+    LastCorrelationID  string     // For debugging
+    LastAttemptAt      *time.Time
+    EnrolledAt         *time.Time
+    LastHeartbeatAt    *time.Time
+    CreatedAt          time.Time
+    UpdatedAt          time.Time
+}
+```
+
+**✅ Current Implementation Already Stores Enrollment Key:**
+
+- The key is encrypted using AES-256-GCM with a key derived from a secret
+- Stored in `EncryptedEnrollKey` field (excluded from JSON via `json:"-"`)
+- Encryption implemented in `console_enroll.go` lines 377-409
+
+### Enrollment Key Lifecycle (from crowdsec.net)
+
+1. **Generation**: User generates enrollment key on app.crowdsec.net
+2. **Usage**: Key is used with `cscli console enroll <key>` to request enrollment
+3. **Validation**: CrowdSec validates the key against their API
+4. **Acceptance**: User must accept enrollment request on app.crowdsec.net
+5. **Reusability**: The SAME key can be used multiple times with `--overwrite` flag
+6. **Expiration**: Keys do not expire but may be revoked by user on console
+
+### UX Options Evaluation
+
+#### Option A: "Re-enroll" Button Requiring NEW Key ✅ RECOMMENDED
+
+**How it works:**
+
+- User provides a new enrollment key from crowdsec.net
+- Backend sends `cscli console enroll --overwrite --name <agent> <new_key>`
+- User accepts on crowdsec.net
+
+**Pros:**
+
+- ✅ Simple implementation (already supported via `force: true`)
+- ✅ Secure - no key storage concerns beyond current encrypted storage
+- ✅ Fresh key guarantees user has console access
+- ✅ Matches CrowdSec's intended workflow
+
+**Cons:**
+
+- ⚠️ Requires user to visit crowdsec.net to get new key
+- ⚠️ Extra step for user
+
+**Current UI Support:**
+
+- "Rotate key" button already calls `submitConsoleEnrollment(true)` with `force=true`
+- "Retry enrollment" button appears when status is `degraded`
+
+#### Option B: "Re-enroll" with STORED Key
+
+**How it works:**
+
+- Use the encrypted key already stored in `EncryptedEnrollKey`
+- Decrypt and re-send enrollment request
+
+**Pros:**
+
+- ✅ Simplest UX - one-click re-enrollment
+- ✅ Key is already stored and encrypted
+
+**Cons:**
+
+- ⚠️ Security concern: Re-using stored keys increases exposure window
+- ⚠️ Key may have been revoked on crowdsec.net without Charon knowing
+- ⚠️ Old key may belong to different CrowdSec account
+- ⚠️ Violates principle of least privilege
+
+**Current Implementation Gap:**
+
+- `decrypt()` method exists but is marked as "only used in tests"
+- Would need new endpoint to retrieve stored key for re-enrollment
+
+#### Option C: "Unenroll" + Manual Re-enroll ❌ NOT SUPPORTED
+
+**How it would work:**
+
+- Clear local enrollment state
+- User goes through fresh enrollment
+
+**Blockers:**
+
+- ❌ CrowdSec CLI has NO unenroll/disconnect command
+- ❌ Would require manual deletion of config files
+- ❌ May leave orphaned engine on crowdsec.net console
+
+**Files that would need cleanup:**
+
+```text
+/app/data/crowdsec/config/console.yaml     # Console options
+/app/data/crowdsec/config/online_api_credentials.yaml  # CAPI credentials
+```
+
+Note: Deleting these files would also affect CAPI registration, not just console enrollment.
+
+### 🎯 Recommended Approach: Option A (Enhanced)
+
+**Justification:**
+
+1. **Security First**: CrowdSec enrollment keys should be treated as sensitive credentials
+2. **User Intent**: Re-enrollment implies user wants fresh connection to console
+3. **Minimal Risk**: User must actively obtain new key, preventing accidental re-enrollments
+4. **CrowdSec Best Practice**: The `--overwrite` flag is CrowdSec's designed mechanism for this
+
+**UI Flow Enhancement:**
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  Console Enrollment                                    [?] Help │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Status: ● Enrolled                                             │
+│  Agent: Charon-Home                                             │
+│  Tenant: my-organization                                        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ Need to re-enroll?                                       │   │
+│  │                                                          │   │
+│  │ To connect to a different CrowdSec console account or   │   │
+│  │ reset your enrollment, you'll need a new enrollment key │   │
+│  │ from app.crowdsec.net.                                   │   │
+│  │                                                          │   │
+│  │ [Get new key ↗] [Re-enroll with new key]                │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ New Enrollment Key:  [________________________]          │   │
+│  │ Agent Name:          [Charon-Home_____________]          │   │
+│  │ Tenant:              [my-organization_________]          │   │
+│  │                                                          │   │
+│  │ [Re-enroll]                                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Steps
+
+#### Step 1: Update Frontend UI (Priority: HIGH)
+
+**File:** `frontend/src/pages/CrowdSecConfig.tsx`
+
+Changes:
+
+1. Add "Re-enroll" section visible when `status === 'enrolled'`
+2. Add expandable/collapsible panel for re-enrollment
+3. Add link to app.crowdsec.net/enrollment-keys
+4. Rename "Rotate key" button to "Re-enroll" for clarity
+5. Add explanatory text about why re-enrollment requires new key
+
+#### Step 2: Improve Backend Logging (Priority: MEDIUM)
+
+**File:** `backend/internal/crowdsec/console_enroll.go`
+
+Changes:
+
+1. Add logging when enrollment is skipped due to existing status
+2. Return `skipped: true` field in response when idempotency check triggers
+3. Consider adding `reason` field to explain why enrollment was skipped
+
+#### Step 3: Add "Clear Enrollment" Admin Function (Priority: LOW)
+
+**File:** `backend/internal/api/handlers/crowdsec_handler.go`
+
+New endpoint: `DELETE /api/v1/admin/crowdsec/console/enrollment`
+
+Purpose: Reset local enrollment state to `not_enrolled` without touching CrowdSec config files.
+
+Note: This does NOT unenroll from crowdsec.net - that must be done manually on the console.
+
+#### Step 4: Documentation Update (Priority: MEDIUM)
+
+**File:** `docs/cerberus.md`
+
+Add section explaining:
+
+- Why re-enrollment requires new key
+- How to get new enrollment key from crowdsec.net
+- What happens to old engine on crowdsec.net (must be manually removed)
+- Troubleshooting common enrollment issues
+
+---
+
+## Executive Summary
+
+This document covers THREE issues:
+
+1. **CrowdSec Enrollment Backend** 🔴 **CRITICAL BUG FOUND**: Backend returns 200 OK but `cscli` is NEVER executed
+   - **Root Cause**: Silent idempotency check returns success without running enrollment command
+   - **Evidence**: POST returns 200 OK with 137ms latency, but NO `cscli` logs appear
+   - **Fix Required**: Add logging for skipped enrollments and clear guidance to use `force=true`
 
 2. **Live Log Viewer**: Shows "Disconnected" status (Analysis pending implementation)
+
+3. **Stale Database State**: Old `enrolled` status from pre-fix deployment blocks new enrollments
+   - **Symptoms**: User clicks Enroll, sees 200 OK, but nothing happens on crowdsec.net
+   - **Root Cause**: Database has `status=enrolled` from before the `pending_acceptance` fix was deployed
+
+---
+
+## 🔴 CRITICAL BUG: Silent Idempotency Check (December 16, 2025)
+
+### Problem Statement
+
+User submits enrollment form, backend returns 200 OK (confirmed in Docker logs), but the enrollment NEVER appears on crowdsec.net. No `cscli` command execution visible in logs.
+
+### Docker Log Evidence
+
+```
+POST /api/v1/admin/crowdsec/console/enroll → 200 OK (137ms latency)
+NO "starting crowdsec console enrollment" log ← cscli NEVER executed
+NO cscli output logs
+```
+
+### Code Path Analysis
+
+**File:** [backend/internal/crowdsec/console_enroll.go](backend/internal/crowdsec/console_enroll.go)
+
+#### Step 1: Handler calls service (line 865-920)
+
+```go
+// crowdsec_handler.go:888-895
+status, err := h.Console.Enroll(ctx, crowdsec.ConsoleEnrollRequest{
+    EnrollmentKey: payload.EnrollmentKey,
+    Tenant:        payload.Tenant,
+    AgentName:     payload.AgentName,
+    Force:         payload.Force,  // <-- User did NOT check Force checkbox
+})
+```
+
+#### Step 2: Idempotency Check (lines 155-165) ⚠️ BUG HERE
+
+```go
+// console_enroll.go:155-165
+if rec.Status == consoleStatusEnrolling {
+    return s.statusFromModel(rec), fmt.Errorf("enrollment already in progress")
+}
+// If already enrolled or pending acceptance, skip unless Force is set
+if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
+    return s.statusFromModel(rec), nil  // <-- RETURNS SUCCESS WITHOUT LOGGING OR RUNNING CSCLI!
+}
+```
+
+#### Step 3: Database State (confirmed via container inspection)
+
+```
+uuid: fb129bb5-d223-4c66-941c-a30e2e2b3040
+status: enrolled  ← SET BY OLD CODE BEFORE pending_acceptance FIX
+tenant: 5e045b3c-5196-406b-99cd-503bc64c7b0d
+agent_name: Charon
+```
+
+### Root Cause
+
+1. **Historical State**: User enrolled BEFORE the `pending_acceptance` fix was deployed
+2. **Old Code Bug**: Previous code set `status = enrolled` immediately after cscli returned exit 0
+3. **Silent Skip**: Current code silently skips enrollment when `status` is `enrolled` (or `pending_acceptance`)
+4. **No User Feedback**: Returns 200 OK without logging or informing user enrollment was skipped
+
+### Manual Test Results from Container
+
+```bash
+# cscli is available and working
+docker exec charon cscli console enroll --help
+# ✅ Shows help
+
+# LAPI is running
+docker exec charon cscli lapi status
+# ✅ "You can successfully interact with Local API (LAPI)"
+
+# Console status
+docker exec charon cscli console status
+# ✅ Shows options table (custom=true, tainted=true)
+
+# Manual enrollment with invalid key shows proper error
+docker exec charon cscli console enroll --name test TESTINVALIDKEY123
+# ✅ Error: "the attachment key provided is not valid"
+
+# Config path exists and is correct
+docker exec charon ls /app/data/crowdsec/config/config.yaml
+# ✅ File exists
+```
+
+### Required Fixes
+
+#### Fix 1: Add Logging for Skipped Enrollments
+
+**File:** `backend/internal/crowdsec/console_enroll.go` lines 162-165
+
+**Current:**
+```go
+if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
+    return s.statusFromModel(rec), nil
+}
+```
+
+**Fixed:**
+```go
+if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
+    logger.Log().WithField("status", rec.Status).WithField("agent", rec.AgentName).WithField("tenant", rec.Tenant).Info("enrollment skipped: already enrolled or pending - use force=true to re-enroll")
+    return s.statusFromModel(rec), nil
+}
+```
+
+#### Fix 2: Add "Skipped" Indicator to Response
+
+Add a field to indicate enrollment was skipped vs actually submitted:
+
+```go
+type ConsoleEnrollmentStatus struct {
+    Status          string     `json:"status"`
+    Skipped         bool       `json:"skipped,omitempty"`  // <-- NEW
+    // ... other fields
+}
+```
+
+And in the idempotency return:
+```go
+status := s.statusFromModel(rec)
+status.Skipped = true
+return status, nil
+```
+
+#### Fix 3: Frontend Should Show "Already Enrolled" State
+
+**File:** `frontend/src/pages/CrowdSecConfig.tsx`
+
+When `consoleStatusQuery.data?.status === 'enrolled'` or `'pending_acceptance'`:
+- Show "You are already enrolled" message
+- Show "Force Re-Enrollment" button with checkbox
+- Explain that acceptance on crowdsec.net may be required
+
+#### Fix 4: Migrate Stale "enrolled" Status to "pending_acceptance"
+
+Either:
+1. Add a database migration to change all `enrolled` to `pending_acceptance`
+2. Or have users click "Force Re-Enroll" once
+
+### Workaround for User
+
+Until fix is deployed, user can re-enroll using the Force option:
+
+1. In the UI: Check "Force re-enrollment" checkbox before clicking Enroll
+2. Or via curl:
+```bash
+curl -X POST http://localhost:8080/api/v1/admin/crowdsec/console/enroll \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"enrollment_key":"<key>", "agent_name":"Charon", "force":true}'
+```
+
+---
+
+## Previous Frontend Analysis (Still Valid for Reference)
+
+### Enrollment Flow Path
+
+```
+User clicks "Enroll" button
+    ↓
+CrowdSecConfig.tsx: <Button onClick={() => submitConsoleEnrollment(false)} ...>
+    ↓
+submitConsoleEnrollment() function (line 269-299)
+    ↓
+validateConsoleEnrollment() check (line 254-267)
+    ↓
+enrollConsoleMutation.mutateAsync(payload)
+    ↓
+useConsoleEnrollment.ts: enrollConsole(payload)
+    ↓
+consoleEnrollment.ts: client.post('/admin/crowdsec/console/enroll', payload)
+```
+
+### Conditions That Block the Enrollment Request
+
+#### 1. **Feature Flag Disabled** (POSSIBLE BLOCKER)
+
+**File:** [CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L44-L45)
+
+```typescript
+const { data: featureFlags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags })
+const consoleEnrollmentEnabled = Boolean(featureFlags?.['feature.crowdsec.console_enrollment'])
+```
+
+**Impact:** If `feature.crowdsec.console_enrollment` is `false` or undefined, the **entire enrollment card is not rendered**:
+
+```typescript
+{consoleEnrollmentEnabled && (
+  <Card data-testid="console-enrollment-card">
+    ... enrollment UI ...
+  </Card>
+)}
+```
+
+#### 2. **Enroll Button Disabled Conditions** ⚠️ HIGH PROBABILITY
+
+**File:** [CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L692)
+
+```typescript
+disabled={isConsolePending || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready) || !enrollmentToken.trim()}
+```
+
+The button is disabled when:
+
+| Condition | Description |
+|-----------|-------------|
+| `isConsolePending` | Enrollment mutation is already in progress OR status is 'enrolling' |
+| `lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready` | LAPI status query returned data but `lapi_ready` is `false` |
+| `!enrollmentToken.trim()` | Enrollment token input is empty |
+
+**⚠️ CRITICAL FINDING:** The LAPI ready check can block enrollment:
+- If `lapiStatusQuery.data` exists AND `lapi_ready` is `false`, button is DISABLED
+- This can happen if CrowdSec process is running but LAPI hasn't fully initialized
+
+#### 3. **Validation Blocks in submitConsoleEnrollment()** ⚠️ HIGH PROBABILITY
+
+**File:** [CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L269-L276)
+
+```typescript
+const submitConsoleEnrollment = async (force = false) => {
+  const allowMissingTenant = force && !consoleTenant.trim()
+  const requireAck = normalizedConsoleStatus === 'not_enrolled'
+  if (!validateConsoleEnrollment({ allowMissingTenant, requireAck })) return  // <-- EARLY RETURN
+  ...
+}
+```
+
+**Validation function** (line 254-267):
+
+```typescript
+const validateConsoleEnrollment = (options?) => {
+  const nextErrors = {}
+  if (!enrollmentToken.trim()) {
+    nextErrors.token = 'Enrollment token is required'
+  }
+  if (!consoleAgentName.trim()) {
+    nextErrors.agent = 'Agent name is required'
+  }
+  if (!consoleTenant.trim() && !options?.allowMissingTenant) {
+    nextErrors.tenant = 'Tenant / organization is required'  // <-- BLOCKS if tenant empty
+  }
+  if (options?.requireAck && !consoleAck) {
+    nextErrors.ack = 'You must acknowledge...'  // <-- BLOCKS if checkbox unchecked
+  }
+  setConsoleErrors(nextErrors)
+  return Object.keys(nextErrors).length === 0
+}
+```
+
+**Validation will SILENTLY block** the request if:
+1. `enrollmentToken` is empty
+2. `consoleAgentName` is empty
+3. `consoleTenant` is empty (for non-force enrollment)
+4. **`consoleAck` checkbox is unchecked** (for first-time enrollment where status is `not_enrolled`)
+
+### Summary of Blocking Conditions
+
+| Condition | Where | Effect |
+|-----------|-------|--------|
+| Feature flag disabled | Line 44-45 | Entire enrollment card not rendered |
+| **LAPI not ready** | Line 692 | **Button disabled** |
+| Token empty | Line 692, validation | Button disabled + validation blocks |
+| Agent name empty | Validation line 260 | Validation silently blocks |
+| **Tenant empty** | Validation line 262 | **Validation silently blocks** |
+| **Acknowledgment unchecked** | Validation line 265 | **Validation silently blocks** |
+| Already enrolling | Line 692 | Button disabled |
+
+### Most Likely Root Causes (Ordered by Probability)
+
+#### 1. **LAPI Not Ready Check** ⚠️ HIGH PROBABILITY
+
+The condition `(lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready)` will disable the button if:
+- The status query has completed (data exists)
+- But `lapi_ready` is `false`
+
+**Check:** Call `GET /api/v1/admin/crowdsec/status` and verify `lapi_ready` field.
+
+#### 2. **Acknowledgment Checkbox Not Checked** ⚠️ HIGH PROBABILITY
+
+For first-time enrollment (`status === 'not_enrolled'`), the checkbox MUST be checked. The validation will silently `return` without making the API call.
+
+**Check:** Ensure checkbox with `data-testid="console-ack-checkbox"` is checked.
+
+#### 3. **Tenant Field Empty**
+
+For non-force enrollment, the tenant field is required. An empty tenant will block the request silently.
+
+**Check:** Ensure tenant input has a value.
+
+### Code Sections That Need Fixes
+
+#### Fix 1: Add Debug Logging (Temporary)
+
+Add to `submitConsoleEnrollment()`:
+
+```typescript
+const submitConsoleEnrollment = async (force = false) => {
+  console.log('[DEBUG] submitConsoleEnrollment called', {
+    force,
+    enrollmentToken: enrollmentToken.trim() ? 'present' : 'empty',
+    consoleTenant,
+    consoleAgentName,
+    consoleAck,
+    normalizedConsoleStatus,
+    lapiReady: lapiStatusQuery.data?.lapi_ready,
+  })
+  // ... rest
+}
+```
+
+#### Fix 2: Improve Validation Feedback
+
+The validation currently sets `consoleErrors` but these may not be visible to the user. Ensure error messages are displayed.
+
+#### Fix 3: Check LAPI Status Polling
+
+The LAPI status query starts only after 3 seconds (`initialCheckComplete`). If the user clicks before then, the button may be enabled (good) but LAPI might not actually be ready (backend will fail).
+
+### Recommended Debug Steps
+
+1. **Open browser DevTools → Console**
+2. **Check if enrollment card is rendered** (look for `data-testid="console-enrollment-card"`)
+3. **Inspect button element** - check if `disabled` attribute is present
+4. **Check Network tab** for:
+   - `GET /api/v1/feature-flags` response
+   - `GET /api/v1/admin/crowdsec/status` response (check `lapi_ready`)
+5. **Verify form state**:
+   - Token field has value
+   - Agent name has value
+   - Tenant has value
+   - Checkbox is checked
+
+### API Client Verification
+
+**File:** [consoleEnrollment.ts](frontend/src/api/consoleEnrollment.ts#L27-L30)
+
+```typescript
+export async function enrollConsole(payload: ConsoleEnrollPayload): Promise<ConsoleEnrollmentStatus> {
+  const resp = await client.post<ConsoleEnrollmentStatus>('/admin/crowdsec/console/enroll', payload)
+  return resp.data
+}
+```
+
+✅ The API client is correctly implemented. The issue is upstream - **the function is never being called** because conditions are blocking it.
 
 ---
 
