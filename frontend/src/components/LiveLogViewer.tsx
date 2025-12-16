@@ -134,16 +134,21 @@ const getLevelColor = (level: string): string => {
   return 'text-gray-300';
 };
 
+// Stable default filter objects to prevent useEffect re-triggers on parent re-render
+const EMPTY_LIVE_FILTER: LiveLogFilter = {};
+const EMPTY_SECURITY_FILTER: SecurityLogFilter = {};
+
 export function LiveLogViewer({
-  filters = {},
-  securityFilters = {},
-  mode = 'application',
+  filters = EMPTY_LIVE_FILTER,
+  securityFilters = EMPTY_SECURITY_FILTER,
+  mode = 'security',
   maxLogs = 500,
   className = '',
 }: LiveLogViewerProps) {
   const [logs, setLogs] = useState<DisplayLogEntry[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [currentMode, setCurrentMode] = useState<LogMode>(mode);
   const [textFilter, setTextFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
@@ -152,6 +157,12 @@ export function LiveLogViewer({
   const logContainerRef = useRef<HTMLDivElement>(null);
   const closeConnectionRef = useRef<(() => void) | null>(null);
   const shouldAutoScroll = useRef(true);
+  const isPausedRef = useRef(isPaused);
+
+  // Keep ref in sync with state for use in WebSocket handlers
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // Handle mode change - clear logs and update filters
   const handleModeChange = useCallback((newMode: LogMode) => {
@@ -174,11 +185,13 @@ export function LiveLogViewer({
     const handleOpen = () => {
       console.log(`${currentMode} log viewer connected`);
       setIsConnected(true);
+      setConnectionError(null);
     };
 
     const handleError = (error: Event) => {
-      console.error('WebSocket error:', error);
+      console.error(`${currentMode} log viewer error:`, error);
       setIsConnected(false);
+      setConnectionError('Failed to connect to log stream. Check your authentication or try refreshing.');
     };
 
     const handleClose = () => {
@@ -189,13 +202,13 @@ export function LiveLogViewer({
     if (currentMode === 'security') {
       // Connect to security logs endpoint
       const handleSecurityMessage = (entry: SecurityLogEntry) => {
-        if (!isPaused) {
-          const displayEntry = toDisplayFromSecurity(entry);
-          setLogs((prev) => {
-            const updated = [...prev, displayEntry];
-            return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
-          });
-        }
+        // Use ref to check paused state - avoids WebSocket reconnection when pausing
+        if (isPausedRef.current) return;
+        const displayEntry = toDisplayFromSecurity(entry);
+        setLogs((prev) => {
+          const updated = [...prev, displayEntry];
+          return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
+        });
       };
 
       // Build filters including blocked_only if selected
@@ -214,13 +227,13 @@ export function LiveLogViewer({
     } else {
       // Connect to application logs endpoint
       const handleLiveMessage = (entry: LiveLogEntry) => {
-        if (!isPaused) {
-          const displayEntry = toDisplayFromLive(entry);
-          setLogs((prev) => {
-            const updated = [...prev, displayEntry];
-            return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
-          });
-        }
+        // Use ref to check paused state - avoids WebSocket reconnection when pausing
+        if (isPausedRef.current) return;
+        const displayEntry = toDisplayFromLive(entry);
+        setLogs((prev) => {
+          const updated = [...prev, displayEntry];
+          return updated.length > maxLogs ? updated.slice(-maxLogs) : updated;
+        });
       };
 
       closeConnectionRef.current = connectLiveLogs(
@@ -239,7 +252,8 @@ export function LiveLogViewer({
       }
       setIsConnected(false);
     };
-  }, [currentMode, filters, securityFilters, isPaused, maxLogs, showBlockedOnly]);
+    // Note: isPaused is intentionally excluded - we use isPausedRef to avoid reconnecting when pausing
+  }, [currentMode, filters, securityFilters, maxLogs, showBlockedOnly]);
 
   // Auto-scroll effect
   useEffect(() => {
@@ -311,6 +325,11 @@ export function LiveLogViewer({
           >
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
+          {connectionError && (
+            <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">
+              {connectionError}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Mode toggle */}

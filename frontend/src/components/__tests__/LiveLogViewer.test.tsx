@@ -54,7 +54,8 @@ describe('LiveLogViewer', () => {
   it('renders the component with initial state', async () => {
     render(<LiveLogViewer />);
 
-    expect(screen.getByText('Live Security Logs')).toBeTruthy();
+    // Default mode is now 'security'
+    expect(screen.getByText('Security Access Logs')).toBeTruthy();
     // Initially disconnected until WebSocket opens
     expect(screen.getByText('Disconnected')).toBeTruthy();
 
@@ -67,7 +68,8 @@ describe('LiveLogViewer', () => {
   });
 
   it('displays incoming log messages', async () => {
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     // Simulate receiving a log
     const logEntry: logsApi.LiveLogEntry = {
@@ -90,7 +92,8 @@ describe('LiveLogViewer', () => {
 
   it('filters logs by text', async () => {
     const user = userEvent.setup();
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     // Add multiple logs
     if (mockOnMessage) {
@@ -115,7 +118,8 @@ describe('LiveLogViewer', () => {
 
   it('filters logs by level', async () => {
     const user = userEvent.setup();
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     // Add multiple logs
     if (mockOnMessage) {
@@ -140,7 +144,8 @@ describe('LiveLogViewer', () => {
 
   it('pauses and resumes log streaming', async () => {
     const user = userEvent.setup();
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     // Add initial log
     if (mockOnMessage) {
@@ -184,7 +189,8 @@ describe('LiveLogViewer', () => {
 
   it('clears all logs', async () => {
     const user = userEvent.setup();
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     // Add logs
     if (mockOnMessage) {
@@ -209,7 +215,8 @@ describe('LiveLogViewer', () => {
   });
 
   it('limits the number of stored logs', async () => {
-    render(<LiveLogViewer maxLogs={2} />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer maxLogs={2} mode="application" />);
 
     // Add 3 logs (exceeding maxLogs)
     if (mockOnMessage) {
@@ -227,7 +234,8 @@ describe('LiveLogViewer', () => {
   });
 
   it('displays log data when available', async () => {
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     const logWithData: logsApi.LiveLogEntry = {
       level: 'error',
@@ -250,7 +258,8 @@ describe('LiveLogViewer', () => {
   it('closes WebSocket connection on unmount', () => {
     const { unmount } = render(<LiveLogViewer />);
 
-    expect(logsApi.connectLiveLogs).toHaveBeenCalled();
+    // Default mode is security
+    expect(logsApi.connectSecurityLogs).toHaveBeenCalled();
 
     unmount();
 
@@ -268,7 +277,8 @@ describe('LiveLogViewer', () => {
     let mockOnOpen: (() => void) | undefined;
     let mockOnError: ((error: Event) => void) | undefined;
 
-    vi.mocked(logsApi.connectLiveLogs).mockImplementation((_filters, _onMessage, onOpen, onError) => {
+    // Use security logs mock since default mode is security
+    vi.mocked(logsApi.connectSecurityLogs).mockImplementation((_filters, _onMessage, onOpen, onError) => {
       mockOnOpen = onOpen;
       mockOnError = onError;
       return mockCloseConnection as () => void;
@@ -295,12 +305,15 @@ describe('LiveLogViewer', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Disconnected')).toBeTruthy();
+      // Should show error message
+      expect(screen.getByText('Failed to connect to log stream. Check your authentication or try refreshing.')).toBeTruthy();
     });
   });
 
   it('shows no-match message when filters exclude all logs', async () => {
     const user = userEvent.setup();
-    render(<LiveLogViewer />);
+    // Explicitly use application mode for this test
+    render(<LiveLogViewer mode="application" />);
 
     if (mockOnMessage) {
       mockOnMessage({ level: 'info', timestamp: '2025-12-09T10:30:00Z', message: 'Visible' });

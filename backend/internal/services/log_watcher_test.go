@@ -299,7 +299,7 @@ func TestHasHeader(t *testing.T) {
 	t.Parallel()
 
 	headers := map[string][]string{
-		"Content-Type":   {"application/json"},
+		"Content-Type":    {"application/json"},
 		"X-Custom-Header": {"value"},
 	}
 
@@ -436,4 +436,195 @@ func TestMin(t *testing.T) {
 	assert.Equal(t, 1, min(2, 1))
 	assert.Equal(t, 0, min(0, 0))
 	assert.Equal(t, -1, min(-1, 0))
+}
+
+// ============================================
+// Phase 2: Missing Coverage Tests
+// ============================================
+
+// TestLogWatcher_ReadLoop_EOFRetry tests Lines 130-142 (EOF handling)
+func TestLogWatcher_ReadLoop_EOFRetry(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "access.log")
+
+	// Create empty log file
+	file, err := os.Create(logPath)
+	require.NoError(t, err)
+	file.Close()
+
+	watcher := NewLogWatcher(logPath)
+	err = watcher.Start(context.Background())
+	require.NoError(t, err)
+	defer watcher.Stop()
+
+	ch := watcher.Subscribe()
+
+	// Give watcher time to open file and hit EOF
+	time.Sleep(200 * time.Millisecond)
+
+	// Now append a log entry (simulates new data after EOF)
+	file, err = os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644)
+	require.NoError(t, err)
+	logEntry := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.1","method":"GET","uri":"/test","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":100}`
+	_, err = file.WriteString(logEntry + "\n")
+	require.NoError(t, err)
+	file.Sync()
+	file.Close()
+
+	// Wait for watcher to read the new entry
+	select {
+	case received := <-ch:
+		assert.Equal(t, "192.168.1.1", received.ClientIP)
+		assert.Equal(t, 200, received.Status)
+	case <-time.After(2 * time.Second):
+		t.Error("Timeout waiting for log entry after EOF")
+	}
+}
+
+// TestDetectSecurityEvent_WAFWithCorazaId tests Lines 176-194 (WAF detection)
+func TestDetectSecurityEvent_WAFWithCorazaId(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.handlers.waf","msg":"request blocked","request":{"remote_ip":"192.168.1.100","method":"POST","uri":"/api/admin","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Coraza-Id":["942100"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.Equal(t, 403, entry.Status)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "waf", entry.Source)
+	assert.Equal(t, "WAF rule triggered", entry.BlockReason)
+	assert.Equal(t, "warn", entry.Level)
+	assert.Equal(t, "942100", entry.Details["rule_id"])
+}
+
+// TestDetectSecurityEvent_WAFWithCorazaRuleId tests Lines 176-194 (X-Coraza-Rule-Id header)
+func TestDetectSecurityEvent_WAFWithCorazaRuleId(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"POST","uri":"/api/admin","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Coraza-Rule-Id":["941100"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "waf", entry.Source)
+	assert.Equal(t, "941100", entry.Details["rule_id"])
+}
+
+// TestDetectSecurityEvent_CrowdSecWithDecisionHeader tests Lines 196-210 (CrowdSec detection)
+func TestDetectSecurityEvent_CrowdSecWithDecisionHeader(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Crowdsec-Decision":["ban"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "crowdsec", entry.Source)
+	assert.Equal(t, "CrowdSec decision", entry.BlockReason)
+}
+
+// TestDetectSecurityEvent_CrowdSecWithOriginHeader tests Lines 196-210 (X-Crowdsec-Origin header)
+func TestDetectSecurityEvent_CrowdSecWithOriginHeader(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Crowdsec-Origin":["cscli"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "crowdsec", entry.Source)
+	assert.Equal(t, "cscli", entry.Details["crowdsec_origin"])
+}
+
+// TestDetectSecurityEvent_ACLDeniedHeader tests Lines 212-218 (ACL detection)
+func TestDetectSecurityEvent_ACLDeniedHeader(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/admin","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Acl-Denied":["true"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "acl", entry.Source)
+	assert.Equal(t, "Access list denied", entry.BlockReason)
+}
+
+// TestDetectSecurityEvent_ACLBlockedHeader tests Lines 212-218 (X-Blocked-By-Acl header)
+func TestDetectSecurityEvent_ACLBlockedHeader(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/admin","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{"X-Blocked-By-Acl":["default-deny"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "acl", entry.Source)
+}
+
+// TestDetectSecurityEvent_RateLimitAllHeaders tests Lines 220-234 (rate limit detection)
+func TestDetectSecurityEvent_RateLimitAllHeaders(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/api/search","host":"example.com","headers":{}},"status":429,"duration":0.001,"size":0,"resp_headers":{"X-Ratelimit-Remaining":["0"],"X-Ratelimit-Reset":["60"],"X-Ratelimit-Limit":["100"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.Equal(t, 429, entry.Status)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "ratelimit", entry.Source)
+	assert.Equal(t, "Rate limit exceeded", entry.BlockReason)
+	assert.Equal(t, "0", entry.Details["ratelimit_remaining"])
+	assert.Equal(t, "60", entry.Details["ratelimit_reset"])
+	assert.Equal(t, "100", entry.Details["ratelimit_limit"])
+}
+
+// TestDetectSecurityEvent_RateLimitPartialHeaders tests Lines 220-234 (partial headers)
+func TestDetectSecurityEvent_RateLimitPartialHeaders(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/api/search","host":"example.com","headers":{}},"status":429,"duration":0.001,"size":0,"resp_headers":{"X-Ratelimit-Remaining":["0"]}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "ratelimit", entry.Source)
+	assert.Equal(t, "0", entry.Details["ratelimit_remaining"])
+	// Other headers should not be present
+	_, hasReset := entry.Details["ratelimit_reset"]
+	assert.False(t, hasReset)
+}
+
+// TestDetectSecurityEvent_403WithoutHeaders tests Lines 236-242 (generic 403)
+func TestDetectSecurityEvent_403WithoutHeaders(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/forbidden","host":"example.com","headers":{}},"status":403,"duration":0.001,"size":0,"resp_headers":{}}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.Equal(t, 403, entry.Status)
+	assert.True(t, entry.Blocked)
+	assert.Equal(t, "cerberus", entry.Source)
+	assert.Equal(t, "Access denied", entry.BlockReason)
+	assert.Equal(t, "warn", entry.Level)
 }

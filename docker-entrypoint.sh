@@ -9,8 +9,7 @@ echo "Starting Charon with integrated Caddy..."
 # ============================================================================
 # CrowdSec Initialization
 # ============================================================================
-CROWDSEC_PID=""
-SECURITY_CROWDSEC_MODE=${CERBERUS_SECURITY_CROWDSEC_MODE:-${CHARON_SECURITY_CROWDSEC_MODE:-$CPM_SECURITY_CROWDSEC_MODE}}
+# Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.
 
 # Initialize CrowdSec configuration if cscli is present
 if command -v cscli >/dev/null; then
@@ -109,48 +108,20 @@ ACQUIS_EOF
     fi
 fi
 
-# Start CrowdSec agent if local mode is enabled
-if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
-    echo "CrowdSec Local Mode enabled."
-
-    if command -v crowdsec >/dev/null; then
-        # Create an empty access log so CrowdSec doesn't fail on missing file
-        touch /var/log/caddy/access.log
-
-        echo "Starting CrowdSec agent..."
-        crowdsec -c /etc/crowdsec/config.yaml &
-        CROWDSEC_PID=$!
-        echo "CrowdSec started (PID: $CROWDSEC_PID)"
-
-        # Wait for LAPI to be ready
-        echo "Waiting for CrowdSec LAPI..."
-        lapi_ready=0
-        for i in $(seq 1 30); do
-            if wget -q -O- http://127.0.0.1:8085/health >/dev/null 2>&1; then
-                echo "CrowdSec LAPI is ready!"
-                lapi_ready=1
-                break
-            fi
-            sleep 1
-        done
-
-        if [ "$lapi_ready" = "1" ]; then
-            # Register bouncer for Caddy
-            if [ -x /usr/local/bin/register_bouncer.sh ]; then
-                echo "Registering Caddy bouncer..."
-                BOUNCER_API_KEY=$(/usr/local/bin/register_bouncer.sh 2>/dev/null | tail -1)
-                if [ -n "$BOUNCER_API_KEY" ]; then
-                    export CROWDSEC_BOUNCER_API_KEY="$BOUNCER_API_KEY"
-                    echo "Bouncer registered with API key"
-                fi
-            fi
-        else
-            echo "Warning: CrowdSec LAPI not ready after 30 seconds"
-        fi
-    else
-        echo "CrowdSec binary not found - skipping agent startup"
-    fi
-fi
+# CrowdSec Lifecycle Management:
+# CrowdSec configuration is initialized above (symlinks, directories, hub updates)
+# However, the CrowdSec agent is NOT auto-started in the entrypoint.
+# Instead, CrowdSec lifecycle is managed by the backend handlers via GUI controls.
+# This makes CrowdSec consistent with other security features (WAF, ACL, Rate Limiting).
+# Users enable/disable CrowdSec using the Security dashboard toggle, which calls:
+#   - POST /api/v1/admin/crowdsec/start (to start the agent)
+#   - POST /api/v1/admin/crowdsec/stop (to stop the agent)
+# This approach provides:
+#   - Consistent user experience across all security features
+#   - No environment variable dependency
+#   - Real-time control without container restart
+#   - Proper integration with Charon's security orchestration
+echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
@@ -195,11 +166,8 @@ shutdown() {
     echo "Shutting down..."
     kill -TERM "$APP_PID" 2>/dev/null || true
     kill -TERM "$CADDY_PID" 2>/dev/null || true
-    if [ -n "$CROWDSEC_PID" ]; then
-        echo "Stopping CrowdSec..."
-        kill -TERM "$CROWDSEC_PID" 2>/dev/null || true
-        wait "$CROWDSEC_PID" 2>/dev/null || true
-    fi
+    # Note: CrowdSec process lifecycle is managed by backend handlers
+    # The backend will handle graceful CrowdSec shutdown when the container stops
     wait "$APP_PID" 2>/dev/null || true
     wait "$CADDY_PID" 2>/dev/null || true
     exit 0

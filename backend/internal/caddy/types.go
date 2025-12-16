@@ -55,10 +55,20 @@ type Storage struct {
 	Root   string `json:"root,omitempty"`
 }
 
+// CrowdSecApp configures the CrowdSec app module.
+// Reference: https://github.com/hslatman/caddy-crowdsec-bouncer
+type CrowdSecApp struct {
+	APIUrl          string `json:"api_url"`
+	APIKey          string `json:"api_key"`
+	TickerInterval  string `json:"ticker_interval,omitempty"`
+	EnableStreaming *bool  `json:"enable_streaming,omitempty"`
+}
+
 // Apps contains all Caddy app modules.
 type Apps struct {
-	HTTP *HTTPApp `json:"http,omitempty"`
-	TLS  *TLSApp  `json:"tls,omitempty"`
+	HTTP     *HTTPApp     `json:"http,omitempty"`
+	TLS      *TLSApp      `json:"tls,omitempty"`
+	CrowdSec *CrowdSecApp `json:"crowdsec,omitempty"`
 }
 
 // HTTPApp configures the HTTP app.
@@ -68,10 +78,18 @@ type HTTPApp struct {
 
 // Server represents an HTTP server instance.
 type Server struct {
-	Listen    []string         `json:"listen"`
-	Routes    []*Route         `json:"routes"`
-	AutoHTTPS *AutoHTTPSConfig `json:"automatic_https,omitempty"`
-	Logs      *ServerLogs      `json:"logs,omitempty"`
+	Listen         []string         `json:"listen"`
+	Routes         []*Route         `json:"routes"`
+	AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
+	Logs           *ServerLogs      `json:"logs,omitempty"`
+	TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
+}
+
+// TrustedProxies defines the module for configuring trusted proxy IP ranges.
+// This is used at the server level to enable Caddy to trust X-Forwarded-For headers.
+type TrustedProxies struct {
+	Source string   `json:"source"`
+	Ranges []string `json:"ranges"`
 }
 
 // AutoHTTPSConfig controls automatic HTTPS behavior.

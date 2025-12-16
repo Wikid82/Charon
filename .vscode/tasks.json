@@ -13,6 +13,17 @@
             }
         },
         {
+            "label": "Build & Run: Local Docker Image No-Cache",
+            "type": "shell",
+            "command": "docker build --no-cache -t charon:local . && docker compose -f docker-compose.override.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
             "label": "Build: Backend",
             "type": "shell",
             "command": "cd backend && go build ./...",

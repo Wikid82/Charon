@@ -8,21 +8,54 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // DefaultCrowdsecExecutor implements CrowdsecExecutor using OS processes.
 type DefaultCrowdsecExecutor struct {
+	// procPath allows overriding /proc for testing
+	procPath string
 }
 
-func NewDefaultCrowdsecExecutor() *DefaultCrowdsecExecutor { return &DefaultCrowdsecExecutor{} }
+func NewDefaultCrowdsecExecutor() *DefaultCrowdsecExecutor {
+	return &DefaultCrowdsecExecutor{
+		procPath: "/proc",
+	}
+}
+
+// isCrowdSecProcess checks if the given PID is actually a CrowdSec process
+// by reading /proc/{pid}/cmdline and verifying it contains "crowdsec".
+// This prevents false positives when PIDs are recycled by the OS.
+func (e *DefaultCrowdsecExecutor) isCrowdSecProcess(pid int) bool {
+	cmdlinePath := filepath.Join(e.procPath, strconv.Itoa(pid), "cmdline")
+	data, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		// Process doesn't exist or can't read - not CrowdSec
+		return false
+	}
+	// cmdline is null-separated, but strings.Contains works on the raw bytes
+	return strings.Contains(string(data), "crowdsec")
+}
 
 func (e *DefaultCrowdsecExecutor) pidFile(configDir string) string {
 	return filepath.Join(configDir, "crowdsec.pid")
 }
 
 func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir string) (int, error) {
-	cmd := exec.CommandContext(ctx, binPath, "--config-dir", configDir)
+	configFile := filepath.Join(configDir, "config", "config.yaml")
+
+	// Use exec.Command (not CommandContext) to avoid context cancellation killing the process
+	// CrowdSec should run independently of the startup goroutine's lifecycle
+	cmd := exec.Command(binPath, "-c", configFile)
+
+	// Detach the process so it doesn't get killed when the parent exits
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group
+	}
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
@@ -41,24 +74,44 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 	return pid, nil
 }
 
+// Stop stops the CrowdSec process. It is idempotent - stopping an already-stopped
+// service or one that was never started will succeed without error.
 func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) error {
-	b, err := os.ReadFile(e.pidFile(configDir))
+	pidFilePath := e.pidFile(configDir)
+	b, err := os.ReadFile(pidFilePath)
 	if err != nil {
+		// If PID file doesn't exist, service is already stopped - return success
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("pid file read: %w", err)
 	}
+
 	pid, err := strconv.Atoi(string(b))
 	if err != nil {
-		return fmt.Errorf("invalid pid: %w", err)
+		// Malformed PID file - clean it up and return success
+		_ = os.Remove(pidFilePath)
+		return nil
 	}
+
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return err
+		// Process lookup failed - clean up PID file and return success
+		_ = os.Remove(pidFilePath)
+		return nil
 	}
+
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Check if process is already dead (ESRCH = no such process)
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone) {
+			_ = os.Remove(pidFilePath)
+			return nil
+		}
 		return err
 	}
-	// best-effort remove pid file
-	_ = os.Remove(e.pidFile(configDir))
+
+	// Successfully sent signal - remove PID file
+	_ = os.Remove(pidFilePath)
 	return nil
 }
 
@@ -87,6 +140,13 @@ func (e *DefaultCrowdsecExecutor) Status(ctx context.Context, configDir string) 
 			return false, pid, nil
 		}
 		// ESRCH or other errors mean process isn't running
+		return false, pid, nil
+	}
+
+	// After successful Signal(0) check, verify it's actually CrowdSec
+	// This prevents false positives when PIDs are recycled by the OS
+	if !e.isCrowdSecProcess(pid) {
+		logger.Log().WithField("pid", pid).Warn("PID exists but is not CrowdSec (PID recycled)")
 		return false, pid, nil
 	}
 
