@@ -1172,3 +1172,37 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	require.Equal(t, "pending_acceptance", resp3["status"])
 	require.Equal(t, "test-agent-2", resp3["agent_name"])
 }
+
+// ============================================
+// NEW COVERAGE TESTS - Phase 3 Implementation
+// ============================================
+
+// Start Handler - LAPI Readiness Polling Tests
+func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns error for lapi status checks
+	mockExec := &mockCmdExecutor{
+		output: []byte("error: lapi not reachable"),
+		err:    errors.New("lapi unreachable"),
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "started", resp["status"])
+	require.False(t, resp["lapi_ready"].(bool))
+	require.Contains(t, resp, "warning")
+}

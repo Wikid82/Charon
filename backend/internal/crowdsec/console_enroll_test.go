@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -974,4 +976,164 @@ func TestConsoleEnrollService_ForceOverridesSkip(t *testing.T) {
 	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 	require.Equal(t, "new-agent", status.AgentName)
 	require.Equal(t, 3, exec.callCount(), "should call lapi status, capi register, AND enroll")
+}
+
+// ============================================
+// Phase 2: Missing Coverage Tests
+// ============================================
+
+// TestEnroll_InvalidAgentNameCharacters tests Lines 117-119
+func TestEnroll_InvalidAgentNameCharacters(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+	ctx := context.Background()
+
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent@name!",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "may only include letters, numbers, dot, dash, underscore")
+	require.Equal(t, 0, exec.callCount(), "should not call any commands when validation fails")
+}
+
+// TestEnroll_InvalidTenantNameCharacters tests Lines 121-123
+func TestEnroll_InvalidTenantNameCharacters(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+	ctx := context.Background()
+
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "valid-agent",
+		Tenant:        "tenant$invalid",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "may only include letters, numbers, dot, dash, underscore")
+	require.Equal(t, 0, exec.callCount(), "should not call any commands when validation fails")
+}
+
+// TestEnsureCAPIRegistered_StandardLayoutExists tests Lines 198-201
+func TestEnsureCAPIRegistered_StandardLayoutExists(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config directory with credentials file (standard layout)
+	configDir := filepath.Join(tmpDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+	credsPath := filepath.Join(configDir, "online_api_credentials.yaml")
+	require.NoError(t, os.WriteFile(credsPath, []byte("url: https://api.crowdsec.net\nlogin: test"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+	ctx := context.Background()
+
+	err := svc.ensureCAPIRegistered(ctx)
+	require.NoError(t, err)
+	// Should not call capi register because credentials file exists
+	require.Equal(t, 0, exec.callCount())
+}
+
+// TestEnsureCAPIRegistered_RegisterError tests Lines 212-214
+func TestEnsureCAPIRegistered_RegisterError(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: []byte("registration failed: network error"), err: fmt.Errorf("exit status 1")},
+		},
+	}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+	ctx := context.Background()
+
+	err := svc.ensureCAPIRegistered(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "capi register")
+	require.Contains(t, err.Error(), "registration failed")
+	require.Equal(t, 1, exec.callCount())
+}
+
+// TestFindConfigPath_StandardLayout tests Lines 218-222 (standard path)
+func TestFindConfigPath_StandardLayout(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config directory with config.yaml (standard layout)
+	configDir := filepath.Join(tmpDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+	configPath := filepath.Join(configDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, configPath, result)
+}
+
+// TestFindConfigPath_RootLayout tests Lines 218-222 (fallback path)
+func TestFindConfigPath_RootLayout(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config.yaml in root (not in config/ subdirectory)
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, configPath, result)
+}
+
+// TestFindConfigPath_NeitherExists tests Lines 218-222 (empty string return)
+func TestFindConfigPath_NeitherExists(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, "", result, "should return empty string when no config file exists")
+}
+
+// TestStatusFromModel_NilModel tests Lines 268-270
+func TestStatusFromModel_NilModel(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	status := svc.statusFromModel(nil)
+	require.Equal(t, consoleStatusNotEnrolled, status.Status)
+	require.False(t, status.KeyPresent)
+	require.Empty(t, status.AgentName)
+}
+
+// TestNormalizeEnrollmentKey_InvalidFormat tests Lines 374-376
+func TestNormalizeEnrollmentKey_InvalidCharacters(t *testing.T) {
+	_, err := normalizeEnrollmentKey("abc@123#def")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
+}
+
+func TestNormalizeEnrollmentKey_TooShort(t *testing.T) {
+	_, err := normalizeEnrollmentKey("ab123")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
+}
+
+func TestNormalizeEnrollmentKey_NonMatchingFormat(t *testing.T) {
+	_, err := normalizeEnrollmentKey("this is not a valid key format")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
 }

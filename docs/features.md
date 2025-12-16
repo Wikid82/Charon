@@ -590,9 +590,11 @@ Uses WebSocket technology to stream logs with zero delay.
 
 ---
 
-## 🧪 Cerberus Security Testing
+## 🧪 Testing & Quality Assurance
 
-The Cerberus security suite includes comprehensive testing to ensure all features work correctly together.
+Charon maintains high test coverage across both backend and frontend to ensure reliability and stability.
+
+**Overall Backend Coverage:** 85.4% with 38 new test cases recently added across 6 critical files including log_watcher.go (98.2%), crowdsec_handler.go (80%), and console_enroll.go (88.23%).
 
 ### Full Integration Test Suite
 
