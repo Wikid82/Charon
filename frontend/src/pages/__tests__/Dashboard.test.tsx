@@ -6,9 +6,10 @@ import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 vi.mock('../../hooks/useProxyHosts', () => ({
   useProxyHosts: () => ({
     hosts: [
-      { id: 1, enabled: true },
-      { id: 2, enabled: false },
+      { id: 1, enabled: true, ssl_forced: false, domain_names: 'test.com' },
+      { id: 2, enabled: false, ssl_forced: false, domain_names: 'test2.com' },
     ],
+    loading: false,
   }),
 }))
 
@@ -18,20 +19,34 @@ vi.mock('../../hooks/useRemoteServers', () => ({
       { id: 1, enabled: true },
       { id: 2, enabled: true },
     ],
+    loading: false,
   }),
 }))
 
 vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: () => ({
     certificates: [
-      { id: 1, status: 'valid' },
-      { id: 2, status: 'expired' },
+      { id: 1, status: 'valid', domain: 'test.com' },
+      { id: 2, status: 'expired', domain: 'expired.com' },
     ],
+    isLoading: false,
+  }),
+}))
+
+vi.mock('../../hooks/useAccessLists', () => ({
+  useAccessLists: () => ({
+    data: [{ id: 1, enabled: true }],
+    isLoading: false,
   }),
 }))
 
 vi.mock('../../api/health', () => ({
   checkHealth: vi.fn().mockResolvedValue({ status: 'ok', version: '1.0.0' }),
+}))
+
+// Mock UptimeWidget to avoid complex dependencies
+vi.mock('../../components/UptimeWidget', () => ({
+  default: () => <div data-testid="uptime-widget">Uptime Widget</div>,
 }))
 
 describe('Dashboard page', () => {

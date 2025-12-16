@@ -131,7 +131,7 @@ describe('CertificateStatusCard', () => {
     renderWithRouter(<CertificateStatusCard certificates={[]} hosts={[]} />)
 
     expect(screen.getByText('0')).toBeInTheDocument()
-    expect(screen.getByText('0 valid')).toBeInTheDocument()
+    expect(screen.getByText('No certificates')).toBeInTheDocument()
   })
 })
 

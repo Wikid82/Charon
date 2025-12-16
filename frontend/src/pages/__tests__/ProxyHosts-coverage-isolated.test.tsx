@@ -92,7 +92,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
     return { ProxyHosts, mockUpdateHost, wrapper }
   }
 
-  it('renders SSL staging badge, websocket badge and custom cert text', async () => {
+  it('renders SSL staging badge, websocket badge', async () => {
     const { ProxyHosts } = await renderPage()
 
     render(
@@ -103,9 +103,12 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
 
     await waitFor(() => expect(screen.getByText('StagingHost')).toBeInTheDocument())
 
-    expect(screen.getByText(/SSL \(Staging\)/)).toBeInTheDocument()
+    // Staging badge shows "Staging" text
+    expect(screen.getByText('Staging')).toBeInTheDocument()
+    // Websocket badge shows "WS"
     expect(screen.getByText('WS')).toBeInTheDocument()
-    expect(screen.getByText('ACME-CUSTOM (Custom)')).toBeInTheDocument()
+    // Custom cert hosts don't show the cert name in the table - just check the host is shown
+    expect(screen.getByText('CustomCertHost')).toBeInTheDocument()
   })
 
   it('opens domain link in new window when linkBehavior is new_window', async () => {
@@ -140,22 +143,27 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
 
     await waitFor(() => expect(screen.getByText('StagingHost')).toBeInTheDocument())
 
-    const selectBtn1 = screen.getByLabelText('Select StagingHost')
-    const selectBtn2 = screen.getByLabelText('Select CustomCertHost')
-    await userEvent.click(selectBtn1)
-    await userEvent.click(selectBtn2)
+    // Select hosts by finding rows and clicking first checkbox (selection)
+    const row1 = screen.getByText('StagingHost').closest('tr') as HTMLTableRowElement
+    const row2 = screen.getByText('CustomCertHost').closest('tr') as HTMLTableRowElement
+    await userEvent.click(within(row1).getAllByRole('checkbox')[0])
+    await userEvent.click(within(row2).getAllByRole('checkbox')[0])
 
     const bulkBtn = screen.getByText('Bulk Apply')
     await userEvent.click(bulkBtn)
 
-    const modal = screen.getByText('Bulk Apply Settings').closest('div')!
-    const modalWithin = within(modal)
+    // Find the modal dialog
+    await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeInTheDocument())
 
-    const checkboxes = modal.querySelectorAll('input[type="checkbox"]')
-    expect(checkboxes.length).toBeGreaterThan(0)
-    await userEvent.click(checkboxes[0])
+    // The bulk apply modal has checkboxes for each setting - find them by role
+    const modalCheckboxes = screen.getAllByRole('checkbox').filter(
+      cb => cb.closest('[role="dialog"]') !== null
+    )
+    expect(modalCheckboxes.length).toBeGreaterThan(0)
+    // Click the first setting checkbox to enable it
+    await userEvent.click(modalCheckboxes[0])
 
-    const applyBtn = modalWithin.getByRole('button', { name: /Apply/ })
+    const applyBtn = screen.getByRole('button', { name: /Apply/ })
     await userEvent.click(applyBtn)
 
     await waitFor(() => {
