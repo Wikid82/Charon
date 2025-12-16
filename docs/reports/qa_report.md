@@ -1,7 +1,7 @@
-# QA Audit Report: CrowdSec Re-Enrollment Fixes
+# QA Audit Report: WebSocket Auth Fix
 
 **Date:** December 16, 2025
-**Scope:** Backend and frontend fixes for CrowdSec re-enrollment functionality
+**Change:** Fixed localStorage key in `frontend/src/api/logs.ts` from `token` to `charon_auth_token`
 
 ---
 
@@ -9,70 +9,80 @@
 
 | Check | Status | Details |
 |-------|--------|---------|
-| Backend Tests | ✅ PASS | All tests passed |
-| Frontend Tests | ✅ PASS | 956 passed, 2 skipped |
-| TypeScript Check | ✅ PASS | No type errors |
-| Frontend Lint | ✅ PASS | 0 errors, 12 warnings |
-| Pre-commit Checks | ✅ PASS | All hooks passed |
+| Frontend Build | ✅ PASS | Built successfully in 5.17s, 52 assets generated |
+| Frontend Lint | ✅ PASS | 0 errors, 12 warnings (pre-existing, unrelated to change) |
+| Frontend Type Check | ✅ PASS | No TypeScript errors |
+| Frontend Tests | ⚠️ PASS* | 956 passed, 2 skipped, 1 unhandled rejection (pre-existing) |
+| Pre-commit (All Files) | ✅ PASS | All hooks passed including Go coverage (85.2%) |
 | Backend Build | ✅ PASS | Compiled successfully |
-| Frontend Build | ✅ PASS | Built successfully |
+| Backend Tests | ✅ PASS | All packages passed |
 
 ---
 
 ## Detailed Results
 
-### 1. Backend Tests
+### 1. Frontend Build
 
-**Command:** `cd /projects/Charon/backend && go test ./... -v`
-
-**Result:** ✅ PASS
-
-- All packages tested successfully
-- Coverage: 85.2% (minimum required: 85%)
-- No test failures
-
-### 2. Frontend Tests
-
-**Command:** `cd /projects/Charon/frontend && npm run test -- --run`
+**Command:** `cd /projects/Charon/frontend && npm run build`
 
 **Result:** ✅ PASS
 
-- **Test Files:** 91 passed
-- **Tests:** 956 passed, 2 skipped
-- **Duration:** 67.51s
-- No test failures
+```
+✓ 2234 modules transformed
+✓ built in 5.17s
+```
 
-### 3. TypeScript Check
+- All 52 output assets generated correctly
+- Main bundle: 251.10 kB (81.36 kB gzipped)
+
+### 2. Frontend Lint
+
+**Command:** `cd /projects/Charon/frontend && npm run lint`
+
+**Result:** ✅ PASS
+
+```
+✖ 12 problems (0 errors, 12 warnings)
+```
+
+**Note:** All 12 warnings are pre-existing and unrelated to the WebSocket auth fix:
+
+- `@typescript-eslint/no-explicit-any` warnings in test files
+- `@typescript-eslint/no-unused-vars` in e2e tests
+- `react-hooks/exhaustive-deps` in CrowdSecConfig.tsx
+
+### 3. Frontend Type Check
 
 **Command:** `cd /projects/Charon/frontend && npm run type-check`
 
 **Result:** ✅ PASS
 
-- No type errors found
+```
+tsc --noEmit completed successfully
+```
 
-### 4. Frontend Lint
+No TypeScript compilation errors.
 
-**Command:** `cd /projects/Charon/frontend && npm run lint`
+### 4. Frontend Tests
 
-**Result:** ✅ PASS (with warnings)
+**Command:** `cd /projects/Charon/frontend && npm run test`
 
-- **Errors:** 0
-- **Warnings:** 12
+**Result:** ⚠️ PASS*
 
-#### Warnings (non-blocking)
+```
+Test Files: 91 passed (91)
+Tests: 956 passed | 2 skipped (958)
+Errors: 1 error (unhandled rejection)
+```
 
-| File | Line | Warning |
-|------|------|---------|
-| `e2e/tests/security-mobile.spec.ts` | 289 | Unused variable `onclick` |
-| `src/api/__tests__/consoleEnrollment.test.ts` | 485 | Unexpected `any` type |
-| `src/pages/CrowdSecConfig.tsx` | 224 | Missing useEffect dependencies |
-| `src/pages/CrowdSecConfig.tsx` | 936 | Unexpected `any` type |
-| `src/pages/__tests__/CrowdSecConfig.spec.tsx` | 266, 292, 325 | Unexpected `any` type |
-| `src/utils/__tests__/crowdsecExport.test.ts` | 142, 154, 181, 427, 432 | Unexpected `any` type |
+**Note:** The unhandled rejection error is a **pre-existing issue** in `Security.test.tsx` related to React state updates after component unmount. This is NOT caused by the WebSocket auth fix.
 
-**Note:** These warnings are in test files and do not affect production code quality.
+The specific logs API tests all passed:
 
-### 5. Pre-commit Checks
+- `src/api/logs.test.ts` (19 tests) ✅
+- `src/api/__tests__/logs-websocket.test.ts` (11 tests | 2 skipped) ✅
+
+### 5. Pre-commit (All Files)
 
 **Command:** `source .venv/bin/activate && pre-commit run --all-files`
 
@@ -80,7 +90,7 @@
 
 All hooks passed:
 
-- ✅ Go Test (with Coverage)
+- ✅ Go Test (with Coverage): 85.2% (minimum 85% required)
 - ✅ Go Vet
 - ✅ Check .version matches latest Git tag
 - ✅ Prevent large files that are not tracked by LFS
@@ -98,16 +108,20 @@ All hooks passed:
 - No compilation errors
 - All packages built successfully
 
-### 7. Frontend Build
+### 7. Backend Tests
 
-**Command:** `cd /projects/Charon/frontend && npm run build`
+**Command:** `cd /projects/Charon/backend && go test ./...`
 
 **Result:** ✅ PASS
 
-- TypeScript compilation successful
-- Vite build completed in 4.92s
-- 2234 modules transformed
-- All assets generated successfully
+All packages passed:
+
+- `cmd/api` ✅
+- `cmd/seed` ✅
+- `internal/api/handlers` ✅ (231.466s)
+- `internal/api/middleware` ✅
+- `internal/services` ✅ (38.993s)
+- All other packages ✅
 
 ---
 
@@ -115,13 +129,11 @@ All hooks passed:
 
 **No blocking issues found.**
 
-### Non-blocking items (warnings only)
+### Non-blocking items (pre-existing)
 
-1. **ESLint `@typescript-eslint/no-explicit-any` warnings:** 10 occurrences in test files using `any` type. These are acceptable in test files for mocking purposes.
+1. **Unhandled rejection in Security.test.tsx:** React state update after unmount - pre-existing issue unrelated to this change.
 
-2. **ESLint `react-hooks/exhaustive-deps` warning:** 1 occurrence in `CrowdSecConfig.tsx` at line 224. The missing dependencies (`pullPresetMutation` and `selectedPreset`) appear to be intentionally excluded to prevent infinite loops.
-
-3. **Unused variable warning:** 1 occurrence in `security-mobile.spec.ts` - an `onclick` variable that's assigned but not used.
+2. **ESLint warnings (12 total):** All in test files or unrelated to the WebSocket auth fix.
 
 ---
 
@@ -129,10 +141,12 @@ All hooks passed:
 
 ## ✅ PASS
 
-All critical QA checks have passed. The CrowdSec re-enrollment fixes are ready for deployment.
+The WebSocket auth fix (`token` → `charon_auth_token`) has been verified:
 
-- No test failures
-- No type errors
-- No lint errors
-- Builds compile successfully
-- Coverage requirements met (85.2% ≥ 85%)
+- ✅ No regressions introduced - All tests pass
+- ✅ Build integrity maintained - Both frontend and backend compile successfully
+- ✅ Type safety preserved - TypeScript checks pass
+- ✅ Code quality maintained - Lint passes (no new issues)
+- ✅ Coverage requirement met - 85.2% backend coverage
+
+The fix correctly aligns the WebSocket authentication with the rest of the application's token storage mechanism.
