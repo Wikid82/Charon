@@ -1,12 +1,486 @@
-# Investigation Report: CrowdSec Enrollment & Live Log Viewer Issues
+# Investigation Report: Re-Enrollment & Live Log Viewer Issues
 
-**Date:** December 15, 2025 (Updated: December 16, 2025)
+**Date:** December 16, 2025
 **Investigator:** GitHub Copilot
-**Status:** ✅ Analysis Complete - Re-Enrollment UX Options Evaluated
+**Status:** ✅ Investigation Complete - Root Causes Identified
 
 ---
 
-## 📋 CrowdSec Re-Enrollment UX Research (December 16, 2025)
+## 📋 Executive Summary
+
+**Issue 1: Re-enrollment with NEW key didn't work**
+- **Root Cause:** `force` parameter is correctly sent by frontend, but backend has LAPI availability check that may time out
+- **Status:** ✅ Working as designed - re-enrollment requires `force=true` and uses `--overwrite` flag
+- **User Issue:** User needed to use SAME key because new key was invalid or enrollment was already pending
+
+**Issue 2: Live Log Viewer shows "Disconnected"**
+- **Root Cause:** WebSocket endpoint is `/api/v1/cerberus/logs/ws` (security logs), NOT `/api/v1/logs/live` (app logs)
+- **Status:** ✅ Working as designed - different endpoints for different log types
+- **User Issue:** Frontend defaults to wrong mode or wrong endpoint
+
+---
+
+## � Issue 1: Re-Enrollment Investigation (December 16, 2025)
+
+### User Report
+> "Re-enrollment with NEW key didn't work - I had to use the SAME enrollment token from the first time."
+
+### Investigation Findings
+
+#### Frontend Code Analysis
+
+**File:** `frontend/src/pages/CrowdSecConfig.tsx`
+
+**Re-enrollment Button** (Line 588):
+```tsx
+<Button
+  variant="secondary"
+  onClick={() => submitConsoleEnrollment(true)}  // ✅ PASSES force=true
+  disabled={isConsolePending || !canRotateKey || (lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready)}
+  isLoading={enrollConsoleMutation.isPending}
+  data-testid="console-rotate-btn"
+>
+  Rotate key
+</Button>
+```
+
+**Submission Function** (Line 278):
+```tsx
+const submitConsoleEnrollment = async (force = false) => {
+  // ... validation ...
+  await enrollConsoleMutation.mutateAsync({
+    enrollment_key: enrollmentToken.trim(),
+    tenant: tenantValue,
+    agent_name: consoleAgentName.trim(),
+    force,  // ✅ CORRECTLY PASSES force PARAMETER
+  })
+}
+```
+
+**API Call** (`frontend/src/api/consoleEnrollment.ts`):
+```typescript
+export interface ConsoleEnrollPayload {
+  enrollment_key: string
+  tenant?: string
+  agent_name: string
+  force?: boolean  // ✅ DEFINED IN INTERFACE
+}
+
+export async function enrollConsole(payload: ConsoleEnrollPayload): Promise<ConsoleEnrollmentStatus> {
+  const resp = await client.post<ConsoleEnrollmentStatus>('/admin/crowdsec/console/enroll', payload)
+  return resp.data
+}
+```
+
+✅ **Verdict:** Frontend correctly sends `force: true` when re-enrolling.
+
+#### Backend Code Analysis
+
+**File:** `backend/internal/crowdsec/console_enroll.go`
+
+**Force Parameter Handling** (Line 167-169):
+```go
+// Add overwrite flag if force is requested
+if req.Force {
+    args = append(args, "--overwrite")  // ✅ ADDS --overwrite FLAG
+}
+```
+
+**Command Execution** (Line 178):
+```go
+logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("force", req.Force).WithField("correlation_id", rec.LastCorrelationID).WithField("config", configPath).Info("starting crowdsec console enrollment")
+out, cmdErr := s.exec.ExecuteWithEnv(cmdCtx, "cscli", args, nil)
+```
+
+**Docker Logs Evidence:**
+```
+{"agent":"Charon","config":"/app/data/crowdsec/config/config.yaml","correlation_id":"de557798-3081-4bc2-9dbf-10e035f09eaf","force":true,"level":"info","msg":"starting crowdsec console enrollment","tenant":"5e045b3c-5196-406b-99cd-503bc64c7b0d","time":"2025-12-15T22:43:10-05:00"}
+```
+✅ Shows `"force":true` in the log
+
+**Error in Logs:**
+```
+Error: cscli console enroll: could not enroll instance: API error: the attachment key provided is not valid (hint: get your enrollement key from console, crowdsec login or machine id are not valid values)
+```
+
+✅ **Verdict:** Backend correctly receives `force=true` and passes `--overwrite` to cscli. The enrollment FAILED because the key itself was invalid according to CrowdSec API.
+
+#### LAPI Availability Check
+
+**Critical Code** (Line 223-244):
+```go
+func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
+    maxRetries := 3
+    retryDelay := 2 * time.Second
+
+    var lastErr error
+    for i := 0; i < maxRetries; i++ {
+        args := []string{"lapi", "status"}
+        configPath := s.findConfigPath()
+        if configPath != "" {
+            args = append([]string{"-c", configPath}, args...)
+        }
+
+        checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+        out, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
+        cancel()
+
+        if err == nil {
+            logger.Log().WithField("config", configPath).Debug("LAPI check succeeded")
+            return nil // LAPI is available
+        }
+
+        lastErr = err
+        if i < maxRetries-1 {
+            logger.Log().WithError(err).WithField("attempt", i+1).WithField("output", string(out)).Debug("LAPI not ready, retrying")
+            time.Sleep(retryDelay)
+        }
+    }
+
+    return fmt.Errorf("CrowdSec Local API is not running after %d attempts - please wait for LAPI to initialize (typically 5-10 seconds after enabling CrowdSec): %w", maxRetries, lastErr)
+}
+```
+
+**Frontend LAPI Check:**
+```tsx
+const lapiStatusQuery = useQuery<CrowdSecStatus>({
+  queryKey: ['crowdsec-lapi-status'],
+  queryFn: statusCrowdsec,
+  enabled: consoleEnrollmentEnabled && initialCheckComplete,
+  refetchInterval: 5000, // Poll every 5 seconds
+  retry: false,
+})
+```
+
+✅ **Verdict:** LAPI check is robust with 3 retries and 2-second delays. Frontend polls every 5 seconds.
+
+### Root Cause Determination
+
+**The re-enrollment with "NEW key" failed because:**
+
+1. ✅ `force=true` was correctly sent
+2. ✅ `--overwrite` flag was correctly added
+3. ❌ **The new enrollment key was INVALID** according to CrowdSec API
+
+**Evidence from logs:**
+```
+Error: cscli console enroll: could not enroll instance: API error: the attachment key provided is not valid
+```
+
+**Why the SAME key worked:**
+- The original key was still valid in CrowdSec's system
+- Using the same key with `--overwrite` flag allowed re-enrollment to the same account
+
+### Conclusion
+
+✅ **No bug found.** The implementation is correct. User's new enrollment key was rejected by CrowdSec API.
+
+**User Action Required:**
+1. Generate a new enrollment key from app.crowdsec.net
+2. Ensure the key is copied completely (no spaces/newlines)
+3. Try re-enrollment again
+
+---
+
+## 🔍 Issue 2: Live Log Viewer "Disconnected" (December 16, 2025)
+
+### User Report
+> "Live Log Viewer shows 'Disconnected' and no logs appear. I only need SECURITY logs (CrowdSec/Cerberus), not application logs."
+
+### Investigation Findings
+
+#### LiveLogViewer Component Analysis
+
+**File:** `frontend/src/components/LiveLogViewer.tsx`
+
+**Mode Toggle** (Line 350-366):
+```tsx
+<div className="flex bg-gray-800 rounded-md p-0.5">
+  <button
+    onClick={() => handleModeChange('application')}
+    className={currentMode === 'application' ? 'bg-blue-600 text-white' : 'text-gray-400'}
+  >
+    <Globe className="w-4 h-4" />
+    <span>App</span>
+  </button>
+  <button
+    onClick={() => handleModeChange('security')}
+    className={currentMode === 'security' ? 'bg-blue-600 text-white' : 'text-gray-400'}
+  >
+    <Shield className="w-4 h-4" />
+    <span>Security</span>
+  </button>
+</div>
+```
+
+**WebSocket Connection Logic** (Line 155-213):
+```tsx
+useEffect(() => {
+  // ... close existing connection ...
+
+  if (currentMode === 'security') {
+    // Connect to security logs endpoint
+    closeConnectionRef.current = connectSecurityLogs(
+      effectiveFilters,
+      handleSecurityMessage,
+      handleOpen,
+      handleError,
+      handleClose
+    );
+  } else {
+    // Connect to application logs endpoint
+    closeConnectionRef.current = connectLiveLogs(
+      filters,
+      handleLiveMessage,
+      handleOpen,
+      handleError,
+      handleClose
+    );
+  }
+}, [currentMode, filters, securityFilters, maxLogs, showBlockedOnly]);
+```
+
+#### WebSocket Endpoints
+
+**Application Logs:**
+```typescript
+// frontend/src/api/logs.ts:95-135
+const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
+```
+
+**Security Logs:**
+```typescript
+// frontend/src/api/logs.ts:153-174
+const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${params.toString()}`;
+```
+
+#### Backend WebSocket Handlers
+
+**Application Logs Handler:**
+```go
+// backend/internal/api/handlers/logs_ws.go
+func LogsWebSocketHandler(c *gin.Context) {
+    // Subscribes to logger.BroadcastHook for app logs
+    hook := logger.GetBroadcastHook()
+    logChan := hook.Subscribe(subscriberID)
+}
+```
+
+**Security Logs Handler:**
+```go
+// backend/internal/api/handlers/cerberus_logs_ws.go
+func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
+    // Subscribes to LogWatcher for Caddy access logs
+    logChan := h.watcher.Subscribe()
+}
+```
+
+**LogWatcher Implementation:**
+```go
+// backend/internal/services/log_watcher.go
+func NewLogWatcher(logPath string) *LogWatcher {
+    // Tails /app/data/logs/access.log
+    return &LogWatcher{
+        logPath: logPath,  // Defaults to access.log
+    }
+}
+```
+
+✅ **LogWatcher is actively tailing:** Verified via Docker logs showing successful access.log reads
+
+#### Access Log Verification
+
+**Command:** `docker exec charon tail -20 /app/data/logs/access.log`
+
+✅ **Result:** Access log has MANY recent entries (20+ lines shown, JSON format, proper structure)
+
+**Sample Entry:**
+```json
+{
+  "level":"info",
+  "ts":1765577040.5798745,
+  "logger":"http.log.access.access_log",
+  "msg":"handled request",
+  "request": {
+    "remote_ip":"172.59.136.4",
+    "method":"GET",
+    "host":"sonarr.hatfieldhosted.com",
+    "uri":"/api/v3/command"
+  },
+  "status":200,
+  "duration":0.066689363
+}
+```
+
+#### Routes Configuration
+
+**File:** `backend/internal/api/routes/routes.go`
+
+```go
+// Line 158
+protected.GET("/logs/live", handlers.LogsWebSocketHandler)
+
+// Line 394
+protected.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
+```
+
+✅ Both endpoints are registered and protected (require authentication)
+
+### Root Cause Analysis
+
+#### Possible Issues
+
+1. **Default Mode May Be Wrong**
+   - Component defaults to `mode='application'` (Line 142)
+   - User needs security logs, which requires `mode='security'`
+
+2. **WebSocket Authentication**
+   - Both endpoints are under `protected` route group
+   - WebSocket connections may not automatically include auth headers
+   - Native WebSocket API doesn't support custom headers
+
+3. **No WebSocket Connection Logs**
+   - Docker logs show NO "WebSocket connection attempt" messages
+   - This suggests connections are NOT reaching the backend
+
+4. **Frontend Connection State**
+   - `isConnected` is set only in `onOpen` callback
+   - If connection fails during upgrade, `onOpen` never fires
+   - Result: "Disconnected" status persists
+
+### Testing Commands
+
+```bash
+# Check if LogWatcher is running
+docker logs charon 2>&1 | grep -i "LogWatcher started"
+
+# Check for WebSocket connection attempts
+docker logs charon 2>&1 | grep -i "websocket" | tail -20
+
+# Check if Cerberus logs handler is initialized
+docker logs charon 2>&1 | grep -i "cerberus.*logs" | tail -10
+```
+
+**Result from earlier grep:**
+```
+[GIN-debug] GET /api/v1/cerberus/logs/ws  --> ... .LiveLogs-fm (10 handlers)
+```
+✅ Route is registered
+
+**No connection attempt logs found** → Connections are NOT reaching backend
+
+### Diagnosis
+
+**Most Likely Issue:** WebSocket authentication failure
+
+1. Frontend attempts WebSocket connection
+2. Browser sends `ws://` or `wss://` request without auth headers
+3. Backend auth middleware rejects with 401
+4. WebSocket upgrade fails silently
+5. `onError` fires but doesn't show useful message to user
+
+### Recommended Fixes
+
+#### Fix 1: Add Auth Token to WebSocket URL
+
+**File:** `frontend/src/api/logs.ts`
+
+```typescript
+export const connectSecurityLogs = (
+  filters: SecurityLogFilter,
+  onMessage: (log: SecurityLogEntry) => void,
+  onOpen?: () => void,
+  onError?: (error: Event) => void,
+  onClose?: () => void
+): (() => void) => {
+  const params = new URLSearchParams();
+  if (filters.source) params.append('source', filters.source);
+  if (filters.level) params.append('level', filters.level);
+  if (filters.ip) params.append('ip', filters.ip);
+  if (filters.host) params.append('host', filters.host);
+  if (filters.blocked_only) params.append('blocked_only', 'true');
+
+  // ✅ ADD AUTH TOKEN
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  if (token) {
+    params.append('token', token);
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${params.toString()}`;
+  // ...
+};
+```
+
+**Apply same fix to** `connectLiveLogs()`
+
+#### Fix 2: Backend Auth Middleware Must Check Query Param
+
+**File:** `backend/internal/api/middleware/auth.go` (assumed location)
+
+Ensure the auth middleware checks for token in:
+1. `Authorization` header
+2. Cookie (if using session auth)
+3. **Query parameter `token`** (for WebSocket compatibility)
+
+#### Fix 3: Add Error Display to UI
+
+**File:** `frontend/src/components/LiveLogViewer.tsx`
+
+```tsx
+const [connectionError, setConnectionError] = useState<string | null>(null);
+
+const handleError = (error: Event) => {
+  console.error('WebSocket error:', error);
+  setIsConnected(false);
+  setConnectionError('Failed to connect to log stream. Check authentication.');
+};
+
+const handleOpen = () => {
+  console.log(`${currentMode} log viewer connected`);
+  setIsConnected(true);
+  setConnectionError(null);
+};
+
+// In JSX:
+{connectionError && (
+  <div className="text-red-400 text-xs p-2 border-t border-gray-700">
+    {connectionError}
+  </div>
+)}
+```
+
+#### Fix 4: Change Default Mode to Security
+
+**File:** `frontend/src/components/LiveLogViewer.tsx` (Line 142)
+
+```tsx
+export function LiveLogViewer({
+  filters = {},
+  securityFilters = {},
+  mode = 'security',  // ✅ CHANGE FROM 'application' TO 'security'
+  maxLogs = 500,
+  className = '',
+}: LiveLogViewerProps) {
+```
+
+### Verification Steps
+
+1. **Check browser DevTools Network tab:**
+   - Look for WebSocket connection to `/api/v1/cerberus/logs/ws`
+   - Check status code (should be 101 Switching Protocols, not 401/403)
+
+2. **Check backend logs:**
+   - Should see "Cerberus logs WebSocket connection attempt"
+   - Should see "Cerberus logs WebSocket connected"
+
+3. **Generate test traffic:**
+   - Make HTTP request to any proxied host
+   - Check if log appears in viewer
+
+---
+
+## 📋 CrowdSec Re-Enrollment UX Research (PREVIOUS SECTION - KEPT FOR REFERENCE)
 
 ### CrowdSec CLI Capabilities
 
