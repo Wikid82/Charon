@@ -431,7 +431,7 @@ func TestManager_ApplyConfig_GenerateConfigFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "generate config")
 }
 
-func TestManager_ApplyConfig_RejectsWhenCerberusEnabledWithoutAdminWhitelist(t *testing.T) {
+func TestManager_ApplyConfig_WarnsWhenCerberusEnabledWithoutAdminWhitelist(t *testing.T) {
 	tmp := t.TempDir()
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()+"cerberus")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -446,12 +446,28 @@ func TestManager_ApplyConfig_RejectsWhenCerberusEnabledWithoutAdminWhitelist(t *
 	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: ""}
 	assert.NoError(t, db.Create(&sec).Error)
 
-	// Create manager and call ApplyConfig - expecting error due to safety check
-	client := NewClient("http://localhost:9999")
+	// Mock Caddy admin API
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/load" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/config/" && r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"apps":{"http":{}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer caddyServer.Close()
+
+	// Create manager and call ApplyConfig - should now warn but proceed (no error)
+	client := NewClient(caddyServer.URL)
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "refusing to apply config: Cerberus is enabled but admin_whitelist is empty")
+	// The call should succeed (or fail for other reasons, not the admin whitelist check)
+	// The warning is logged but doesn't block startup
+	assert.NoError(t, err)
 }
 
 func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
