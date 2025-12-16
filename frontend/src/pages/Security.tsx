@@ -267,8 +267,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? '● Active' : '○ Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                (crowdsecStatus?.running ?? status.crowdsec.enabled)
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {(crowdsecStatus?.running ?? status.crowdsec.enabled)
@@ -308,8 +314,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.acl.enabled ? '● Active' : '○ Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.acl.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.acl.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Protects against: Unauthorized IPs, geo-based attacks, insider threats
@@ -350,8 +362,14 @@ export default function Security() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold mb-1 text-white">
-              {status.waf.enabled ? '● Active' : '○ Disabled'}
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                status.waf.enabled
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}>
+                {status.waf.enabled ? '● Active' : '○ Disabled'}
+              </span>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {status.waf.enabled

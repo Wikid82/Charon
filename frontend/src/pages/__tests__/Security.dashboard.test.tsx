@@ -133,7 +133,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       await renderSecurityPage()
 
       await waitFor(() => {
-        const cards = screen.getAllByText('Active')
+        const cards = screen.getAllByText(/● Active/)
         expect(cards.length).toBeGreaterThan(0)
       })
 
@@ -201,7 +201,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).toBeChecked()
-        expect(screen.getByText(/● Active/)).toBeInTheDocument()
+        const activeElements = screen.getAllByText(/● Active/)
+        expect(activeElements.length).toBeGreaterThan(0)
       })
     })
 
@@ -215,7 +216,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).not.toBeChecked()
-        expect(screen.getByText(/○ Disabled/)).toBeInTheDocument()
+        const disabledElements = screen.getAllByText(/○ Disabled/)
+        expect(disabledElements.length).toBeGreaterThan(0)
       })
     })
   })
