@@ -2,19 +2,37 @@ import { useMemo, useEffect } from 'react'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
+import { useAccessLists } from '../hooks/useAccessLists'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { checkHealth } from '../api/health'
-import { Link } from 'react-router-dom'
+import { Globe, Server, FileKey, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { PageShell } from '../components/layout/PageShell'
+import { StatsCard, Skeleton } from '../components/ui'
 import UptimeWidget from '../components/UptimeWidget'
-import CertificateStatusCard from '../components/CertificateStatusCard'
+
+function StatsCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-surface-elevated p-6">
+      <div className="flex items-start justify-between">
+        <div className="min-w-0 flex-1 space-y-3">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-8 w-16" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+        <Skeleton className="h-12 w-12 rounded-lg" />
+      </div>
+    </div>
+  )
+}
 
 export default function Dashboard() {
-  const { hosts } = useProxyHosts()
-  const { servers } = useRemoteServers()
+  const { hosts, loading: hostsLoading } = useProxyHosts()
+  const { servers, loading: serversLoading } = useRemoteServers()
+  const { data: accessLists, isLoading: accessListsLoading } = useAccessLists()
   const queryClient = useQueryClient()
 
   // Fetch certificates (polling interval managed via effect below)
-  const { certificates } = useCertificates()
+  const { certificates, isLoading: certificatesLoading } = useCertificates()
 
   // Build set of certified domains for pending detection
   // ACME certificates (Let's Encrypt) are auto-managed and don't set certificate_id,
@@ -50,7 +68,7 @@ export default function Dashboard() {
   }, [hasPendingCerts, queryClient])
 
   // Use React Query for health check - benefits from global caching
-  const { data: health } = useQuery({
+  const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ['health'],
     queryFn: checkHealth,
     staleTime: 1000 * 60, // 1 minute for health checks
@@ -59,40 +77,100 @@ export default function Dashboard() {
 
   const enabledHosts = hosts.filter(h => h.enabled).length
   const enabledServers = servers.filter(s => s.enabled).length
+  const enabledAccessLists = accessLists?.filter(a => a.enabled).length ?? 0
+  const validCertificates = certificates.filter(c => c.status === 'valid').length
+
+  const isInitialLoading = hostsLoading || serversLoading || accessListsLoading || certificatesLoading
 
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold text-white mb-6">Dashboard</h1>
+    <PageShell
+      title="Dashboard"
+      description="Overview of your Charon reverse proxy"
+    >
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {isInitialLoading ? (
+          <>
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+            <StatsCardSkeleton />
+          </>
+        ) : (
+          <>
+            <StatsCard
+              title="Proxy Hosts"
+              value={hosts.length}
+              icon={<Globe className="h-6 w-6" />}
+              href="/proxy-hosts"
+              change={enabledHosts > 0 ? {
+                value: Math.round((enabledHosts / hosts.length) * 100) || 0,
+                trend: 'neutral',
+                label: `${enabledHosts} enabled`,
+              } : undefined}
+            />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Link to="/proxy-hosts" className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors">
-          <div className="text-sm text-gray-400 mb-2">Proxy Hosts</div>
-          <div className="text-3xl font-bold text-white mb-1">{hosts.length}</div>
-          <div className="text-xs text-gray-500">{enabledHosts} enabled</div>
-        </Link>
+            <StatsCard
+              title="Certificate Status"
+              value={certificates.length}
+              icon={<FileKey className="h-6 w-6" />}
+              href="/certificates"
+              change={validCertificates > 0 ? {
+                value: Math.round((validCertificates / certificates.length) * 100) || 0,
+                trend: 'neutral',
+                label: `${validCertificates} valid`,
+              } : undefined}
+            />
 
-        <Link to="/remote-servers" className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors">
-          <div className="text-sm text-gray-400 mb-2">Remote Servers</div>
-          <div className="text-3xl font-bold text-white mb-1">{servers.length}</div>
-          <div className="text-xs text-gray-500">{enabledServers} enabled</div>
-        </Link>
 
-        <CertificateStatusCard certificates={certificates} hosts={hosts} />
+            <StatsCard
+              title="Remote Servers"
+              value={servers.length}
+              icon={<Server className="h-6 w-6" />}
+              href="/remote-servers"
+              change={enabledServers > 0 ? {
+                value: Math.round((enabledServers / servers.length) * 100) || 0,
+                trend: 'neutral',
+                label: `${enabledServers} enabled`,
+              } : undefined}
+            />
 
-        <div className="bg-dark-card p-6 rounded-lg border border-gray-800">
-          <div className="text-sm text-gray-400 mb-2">System Status</div>
-          <div className={`text-lg font-bold ${health?.status === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
-            {health?.status === 'ok' ? 'Healthy' : health ? 'Error' : 'Checking...'}
-          </div>
-        </div>
+            <StatsCard
+              title="Access Lists"
+              value={accessLists?.length ?? 0}
+              icon={<FileKey className="h-6 w-6" />}
+              href="/access-lists"
+              change={enabledAccessLists > 0 ? {
+                value: Math.round((enabledAccessLists / (accessLists?.length ?? 1)) * 100) || 0,
+                trend: 'neutral',
+                label: `${enabledAccessLists} active`,
+              } : undefined}
+            />
+
+            <StatsCard
+              title="System Status"
+              value={healthLoading ? '...' : health?.status === 'ok' ? 'Healthy' : 'Error'}
+              icon={
+                healthLoading ? (
+                  <Activity className="h-6 w-6 animate-pulse" />
+                ) : health?.status === 'ok' ? (
+                  <CheckCircle2 className="h-6 w-6 text-success" />
+                ) : (
+                  <AlertTriangle className="h-6 w-6 text-error" />
+                )
+              }
+            />
+          </>
+        )}
       </div>
 
       {/* Uptime Widget */}
-      <div className="mb-8">
-        <UptimeWidget />
-      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-4">
 
-      {/* Quick Actions removed per UI update; Security quick-look will be added later */}
-    </div>
+        <UptimeWidget />
+
+      </div>
+    </PageShell>
   )
 }

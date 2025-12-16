@@ -92,12 +92,12 @@ describe('Security Dashboard - Card Status Tests', () => {
   }
 
   describe('SD-01: Cerberus Disabled Banner', () => {
-    it('should show "Cerberus Disabled" banner when cerberus.enabled=false', async () => {
+    it('should show "Security Features Unavailable" banner when cerberus.enabled=false', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCerberusDisabled)
       await renderSecurityPage()
 
       await waitFor(() => {
-        expect(screen.getByText(/Cerberus Disabled/i)).toBeInTheDocument()
+        expect(screen.getByText(/Security Features Unavailable/i)).toBeInTheDocument()
       })
     })
 
@@ -106,10 +106,9 @@ describe('Security Dashboard - Card Status Tests', () => {
       await renderSecurityPage()
 
       await waitFor(() => {
-        // Multiple Documentation buttons exist (one in banner, one in header)
-        const docButtons = screen.getAllByRole('button', { name: /Documentation/i })
+        // Documentation link uses "Learn More" text in current UI
+        const docButtons = screen.getAllByRole('button', { name: /Learn More/i })
         expect(docButtons.length).toBeGreaterThanOrEqual(1)
-        // The primary one in the banner should have blue-600 (primary variant)
         expect(docButtons[0]).toBeInTheDocument()
       })
     })
@@ -126,15 +125,16 @@ describe('Security Dashboard - Card Status Tests', () => {
   })
 
   describe('SD-02: CrowdSec Card Active Status', () => {
-    it('should show "Active" when crowdsec.enabled=true', async () => {
+    it('should show "Enabled" when crowdsec.enabled=true', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 
       await waitFor(() => {
-        const cards = screen.getAllByText(/● Active/)
-        expect(cards.length).toBeGreaterThan(0)
+        // Status badges now show 'Enabled' text
+        const enabledBadges = screen.getAllByText('Enabled')
+        expect(enabledBadges.length).toBeGreaterThan(0)
       })
 
       const toggle = screen.getByTestId('toggle-crowdsec')
@@ -201,8 +201,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).toBeChecked()
-        const activeElements = screen.getAllByText(/● Active/)
-        expect(activeElements.length).toBeGreaterThan(0)
+        const enabledBadges = screen.getAllByText('Enabled')
+        expect(enabledBadges.length).toBeGreaterThan(0)
       })
     })
 
@@ -216,8 +216,8 @@ describe('Security Dashboard - Card Status Tests', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('toggle-rate-limit')).not.toBeChecked()
-        const disabledElements = screen.getAllByText(/○ Disabled/)
-        expect(disabledElements.length).toBeGreaterThan(0)
+        const disabledBadges = screen.getAllByText('Disabled')
+        expect(disabledBadges.length).toBeGreaterThan(0)
       })
     })
   })
@@ -254,11 +254,11 @@ describe('Security Dashboard - Card Status Tests', () => {
         expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument()
       })
 
-      // Verify each layer indicator is present
-      expect(screen.getByText(/Layer 1: IP Reputation/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 2: Access Control/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 3: Request Inspection/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 4: Volume Control/i)).toBeInTheDocument()
+      // Layer indicators are now Badges with just the layer number
+      expect(screen.getByText('Layer 1')).toBeInTheDocument()
+      expect(screen.getByText('Layer 2')).toBeInTheDocument()
+      expect(screen.getByText('Layer 3')).toBeInTheDocument()
+      expect(screen.getByText('Layer 4')).toBeInTheDocument()
     })
   })
 
@@ -292,12 +292,12 @@ describe('Security Dashboard - Card Status Tests', () => {
         expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument()
       })
 
-      // Get all card headings
+      // Get all card headings (includes Admin Whitelist when Cerberus is enabled)
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map((card: HTMLElement) => card.textContent)
 
-      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → Coraza (Layer 3) → Rate Limiting (Layer 4) + Security Access Logs
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
+      // Verify pipeline order with Admin Whitelist first (when Cerberus enabled)
+      expect(cardNames).toEqual(['Admin Whitelist', 'CrowdSec', 'Access Control', 'Coraza WAF', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('should maintain card order even after toggle', async () => {
@@ -317,7 +317,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       // Cards should still be in order
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map((card: HTMLElement) => card.textContent)
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
+      expect(cardNames).toEqual(['Admin Whitelist', 'CrowdSec', 'Access Control', 'Coraza WAF', 'Rate Limiting', 'Security Access Logs'])
     })
   })
 
@@ -328,7 +328,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       await renderSecurityPage()
 
       await waitFor(() => {
-        expect(screen.getByText(/Cerberus Disabled/i)).toBeInTheDocument()
+        expect(screen.getByText(/Security Features Unavailable/i)).toBeInTheDocument()
       })
 
       // All toggles should be disabled

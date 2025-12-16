@@ -33,8 +33,8 @@ describe('SMTPSettings', () => {
 
     renderWithQueryClient(<SMTPSettings />)
 
-    // Should show loading spinner
-    expect(document.querySelector('.animate-spin')).toBeTruthy()
+    // Should show loading skeletons (Skeleton components don't use animate-spin)
+    expect(document.querySelectorAll('[class*="animate-pulse"]').length).toBeGreaterThan(0)
   })
 
   it('renders SMTP form with existing config', async () => {
