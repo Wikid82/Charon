@@ -137,13 +137,14 @@ const getLevelColor = (level: string): string => {
 export function LiveLogViewer({
   filters = {},
   securityFilters = {},
-  mode = 'application',
+  mode = 'security',
   maxLogs = 500,
   className = '',
 }: LiveLogViewerProps) {
   const [logs, setLogs] = useState<DisplayLogEntry[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [currentMode, setCurrentMode] = useState<LogMode>(mode);
   const [textFilter, setTextFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
@@ -180,11 +181,13 @@ export function LiveLogViewer({
     const handleOpen = () => {
       console.log(`${currentMode} log viewer connected`);
       setIsConnected(true);
+      setConnectionError(null);
     };
 
     const handleError = (error: Event) => {
-      console.error('WebSocket error:', error);
+      console.error(`${currentMode} log viewer error:`, error);
       setIsConnected(false);
+      setConnectionError('Failed to connect to log stream. Check your authentication or try refreshing.');
     };
 
     const handleClose = () => {
@@ -318,6 +321,11 @@ export function LiveLogViewer({
           >
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
+          {connectionError && (
+            <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">
+              {connectionError}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Mode toggle */}
