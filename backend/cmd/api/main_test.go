@@ -57,3 +57,134 @@ func TestResetPasswordCommand_Succeeds(t *testing.T) {
 		t.Fatalf("expected exit 0; err=%v; output=%s", err, string(out))
 	}
 }
+
+func TestMigrateCommand_Succeeds(t *testing.T) {
+	if os.Getenv("CHARON_TEST_RUN_MAIN") == "1" {
+		// Child process: emulate CLI args and run main().
+		os.Args = []string{"charon", "migrate"}
+		main()
+		return
+	}
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	// Create database without security tables
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	// Only migrate User table to simulate old database
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatalf("automigrate user: %v", err)
+	}
+
+	// Verify security tables don't exist
+	if db.Migrator().HasTable(&models.SecurityConfig{}) {
+		t.Fatal("SecurityConfig table should not exist yet")
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestMigrateCommand_Succeeds")
+	cmd.Dir = tmp
+	cmd.Env = append(os.Environ(),
+		"CHARON_TEST_RUN_MAIN=1",
+		"CHARON_DB_PATH="+dbPath,
+		"CHARON_CADDY_CONFIG_DIR="+filepath.Join(tmp, "caddy"),
+		"CHARON_IMPORT_DIR="+filepath.Join(tmp, "imports"),
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected exit 0; err=%v; output=%s", err, string(out))
+	}
+
+	// Reconnect and verify security tables were created
+	db2, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("reconnect db: %v", err)
+	}
+
+	securityModels := []interface{}{
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
+		&models.CrowdsecPresetEvent{},
+		&models.CrowdsecConsoleEnrollment{},
+	}
+
+	for _, model := range securityModels {
+		if !db2.Migrator().HasTable(model) {
+			t.Errorf("Table for %T was not created by migrate command", model)
+		}
+	}
+}
+
+func TestStartupVerification_MissingTables(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "data", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	// Create database without security tables
+	db, err := database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	// Only migrate User table to simulate old database
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatalf("automigrate user: %v", err)
+	}
+
+	// Verify security tables don't exist
+	if db.Migrator().HasTable(&models.SecurityConfig{}) {
+		t.Fatal("SecurityConfig table should not exist yet")
+	}
+
+	// Close and reopen to simulate startup scenario
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	db, err = database.Connect(dbPath)
+	if err != nil {
+		t.Fatalf("reconnect db: %v", err)
+	}
+
+	// Simulate startup verification logic from main.go
+	securityModels := []interface{}{
+		&models.SecurityConfig{},
+		&models.SecurityDecision{},
+		&models.SecurityAudit{},
+		&models.SecurityRuleSet{},
+		&models.CrowdsecPresetEvent{},
+		&models.CrowdsecConsoleEnrollment{},
+	}
+
+	missingTables := false
+	for _, model := range securityModels {
+		if !db.Migrator().HasTable(model) {
+			missingTables = true
+			t.Logf("Missing table for model %T", model)
+		}
+	}
+
+	if !missingTables {
+		t.Fatal("Expected to find missing tables but all were present")
+	}
+
+	// Run auto-migration (simulating startup verification logic)
+	if err := db.AutoMigrate(securityModels...); err != nil {
+		t.Fatalf("failed to migrate security tables: %v", err)
+	}
+
+	// Verify all tables now exist
+	for _, model := range securityModels {
+		if !db.Migrator().HasTable(model) {
+			t.Errorf("Table for %T was not created by auto-migration", model)
+		}
+	}
+}

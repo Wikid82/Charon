@@ -149,16 +149,10 @@ describe('CrowdSecConfig coverage', () => {
     expect(screen.getByRole('button', { name: /Ban IP/ })).toBeDisabled()
   })
 
-  it('toggles mode success and error', async () => {
+  it('shows info banner directing to Security Dashboard', async () => {
     await renderPage()
-    const toggle = screen.getByTestId('crowdsec-mode-toggle')
-    await userEvent.click(toggle)
-    await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.crowdsec.mode', 'disabled', 'security', 'string'))
-    expect(toast.success).toHaveBeenCalledWith('CrowdSec disabled')
-
-    vi.mocked(settingsApi.updateSetting).mockRejectedValueOnce(new Error('nope'))
-    await userEvent.click(toggle)
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('nope'))
+    expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
   })
 
   it('guards import without a file and shows error on import failure', async () => {
@@ -528,7 +522,7 @@ describe('CrowdSecConfig coverage', () => {
 
     cleanup()
 
-    // write pending
+    // write pending shows loading overlay
     let resolveWrite: (() => void) | undefined
     vi.mocked(crowdsecApi.writeCrowdsecFile).mockImplementationOnce(
       () =>
@@ -546,13 +540,5 @@ describe('CrowdSecConfig coverage', () => {
     await userEvent.click(screen.getByText('Save'))
     expect(await screen.findByText('Guardian inscribes...')).toBeInTheDocument()
     resolveWrite?.()
-
-    cleanup()
-
-    // mode update pending
-    vi.mocked(settingsApi.updateSetting).mockImplementationOnce(() => new Promise(() => {}))
-    await renderPage()
-    await userEvent.click(screen.getByTestId('crowdsec-mode-toggle'))
-    expect(await screen.findByText('Three heads turn...')).toBeInTheDocument()
   })
 })

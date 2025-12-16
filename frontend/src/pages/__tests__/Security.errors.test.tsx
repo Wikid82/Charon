@@ -72,7 +72,7 @@ describe('Security Error Handling Tests', () => {
       },
     })
     vi.clearAllMocks()
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(window, 'open').mockImplementation(() => null)
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
@@ -128,7 +128,7 @@ describe('Security Error Handling Tests', () => {
     it('should show "Failed to start CrowdSec: [message]" on start failure', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCrowdsecDisabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('Service unavailable'))
 
@@ -148,7 +148,7 @@ describe('Security Error Handling Tests', () => {
     it('should show "Failed to stop CrowdSec: [message]" on stop failure', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       vi.mocked(crowdsecApi.stopCrowdsec).mockRejectedValue(new Error('Process locked'))
 
@@ -304,7 +304,7 @@ describe('Security Error Handling Tests', () => {
     it('should revert CrowdSec state on start failure', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusCrowdsecDisabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('Start failed'))
 
@@ -333,7 +333,7 @@ describe('Security Error Handling Tests', () => {
     it('should revert CrowdSec state on stop failure', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       vi.mocked(crowdsecApi.stopCrowdsec).mockRejectedValue(new Error('Stop failed'))
 

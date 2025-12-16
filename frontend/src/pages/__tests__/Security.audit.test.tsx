@@ -30,6 +30,8 @@ vi.mock('../../utils/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
   },
 }))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
@@ -55,7 +57,7 @@ describe('Security Page - QA Security Audit', () => {
     })
     vi.clearAllMocks()
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
     vi.mocked(crowdsecApi.exportCrowdsecConfig).mockResolvedValue(new Blob())
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
@@ -112,6 +114,8 @@ describe('Security Page - QA Security Audit', () => {
     it('displays error toast when toggle mutation fails', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      // CrowdSec is not running, so toggle will try to START it
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('Network error'))
 
       await renderSecurityPage()
@@ -121,7 +125,7 @@ describe('Security Page - QA Security Audit', () => {
       await user.click(toggle)
 
       await waitFor(() => {
-        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to stop CrowdSec'))
+        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Failed to start CrowdSec'))
       })
     })
 
@@ -131,7 +135,7 @@ describe('Security Page - QA Security Audit', () => {
         ...mockSecurityStatus,
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
       vi.mocked(crowdsecApi.startCrowdsec).mockRejectedValue(new Error('Failed to start'))
 
       await renderSecurityPage()
@@ -148,7 +152,7 @@ describe('Security Page - QA Security Audit', () => {
     it('handles CrowdSec stop failure gracefully', async () => {
       const user = userEvent.setup()
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234 })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
       vi.mocked(crowdsecApi.stopCrowdsec).mockRejectedValue(new Error('Failed to stop'))
 
       await renderSecurityPage()
@@ -198,12 +202,13 @@ describe('Security Page - QA Security Audit', () => {
         ...mockSecurityStatus,
         crowdsec: { mode: 'local', api_url: 'http://localhost', enabled: false },
       })
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
+      vi.mocked(settingsApi.updateSetting).mockResolvedValue()
       let callCount = 0
       vi.mocked(crowdsecApi.startCrowdsec).mockImplementation(async () => {
         callCount++
         await new Promise(resolve => setTimeout(resolve, 100))
-        return { success: true }
+        return { status: 'started', pid: 123, lapi_ready: true }
       })
 
       await renderSecurityPage()
@@ -305,7 +310,7 @@ describe('Security Page - QA Security Audit', () => {
 
     it('CrowdSec controls surface primary actions when enabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
-      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false })
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: false, pid: 0, lapi_ready: false })
 
       await renderSecurityPage()
 
@@ -349,6 +354,8 @@ describe('Security Page - QA Security Audit', () => {
 
     it('threat summaries match spec when services enabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
+      // CrowdSec must be running to show threat protection descriptions
+      vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
 

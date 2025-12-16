@@ -67,6 +67,92 @@ docker run -d \
 
 ---
 
+## Step 1.5: Database Migrations (If Upgrading)
+
+If you're **upgrading from a previous version** and using a persistent database, you may need to run migrations to ensure all security features work correctly.
+
+### When to Run Migrations
+
+Run the migration command if:
+
+- ✅ You're upgrading from an older version of Charon
+- ✅ You're using a persistent volume for `/app/data`
+- ✅ CrowdSec features aren't working after upgrade
+
+**Skip this step if:**
+- ❌ This is a fresh installation (migrations run automatically)
+- ❌ You're not using persistent storage
+
+### How to Run Migrations
+
+**Docker Compose:**
+
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Docker Run:**
+
+```bash
+docker exec charon /app/charon migrate
+```
+
+**Expected Output:**
+
+```json
+{"level":"info","msg":"Running database migrations for security tables...","time":"..."}
+{"level":"info","msg":"Migration completed successfully","time":"..."}
+```
+
+**What This Does:**
+
+- Creates or updates security-related database tables
+- Adds CrowdSec integration support
+- Ensures all features work after upgrade
+- **Safe to run multiple times** (idempotent)
+
+**After Migration:**
+
+If you enabled CrowdSec before the migration, restart the container:
+
+```bash
+docker restart charon
+```
+
+**Auto-Start Behavior:**
+
+CrowdSec will automatically start if it was previously enabled. The reconciliation function runs at startup and checks:
+
+1. **SecurityConfig table** for `crowdsec_mode = "local"`
+2. **Settings table** for `security.crowdsec.enabled = "true"`
+3. **Starts CrowdSec** if either condition is true
+
+You'll see this in the logs:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'"}
+```
+
+**Verification:**
+
+```bash
+# Wait 15 seconds for LAPI to initialize
+sleep 15
+
+# Check if CrowdSec auto-started
+docker exec charon cscli lapi status
+```
+
+Expected output:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+**If auto-start didn't work:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart) for detailed troubleshooting steps.
+
+---
+
 ## Step 2: Add Your First Website
 
 Let's say you have an app running at `192.168.1.100:3000` and you want it available at `myapp.example.com`.

@@ -56,6 +56,23 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		},
 	}
 
+	// Configure CrowdSec app if enabled
+	if crowdsecEnabled {
+		apiURL := "http://127.0.0.1:8085"
+		if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
+			apiURL = secCfg.CrowdSecAPIURL
+		}
+		apiKey := getCrowdSecAPIKey()
+		enableStreaming := true
+
+		config.Apps.CrowdSec = &CrowdSecApp{
+			APIUrl:          apiURL,
+			APIKey:          apiKey,
+			TickerInterval:  "60s",
+			EnableStreaming: &enableStreaming,
+		}
+	}
+
 	if acmeEmail != "" {
 		var issuers []interface{}
 
@@ -416,10 +433,26 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		autoHTTPS.Skip = append(autoHTTPS.Skip, ipSubjects...)
 	}
 
+	// Configure trusted proxies for proper client IP detection from X-Forwarded-For headers
+	// This is required for CrowdSec bouncer to correctly identify and block real client IPs
+	// when running behind Docker networks, reverse proxies, or CDNs
+	// Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
+	trustedProxies := &TrustedProxies{
+		Source: "static",
+		Ranges: []string{
+			"127.0.0.1/32",   // Localhost
+			"::1/128",        // IPv6 localhost
+			"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
+			"10.0.0.0/8",     // Private network
+			"192.168.0.0/16", // Private network
+		},
+	}
+
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
-		Listen:    []string{":80", ":443"},
-		Routes:    routes,
-		AutoHTTPS: autoHTTPS,
+		Listen:         []string{":80", ":443"},
+		Routes:         routes,
+		AutoHTTPS:      autoHTTPS,
+		TrustedProxies: trustedProxies,
 		Logs: &ServerLogs{
 			DefaultLoggerName: "access_log",
 		},
@@ -737,48 +770,18 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	return nil, nil
 }
 
-// buildCrowdSecHandler returns a CrowdSec handler for the caddy-crowdsec-bouncer plugin.
-// The plugin expects api_url and optionally api_key fields.
-// For local mode, we use the local LAPI address at http://127.0.0.1:8085.
-// NOTE: Port 8085 is used to avoid conflict with Charon management API on port 8080.
-//
-// Configuration options:
-//   - api_url: CrowdSec LAPI URL (default: http://127.0.0.1:8085)
-//   - api_key: Bouncer API key for authentication (from CROWDSEC_API_KEY env var)
-//   - streaming: Enable streaming mode for real-time decision updates
-//   - ticker_interval: How often to poll for decisions when not streaming (default: 60s)
-func buildCrowdSecHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
+// buildCrowdSecHandler returns a minimal CrowdSec handler for the caddy-crowdsec-bouncer plugin.
+// The app-level configuration (apps.crowdsec) is populated in GenerateConfig(),
+// so the handler only needs to reference the module name.
+// Reference: https://github.com/hslatman/caddy-crowdsec-bouncer
+func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdsecEnabled bool) (Handler, error) {
 	// Only add a handler when the computed runtime flag indicates CrowdSec is enabled.
 	if !crowdsecEnabled {
 		return nil, nil
 	}
 
-	h := Handler{"handler": "crowdsec"}
-
-	// caddy-crowdsec-bouncer expects api_url and api_key
-	// For local mode, use the local LAPI address (port 8085 to avoid conflict with Charon on 8080)
-	if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
-		h["api_url"] = secCfg.CrowdSecAPIURL
-	} else {
-		h["api_url"] = "http://127.0.0.1:8085"
-	}
-
-	// Add API key if available from environment
-	// Check multiple env var names for flexibility
-	apiKey := getCrowdSecAPIKey()
-	if apiKey != "" {
-		h["api_key"] = apiKey
-	}
-
-	// Enable streaming mode for real-time decision updates from LAPI
-	// This is more efficient than polling and provides faster response to new bans
-	h["enable_streaming"] = true
-
-	// Set ticker interval for decision sync (fallback when streaming reconnects)
-	// Default to 60 seconds for balance between freshness and LAPI load
-	h["ticker_interval"] = "60s"
-
-	return h, nil
+	// Return minimal handler - all config is at app-level
+	return Handler{"handler": "crowdsec"}, nil
 }
 
 // getCrowdSecAPIKey retrieves the CrowdSec bouncer API key from environment variables.

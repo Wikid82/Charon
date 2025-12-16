@@ -96,7 +96,7 @@ The following tests fail due to expecting old behavior (Settings table overrides
 
 ### Test Updates (1 file)
 
-9. `backend/internal/api/handlers/security_handler_audit_test.go` - Fixed TestSecurityHandler_GetStatus_SettingsOverride
+1. `backend/internal/api/handlers/security_handler_audit_test.go` - Fixed TestSecurityHandler_GetStatus_SettingsOverride
 
 ## Next Steps
 

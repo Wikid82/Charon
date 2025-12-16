@@ -1,12 +1,17 @@
 package crowdsec
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -72,13 +77,15 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant-a", AgentName: "agent-one"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 	require.True(t, status.KeyPresent)
 	require.NotEmpty(t, status.CorrelationID)
 
-	// Expect 2 calls: capi register, then console enroll
-	require.Equal(t, 2, exec.callCount())
-	require.Equal(t, []string{"capi", "register"}, exec.calls[0].args)
+	// Expect 3 calls: lapi status, capi register, then console enroll
+	require.Equal(t, 3, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Equal(t, []string{"capi", "register"}, exec.calls[1].args)
 	require.Equal(t, "abc123def4g", exec.lastArgs()[len(exec.lastArgs())-1])
 
 	var rec models.CrowdsecConsoleEnrollment
@@ -96,6 +103,7 @@ func TestConsoleEnrollFailureRedactsSecret(t *testing.T) {
 			out []byte
 			err error
 		}{
+			{out: nil, err: nil}, // lapi status success
 			{out: nil, err: nil}, // capi register success
 			{out: []byte("invalid secretKEY123"), err: fmt.Errorf("bad key secretKEY123")}, // enroll failure
 		},
@@ -116,13 +124,14 @@ func TestConsoleEnrollIdempotentWhenAlreadyEnrolled(t *testing.T) {
 
 	_, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, 2, exec.callCount()) // capi register + enroll
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "ignoredignored", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
-	// Should call capi register again (because file missing in temp dir), but then stop because already enrolled
-	require.Equal(t, 3, exec.callCount(), "second call should check capi then stop")
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	// Should call lapi status and capi register again, but then stop because already pending
+	require.Equal(t, 5, exec.callCount(), "second call should check lapi, then capi, then stop")
 	require.Equal(t, []string{"capi", "register"}, exec.lastArgs())
 }
 
@@ -136,9 +145,11 @@ func TestConsoleEnrollBlockedWhenInProgress(t *testing.T) {
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant", AgentName: "agent"})
 	require.Error(t, err)
 	require.Equal(t, consoleStatusEnrolling, status.Status)
-	// capi register is called before status check
-	require.Equal(t, 1, exec.callCount())
-	require.Equal(t, []string{"capi", "register"}, exec.lastArgs())
+	// lapi status and capi register are called before status check blocks enrollment
+	require.Equal(t, 2, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Contains(t, exec.calls[0].args, "status")
+	require.Equal(t, []string{"capi", "register"}, exec.calls[1].args)
 }
 
 func TestConsoleEnrollNormalizesFullCommand(t *testing.T) {
@@ -148,8 +159,9 @@ func TestConsoleEnrollNormalizesFullCommand(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "sudo cscli console enroll cmj0r0uer000202lebd5luvxh", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
-	require.Equal(t, 2, exec.callCount())
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 	require.Equal(t, "cmj0r0uer000202lebd5luvxh", exec.lastArgs()[len(exec.lastArgs())-1])
 }
 
@@ -164,12 +176,11 @@ func TestConsoleEnrollRejectsUnsafeInput(t *testing.T) {
 	require.Equal(t, 0, exec.callCount())
 }
 
-func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
+func TestConsoleEnrollPassesTenantAsTags(t *testing.T) {
 	db := openConsoleTestDB(t)
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
 
-	// Even if tenant is provided in the request
 	req := ConsoleEnrollRequest{
 		EnrollmentKey: "abc123def4g",
 		Tenant:        "some-tenant-id",
@@ -178,13 +189,99 @@ func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), req)
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 
-	// Verify that --tenant is NOT passed to the command arguments
-	require.Equal(t, 2, exec.callCount())
-	require.NotContains(t, exec.lastArgs(), "--tenant")
-	// Also verify that the tenant value itself is not passed as a standalone arg just in case
-	require.NotContains(t, exec.lastArgs(), "some-tenant-id")
+	// Verify that --tags tenant:X is passed to the command arguments
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	args := exec.lastArgs()
+	require.Contains(t, args, "--tags")
+	require.Contains(t, args, "tenant:some-tenant-id")
+}
+
+func TestConsoleEnrollNoTenantOmitsTags(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	// Request without tenant
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --tags is NOT in the command arguments when tenant is empty
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.NotContains(t, exec.lastArgs(), "--tags")
+}
+
+func TestConsoleEnrollPassesForceAsOverwrite(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+		Force:         true,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --overwrite is passed when Force is true
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.Contains(t, exec.lastArgs(), "--overwrite")
+}
+
+func TestConsoleEnrollNoForceOmitsOverwrite(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+		Force:         false,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --overwrite is NOT in the command arguments when Force is false
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.NotContains(t, exec.lastArgs(), "--overwrite")
+}
+
+func TestConsoleEnrollWithTenantAndForce(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		Tenant:        "my-tenant",
+		AgentName:     "agent-one",
+		Force:         true,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify both --tags and --overwrite are passed
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	args := exec.lastArgs()
+	require.Contains(t, args, "--tags")
+	require.Contains(t, args, "tenant:my-tenant")
+	require.Contains(t, args, "--overwrite")
+	// Token should be the last argument
+	require.Equal(t, "abc123def4g", args[len(args)-1])
 }
 
 // ============================================
@@ -282,7 +379,7 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 		require.Equal(t, consoleStatusNotEnrolled, status.Status)
 	})
 
-	t.Run("returns enrolled status after enrollment", func(t *testing.T) {
+	t.Run("returns pending_acceptance status after enrollment", func(t *testing.T) {
 		db := openConsoleTestDB(t)
 		exec := &stubEnvExecutor{}
 		svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
@@ -294,13 +391,16 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Then check status
+		// Then check status - should be pending_acceptance until user accepts on crowdsec.net
 		status, err := svc.Status(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, consoleStatusEnrolled, status.Status)
+		require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 		require.Equal(t, "test-agent", status.AgentName)
 		require.True(t, status.KeyPresent)
-		require.NotNil(t, status.EnrolledAt)
+		// EnrolledAt is nil because user hasn't accepted on crowdsec.net yet
+		require.Nil(t, status.EnrolledAt)
+		// LastAttemptAt should be set to when the enrollment request was sent
+		require.NotNil(t, status.LastAttemptAt)
 	})
 
 	t.Run("returns failed status after failed enrollment", func(t *testing.T) {
@@ -310,7 +410,8 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 				out []byte
 				err error
 			}{
-				{out: nil, err: nil},                                    // capi register success
+				{out: nil, err: nil}, // lapi status success
+				{out: nil, err: nil}, // capi register success
 				{out: []byte("error"), err: fmt.Errorf("enroll failed")}, // enroll failure
 			},
 		}
@@ -446,6 +547,76 @@ func TestRedactSecret(t *testing.T) {
 }
 
 // ============================================
+// extractCscliErrorMessage Tests
+// ============================================
+
+func TestExtractCscliErrorMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "msg format with quotes",
+			input:    `level=error msg="the attachment key provided is not valid (hint: get your enrollement key from console...)"`,
+			expected: "the attachment key provided is not valid (hint: get your enrollement key from console...)",
+		},
+		{
+			name:     "ERRO format with timestamp",
+			input:    `ERRO[2024-01-15T10:30:00Z] unable to enroll: API returned error code 401`,
+			expected: "unable to enroll: API returned error code 401",
+		},
+		{
+			name:     "plain error message",
+			input:    "error: invalid enrollment token",
+			expected: "error: invalid enrollment token",
+		},
+		{
+			name:     "multiline with error in middle",
+			input:    "INFO[2024-01-15] Starting enrollment...\nERRO[2024-01-15] enrollment failed: bad token\nINFO[2024-01-15] Cleanup complete",
+			expected: "enrollment failed: bad token",
+		},
+		{
+			name:     "empty output",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "whitespace only",
+			input:    "   \n\t  ",
+			expected: "",
+		},
+		{
+			name:     "no recognizable pattern - returns first line",
+			input:    "Something went wrong\nMore details here",
+			expected: "Something went wrong",
+		},
+		{
+			name:     "failed keyword detection",
+			input:    "Operation failed due to network timeout",
+			expected: "Operation failed due to network timeout",
+		},
+		{
+			name:     "invalid keyword detection",
+			input:    "The token is invalid",
+			expected: "The token is invalid",
+		},
+		{
+			name:     "complex cscli output with msg",
+			input:    `time="2024-01-15T10:30:00Z" level=fatal msg="unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory"`,
+			expected: "unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractCscliErrorMessage(tc.input)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// ============================================
 // Encryption Tests
 // ============================================
 
@@ -480,4 +651,489 @@ func TestEncryptDecrypt(t *testing.T) {
 		encrypted2, _ := svc.encrypt(original)
 		require.NotEqual(t, encrypted1, encrypted2, "encryptions should use different nonces")
 	})
+}
+
+// ============================================
+// LAPI Availability Check Retry Tests
+// ============================================
+
+// TestCheckLAPIAvailable_Retries verifies that checkLAPIAvailable retries 3 times with delays.
+func TestCheckLAPIAvailable_Retries(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
+			{out: []byte("ok"), err: nil},                     // Attempt 3: success
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	// Track start time to verify delays
+	start := time.Now()
+	err := svc.checkLAPIAvailable(context.Background())
+	elapsed := time.Since(start)
+
+	require.NoError(t, err, "should succeed on 3rd attempt")
+	require.Equal(t, 3, exec.callCount(), "should make 3 attempts")
+
+	// Verify delays were applied (should be at least 4 seconds: 2s + 2s delays)
+	require.GreaterOrEqual(t, elapsed, 4*time.Second, "should wait at least 4 seconds with 2 retries")
+
+	// Verify all calls were lapi status checks
+	for _, call := range exec.calls {
+		require.Contains(t, call.args, "lapi")
+		require.Contains(t, call.args, "status")
+	}
+}
+
+// TestCheckLAPIAvailable_RetriesExhausted verifies proper error message when all retries fail.
+func TestCheckLAPIAvailable_RetriesExhausted(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 1: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 2: fail
+			{out: nil, err: fmt.Errorf("connection refused")}, // Attempt 3: fail
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	err := svc.checkLAPIAvailable(context.Background())
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "after 3 attempts")
+	require.Contains(t, err.Error(), "5-10 seconds")
+	require.Equal(t, 3, exec.callCount(), "should make exactly 3 attempts")
+}
+
+// TestCheckLAPIAvailable_FirstAttemptSuccess verifies no retries when LAPI is immediately available.
+func TestCheckLAPIAvailable_FirstAttemptSuccess(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: []byte("ok"), err: nil}, // Attempt 1: success
+		},
+	}
+
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	start := time.Now()
+	err := svc.checkLAPIAvailable(context.Background())
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, exec.callCount(), "should make only 1 attempt")
+
+	// Should complete quickly without delays
+	require.Less(t, elapsed, 1*time.Second, "should complete immediately")
+}
+
+// ============================================
+// LAPI Availability Check Tests
+// ============================================
+
+// TestEnroll_RequiresLAPI verifies that enrollment fails with proper error when LAPI is not running.
+// This ensures users get clear feedback to enable CrowdSec via GUI before attempting enrollment.
+func TestEnroll_RequiresLAPI(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 1
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 2
+			{out: nil, err: fmt.Errorf("dial tcp 127.0.0.1:8085: connection refused")}, // lapi status fails - attempt 3
+		},
+	}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	_, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{
+		EnrollmentKey: "test123token",
+		AgentName:     "agent",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Local API is not running")
+	require.Contains(t, err.Error(), "after 3 attempts")
+
+	// Verify that we retried lapi status check 3 times
+	require.Equal(t, 3, exec.callCount())
+	require.Contains(t, exec.calls[0].args, "lapi")
+	require.Contains(t, exec.calls[0].args, "status")
+}
+
+// ============================================
+// ClearEnrollment Tests
+// ============================================
+
+func TestConsoleEnrollService_ClearEnrollment(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an enrollment record
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Verify record exists
+	var countBefore int64
+	db.Model(&models.CrowdsecConsoleEnrollment{}).Count(&countBefore)
+	require.Equal(t, int64(1), countBefore)
+
+	// Clear it
+	err := svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+
+	// Verify it's gone
+	var countAfter int64
+	db.Model(&models.CrowdsecConsoleEnrollment{}).Count(&countAfter)
+	assert.Equal(t, int64(0), countAfter)
+}
+
+func TestConsoleEnrollService_ClearEnrollment_NoRecord(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Should not error when no record exists
+	err := svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+}
+
+func TestConsoleEnrollService_ClearEnrollment_NilDB(t *testing.T) {
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(nil, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Should error when DB is nil
+	err := svc.ClearEnrollment(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "database not initialized")
+}
+
+func TestConsoleEnrollService_ClearEnrollment_ThenReenroll(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// First enrollment
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+	})
+	require.NoError(t, err)
+
+	// Verify enrolled
+	status, err := svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Clear enrollment
+	err = svc.ClearEnrollment(ctx)
+	require.NoError(t, err)
+
+	// Verify status is now not_enrolled (new record will be created on next Status call)
+	status, err = svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusNotEnrolled, status.Status)
+
+	// Re-enroll with new key should work without force
+	_, err = svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "agent-two",
+		Force:         false, // Force NOT required after clear
+	})
+	require.NoError(t, err)
+
+	// Verify new enrollment
+	status, err = svc.Status(ctx)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, "agent-two", status.AgentName)
+}
+
+// ============================================
+// Logging When Skipped Tests
+// ============================================
+
+func TestConsoleEnrollService_LogsWhenSkipped(t *testing.T) {
+	db := openConsoleTestDB(t)
+
+	// Use a test logger that captures output
+	logger := logrus.New()
+	var logBuf bytes.Buffer
+	logger.SetOutput(&logBuf)
+	logger.SetLevel(logrus.InfoLevel)
+	logger.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll without force - this should be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         false,
+	})
+	require.NoError(t, err)
+
+	// Enrollment should be skipped - status remains enrolled
+	require.Equal(t, "enrolled", status.Status)
+
+	// The actual logging is done via the logger package, which uses a global logger.
+	// We can't easily capture that here without modifying the package.
+	// Instead, we verify the behavior is correct by checking exec.callCount()
+	// - if skipped properly, we should see lapi + capi calls but NO enroll call
+	require.Equal(t, 2, exec.callCount(), "should only call lapi status and capi register, not enroll")
+}
+
+func TestConsoleEnrollService_LogsWhenSkipped_PendingAcceptance(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment with pending_acceptance status
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    consoleStatusPendingAcceptance,
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll without force - this should also be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         false,
+	})
+	require.NoError(t, err)
+
+	// Enrollment should be skipped - status remains pending_acceptance
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, 2, exec.callCount(), "should only call lapi status and capi register, not enroll")
+}
+
+func TestConsoleEnrollService_ForceOverridesSkip(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "test-secret")
+	ctx := context.Background()
+
+	// Create an existing enrollment
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, db.Create(rec).Error)
+
+	// Try to enroll WITH force - this should NOT be skipped
+	status, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "newkey12345",
+		AgentName:     "new-agent",
+		Force:         true,
+	})
+	require.NoError(t, err)
+
+	// Force enrollment should proceed - status becomes pending_acceptance
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	require.Equal(t, "new-agent", status.AgentName)
+	require.Equal(t, 3, exec.callCount(), "should call lapi status, capi register, AND enroll")
+}
+
+// ============================================
+// Phase 2: Missing Coverage Tests
+// ============================================
+
+// TestEnroll_InvalidAgentNameCharacters tests Lines 117-119
+func TestEnroll_InvalidAgentNameCharacters(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+	ctx := context.Background()
+
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent@name!",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "may only include letters, numbers, dot, dash, underscore")
+	require.Equal(t, 0, exec.callCount(), "should not call any commands when validation fails")
+}
+
+// TestEnroll_InvalidTenantNameCharacters tests Lines 121-123
+func TestEnroll_InvalidTenantNameCharacters(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+	ctx := context.Background()
+
+	_, err := svc.Enroll(ctx, ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "valid-agent",
+		Tenant:        "tenant$invalid",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "may only include letters, numbers, dot, dash, underscore")
+	require.Equal(t, 0, exec.callCount(), "should not call any commands when validation fails")
+}
+
+// TestEnsureCAPIRegistered_StandardLayoutExists tests Lines 198-201
+func TestEnsureCAPIRegistered_StandardLayoutExists(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config directory with credentials file (standard layout)
+	configDir := filepath.Join(tmpDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+	credsPath := filepath.Join(configDir, "online_api_credentials.yaml")
+	require.NoError(t, os.WriteFile(credsPath, []byte("url: https://api.crowdsec.net\nlogin: test"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+	ctx := context.Background()
+
+	err := svc.ensureCAPIRegistered(ctx)
+	require.NoError(t, err)
+	// Should not call capi register because credentials file exists
+	require.Equal(t, 0, exec.callCount())
+}
+
+// TestEnsureCAPIRegistered_RegisterError tests Lines 212-214
+func TestEnsureCAPIRegistered_RegisterError(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	exec := &stubEnvExecutor{
+		responses: []struct {
+			out []byte
+			err error
+		}{
+			{out: []byte("registration failed: network error"), err: fmt.Errorf("exit status 1")},
+		},
+	}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+	ctx := context.Background()
+
+	err := svc.ensureCAPIRegistered(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "capi register")
+	require.Contains(t, err.Error(), "registration failed")
+	require.Equal(t, 1, exec.callCount())
+}
+
+// TestFindConfigPath_StandardLayout tests Lines 218-222 (standard path)
+func TestFindConfigPath_StandardLayout(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config directory with config.yaml (standard layout)
+	configDir := filepath.Join(tmpDir, "config")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+	configPath := filepath.Join(configDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, configPath, result)
+}
+
+// TestFindConfigPath_RootLayout tests Lines 218-222 (fallback path)
+func TestFindConfigPath_RootLayout(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	// Create config.yaml in root (not in config/ subdirectory)
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0644))
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, configPath, result)
+}
+
+// TestFindConfigPath_NeitherExists tests Lines 218-222 (empty string return)
+func TestFindConfigPath_NeitherExists(t *testing.T) {
+	db := openConsoleTestDB(t)
+	tmpDir := t.TempDir()
+
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")
+
+	result := svc.findConfigPath()
+	require.Equal(t, "", result, "should return empty string when no config file exists")
+}
+
+// TestStatusFromModel_NilModel tests Lines 268-270
+func TestStatusFromModel_NilModel(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	status := svc.statusFromModel(nil)
+	require.Equal(t, consoleStatusNotEnrolled, status.Status)
+	require.False(t, status.KeyPresent)
+	require.Empty(t, status.AgentName)
+}
+
+// TestNormalizeEnrollmentKey_InvalidFormat tests Lines 374-376
+func TestNormalizeEnrollmentKey_InvalidCharacters(t *testing.T) {
+	_, err := normalizeEnrollmentKey("abc@123#def")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
+}
+
+func TestNormalizeEnrollmentKey_TooShort(t *testing.T) {
+	_, err := normalizeEnrollmentKey("ab123")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
+}
+
+func TestNormalizeEnrollmentKey_NonMatchingFormat(t *testing.T) {
+	_, err := normalizeEnrollmentKey("this is not a valid key format")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid enrollment key")
 }

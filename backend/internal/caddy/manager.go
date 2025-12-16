@@ -107,11 +107,15 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	_, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled := m.computeEffectiveFlags(ctx)
 
 	// Safety check: if Cerberus is enabled in DB and no admin whitelist configured,
-	// block applying changes to avoid accidental self-lockout.
+	// warn but allow initial startup to proceed. This prevents total lockout when
+	// the user has enabled Cerberus but hasn't configured admin_whitelist yet.
+	// The warning alerts them to configure it properly.
 	var secCfg models.SecurityConfig
 	if err := m.db.Where("name = ?", "default").First(&secCfg).Error; err == nil {
 		if secCfg.Enabled && strings.TrimSpace(secCfg.AdminWhitelist) == "" {
-			return fmt.Errorf("refusing to apply config: Cerberus is enabled but admin_whitelist is empty; add an admin whitelist entry or generate a break-glass token")
+			logger.Log().Warn("Cerberus is enabled but admin_whitelist is empty. " +
+				"Security features that depend on admin whitelist will not function correctly. " +
+				"Please configure an admin whitelist via Settings → Security to enable full protection.")
 		}
 	}
 
