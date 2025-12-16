@@ -135,7 +135,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             # Renovate tracks these via regex manager in renovate.json
             # TODO: Remove this block once Caddy ships with fixed deps (check v2.10.3+)
             # renovate: datasource=go depName=github.com/expr-lang/expr
-            go get github.com/expr-lang/expr@v1.17.6 || true; \
+            go get github.com/expr-lang/expr@v1.17.7 || true; \
             # renovate: datasource=go depName=github.com/quic-go/quic-go
             go get github.com/quic-go/quic-go@v0.57.1 || true; \
             # renovate: datasource=go depName=github.com/smallstep/certificates
@@ -244,9 +244,11 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon (no bash needed)
+# Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
 RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
-    && apk --no-cache upgrade
+    && apk --no-cache upgrade \
+    && apk --no-cache upgrade c-ares
 
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
