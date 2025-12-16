@@ -25,10 +25,11 @@ import (
 )
 
 const (
-	consoleStatusNotEnrolled = "not_enrolled"
-	consoleStatusEnrolling   = "enrolling"
-	consoleStatusEnrolled    = "enrolled"
-	consoleStatusFailed      = "failed"
+	consoleStatusNotEnrolled       = "not_enrolled"
+	consoleStatusEnrolling         = "enrolling"
+	consoleStatusPendingAcceptance = "pending_acceptance"
+	consoleStatusEnrolled          = "enrolled"
+	consoleStatusFailed            = "failed"
 
 	defaultEnrollTimeout = 45 * time.Second
 )
@@ -157,7 +158,8 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	if rec.Status == consoleStatusEnrolling {
 		return s.statusFromModel(rec), fmt.Errorf("enrollment already in progress")
 	}
-	if rec.Status == consoleStatusEnrolled && !req.Force {
+	// If already enrolled or pending acceptance, skip unless Force is set
+	if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
 		return s.statusFromModel(rec), nil
 	}
 
@@ -183,32 +185,60 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	defer cancel()
 
 	args := []string{"console", "enroll", "--name", agent}
-	if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+
+	// Add tenant as a tag if provided
+	if tenant != "" {
+		args = append(args, "--tags", fmt.Sprintf("tenant:%s", tenant))
 	}
+
+	// Add overwrite flag if force is requested
+	if req.Force {
+		args = append(args, "--overwrite")
+	}
+
+	// Add config path
+	configPath := s.findConfigPath()
+	if configPath != "" {
+		args = append([]string{"-c", configPath}, args...)
+	}
+
+	// Token is the last positional argument
 	args = append(args, token)
 
-	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("starting crowdsec console enrollment")
+	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("force", req.Force).WithField("correlation_id", rec.LastCorrelationID).WithField("config", configPath).Info("starting crowdsec console enrollment")
 	out, cmdErr := s.exec.ExecuteWithEnv(cmdCtx, "cscli", args, nil)
 
+	// Log command output for debugging (redacting the token)
+	redactedOut := redactSecret(string(out), token)
 	if cmdErr != nil {
 		rec.Status = consoleStatusFailed
-		rec.LastError = redactSecret(string(out)+": "+cmdErr.Error(), token)
+		// Redact token from both output and error message
+		redactedErr := redactSecret(cmdErr.Error(), token)
+		// Extract the meaningful error message from cscli output
+		userMessage := extractCscliErrorMessage(redactedOut)
+		if userMessage == "" {
+			userMessage = redactedOut
+		}
+		rec.LastError = userMessage
 		_ = s.db.WithContext(ctx).Save(rec)
-		logger.Log().WithError(cmdErr).WithField("correlation_id", rec.LastCorrelationID).WithField("tenant", tenant).Warn("crowdsec console enrollment failed")
-		return s.statusFromModel(rec), fmt.Errorf("console enrollment failed: %s", rec.LastError)
+		logger.Log().WithField("error", redactedErr).WithField("correlation_id", rec.LastCorrelationID).WithField("tenant", tenant).WithField("output", redactedOut).Warn("crowdsec console enrollment failed")
+		return s.statusFromModel(rec), fmt.Errorf("%s", userMessage)
 	}
 
+	logger.Log().WithField("correlation_id", rec.LastCorrelationID).WithField("output", redactedOut).Debug("cscli console enroll command output")
+
+	// Enrollment request was sent successfully, but user must still accept it on crowdsec.net.
+	// cscli console enroll returns exit code 0 when the request is sent, NOT when enrollment is complete.
+	// The CrowdSec help explicitly states: "After running this command your will need to validate the enrollment in the webapp."
 	complete := s.nowFn().UTC()
-	rec.Status = consoleStatusEnrolled
-	rec.EnrolledAt = &complete
-	rec.LastHeartbeatAt = &complete
+	rec.Status = consoleStatusPendingAcceptance
+	rec.LastAttemptAt = &complete
 	rec.LastError = ""
 	if err := s.db.WithContext(ctx).Save(rec).Error; err != nil {
 		return ConsoleEnrollmentStatus{}, err
 	}
 
-	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("crowdsec console enrollment succeeded")
+	logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("correlation_id", rec.LastCorrelationID).Info("crowdsec console enrollment request sent - pending acceptance on crowdsec.net")
 	return s.statusFromModel(rec), nil
 }
 
@@ -222,21 +252,23 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		args := []string{"lapi", "status"}
-		if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
-			args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+		configPath := s.findConfigPath()
+		if configPath != "" {
+			args = append([]string{"-c", configPath}, args...)
 		}
 
 		checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
+		out, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", args, nil)
 		cancel()
 
 		if err == nil {
+			logger.Log().WithField("config", configPath).Debug("LAPI check succeeded")
 			return nil // LAPI is available
 		}
 
 		lastErr = err
 		if i < maxRetries-1 {
-			logger.Log().WithError(err).WithField("attempt", i+1).Debug("LAPI not ready, retrying")
+			logger.Log().WithError(err).WithField("attempt", i+1).WithField("output", string(out)).Debug("LAPI not ready, retrying")
 			time.Sleep(retryDelay)
 		}
 	}
@@ -245,21 +277,44 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 }
 
 func (s *ConsoleEnrollmentService) ensureCAPIRegistered(ctx context.Context) error {
-	credsPath := filepath.Join(s.dataDir, "online_api_credentials.yaml")
+	// Check for credentials in config subdirectory first (standard layout),
+	// then fall back to dataDir root for backward compatibility
+	credsPath := filepath.Join(s.dataDir, "config", "online_api_credentials.yaml")
+	if _, err := os.Stat(credsPath); err == nil {
+		return nil
+	}
+	credsPath = filepath.Join(s.dataDir, "online_api_credentials.yaml")
 	if _, err := os.Stat(credsPath); err == nil {
 		return nil
 	}
 
 	logger.Log().Info("registering with crowdsec capi")
 	args := []string{"capi", "register"}
-	if _, err := os.Stat(filepath.Join(s.dataDir, "config.yaml")); err == nil {
-		args = append([]string{"-c", filepath.Join(s.dataDir, "config.yaml")}, args...)
+	configPath := s.findConfigPath()
+	if configPath != "" {
+		args = append([]string{"-c", configPath}, args...)
 	}
 
-	if _, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil); err != nil {
-		return fmt.Errorf("capi register: %w", err)
+	out, err := s.exec.ExecuteWithEnv(ctx, "cscli", args, nil)
+	if err != nil {
+		return fmt.Errorf("capi register: %s: %w", string(out), err)
 	}
 	return nil
+}
+
+// findConfigPath returns the path to the CrowdSec config file, checking
+// config subdirectory first (standard layout), then dataDir root.
+// Returns empty string if no config file is found.
+func (s *ConsoleEnrollmentService) findConfigPath() string {
+	configPath := filepath.Join(s.dataDir, "config", "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
+	configPath = filepath.Join(s.dataDir, "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
+	return ""
 }
 
 func (s *ConsoleEnrollmentService) load(ctx context.Context) (*models.CrowdsecConsoleEnrollment, error) {
@@ -363,6 +418,49 @@ func redactSecret(msg, secret string) string {
 		return msg
 	}
 	return strings.ReplaceAll(msg, secret, "<redacted>")
+}
+
+// extractCscliErrorMessage extracts the meaningful error message from cscli output.
+// CrowdSec outputs error messages in formats like:
+// - "level=error msg=\"...\""
+// - "ERRO[...] ..."
+// - Plain error text
+func extractCscliErrorMessage(output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return ""
+	}
+
+	// Try to extract from level=error msg="..." format
+	msgPattern := regexp.MustCompile(`msg="([^"]+)"`)
+	if matches := msgPattern.FindStringSubmatch(output); len(matches) > 1 {
+		return matches[1]
+	}
+
+	// Try to extract from ERRO[...] format - get text after the timestamp bracket
+	erroPattern := regexp.MustCompile(`ERRO\[[^\]]*\]\s*(.+)`)
+	if matches := erroPattern.FindStringSubmatch(output); len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+
+	// Try to find any line containing "error" or "failed" (case-insensitive)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "invalid") {
+			return strings.TrimSpace(line)
+		}
+	}
+
+	// If no pattern matched, return the first non-empty line (often the most relevant)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return output
 }
 
 func normalizeEnrollmentKey(raw string) (string, error) {
