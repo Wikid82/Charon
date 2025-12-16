@@ -238,9 +238,10 @@ export default function CrowdSecConfig() {
   const normalizedConsoleStatus = consoleStatusQuery.data?.status === 'failed' ? 'degraded' : consoleStatusQuery.data?.status || 'not_enrolled'
   const isConsoleDegraded = normalizedConsoleStatus === 'degraded'
   const isConsolePending = enrollConsoleMutation.isPending || normalizedConsoleStatus === 'enrolling'
+  const isConsolePendingAcceptance = normalizedConsoleStatus === 'pending_acceptance'
   const consoleStatusLabel = normalizedConsoleStatus.replace('_', ' ')
   const consoleTokenState = consoleStatusQuery.data ? (consoleStatusQuery.data.key_present ? 'Stored (masked)' : 'Not stored') : '—'
-  const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded'
+  const canRotateKey = normalizedConsoleStatus === 'enrolled' || normalizedConsoleStatus === 'degraded' || isConsolePendingAcceptance
   const consoleDocsHref = 'https://wikid82.github.io/charon/security/'
 
   const sanitizeSecret = (msg: string) => msg.replace(/\b[A-Za-z0-9]{10,64}\b/g, '***')
@@ -288,7 +289,11 @@ export default function CrowdSecConfig() {
       if (!consoleTenant.trim()) {
         setConsoleTenant(tenantValue)
       }
-      toast.success(force ? 'Enrollment token rotated' : 'Enrollment submitted')
+      toast.success(
+        force
+          ? 'Enrollment token rotated - please accept the new enrollment on app.crowdsec.net'
+          : 'Enrollment request sent! Accept the enrollment on app.crowdsec.net to complete registration.'
+      )
     } catch (err) {
       const message = sanitizeErrorMessage(err)
       setConsoleErrors((prev) => ({ ...prev, submit: message }))
@@ -728,6 +733,25 @@ export default function CrowdSecConfig() {
                 </Button>
               )}
             </div>
+
+            {/* Info box for pending acceptance status */}
+            {isConsolePendingAcceptance && (
+              <div className="bg-blue-900/30 border border-blue-500 rounded-lg p-4" data-testid="pending-acceptance-info">
+                <p className="text-sm text-blue-200">
+                  <strong>Action Required:</strong> Your enrollment request has been sent.
+                  To complete registration, accept the enrollment request on{' '}
+                  <a
+                    href="https://app.crowdsec.net"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-blue-100"
+                  >
+                    app.crowdsec.net
+                  </a>.
+                  Your CrowdSec engine will appear in the console after acceptance.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-400">
               <div>

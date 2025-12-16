@@ -1,17 +1,281 @@
-# Comprehensive Bug Analysis: CrowdSec & Live Logs Issues
+# Investigation Report: CrowdSec Enrollment & Live Log Viewer Issues
 
-**Date**: December 15, 2025
-**Status**: Ready for Implementation
+**Date:** December 15, 2025
+**Investigator:** GitHub Copilot
+**Status:** ✅ Issue A RESOLVED - Issue B Analysis Pending
 
 ---
 
-## Executive Summary
+## Executive Summary (Updated December 16, 2025)
 
-Four user-reported issues all stem from **configuration state synchronization problems** between:
-1. The `settings` table (runtime toggles)
-2. The `security_configs` table (SecurityConfig model)
-3. The actual CrowdSec process state
-4. Frontend display state
+This document covers TWO issues:
+
+1. **CrowdSec Enrollment** ✅ **FIXED**: Shows success locally but engine doesn't appear in CrowdSec.net dashboard
+   - **Root Cause**: Code incorrectly set status to `enrolled` after `cscli console enroll` succeeded, but CrowdSec's help explicitly states users must "validate the enrollment in the webapp"
+   - **Fix Applied**: Changed status to `pending_acceptance` and updated frontend to inform users they must accept on app.crowdsec.net
+
+2. **Live Log Viewer**: Shows "Disconnected" status (Analysis pending implementation)
+
+---
+
+## ✅ RESOLVED Issue A: CrowdSec Console Enrollment Not Working
+
+### Symptoms
+- User submits enrollment with valid key
+- Charon shows "Enrollment submitted" success message
+- No engine appears in CrowdSec.net dashboard
+- User reports: "The CrowdSec enrollment request NEVER reached crowdsec.net"
+
+### Root Cause (CONFIRMED)
+
+**The Bug**: After a **successful** `cscli console enroll <key>` command (exit code 0), CrowdSec's help explicitly states:
+> "After running this command you will need to validate the enrollment in the webapp."
+
+Exit code 0 = enrollment REQUEST sent, NOT enrollment COMPLETE.
+
+The code incorrectly set `status = enrolled` when it should have been `status = pending_acceptance`.
+
+### Fixes Applied (December 16, 2025)
+
+#### Fix A1: Backend Status Semantics
+**File**: `backend/internal/crowdsec/console_enroll.go`
+- Added `consoleStatusPendingAcceptance = "pending_acceptance"` constant
+- Changed success status from `enrolled` to `pending_acceptance`
+- Fixed idempotency check to also skip re-enrollment when status is `pending_acceptance`
+- Fixed config path check to look in `config/config.yaml` subdirectory first
+- Updated log message to say "pending acceptance on crowdsec.net"
+
+#### Fix A2: Frontend User Guidance
+**File**: `frontend/src/pages/CrowdSecConfig.tsx`
+- Updated success toast to say "Accept the enrollment on app.crowdsec.net to complete registration"
+- Added `isConsolePendingAcceptance` variable
+- Updated `canRotateKey` to include `pending_acceptance` status
+- Added info box with link to app.crowdsec.net when status is `pending_acceptance`
+
+#### Fix A3: Test Updates
+**Files**: `backend/internal/crowdsec/console_enroll_test.go`, `backend/internal/api/handlers/crowdsec_handler_test.go`
+- Updated all tests expecting `enrolled` to expect `pending_acceptance`
+- Updated test for idempotency to verify second call is blocked for `pending_acceptance`
+- Changed `EnrolledAt` assertion to `LastAttemptAt` (enrollment is not complete yet)
+
+### Verification
+All backend tests pass:
+- `TestConsoleEnrollSuccess` ✅
+- `TestConsoleEnrollIdempotentWhenAlreadyEnrolled` ✅
+- `TestConsoleEnrollNormalizesFullCommand` ✅
+- `TestConsoleEnrollDoesNotPassTenant` ✅
+- `TestConsoleEnrollmentStatus/returns_pending_acceptance_status_after_enrollment` ✅
+- `TestConsoleStatusAfterEnroll` ✅
+
+Frontend type-check passes ✅
+
+---
+
+## NEW Issue B: Live Log Viewer Shows "Disconnected"
+
+### Symptoms
+- Live Log Viewer component shows "Disconnected" status badge
+- No logs appear (even when there should be logs)
+- WebSocket connection may not be establishing
+
+### Root Cause Analysis
+
+**Primary Finding: WebSocket Connection Works But Logs Are Sparse**
+
+The WebSocket implementation is correct. The issue is likely:
+
+1. **No logs being generated** - If CrowdSec/Caddy aren't actively processing requests, there are no logs
+2. **Initial connection timing** - The `isConnected` state depends on `onOpen` callback
+
+**Verified Working Components:**
+
+1. **Backend WebSocket Handler**: `backend/internal/api/handlers/logs_ws.go`
+   - Properly upgrades HTTP to WebSocket
+   - Subscribes to `BroadcastHook` for log entries
+   - Sends ping messages every 30 seconds
+
+2. **Frontend Connection Logic**: `frontend/src/api/logs.ts`
+   - `connectLiveLogs()` correctly builds WebSocket URL
+   - Properly handles `onOpen`, `onClose`, `onError` callbacks
+
+3. **Frontend Component**: `frontend/src/components/LiveLogViewer.tsx`
+   - `isConnected` state is set in `handleOpen` callback
+   - Connection effect runs on mount and mode changes
+
+### Potential Issues Found
+
+#### Issue B1: WebSocket Route May Be Protected
+
+**Location**: `backend/internal/api/routes/routes.go` Line 158
+
+The WebSocket endpoint is under the `protected` route group, meaning it requires authentication:
+
+```go
+protected.GET("/logs/live", handlers.LogsWebSocketHandler)
+```
+
+**Problem**: WebSocket connections may fail silently if auth token isn't being passed. The browser's native WebSocket API doesn't automatically include HTTP-only cookies or Authorization headers.
+
+**Verification Steps:**
+1. Check browser DevTools Network tab for WebSocket connection
+2. Look for 401/403 responses
+3. Check if `token` query parameter is being sent
+
+#### Issue B2: No Error Display to User
+
+**Location**: `frontend/src/components/LiveLogViewer.tsx` Lines 170-172
+
+```tsx
+const handleError = (error: Event) => {
+  console.error('WebSocket error:', error);
+  setIsConnected(false);
+};
+```
+
+**Problem**: Errors are only logged to console, not displayed to user. User sees "Disconnected" without knowing why.
+
+### Required Fixes for Issue B
+
+#### Fix B1: Add Error State Display
+
+**File**: `frontend/src/components/LiveLogViewer.tsx`
+
+Add error state tracking:
+
+```tsx
+const [connectionError, setConnectionError] = useState<string | null>(null);
+
+const handleError = (error: Event) => {
+  console.error('WebSocket error:', error);
+  setIsConnected(false);
+  setConnectionError('Failed to connect to log stream. Check authentication.');
+};
+
+const handleOpen = () => {
+  console.log(`${currentMode} log viewer connected`);
+  setIsConnected(true);
+  setConnectionError(null); // Clear any previous errors
+};
+```
+
+Display error in UI:
+
+```tsx
+{connectionError && (
+  <div className="text-red-400 text-xs p-2">{connectionError}</div>
+)}
+```
+
+#### Fix B2: Add Authentication to WebSocket URL
+
+**File**: `frontend/src/api/logs.ts`
+
+The WebSocket needs to pass auth token as query parameter since WebSocket API doesn't support custom headers:
+
+```typescript
+export const connectLiveLogs = (
+  filters: LiveLogFilter,
+  onMessage: (log: LiveLogEntry) => void,
+  onOpen?: () => void,
+  onError?: (error: Event) => void,
+  onClose?: () => void
+): (() => void) => {
+  const params = new URLSearchParams();
+  if (filters.level) params.append('level', filters.level);
+  if (filters.source) params.append('source', filters.source);
+
+  // Add auth token from localStorage if available
+  const token = localStorage.getItem('token');
+  if (token) {
+    params.append('token', token);
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
+  // ...
+};
+```
+
+**Backend Auth Check** (verify this exists):
+The backend auth middleware must check for `token` query parameter in addition to headers/cookies for WebSocket connections.
+
+#### Fix B3: Add Reconnection Logic
+
+**File**: `frontend/src/components/LiveLogViewer.tsx`
+
+Add automatic reconnection with exponential backoff:
+
+```tsx
+const [reconnectAttempts, setReconnectAttempts] = useState(0);
+const maxReconnectAttempts = 5;
+
+const handleClose = () => {
+  console.log(`${currentMode} log viewer disconnected`);
+  setIsConnected(false);
+
+  // Auto-reconnect logic
+  if (reconnectAttempts < maxReconnectAttempts) {
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
+    setTimeout(() => {
+      setReconnectAttempts(prev => prev + 1);
+      // Trigger reconnection by updating a dependency
+    }, delay);
+  }
+};
+```
+
+---
+
+## Summary of All Fixes
+
+### Issue A: CrowdSec Enrollment
+
+| File | Change |
+|------|--------|
+| `frontend/src/pages/CrowdSecConfig.tsx` | Update success toast to mention acceptance step |
+| `frontend/src/pages/CrowdSecConfig.tsx` | Add info box with link to crowdsec.net |
+| `backend/internal/crowdsec/console_enroll.go` | Add `pending_acceptance` status constant |
+| `docs/cerberus.md` | Add documentation about acceptance requirement |
+
+### Issue B: Live Log Viewer
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/LiveLogViewer.tsx` | Add error state display |
+| `frontend/src/api/logs.ts` | Pass auth token in WebSocket URL |
+| `frontend/src/components/LiveLogViewer.tsx` | Add reconnection logic with backoff |
+
+---
+
+## Testing Checklist
+
+### Enrollment Testing
+- [ ] Submit enrollment with valid key
+- [ ] Verify success message mentions acceptance step
+- [ ] Verify UI shows guidance to accept on crowdsec.net
+- [ ] Accept enrollment on crowdsec.net
+- [ ] Verify engine appears in dashboard
+
+### Live Logs Testing
+- [ ] Open Live Log Viewer page
+- [ ] Verify WebSocket connects (check Network tab)
+- [ ] Verify "Connected" badge shows
+- [ ] Generate some logs (make HTTP request to proxy)
+- [ ] Verify logs appear in viewer
+- [ ] Test disconnect/reconnect behavior
+
+---
+
+## References
+
+- [CrowdSec Console Documentation](https://docs.crowdsec.net/docs/console/)
+- [WEBSOCKET_FIX_SUMMARY.md](../../WEBSOCKET_FIX_SUMMARY.md)
+- [cerberus.md - Console Enrollment](../../docs/cerberus.md)
+
+---
+---
+
+# PREVIOUS ANALYSIS (Resolved Issues - Kept for Reference)
 
 ---
 

@@ -72,7 +72,8 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "abc123def4g", Tenant: "tenant-a", AgentName: "agent-one"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 	require.True(t, status.KeyPresent)
 	require.NotEmpty(t, status.CorrelationID)
 
@@ -122,8 +123,9 @@ func TestConsoleEnrollIdempotentWhenAlreadyEnrolled(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "ignoredignored", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
-	// Should call lapi status and capi register again, but then stop because already enrolled
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+	// Should call lapi status and capi register again, but then stop because already pending
 	require.Equal(t, 5, exec.callCount(), "second call should check lapi, then capi, then stop")
 	require.Equal(t, []string{"capi", "register"}, exec.lastArgs())
 }
@@ -152,7 +154,8 @@ func TestConsoleEnrollNormalizesFullCommand(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), ConsoleEnrollRequest{EnrollmentKey: "sudo cscli console enroll cmj0r0uer000202lebd5luvxh", Tenant: "tenant", AgentName: "agent"})
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
+	// Status is pending_acceptance because user must accept enrollment on crowdsec.net
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
 	require.Equal(t, "cmj0r0uer000202lebd5luvxh", exec.lastArgs()[len(exec.lastArgs())-1])
 }
@@ -168,12 +171,11 @@ func TestConsoleEnrollRejectsUnsafeInput(t *testing.T) {
 	require.Equal(t, 0, exec.callCount())
 }
 
-func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
+func TestConsoleEnrollPassesTenantAsTags(t *testing.T) {
 	db := openConsoleTestDB(t)
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
 
-	// Even if tenant is provided in the request
 	req := ConsoleEnrollRequest{
 		EnrollmentKey: "abc123def4g",
 		Tenant:        "some-tenant-id",
@@ -182,13 +184,99 @@ func TestConsoleEnrollDoesNotPassTenant(t *testing.T) {
 
 	status, err := svc.Enroll(context.Background(), req)
 	require.NoError(t, err)
-	require.Equal(t, consoleStatusEnrolled, status.Status)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 
-	// Verify that --tenant is NOT passed to the command arguments
+	// Verify that --tags tenant:X is passed to the command arguments
 	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
-	require.NotContains(t, exec.lastArgs(), "--tenant")
-	// Also verify that the tenant value itself is not passed as a standalone arg just in case
-	require.NotContains(t, exec.lastArgs(), "some-tenant-id")
+	args := exec.lastArgs()
+	require.Contains(t, args, "--tags")
+	require.Contains(t, args, "tenant:some-tenant-id")
+}
+
+func TestConsoleEnrollNoTenantOmitsTags(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	// Request without tenant
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --tags is NOT in the command arguments when tenant is empty
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.NotContains(t, exec.lastArgs(), "--tags")
+}
+
+func TestConsoleEnrollPassesForceAsOverwrite(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+		Force:         true,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --overwrite is passed when Force is true
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.Contains(t, exec.lastArgs(), "--overwrite")
+}
+
+func TestConsoleEnrollNoForceOmitsOverwrite(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		AgentName:     "agent-one",
+		Force:         false,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify that --overwrite is NOT in the command arguments when Force is false
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	require.NotContains(t, exec.lastArgs(), "--overwrite")
+}
+
+func TestConsoleEnrollWithTenantAndForce(t *testing.T) {
+	db := openConsoleTestDB(t)
+	exec := &stubEnvExecutor{}
+	svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
+
+	req := ConsoleEnrollRequest{
+		EnrollmentKey: "abc123def4g",
+		Tenant:        "my-tenant",
+		AgentName:     "agent-one",
+		Force:         true,
+	}
+
+	status, err := svc.Enroll(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, consoleStatusPendingAcceptance, status.Status)
+
+	// Verify both --tags and --overwrite are passed
+	require.Equal(t, 3, exec.callCount()) // lapi status + capi register + enroll
+	args := exec.lastArgs()
+	require.Contains(t, args, "--tags")
+	require.Contains(t, args, "tenant:my-tenant")
+	require.Contains(t, args, "--overwrite")
+	// Token should be the last argument
+	require.Equal(t, "abc123def4g", args[len(args)-1])
 }
 
 // ============================================
@@ -286,7 +374,7 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 		require.Equal(t, consoleStatusNotEnrolled, status.Status)
 	})
 
-	t.Run("returns enrolled status after enrollment", func(t *testing.T) {
+	t.Run("returns pending_acceptance status after enrollment", func(t *testing.T) {
 		db := openConsoleTestDB(t)
 		exec := &stubEnvExecutor{}
 		svc := NewConsoleEnrollmentService(db, exec, t.TempDir(), "secret")
@@ -298,13 +386,16 @@ func TestConsoleEnrollmentStatus(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Then check status
+		// Then check status - should be pending_acceptance until user accepts on crowdsec.net
 		status, err := svc.Status(context.Background())
 		require.NoError(t, err)
-		require.Equal(t, consoleStatusEnrolled, status.Status)
+		require.Equal(t, consoleStatusPendingAcceptance, status.Status)
 		require.Equal(t, "test-agent", status.AgentName)
 		require.True(t, status.KeyPresent)
-		require.NotNil(t, status.EnrolledAt)
+		// EnrolledAt is nil because user hasn't accepted on crowdsec.net yet
+		require.Nil(t, status.EnrolledAt)
+		// LastAttemptAt should be set to when the enrollment request was sent
+		require.NotNil(t, status.LastAttemptAt)
 	})
 
 	t.Run("returns failed status after failed enrollment", func(t *testing.T) {
@@ -448,6 +539,76 @@ func TestRedactSecret(t *testing.T) {
 		result := redactSecret("Token ABC123 failed, please retry with ABC123", "ABC123")
 		require.Equal(t, "Token <redacted> failed, please retry with <redacted>", result)
 	})
+}
+
+// ============================================
+// extractCscliErrorMessage Tests
+// ============================================
+
+func TestExtractCscliErrorMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "msg format with quotes",
+			input:    `level=error msg="the attachment key provided is not valid (hint: get your enrollement key from console...)"`,
+			expected: "the attachment key provided is not valid (hint: get your enrollement key from console...)",
+		},
+		{
+			name:     "ERRO format with timestamp",
+			input:    `ERRO[2024-01-15T10:30:00Z] unable to enroll: API returned error code 401`,
+			expected: "unable to enroll: API returned error code 401",
+		},
+		{
+			name:     "plain error message",
+			input:    "error: invalid enrollment token",
+			expected: "error: invalid enrollment token",
+		},
+		{
+			name:     "multiline with error in middle",
+			input:    "INFO[2024-01-15] Starting enrollment...\nERRO[2024-01-15] enrollment failed: bad token\nINFO[2024-01-15] Cleanup complete",
+			expected: "enrollment failed: bad token",
+		},
+		{
+			name:     "empty output",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "whitespace only",
+			input:    "   \n\t  ",
+			expected: "",
+		},
+		{
+			name:     "no recognizable pattern - returns first line",
+			input:    "Something went wrong\nMore details here",
+			expected: "Something went wrong",
+		},
+		{
+			name:     "failed keyword detection",
+			input:    "Operation failed due to network timeout",
+			expected: "Operation failed due to network timeout",
+		},
+		{
+			name:     "invalid keyword detection",
+			input:    "The token is invalid",
+			expected: "The token is invalid",
+		},
+		{
+			name:     "complex cscli output with msg",
+			input:    `time="2024-01-15T10:30:00Z" level=fatal msg="unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory"`,
+			expected: "unable to configure hub: while syncing hub: creating hub index: failed to read index file: open /etc/crowdsec/hub/.index.json: no such file or directory",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractCscliErrorMessage(tc.input)
+			require.Equal(t, tc.expected, result)
+		})
+	}
 }
 
 // ============================================

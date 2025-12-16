@@ -650,7 +650,8 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, "enrolled", resp["status"])
+	// Enrollment request sent, but user must accept on crowdsec.net
+	require.Equal(t, "pending_acceptance", resp["status"])
 }
 
 func TestConsoleEnrollMissingAgentName(t *testing.T) {
@@ -755,7 +756,8 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
-	require.Equal(t, "enrolled", resp["status"])
+	// Enrollment request sent, but user must accept on crowdsec.net
+	require.Equal(t, "pending_acceptance", resp["status"])
 	require.Equal(t, "test-agent", resp["agent_name"])
 }
 
