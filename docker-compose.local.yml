@@ -22,7 +22,7 @@ services:
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
       - CHARON_ACME_STAGING=false
-      - CHARON_SECURITY_CROWDSEC_MODE=disabled
+      - FEATURE_CERBERUS_ENABLED=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     cap_add:

@@ -43,6 +43,7 @@ The `benchmark.yml` workflow (`Go Benchmark`) performs:
 ### Step: "Performance Regression Check"
 
 **Error Messages** (9 identical errors):
+
 ```
 no required module provides package github.com/oschwald/geoip2-golang; to add it:
     go get github.com/oschwald/geoip2-golang
@@ -53,6 +54,7 @@ no required module provides package github.com/oschwald/geoip2-golang; to add it
 **Phase**: Build/compilation phase during `go test` execution
 
 **Affected Files**:
+
 - `/projects/Charon/backend/internal/services/geoip_service.go` (line 9)
 - `/projects/Charon/backend/internal/services/geoip_service_test.go` (line 10)
 
@@ -87,6 +89,7 @@ require (
 The v1 dependency was **removed** from `go.mod`.
 
 **Related Commits**:
+
 - `8489394`: Merge PR #396
 - `dd9a559`: Renovate branch with geoip2 v2 update
 - `6469c6a`: Previous development state (had v1)
@@ -100,11 +103,13 @@ The v1 dependency was **removed** from `go.mod`.
 Go modules use [semantic import versioning](https://go.dev/blog/v2-go-modules). For major version 2 and above, the import path **must** include the major version:
 
 **v1 (or unversioned)**:
+
 ```go
 import "github.com/oschwald/geoip2-golang"
 ```
 
 **v2+**:
+
 ```go
 import "github.com/oschwald/geoip2-golang/v2"
 ```
@@ -130,6 +135,7 @@ import "github.com/oschwald/geoip2-golang/v2"
 ### Verification
 
 Running `go mod tidy` shows:
+
 ```
 go: finding module for package github.com/oschwald/geoip2-golang
 go: found github.com/oschwald/geoip2-golang in github.com/oschwald/geoip2-golang v1.13.0
@@ -137,6 +143,7 @@ unused github.com/oschwald/geoip2-golang/v2
 ```
 
 This confirms:
+
 - Go finds v1 when analyzing imports
 - v2 is declared but unused
 - The imports and go.mod are out of sync
@@ -158,6 +165,7 @@ This confirms:
 ### Potentially Affected
 
 All workflows that compile or test backend Go code:
+
 - `go-build.yml` or similar build workflows
 - `go-test.yml` or test workflows
 - Any integration tests that compile the backend
@@ -168,17 +176,20 @@ All workflows that compile or test backend Go code:
 ## Why Renovate Didn't Handle This
 
 **Renovate's Behavior**:
+
 - Renovate excels at updating dependency **declarations** (in `go.mod`, `package.json`, etc.)
 - It updates version numbers and dependency paths in configuration files
 - However, it **does not** modify source code imports automatically
 
 **Why Import Updates Are Manual**:
+
 1. Import path changes are **code changes**, not config changes
 2. Requires semantic understanding of the codebase
 3. May involve API changes that need human review
 4. Risk of breaking changes in major version bumps
 
 **Expected Workflow for Major Go Module Updates**:
+
 1. Renovate creates PR updating `go.mod` with v2 path
 2. Human reviewer identifies this requires import changes
 3. Developer manually updates all import statements
@@ -186,6 +197,7 @@ All workflows that compile or test backend Go code:
 5. PR is merged
 
 **What Went Wrong**:
+
 - Renovate was configured for automerge on patch updates
 - This appears to have been a major version update (v1 → v2)
 - Either automerge rules were too permissive, or manual review was skipped
@@ -200,10 +212,12 @@ All workflows that compile or test backend Go code:
 Replace all occurrences of v1 import path with v2:
 
 **Files to Update**:
+
 - `backend/internal/services/geoip_service.go` (line 9)
 - `backend/internal/services/geoip_service_test.go` (line 10)
 
 **Change**:
+
 ```go
 // FROM:
 import "github.com/oschwald/geoip2-golang"
@@ -217,6 +231,7 @@ import "github.com/oschwald/geoip2-golang/v2"
 **File**: `backend/go.mod`
 
 **Issue**: Line 13 and 14 both have:
+
 ```go
 github.com/oschwald/geoip2-golang/v2 v2.0.1
 github.com/oschwald/geoip2-golang/v2 v2.0.1  // ← DUPLICATE
@@ -232,6 +247,7 @@ go mod tidy
 ```
 
 This will:
+
 - Clean up any unused dependencies
 - Update `go.sum` with correct checksums for v2
 - Verify all imports are satisfied
@@ -249,6 +265,7 @@ go test ./...
 **IMPORTANT**: Major version bumps may include breaking API changes.
 
 Review the [geoip2-golang v2.0.0 release notes](https://github.com/oschwald/geoip2-golang/releases/tag/v2.0.0) for:
+
 - Renamed functions or types
 - Changed function signatures
 - Deprecated features
@@ -258,6 +275,7 @@ Update code accordingly if the API has changed.
 ### Step 6: Test Affected Workflows
 
 Trigger the benchmark workflow to confirm it passes:
+
 ```bash
 git push origin development
 ```
@@ -303,6 +321,7 @@ This would have caught the issue before merge.
 ### 3. Document Major Update Process
 
 Create a checklist for major Go module updates:
+
 - [ ] Update `go.mod` version
 - [ ] Update import paths in all source files (add `/v2`, `/v3`, etc.)
 - [ ] Run `go mod tidy`
@@ -331,6 +350,7 @@ From [Go Modules v2+ documentation](https://go.dev/blog/v2-go-modules):
 > If a module is version v2 or higher, the major version of the module must be included as a /vN at the end of the module paths used in go.mod files and in the package import path.
 
 This is a **fundamental requirement** of Go modules, not a limitation or bug. It ensures:
+
 - Clear indication of major version in code
 - Ability to import multiple major versions simultaneously
 - Explicit acknowledgment of breaking changes
@@ -338,6 +358,7 @@ This is a **fundamental requirement** of Go modules, not a limitation or bug. It
 ### Similar Past Issues
 
 This is a common pitfall when updating Go modules. Other examples in the Go ecosystem:
+
 - `gopkg.in` packages (use `/v2`, `/v3` suffixes)
 - `github.com/go-chi/chi` → `github.com/go-chi/chi/v5`
 - `github.com/gorilla/mux` → `github.com/gorilla/mux/v2` (if they release one)
@@ -345,6 +366,7 @@ This is a common pitfall when updating Go modules. Other examples in the Go ecos
 ### Why the Duplicate Entry?
 
 The duplicate in `go.mod` likely occurred because:
+
 1. Renovate added the v2 dependency
 2. A merge conflict or concurrent edit preserved an old v2 entry
 3. `go mod tidy` was not run after the merge

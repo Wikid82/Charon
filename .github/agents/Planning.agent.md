@@ -14,17 +14,23 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
     -   **Smart Research**: Run `list_dir` on `internal/models` and `src/api`. ONLY read the specific files relevant to the request. Do not read the entire directory.
     -   **Path Verification**: Verify file existence before referencing them.
 
-2. **UX-First Gap Analysis**:
+2.  **Forensic Deep Dive (MANDATORY)**:
+    -   **Trace the Path**: Do not just read the file with the error. You must trace the data flow upstream (callers) and downstream (callees).
+    -   **Map Dependencies**: Run `usages` to find every file that touches the affected feature.
+    -   **Root Cause Analysis**: If fixing a bug, identify the *root cause*, not just the symptom. Ask: "Why was the data malformed before it got here?"
+    -   **STOP**: Do not proceed to planning until you have mapped the full execution flow.
+
+3. **UX-First Gap Analysis**:
     - **Step 1**: Visualize the user interaction. What data does the user need to see?
     - **Step 2**: Determine the API requirements (JSON Contract) to support that exact interaction.
     - **Step 3**: Identify necessary Backend changes.
 
-3. **Draft & Persist**:
+4. **Draft & Persist**:
     - Create a structured plan following the <output_format>.
     - **Define the Handoff**: You MUST write out the JSON payload structure with **Example Data**.
     - **SAVE THE PLAN**: Write the final plan to `docs/plans/current_spec.md` (Create the directory if needed). This allows Dev agents to read it later.
 
-4. **Review**:
+5. **Review**:
     - Ask the user for confirmation.
 
 </workflow>
@@ -52,22 +58,32 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 }
 ```
 
-### 🏗️ Phase 1: Backend Implementation (Go)
+### 🕵️ Phase 1: QA & Security
+
+  1. Build tests for coverage of perposed code additions and chages based on how the code SHOULD work
+
+
+### 🏗️ Phase 2: Backend Implementation (Go)
 
   1. Models: {Changes to internal/models}
   2. API: {Routes in internal/api/routes}
   3. Logic: {Handlers in internal/api/handlers}
+  4. Tests: {Unit tests to verify API behavior}
+  5. Triage any issues found during testing
 
 ### 🎨 Phase 2: Frontend Implementation (React)
 
   1. Client: {Update src/api/client.ts}
   2. UI: {Components in src/components}
   3. Tests: {Unit tests to verify UX states}
+  4. Triage any issues found during testing
 
 ### 🕵️ Phase 3: QA & Security
 
   1. Edge Cases: {List specific scenarios to test}
   2. Security: Run CodeQL and Trivy scans. Triage and fix any new errors or warnings.
+  3. Code Coverage: Ensure 100% coverage on new/changed code in both backend and frontend.
+  4. Linting: Run `pre-commit` hooks on all files and triage anything not auto-fixed.
 
 ### 📚 Phase 4: Documentation
 
@@ -83,4 +99,16 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 
 - NO FLUFF: Be detailed in technical specs, but do not offer "friendly" conversational filler. Get straight to the plan.
 
-- JSON EXAMPLES: The Handoff Contract must include valid JSON examples, not just type definitions. </constraints>
+- JSON EXAMPLES: The Handoff Contract must include valid JSON examples, not just type definitions.
+
+- New Code and Edits: Don't just suggest adding or editing code. Deep research all possible impacts and dependencies before making changes. If X file is changed, what other files are affected? Do those need changes too? New code and partial edits are both leading causes of bugs when the entire scope isn't considered.
+
+- Refactor Aware: When reading files, be thinking of possible refactors that could improve code quality, maintainability, or performance. Suggest those as part of the plan if relevant. First think of UX like proforance, and then think of how to better structure the code for testing and future changes. Include those suggestions in the plan.
+
+- Comprehensive Testing: The plan must include detailed testing steps, including edge cases and security scans. Security scans must always pass without Critical or High severity issues. Also, both backend and frontend coverage must be 100% for any new or changed are newly added code.
+
+- Ignore Files: Always keep the .gitignore, .dockerignore, and .codecove.yml files in mind when suggesting new files or directories.
+
+- Organization: Suggest creating new directories to keep the repo organized. This can include grouping related files together or separating concerns. Include already existing files in the new structure if relevant. Keep track in /docs/plans/structure.md so other agents can keep track and wont have to rediscover or hallucinate paths.
+
+</constraints>

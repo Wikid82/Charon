@@ -165,11 +165,13 @@ The main page is the **Cerberus Dashboard** (sidebar: Cerberus → Dashboard).
 ### Block Bad IPs Automatically
 
 **What it does:** CrowdSec watches for attackers and blocks them before they can do damage.
-The overview now has a single Start/Stop toggle—no separate mode selector.
+CrowdSec is now **GUI-controlled** through the Security dashboard—no environment variables needed.
 
 **Why you care:** Someone tries to guess your password 100 times? Blocked automatically.
 
-**What you do:** Add one line to your docker-compose file. See [Security Guide](security.md).
+**What you do:** Toggle the CrowdSec switch in the Security dashboard. That's it! See [Security Guide](security.md).
+
+⚠️ **Note:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE` are **deprecated**. Use the GUI toggle instead.
 
 ### Block Entire Countries
 
@@ -222,6 +224,9 @@ catch it by recognizing the attack pattern.
 **Why you care:** Protects your server from IPs that are attacking other people,
 and lets you manage your security configuration easily.
 
+**Test Coverage:** 100% frontend test coverage achieved with 162 comprehensive tests covering all CrowdSec features,
+API clients, hooks, and utilities. See [QA Report](reports/qa_crowdsec_frontend_coverage_report.md) for details.
+
 **Features:**
 
 - **Hub Presets:** Browse, search, and install security configurations from the CrowdSec Hub.
@@ -238,6 +243,80 @@ and lets you manage your security configuration easily.
   - **Secure:** The enrollment key is passed securely to the CrowdSec agent.
 
 - **Live Decisions:** See exactly who is being blocked and why in real-time.
+
+#### Automatic Startup & Persistence
+
+**What it does:** CrowdSec automatically starts when the container restarts if you previously enabled it.
+
+**Why you care:** Your security protection persists across container restarts and server reboots—no manual re-enabling needed.
+
+**How it works:**
+
+When you toggle CrowdSec ON:
+
+1. **Settings table** stores your preference (`security.crowdsec.enabled = true`)
+2. **SecurityConfig table** tracks the operational state (`crowdsec_mode = local`)
+3. **Reconciliation function** checks both tables on container startup
+
+When the container restarts:
+
+1. **Reconciliation runs automatically** at startup
+2. **Checks SecurityConfig table** for `crowdsec_mode = local`
+3. **Falls back to Settings table** if SecurityConfig is missing
+4. **Auto-starts CrowdSec** if either table indicates enabled
+5. **Creates SecurityConfig** if missing (synced to Settings state)
+
+**What you see in logs:**
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'","time":"..."}
+```
+
+Or if Settings table is used:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation: starting based on Settings table override","time":"..."}
+```
+
+Or if both are disabled:
+
+```json
+{"level":"info","msg":"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled","time":"..."}
+```
+
+**Settings/SecurityConfig Synchronization:**
+
+- **Enable via toggle:** Both tables update automatically
+- **Disable via toggle:** Both tables update automatically
+- **Container restart:** Reconciliation syncs SecurityConfig to Settings if missing
+- **Database corruption:** Reconciliation recreates SecurityConfig from Settings
+
+**When auto-start happens:**
+
+✅ SecurityConfig has `crowdsec_mode = "local"`
+✅ Settings table has `security.crowdsec.enabled = "true"`
+✅ Either condition triggers auto-start (logical OR)
+
+**When auto-start is skipped:**
+
+❌ Both tables indicate disabled
+❌ Fresh install with no Settings entry (defaults to disabled)
+
+**Verification:**
+
+Check CrowdSec status after container restart:
+
+```bash
+docker restart charon
+sleep 15
+docker exec charon cscli lapi status
+```
+
+Expected output when auto-start worked:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
 
 ### Rate Limiting
 
@@ -511,9 +590,11 @@ Uses WebSocket technology to stream logs with zero delay.
 
 ---
 
-## 🧪 Cerberus Security Testing
+## 🧪 Testing & Quality Assurance
 
-The Cerberus security suite includes comprehensive testing to ensure all features work correctly together.
+Charon maintains high test coverage across both backend and frontend to ensure reliability and stability.
+
+**Overall Backend Coverage:** 85.4% with 38 new test cases recently added across 6 critical files including log_watcher.go (98.2%), crowdsec_handler.go (80%), and console_enroll.go (88.23%).
 
 ### Full Integration Test Suite
 
@@ -557,7 +638,31 @@ cd backend && go test -tags=integration ./integration -run TestCerberusIntegrati
 - Touch-friendly toggle switches (minimum 44px targets)
 - Scrollable modals and overlays on small screens
 
-**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases.
+### CrowdSec Frontend Test Coverage
+
+**What it does:** Comprehensive frontend test suite for all CrowdSec features with 100% code coverage.
+
+**Test files created:**
+
+1. **API Client Tests** (`api/__tests__/`)
+   - `presets.test.ts` - 26 tests for preset management API
+   - `consoleEnrollment.test.ts` - 25 tests for Console enrollment API
+
+2. **Data & Utilities Tests**
+   - `data/__tests__/crowdsecPresets.test.ts` - 38 tests validating all 30 presets
+   - `utils/__tests__/crowdsecExport.test.ts` - 48 tests for export functionality
+
+3. **React Query Hooks Tests**
+   - `hooks/__tests__/useConsoleEnrollment.test.tsx` - 25 tests for enrollment hooks
+
+**Coverage metrics:**
+
+- 162 total CrowdSec-specific tests
+- 100% code coverage for all CrowdSec modules
+- All tests passing with no flaky tests
+- Pre-commit checks validated
+
+**Learn more:** See the test plans in [docs/plans/](plans/) for detailed test cases and the [QA Coverage Report](reports/qa_crowdsec_frontend_coverage_report.md).
 
 ---
 

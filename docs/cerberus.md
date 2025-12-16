@@ -135,11 +135,22 @@ type SecurityConfig struct {
 If no database config exists, Charon reads from environment:
 
 - `CERBERUS_SECURITY_WAF_MODE` — `disabled` | `monitor` | `block`
-- `CERBERUS_SECURITY_CROWDSEC_MODE` — `disabled` | `local` | `external`
-- `CERBERUS_SECURITY_CROWDSEC_API_URL` — URL for external CrowdSec bouncer
-- `CERBERUS_SECURITY_CROWDSEC_API_KEY` — API key for external bouncer
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_MODE` — Use GUI toggle instead (see below)
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_URL` — External mode is no longer supported
+- 🚨 **DEPRECATED:** `CERBERUS_SECURITY_CROWDSEC_API_KEY` — External mode is no longer supported
 - `CERBERUS_SECURITY_ACL_ENABLED` — `true` | `false`
 - `CERBERUS_SECURITY_RATELIMIT_ENABLED` — `true` | `false`
+
+⚠️ **IMPORTANT:** The `CHARON_SECURITY_CROWDSEC_MODE` (and legacy `CERBERUS_SECURITY_CROWDSEC_MODE`, `CPM_SECURITY_CROWDSEC_MODE`) environment variables are **DEPRECATED** as of version 2.0. CrowdSec is now **GUI-controlled** through the Security dashboard, just like WAF, ACL, and Rate Limiting.
+
+**Why the change?**
+
+- CrowdSec now works like all other security features (GUI-based)
+- No need to restart containers to enable/disable CrowdSec
+- Better integration with Charon's security orchestration
+- The import config feature replaced the need for external mode
+
+**Migration:** If you have `CHARON_SECURITY_CROWDSEC_MODE=local` in your docker-compose.yml, remove it and use the GUI toggle instead. See [Migration Guide](migration-guide.md) for step-by-step instructions.
 
 ---
 
@@ -254,22 +265,403 @@ Uses MaxMind GeoLite2-Country database:
 
 ## CrowdSec Integration
 
-### Current Status
+### GUI-Based Control (Current Architecture)
 
-**Placeholder.** Configuration models exist but bouncer integration is not yet implemented.
+CrowdSec is now **GUI-controlled**, matching the pattern used by WAF, ACL, and Rate Limiting. The environment variable control (`CHARON_SECURITY_CROWDSEC_MODE`) is **deprecated** and will be removed in a future version.
 
-### Planned Implementation
+### LAPI Initialization and Health Checks
 
-**Local mode:**
+**Technical Implementation:**
 
-- Run CrowdSec agent inside Charon container
-- Parse logs from Caddy
-- Make decisions locally
+When you toggle CrowdSec ON via the GUI, the backend performs the following:
 
-**External mode:**
+1. **Start CrowdSec Process** (`/api/v1/admin/crowdsec/start`)
 
-- Connect to existing CrowdSec bouncer via API
-- Query IP reputation before allowing requests
+   ```go
+   pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
+   ```
+
+2. **Poll LAPI Health** (automatic, server-side)
+   - **Polling interval:** 500ms
+   - **Maximum wait:** 30 seconds
+   - **Health check command:** `cscli lapi status`
+   - **Expected response:** Exit code 0 (success)
+
+3. **Return Status with `lapi_ready` Flag**
+
+   ```json
+   {
+     "status": "started",
+     "pid": 203,
+     "lapi_ready": true
+   }
+   ```
+
+**Response Fields:**
+
+- **`status`** — "started" (process successfully initiated) or "error"
+- **`pid`** — Process ID of running CrowdSec instance
+- **`lapi_ready`** — Boolean indicating if LAPI health check passed
+  - `true` — LAPI is fully initialized and accepting requests
+  - `false` — CrowdSec is running, but LAPI still initializing (may take 5-10 more seconds)
+
+**Backend Implementation** (`internal/handlers/crowdsec_handler.go:185-230`):
+
+```go
+func (h *CrowdsecHandler) Start(c *gin.Context) {
+    // Start the process
+    pid, err := h.Executor.Start(ctx, h.BinPath, h.DataDir)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // Wait for LAPI to be ready (with timeout)
+    lapiReady := false
+    maxWait := 30 * time.Second
+    pollInterval := 500 * time.Millisecond
+    deadline := time.Now().Add(maxWait)
+
+    for time.Now().Before(deadline) {
+        checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+        defer cancel()
+
+        _, err := h.CmdExec.Execute(checkCtx, "cscli", []string{"lapi", "status"})
+        if err == nil {
+            lapiReady = true
+            break
+        }
+        time.Sleep(pollInterval)
+    }
+
+    // Return status
+    c.JSON(http.StatusOK, gin.H{
+        "status":     "started",
+        "pid":        pid,
+        "lapi_ready": lapiReady,
+    })
+}
+```
+
+**Key Technical Details:**
+
+- **Non-blocking:** The Start() handler waits for LAPI but has a timeout
+- **Health check:** Uses `cscli lapi status` (exit code 0 = healthy)
+- **Retry logic:** Polls every 500ms instead of continuous checks (reduces CPU)
+- **Timeout:** 30 seconds maximum wait (prevents infinite loops)
+- **Graceful degradation:** Returns `lapi_ready: false` instead of failing if timeout exceeded
+
+**LAPI Health Endpoint:**
+
+LAPI exposes a health endpoint on `http://localhost:8085/health`:
+
+```bash
+curl -s http://localhost:8085/health
+```
+
+Response when healthy:
+
+```json
+{"status":"up"}
+```
+
+This endpoint is used internally by `cscli lapi status`.
+
+### How to Enable CrowdSec
+
+**Step 1: Access Security Dashboard**
+
+1. Navigate to **Security** in the sidebar
+2. Find the **CrowdSec** card
+3. Toggle the switch to **ON**
+4. Wait 10-15 seconds for LAPI to start
+5. Verify status shows "Active" with a running PID
+
+**Step 2: Verify LAPI is Running**
+
+```bash
+docker exec charon cscli lapi status
+```
+
+Expected output:
+
+```
+✓ You can successfully interact with Local API (LAPI)
+```
+
+**Step 3: (Optional) Enroll in CrowdSec Console**
+
+Once LAPI is running, you can enroll your instance:
+
+1. Go to **Cerberus → CrowdSec**
+2. Enable the Console enrollment feature flag (if not already enabled)
+3. Click **Enroll with CrowdSec Console**
+4. Paste your enrollment token from crowdsec.net
+5. Submit
+
+**Prerequisites for Console Enrollment:**
+
+- ✅ CrowdSec must be **enabled** via GUI toggle
+- ✅ LAPI must be **running** (verify with `cscli lapi status`)
+- ✅ Feature flag `feature.crowdsec.console_enrollment` must be enabled
+- ✅ Valid enrollment token from crowdsec.net
+
+⚠️ **Important:** Console enrollment requires an active LAPI connection. If LAPI is not running, the enrollment will appear successful locally but won't register on crowdsec.net.
+
+**Enrollment Retry Logic:**
+
+The console enrollment service automatically checks LAPI availability with retries:
+
+**Implementation** (`internal/services/console_enroll.go:218-246`):
+
+```go
+func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
+    maxRetries := 3
+    retryDelay := 2 * time.Second
+
+    for i := 0; i < maxRetries; i++ {
+        checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+        defer cancel()
+
+        _, err := s.exec.ExecuteWithEnv(checkCtx, "cscli", []string{"lapi", "status"}, nil)
+        if err == nil {
+            return nil // LAPI is available
+        }
+
+        if i < maxRetries-1 {
+            logger.Log().WithError(err).WithField("attempt", i+1).Debug("LAPI not ready, retrying")
+            time.Sleep(retryDelay)
+        }
+    }
+
+    return fmt.Errorf("CrowdSec Local API is not running after %d attempts", maxRetries)
+}
+```
+
+**Retry Parameters:**
+
+- **Max retries:** 3 attempts
+- **Retry delay:** 2 seconds between attempts
+- **Total retry window:** Up to 6 seconds (3 attempts × 2 seconds)
+- **Command timeout:** 5 seconds per attempt
+
+**Retry Flow:**
+
+1. **Attempt 1** — Immediate LAPI check
+2. **Wait 2 seconds** (if failed)
+3. **Attempt 2** — Retry LAPI check
+4. **Wait 2 seconds** (if failed)
+5. **Attempt 3** — Final LAPI check
+6. **Return error** — If all 3 attempts fail
+
+This handles most race conditions where LAPI is still initializing after CrowdSec start.
+
+### How CrowdSec Works in Charon
+
+**Startup Flow:**
+
+1. Container starts → CrowdSec config initialized (but agent NOT started)
+2. User toggles CrowdSec switch in GUI → Frontend calls `/api/v1/admin/crowdsec/start`
+3. Backend handler starts LAPI process → PID tracked in backend
+4. User can verify status in Security dashboard
+5. User toggles OFF → Backend calls `/api/v1/admin/crowdsec/stop`
+
+**This matches the pattern used by other security features:**
+
+| Feature | Control Method | Status Endpoint | Lifecycle Handler |
+|---------|---------------|-----------------|-------------------|
+| **Cerberus** | GUI Toggle | `/security/status` | N/A (master switch) |
+| **WAF** | GUI Toggle | `/security/status` | Config regeneration |
+| **ACL** | GUI Toggle | `/security/status` | Config regeneration |
+| **Rate Limit** | GUI Toggle | `/security/status` | Config regeneration |
+| **CrowdSec** | ✅ GUI Toggle | `/security/status` | Start/Stop handlers |
+
+### Import Config Feature
+
+The import config feature (`importCrowdsecConfig`) allows you to:
+
+1. Upload a complete CrowdSec configuration (tar.gz)
+2. Import pre-configured settings, collections, and bouncers
+3. Manage CrowdSec entirely through Charon's GUI
+
+**This replaced the need for "external" mode:**
+
+- **Old way (deprecated):** Set `CROWDSEC_MODE=external` and point to external LAPI
+- **New way:** Import your existing config and let Charon manage it internally
+
+### Troubleshooting
+
+**Problem:** Console enrollment shows "enrolled" locally but doesn't appear on crowdsec.net
+
+**Technical Analysis:**
+LAPI must be fully initialized before enrollment. Even with automatic retries, there's a window where LAPI might not be ready.
+
+**Solution:**
+
+1. **Verify LAPI process is running:**
+
+   ```bash
+   docker exec charon ps aux | grep crowdsec
+   ```
+
+   Expected output:
+
+   ```
+   crowdsec  203  0.5  2.3  /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
+   ```
+
+2. **Check LAPI status:**
+
+   ```bash
+   docker exec charon cscli lapi status
+   ```
+
+   Expected output:
+
+   ```
+   ✓ You can successfully interact with Local API (LAPI)
+   ```
+
+   If not ready:
+
+   ```
+   ERROR: cannot contact local API
+   ```
+
+3. **Check LAPI health endpoint:**
+
+   ```bash
+   docker exec charon curl -s http://localhost:8085/health
+   ```
+
+   Expected response:
+
+   ```json
+   {"status":"up"}
+   ```
+
+4. **Check LAPI can process requests:**
+
+   ```bash
+   docker exec charon cscli machines list
+   ```
+
+   Expected output:
+
+   ```
+   Name                     IP Address      Auth Type    Version
+   charon-local-machine     127.0.0.1      password     v1.x.x
+   ```
+
+5. **If LAPI is not running:**
+   - Go to Security dashboard
+   - Toggle CrowdSec **OFF**, then **ON** again
+   - **Wait 15 seconds** (critical: LAPI needs time to initialize)
+   - Verify LAPI is running (repeat checks above)
+   - Re-submit enrollment token
+
+6. **Monitor LAPI startup:**
+
+   ```bash
+   # Watch CrowdSec logs in real-time
+   docker logs -f charon | grep -i crowdsec
+   ```
+
+   Look for:
+   - ✅ "Starting CrowdSec Local API"
+   - ✅ "CrowdSec Local API listening on 127.0.0.1:8085"
+   - ✅ "parsers loaded: 4"
+   - ✅ "scenarios loaded: 46"
+   - ❌ "error" or "fatal" (indicates startup problem)
+
+**Problem:** CrowdSec won't start after toggling
+
+**Solution:**
+
+1. **Check logs for errors:**
+
+   ```bash
+   docker logs charon | grep -i error | tail -20
+   ```
+
+2. **Common startup issues:**
+
+   **Issue: Config directory missing**
+
+   ```bash
+   # Check directory exists
+   docker exec charon ls -la /app/data/crowdsec/config
+
+   # If missing, restart container to regenerate
+   docker compose restart
+   ```
+
+   **Issue: Port conflict (8085 in use)**
+
+   ```bash
+   # Check port usage
+   docker exec charon netstat -tulpn | grep 8085
+
+   # If another process is using port 8085, stop it or change CrowdSec LAPI port
+   ```
+
+   **Issue: Permission errors**
+
+   ```bash
+   # Fix ownership (run on host machine)
+   sudo chown -R 1000:1000 ./data/crowdsec
+   docker compose restart
+   ```
+
+3. **Remove deprecated environment variables:**
+
+   Edit `docker-compose.yml` and remove:
+
+   ```yaml
+   # REMOVE THESE DEPRECATED VARIABLES:
+   - CHARON_SECURITY_CROWDSEC_MODE=local
+   - CERBERUS_SECURITY_CROWDSEC_MODE=local
+   - CPM_SECURITY_CROWDSEC_MODE=local
+   ```
+
+   Then restart:
+
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+
+4. **Verify CrowdSec binary exists:**
+
+   ```bash
+   docker exec charon which crowdsec
+   # Expected: /usr/local/bin/crowdsec
+
+   docker exec charon which cscli
+   # Expected: /usr/local/bin/cscli
+   ```
+
+**Expected LAPI Startup Times:**
+
+- **Initial start:** 5-10 seconds
+- **First start after container restart:** 10-15 seconds
+- **With many scenarios/parsers:** Up to 20 seconds
+- **Maximum timeout:** 30 seconds (Start() handler limit)
+
+**Performance Monitoring:**
+
+```bash
+# Check CrowdSec resource usage
+docker exec charon ps aux | grep crowdsec
+
+# Check LAPI response time
+time docker exec charon curl -s http://localhost:8085/health
+
+# Monitor LAPI availability over time
+watch -n 5 'docker exec charon cscli lapi status'
+```
+
+See also: [CrowdSec Troubleshooting Guide](troubleshooting/crowdsec.md)
 
 ---
 

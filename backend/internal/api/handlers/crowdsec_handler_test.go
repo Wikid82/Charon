@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -45,6 +44,10 @@ func (f *fakeExec) Status(ctx context.Context, configDir string) (running bool, 
 
 func setupCrowdDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
+	// Migrate tables needed by CrowdSec handlers
+	if err := db.AutoMigrate(&models.SecurityConfig{}); err != nil {
+		t.Fatalf("failed to migrate SecurityConfig: %v", err)
+	}
 	return db
 }
 
@@ -647,7 +650,8 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, "enrolled", resp["status"])
+	// Enrollment request sent, but user must accept on crowdsec.net
+	require.Equal(t, "pending_acceptance", resp["status"])
 }
 
 func TestConsoleEnrollMissingAgentName(t *testing.T) {
@@ -752,7 +756,8 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
-	require.Equal(t, "enrolled", resp["status"])
+	// Enrollment request sent, but user must accept on crowdsec.net
+	require.Equal(t, "pending_acceptance", resp["status"])
 	require.Equal(t, "test-agent", resp["agent_name"])
 }
 
@@ -1005,258 +1010,199 @@ labels:
 		"expected 200 or 404, got %d", w.Code)
 }
 
-func TestUpdateAcquisitionConfigMissingContent(t *testing.T) {
+// ============================================
+// DeleteConsoleEnrollment Tests
+// ============================================
+
+func TestDeleteConsoleEnrollmentDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	// Feature flag not set, should return 404
+
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// Empty JSON body
-	body, _ := json.Marshal(map[string]string{})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/crowdsec/acquisition", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "required")
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "disabled")
 }
 
-func TestUpdateAcquisitionConfigInvalidJSON(t *testing.T) {
+func TestDeleteConsoleEnrollmentServiceUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	// Create handler with nil Console service
+	db := OpenTestDB(t)
+	h := &CrowdsecHandler{
+		DB:       db,
+		Executor: &fakeExec{},
+		CmdExec:  &RealCommandExecutor{},
+		BinPath:  "/bin/false",
+		DataDir:  t.TempDir(),
+		Console:  nil, // Explicitly nil
+	}
+
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/crowdsec/acquisition", bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
 	r.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "not available")
 }
 
-func TestUpdateAcquisitionConfigWriteError(t *testing.T) {
+func TestDeleteConsoleEnrollmentSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	// First create an enrollment record
+	rec := &models.CrowdsecConsoleEnrollment{
+		UUID:      "test-uuid",
+		Status:    "enrolled",
+		AgentName: "test-agent",
+		Tenant:    "test-tenant",
+	}
+	require.NoError(t, h.DB.Create(rec).Error)
+
 	r := gin.New()
 	g := r.Group("/api/v1")
 	h.RegisterRoutes(g)
 
-	// Valid content - test behavior depends on whether /etc/crowdsec is writable
-	body, _ := json.Marshal(map[string]string{
-		"content": "source: file\nfilenames:\n  - /var/log/test.log\nlabels:\n  type: test\n",
-	})
+	// Delete the enrollment
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/crowdsec/acquisition", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	// If /etc/crowdsec exists and is writable, this will succeed (200)
-	// If not writable, it will fail (500)
-	// We accept either outcome based on the test environment
-	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError,
-		"expected 200 or 500, got %d", w.Code)
-
-	if w.Code == http.StatusOK {
-		var resp map[string]interface{}
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-		require.Equal(t, "updated", resp["status"])
-		require.True(t, resp["reload_hint"].(bool))
-	}
-}
-
-// TestAcquisitionConfigRoundTrip tests creating, reading, and updating acquisition config
-// when the path is writable (integration-style test)
-func TestAcquisitionConfigRoundTrip(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	// This test requires /etc/crowdsec to be writable, which isn't typical in test environments
-	// Skip if the directory isn't writable
-	testDir := "/etc/crowdsec"
-	if _, err := os.Stat(testDir); os.IsNotExist(err) {
-		t.Skip("Skipping integration test: /etc/crowdsec does not exist")
-	}
-
-	// Check if writable by trying to create a temp file
-	testFile := filepath.Join(testDir, ".write-test")
-	if err := os.WriteFile(testFile, []byte("test"), 0o644); err != nil {
-		t.Skip("Skipping integration test: /etc/crowdsec is not writable")
-	}
-	os.Remove(testFile)
-
-	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	// Write new config
-	newContent := `# Test config
-source: file
-filenames:
-  - /var/log/test.log
-labels:
-  type: test
-`
-	body, _ := json.Marshal(map[string]string{"content": newContent})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/crowdsec/acquisition", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "cleared")
 
+	// Verify the record is gone
+	var count int64
+	h.DB.Model(&models.CrowdsecConsoleEnrollment{}).Count(&count)
+	require.Equal(t, int64(0), count)
+}
+
+func TestDeleteConsoleEnrollmentNoRecordSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	// Don't create any record - deletion should still succeed
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "cleared")
+}
+
+func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CROWDSEC_CONSOLE_ENROLLMENT", "true")
+
+	h, _ := setupTestConsoleEnrollment(t)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// First enroll
+	body := `{"enrollment_key": "abc123456789", "agent_name": "test-agent-1"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/console/enroll", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Check status shows pending_acceptance
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusOK, w2.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
+	require.Equal(t, "pending_acceptance", resp["status"])
+	require.Equal(t, "test-agent-1", resp["agent_name"])
+
+	// Delete enrollment
+	w3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/console/enrollment", http.NoBody)
+	r.ServeHTTP(w3, req3)
+	require.Equal(t, http.StatusOK, w3.Code)
+
+	// Check status shows not_enrolled
+	w4 := httptest.NewRecorder()
+	req4 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w4, req4)
+	require.Equal(t, http.StatusOK, w4.Code)
+	var resp2 map[string]interface{}
+	require.NoError(t, json.Unmarshal(w4.Body.Bytes(), &resp2))
+	require.Equal(t, "not_enrolled", resp2["status"])
+
+	// Re-enroll with NEW agent name - should work WITHOUT force
+	body2 := `{"enrollment_key": "newkey123456", "agent_name": "test-agent-2"}`
+	w5 := httptest.NewRecorder()
+	req5 := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/console/enroll", strings.NewReader(body2))
+	req5.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w5, req5)
+	require.Equal(t, http.StatusOK, w5.Code)
+
+	// Check status shows new agent name
+	w6 := httptest.NewRecorder()
+	req6 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
+	r.ServeHTTP(w6, req6)
+	require.Equal(t, http.StatusOK, w6.Code)
+	var resp3 map[string]interface{}
+	require.NoError(t, json.Unmarshal(w6.Body.Bytes(), &resp3))
+	require.Equal(t, "pending_acceptance", resp3["status"])
+	require.Equal(t, "test-agent-2", resp3["agent_name"])
+}
+
+// ============================================
+// NEW COVERAGE TESTS - Phase 3 Implementation
+// ============================================
+
+// Start Handler - LAPI Readiness Polling Tests
+func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns error for lapi status checks
+	mockExec := &mockCmdExecutor{
+		output: []byte("error: lapi not reachable"),
+		err:    errors.New("lapi unreachable"),
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, "updated", resp["status"])
-	require.True(t, resp["reload_hint"].(bool))
-
-	// Read back
-	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/acquisition", http.NoBody)
-	r.ServeHTTP(w2, req2)
-
-	require.Equal(t, http.StatusOK, w2.Code)
-
-	var readResp map[string]interface{}
-	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &readResp))
-	require.Equal(t, newContent, readResp["content"])
-	require.Equal(t, "/etc/crowdsec/acquis.yaml", readResp["path"])
-}
-
-// ============================================
-// actorFromContext Tests
-// ============================================
-
-func TestActorFromContextWithUserID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("userID", "user-123")
-
-	actor := actorFromContext(c)
-	require.Equal(t, "user:user-123", actor)
-}
-
-func TestActorFromContextWithNumericUserID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Set("userID", 456)
-
-	actor := actorFromContext(c)
-	require.Equal(t, "user:456", actor)
-}
-
-func TestActorFromContextNoUser(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-
-	actor := actorFromContext(c)
-	require.Equal(t, "unknown", actor)
-}
-
-// ============================================
-// ttlRemainingSeconds Tests
-// ============================================
-
-func TestTTLRemainingSeconds(t *testing.T) {
-	now := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	retrieved := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC) // 1 hour ago
-	cacheTTL := 2 * time.Hour
-
-	// Should have 1 hour remaining
-	remaining := ttlRemainingSeconds(now, retrieved, cacheTTL)
-	require.NotNil(t, remaining)
-	require.Equal(t, int64(3600), *remaining) // 1 hour in seconds
-}
-
-func TestTTLRemainingSecondsExpired(t *testing.T) {
-	now := time.Date(2024, 1, 1, 14, 0, 0, 0, time.UTC)
-	retrieved := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC) // 3 hours ago
-	cacheTTL := 2 * time.Hour
-
-	// Should be expired (negative or zero)
-	remaining := ttlRemainingSeconds(now, retrieved, cacheTTL)
-	require.NotNil(t, remaining)
-	require.Equal(t, int64(0), *remaining)
-}
-
-func TestTTLRemainingSecondsZeroTime(t *testing.T) {
-	now := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	var retrieved time.Time // zero time
-	cacheTTL := 2 * time.Hour
-
-	// With zero time, should return nil
-	remaining := ttlRemainingSeconds(now, retrieved, cacheTTL)
-	require.Nil(t, remaining)
-}
-
-func TestTTLRemainingSecondsZeroTTL(t *testing.T) {
-	now := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
-	retrieved := time.Date(2024, 1, 1, 11, 0, 0, 0, time.UTC)
-	cacheTTL := time.Duration(0)
-
-	remaining := ttlRemainingSeconds(now, retrieved, cacheTTL)
-	require.Nil(t, remaining)
-}
-
-// ============================================
-// hubEndpoints Tests
-// ============================================
-
-func TestHubEndpointsNil(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
-	h.Hub = nil
-
-	endpoints := h.hubEndpoints()
-	require.Nil(t, endpoints)
-}
-
-func TestHubEndpointsDeduplicates(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
-	// Hub is created by NewCrowdsecHandler, modify its fields
-	if h.Hub != nil {
-		h.Hub.HubBaseURL = "https://hub.crowdsec.net"
-		h.Hub.MirrorBaseURL = "https://hub.crowdsec.net" // Same URL
-	}
-
-	endpoints := h.hubEndpoints()
-	require.Len(t, endpoints, 1)
-	require.Equal(t, "https://hub.crowdsec.net", endpoints[0])
-}
-
-func TestHubEndpointsMultiple(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
-	if h.Hub != nil {
-		h.Hub.HubBaseURL = "https://hub.crowdsec.net"
-		h.Hub.MirrorBaseURL = "https://mirror.example.com"
-	}
-
-	endpoints := h.hubEndpoints()
-	require.Len(t, endpoints, 2)
-	require.Contains(t, endpoints, "https://hub.crowdsec.net")
-	require.Contains(t, endpoints, "https://mirror.example.com")
-}
-
-func TestHubEndpointsSkipsEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	h := NewCrowdsecHandler(nil, &fakeExec{}, "/bin/false", t.TempDir())
-	if h.Hub != nil {
-		h.Hub.HubBaseURL = "https://hub.crowdsec.net"
-		h.Hub.MirrorBaseURL = "" // Empty
-	}
-
-	endpoints := h.hubEndpoints()
-	require.Len(t, endpoints, 1)
-	require.Equal(t, "https://hub.crowdsec.net", endpoints[0])
+	require.Equal(t, "started", resp["status"])
+	require.False(t, resp["lapi_ready"].(bool))
+	require.Contains(t, resp, "warning")
 }

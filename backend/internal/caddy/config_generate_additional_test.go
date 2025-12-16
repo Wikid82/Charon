@@ -386,18 +386,31 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 	sec := &models.SecurityConfig{CrowdSecMode: "local", CrowdSecAPIURL: "http://cs.local"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec)
 	require.NoError(t, err)
+
+	// Check app-level CrowdSec configuration
+	require.NotNil(t, cfg.Apps.CrowdSec, "CrowdSec app config should be present")
+	require.Equal(t, "http://cs.local", cfg.Apps.CrowdSec.APIUrl, "API URL should match SecurityConfig")
+
+	// Check server-level trusted_proxies is configured
+	server := cfg.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server, "Server should be configured")
+	require.NotNil(t, server.TrustedProxies, "TrustedProxies should be configured at server level")
+	require.Equal(t, "static", server.TrustedProxies.Source, "TrustedProxies source should be 'static'")
+	require.Contains(t, server.TrustedProxies.Ranges, "172.16.0.0/12", "Should trust Docker networks")
+
+	// Check handler is minimal
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "crowdsec" {
-			// caddy-crowdsec-bouncer expects api_url field
-			if apiURL, ok := h["api_url"].(string); ok && apiURL == "http://cs.local" {
-				found = true
-				break
-			}
+			found = true
+			// Handler should NOT have inline config
+			_, hasAPIURL := h["lapi_url"]
+			require.False(t, hasAPIURL, "Handler should not have inline lapi_url")
+			break
 		}
 	}
-	require.True(t, found, "crowdsec handler with api_url should be present")
+	require.True(t, found, "crowdsec handler should be present")
 }
 
 func TestGenerateConfig_EmptyHostsAndNoFrontend(t *testing.T) {

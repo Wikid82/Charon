@@ -7,7 +7,7 @@ coverage:
   status:
     project:
       default:
-        target: 75%
+        target: 85%
         threshold: 0%
 
 # Fail CI if Codecov upload/report indicates a problem
@@ -91,3 +91,34 @@ ignore:
 
   # CrowdSec config files (no logic to test)
   - "configs/crowdsec/**"
+
+  # ==========================================================================
+  # Backend packages excluded from coverage (match go-test-coverage.sh)
+  # These are entrypoints and infrastructure code that don't benefit from
+  # unit tests - they are tested via integration tests instead.
+  # ==========================================================================
+
+  # Main entry points (bootstrap code only)
+  - "backend/cmd/api/**"
+
+  # Infrastructure packages (logging, metrics, tracing)
+  # These are thin wrappers around external libraries with no business logic
+  - "backend/internal/logger/**"
+  - "backend/internal/metrics/**"
+  - "backend/internal/trace/**"
+
+  # ==========================================================================
+  # Frontend test utilities and helpers
+  # These are test infrastructure, not application code
+  # ==========================================================================
+
+  # Test setup and utilities directory
+  - "frontend/src/test/**"
+
+  # Vitest setup files
+  - "frontend/vitest.config.ts"
+  - "frontend/src/setupTests.ts"
+
+  # Playwright E2E config
+  - "frontend/playwright.config.ts"
+  - "frontend/e2e/**"

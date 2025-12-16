@@ -9,7 +9,7 @@ export interface CrowdSecDecision {
   source: string
 }
 
-export async function startCrowdsec() {
+export async function startCrowdsec(): Promise<{ status: string; pid: number; lapi_ready?: boolean }> {
   const resp = await client.post('/admin/crowdsec/start')
   return resp.data
 }
@@ -19,8 +19,14 @@ export async function stopCrowdsec() {
   return resp.data
 }
 
-export async function statusCrowdsec() {
-  const resp = await client.get('/admin/crowdsec/status')
+export interface CrowdSecStatus {
+  running: boolean
+  pid: number
+  lapi_ready: boolean
+}
+
+export async function statusCrowdsec(): Promise<CrowdSecStatus> {
+  const resp = await client.get<CrowdSecStatus>('/admin/crowdsec/status')
   return resp.data
 }
 

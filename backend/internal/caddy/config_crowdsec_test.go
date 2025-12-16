@@ -17,19 +17,19 @@ func TestBuildCrowdSecHandler_Disabled(t *testing.T) {
 }
 
 func TestBuildCrowdSecHandler_EnabledWithoutConfig(t *testing.T) {
-	// When crowdsecEnabled is true but no secCfg, should use default localhost URL
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	// When crowdsecEnabled is true, should return minimal handler
 	h, err := buildCrowdSecHandler(nil, nil, true)
 	require.NoError(t, err)
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://127.0.0.1:8085", h["api_url"])
+	// No inline config - all config is at app-level
+	assert.Nil(t, h["lapi_url"])
+	assert.Nil(t, h["api_key"])
 }
 
 func TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL(t *testing.T) {
-	// When crowdsecEnabled is true but CrowdSecAPIURL is empty, should use default
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
+	// When crowdsecEnabled is true, should return minimal handler
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "",
 	}
@@ -38,11 +38,13 @@ func TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL(t *testing.T) {
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://127.0.0.1:8085", h["api_url"])
+	// No inline config - all config is at app-level
+	assert.Nil(t, h["lapi_url"])
 }
 
 func TestBuildCrowdSecHandler_EnabledWithCustomAPIURL(t *testing.T) {
-	// When crowdsecEnabled is true and CrowdSecAPIURL is set, should use custom URL
+	// When crowdsecEnabled is true, should return minimal handler
+	// Custom API URL is configured at app-level, not in handler
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "http://crowdsec-lapi:8081",
 	}
@@ -51,11 +53,12 @@ func TestBuildCrowdSecHandler_EnabledWithCustomAPIURL(t *testing.T) {
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://crowdsec-lapi:8081", h["api_url"])
+	// No inline config - all config is at app-level
+	assert.Nil(t, h["lapi_url"])
 }
 
 func TestBuildCrowdSecHandler_JSONFormat(t *testing.T) {
-	// Test that the handler produces valid JSON matching caddy-crowdsec-bouncer schema
+	// Test that the handler produces valid JSON with minimal structure
 	secCfg := &models.SecurityConfig{
 		CrowdSecAPIURL: "http://localhost:8080",
 	}
@@ -68,10 +71,11 @@ func TestBuildCrowdSecHandler_JSONFormat(t *testing.T) {
 	require.NoError(t, err)
 	s := string(b)
 
-	// Verify expected JSON content
+	// Verify minimal JSON content
 	assert.Contains(t, s, `"handler":"crowdsec"`)
-	assert.Contains(t, s, `"api_url":"http://localhost:8080"`)
-	// Should NOT contain old "mode" field
+	// Should NOT contain inline config fields
+	assert.NotContains(t, s, `"lapi_url"`)
+	assert.NotContains(t, s, `"api_key"`)
 	assert.NotContains(t, s, `"mode"`)
 }
 
@@ -90,11 +94,12 @@ func TestBuildCrowdSecHandler_WithHost(t *testing.T) {
 	require.NotNil(t, h)
 
 	assert.Equal(t, "crowdsec", h["handler"])
-	assert.Equal(t, "http://custom-crowdsec:8080", h["api_url"])
+	// No inline config - all config is at app-level
+	assert.Nil(t, h["lapi_url"])
 }
 
 func TestGenerateConfig_WithCrowdSec(t *testing.T) {
-	// Test that CrowdSec handler is included in generated config when enabled
+	// Test that CrowdSec is configured at app-level when enabled
 	hosts := []models.ProxyHost{
 		{
 			UUID:        "test-uuid",
@@ -107,16 +112,33 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 
 	secCfg := &models.SecurityConfig{
 		CrowdSecMode:   "local",
-		CrowdSecAPIURL: "http://localhost:8080",
+		CrowdSecAPIURL: "http://localhost:8085",
 	}
 
-	// crowdsecEnabled=true should include the handler
+	// crowdsecEnabled=true should configure app-level CrowdSec
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
 
+	// Check app-level CrowdSec configuration
+	require.NotNil(t, config.Apps.CrowdSec, "CrowdSec app config should be present")
+	assert.Equal(t, "http://localhost:8085", config.Apps.CrowdSec.APIUrl)
+	assert.Equal(t, "60s", config.Apps.CrowdSec.TickerInterval)
+	assert.NotNil(t, config.Apps.CrowdSec.EnableStreaming)
+	assert.True(t, *config.Apps.CrowdSec.EnableStreaming)
+
+	// Check server-level trusted_proxies configuration
 	server := config.Apps.HTTP.Servers["charon_server"]
-	require.NotNil(t, server)
+	require.NotNil(t, server, "Server should be configured")
+	require.NotNil(t, server.TrustedProxies, "TrustedProxies should be configured at server level")
+	assert.Equal(t, "static", server.TrustedProxies.Source, "TrustedProxies source should be 'static'")
+	assert.Contains(t, server.TrustedProxies.Ranges, "127.0.0.1/32", "Should trust localhost")
+	assert.Contains(t, server.TrustedProxies.Ranges, "::1/128", "Should trust IPv6 localhost")
+	assert.Contains(t, server.TrustedProxies.Ranges, "172.16.0.0/12", "Should trust Docker networks")
+	assert.Contains(t, server.TrustedProxies.Ranges, "10.0.0.0/8", "Should trust private networks")
+	assert.Contains(t, server.TrustedProxies.Ranges, "192.168.0.0/16", "Should trust private networks")
+
+	// Check handler is minimal
 	require.Len(t, server.Routes, 1)
 
 	route := server.Routes[0]
@@ -128,8 +150,9 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 	for _, h := range route.Handle {
 		if h["handler"] == "crowdsec" {
 			foundCrowdSec = true
-			// Verify it has api_url
-			assert.Equal(t, "http://localhost:8080", h["api_url"])
+			// Verify it has NO inline config
+			assert.Nil(t, h["lapi_url"], "Handler should not have inline lapi_url")
+			assert.Nil(t, h["api_key"], "Handler should not have inline api_key")
 			break
 		}
 	}
@@ -137,7 +160,7 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 }
 
 func TestGenerateConfig_CrowdSecDisabled(t *testing.T) {
-	// Test that CrowdSec handler is NOT included when disabled
+	// Test that CrowdSec is NOT configured when disabled
 	hosts := []models.ProxyHost{
 		{
 			UUID:        "test-uuid",
@@ -148,10 +171,13 @@ func TestGenerateConfig_CrowdSecDisabled(t *testing.T) {
 		},
 	}
 
-	// crowdsecEnabled=false should NOT include the handler
+	// crowdsecEnabled=false should NOT configure CrowdSec
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
+
+	// No app-level CrowdSec configuration
+	assert.Nil(t, config.Apps.CrowdSec, "CrowdSec app config should not be present when disabled")
 
 	server := config.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)

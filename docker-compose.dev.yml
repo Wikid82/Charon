@@ -22,12 +22,14 @@ services:
       - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       # Security Services (Optional)
-      #- CPM_SECURITY_CROWDSEC_MODE=disabled
-      #- CPM_SECURITY_CROWDSEC_API_URL=
-      #- CPM_SECURITY_CROWDSEC_API_KEY=
+      # 🚨 DEPRECATED: Use GUI toggle in Security dashboard instead
+      #- CPM_SECURITY_CROWDSEC_MODE=disabled # ⚠️ DEPRECATED
+      #- CPM_SECURITY_CROWDSEC_API_URL= # ⚠️ DEPRECATED
+      #- CPM_SECURITY_CROWDSEC_API_KEY= # ⚠️ DEPRECATED
       #- CPM_SECURITY_WAF_MODE=disabled
       #- CPM_SECURITY_RATELIMIT_ENABLED=false
       #- CPM_SECURITY_ACL_ENABLED=false
+      - FEATURE_CERBERUS_ENABLED=true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
       - crowdsec_data:/app/data/crowdsec
