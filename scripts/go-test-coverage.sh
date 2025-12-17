@@ -42,12 +42,28 @@ fi
 
 # Filter out excluded packages from coverage file
 if [ -f "$COVERAGE_FILE" ]; then
+    echo "Filtering excluded packages from coverage report..."
     FILTERED_COVERAGE="${COVERAGE_FILE}.filtered"
-    cp "$COVERAGE_FILE" "$FILTERED_COVERAGE"
+
+    # Build sed command with all patterns at once (more efficient than loop)
+    SED_PATTERN=""
     for pkg in "${EXCLUDE_PACKAGES[@]}"; do
-        sed -i "\|^${pkg}|d" "$FILTERED_COVERAGE"
+        if [ -z "$SED_PATTERN" ]; then
+            SED_PATTERN="\|^${pkg}|d"
+        else
+            SED_PATTERN="${SED_PATTERN};\|^${pkg}|d"
+        fi
     done
+
+    # Use non-blocking sed with explicit input/output (avoids -i hang issues)
+    timeout 30 sed "$SED_PATTERN" "$COVERAGE_FILE" > "$FILTERED_COVERAGE" || {
+        echo "Error: Coverage filtering failed or timed out"
+        echo "Using unfiltered coverage file"
+        cp "$COVERAGE_FILE" "$FILTERED_COVERAGE"
+    }
+
     mv "$FILTERED_COVERAGE" "$COVERAGE_FILE"
+    echo "Coverage filtering complete"
 fi
 
 if [ ! -f "$COVERAGE_FILE" ]; then
@@ -55,8 +71,18 @@ if [ ! -f "$COVERAGE_FILE" ]; then
     exit 1
 fi
 
-go tool cover -func="$COVERAGE_FILE" | tail -n 1
-TOTAL_LINE=$(go tool cover -func="$COVERAGE_FILE" | grep total)
+# Generate coverage report once with timeout protection
+COVERAGE_OUTPUT=$(timeout 60 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
+    echo "Error: go tool cover failed or timed out after 60 seconds"
+    echo "This may indicate corrupted coverage data or memory issues"
+    exit 1
+}
+
+# Display summary line
+echo "$COVERAGE_OUTPUT" | tail -n 1
+
+# Extract total coverage percentage
+TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | grep total)
 TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
 
 echo "Computed coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"

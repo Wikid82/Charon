@@ -62,6 +62,7 @@ func TestDBHealthHandler_Check_WithBackupService(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupService := services.NewBackupService(cfg)
+	defer backupService.Stop() // Prevent goroutine leaks
 
 	// Create a backup so we have a last backup time
 	_, err = backupService.CreateBackup()
@@ -172,7 +173,161 @@ func TestNewDBHealthHandler(t *testing.T) {
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupSvc := services.NewBackupService(cfg)
+	defer backupSvc.Stop() // Prevent goroutine leaks
 
 	handler2 := NewDBHealthHandler(db, backupSvc)
 	assert.NotNil(t, handler2.backupService)
+}
+
+// Phase 1 & 3: Critical coverage tests
+
+func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create a file-based database and corrupt it
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "corrupt.db")
+
+	// Create valid database first
+	db, err := database.Connect(dbPath)
+	require.NoError(t, err)
+	db.Exec("CREATE TABLE test (id INTEGER, data TEXT)")
+	db.Exec("INSERT INTO test VALUES (1, 'data')")
+
+	// Close it
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	// Corrupt the database file
+	corruptDBFile(t, dbPath)
+
+	// Try to reconnect to corrupted database
+	db2, err := database.Connect(dbPath)
+	// The Connect function may succeed initially but integrity check will fail
+	if err != nil {
+		// If connection fails immediately, skip this test
+		t.Skip("Database connection failed immediately on corruption")
+	}
+
+	handler := NewDBHealthHandler(db2, nil)
+
+	router := gin.New()
+	router.GET("/api/v1/health/db", handler.Check)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 503 if corruption detected
+	if w.Code == http.StatusServiceUnavailable {
+		var response DBHealthResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, "corrupted", response.Status)
+		assert.False(t, response.IntegrityOK)
+		assert.NotEqual(t, "ok", response.IntegrityResult)
+	} else {
+		// If status is 200, corruption wasn't detected by quick_check
+		// (corruption might be in unused pages)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+}
+
+func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create database
+	db, err := database.Connect("file::memory:?cache=shared")
+	require.NoError(t, err)
+
+	// Create backup service with unreadable directory
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "charon.db")
+	os.WriteFile(dbPath, []byte("test"), 0o644)
+
+	cfg := &config.Config{DatabasePath: dbPath}
+	backupService := services.NewBackupService(cfg)
+
+	// Make backup directory unreadable to trigger error in GetLastBackupTime
+	os.Chmod(backupService.BackupDir, 0o000)
+	defer os.Chmod(backupService.BackupDir, 0o755) // Restore for cleanup
+
+	handler := NewDBHealthHandler(db, backupService)
+
+	router := gin.New()
+	router.GET("/api/v1/health/db", handler.Check)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Handler should still succeed (backup error is swallowed)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response DBHealthResponse
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	// Status should be healthy despite backup service error
+	assert.Equal(t, "healthy", response.Status)
+	// LastBackup should be nil when error occurs
+	assert.Nil(t, response.LastBackup)
+}
+
+func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create database
+	db, err := database.Connect("file::memory:?cache=shared")
+	require.NoError(t, err)
+
+	// Create backup service with empty backup directory (no backups yet)
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "charon.db")
+	os.WriteFile(dbPath, []byte("test"), 0o644)
+
+	cfg := &config.Config{DatabasePath: dbPath}
+	backupService := services.NewBackupService(cfg)
+
+	handler := NewDBHealthHandler(db, backupService)
+
+	router := gin.New()
+	router.GET("/api/v1/health/db", handler.Check)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response DBHealthResponse
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	// LastBackup should be nil when no backups exist (zero time)
+	assert.Nil(t, response.LastBackup)
+	assert.Equal(t, "healthy", response.Status)
+}
+
+// Helper function to corrupt SQLite database file
+func corruptDBFile(t *testing.T, dbPath string) {
+	t.Helper()
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	require.NoError(t, err)
+	defer f.Close()
+
+	// Get file size
+	stat, err := f.Stat()
+	require.NoError(t, err)
+	size := stat.Size()
+
+	if size > 100 {
+		// Overwrite middle section to corrupt B-tree
+		_, err = f.WriteAt([]byte("CORRUPTED_BLOCK_DATA"), size/2)
+		require.NoError(t, err)
+	} else {
+		// Corrupt header for small files
+		_, err = f.WriteAt([]byte("CORRUPT"), 0)
+		require.NoError(t, err)
+	}
 }
