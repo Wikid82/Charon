@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Activity, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { Activity, CheckCircle2, XCircle, AlertCircle, ArrowRight } from 'lucide-react'
 import { getMonitors } from '../api/uptime'
+import { Card, CardHeader, CardContent, Badge, Skeleton } from './ui'
 
 export default function UptimeWidget() {
   const { data: monitors, isLoading } = useQuery({
@@ -17,89 +18,119 @@ export default function UptimeWidget() {
   const allUp = totalCount > 0 && downCount === 0
   const hasDown = downCount > 0
 
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-5 rounded" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-6 w-48" />
+          <div className="flex gap-4">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20" />
+          </div>
+          <div className="flex gap-1">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <Skeleton key={i} className="h-3 flex-1 rounded-sm" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <Link
-      to="/uptime"
-      className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors block"
-    >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-400">Uptime Status</span>
-        </div>
-        {hasDown && (
-          <span className="px-2 py-0.5 text-xs font-medium bg-red-900/30 text-red-400 rounded-full animate-pulse">
-            Issues
-          </span>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="text-gray-500 text-sm">Loading...</div>
-      ) : totalCount === 0 ? (
-        <div className="text-gray-500 text-sm">No monitors configured</div>
-      ) : (
-        <>
-          {/* Status indicator */}
-          <div className="flex items-center gap-2 mb-3">
-            {allUp ? (
-              <>
-                <CheckCircle2 className="w-6 h-6 text-green-400" />
-                <span className="text-lg font-bold text-green-400">All Systems Operational</span>
-              </>
-            ) : hasDown ? (
-              <>
-                <XCircle className="w-6 h-6 text-red-400" />
-                <span className="text-lg font-bold text-red-400">
-                  {downCount} {downCount === 1 ? 'Site' : 'Sites'} Down
-                </span>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="w-6 h-6 text-yellow-400" />
-                <span className="text-lg font-bold text-yellow-400">Unknown Status</span>
-              </>
-            )}
-          </div>
-
-          {/* Quick stats */}
-          <div className="flex gap-4 text-xs">
-            <div className="flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-green-400"></span>
-              <span className="text-gray-400">{upCount} up</span>
-            </div>
-            {downCount > 0 && (
-              <div className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-400"></span>
-                <span className="text-gray-400">{downCount} down</span>
+    <Link to="/uptime" className="block group">
+      <Card variant="interactive" className="h-full">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-brand-500/10 p-2 text-brand-500">
+                <Activity className="h-5 w-5" />
               </div>
+              <span className="text-sm font-medium text-content-secondary">Uptime Status</span>
+            </div>
+            {hasDown && (
+              <Badge variant="error" size="sm" className="animate-pulse">
+                Issues
+              </Badge>
             )}
-            <div className="text-gray-500">
-              {totalCount} total
-            </div>
           </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {totalCount === 0 ? (
+            <p className="text-content-muted text-sm">No monitors configured</p>
+          ) : (
+            <>
+              {/* Status indicator */}
+              <div className="flex items-center gap-2">
+                {allUp ? (
+                  <>
+                    <CheckCircle2 className="h-6 w-6 text-success" />
+                    <span className="text-lg font-bold text-success">All Systems Operational</span>
+                  </>
+                ) : hasDown ? (
+                  <>
+                    <XCircle className="h-6 w-6 text-error" />
+                    <span className="text-lg font-bold text-error">
+                      {downCount} {downCount === 1 ? 'Site' : 'Sites'} Down
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-6 w-6 text-warning" />
+                    <span className="text-lg font-bold text-warning">Unknown Status</span>
+                  </>
+                )}
+              </div>
 
-          {/* Mini status bars */}
-          {monitors && monitors.length > 0 && (
-            <div className="flex gap-1 mt-3">
-              {monitors.slice(0, 20).map((monitor) => (
-                <div
-                  key={monitor.id}
-                  className={`flex-1 h-2 rounded-sm ${
-                    monitor.status === 'up' ? 'bg-green-500' : 'bg-red-500'
-                  }`}
-                  title={`${monitor.name}: ${monitor.status.toUpperCase()}`}
-                />
-              ))}
-              {monitors.length > 20 && (
-                <div className="text-xs text-gray-500 ml-1">+{monitors.length - 20}</div>
+              {/* Quick stats */}
+              <div className="flex gap-4 text-sm">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-success"></span>
+                  <span className="text-content-secondary">{upCount} up</span>
+                </div>
+                {downCount > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-error"></span>
+                    <span className="text-content-secondary">{downCount} down</span>
+                  </div>
+                )}
+                <div className="text-content-muted">
+                  {totalCount} total
+                </div>
+              </div>
+
+              {/* Mini status bars */}
+              {monitors && monitors.length > 0 && (
+                <div className="flex gap-1">
+                  {monitors.slice(0, 20).map((monitor) => (
+                    <div
+                      key={monitor.id}
+                      className={`flex-1 h-2.5 rounded-sm transition-colors duration-fast ${
+                        monitor.status === 'up' ? 'bg-success' : 'bg-error'
+                      }`}
+                      title={`${monitor.name}: ${monitor.status.toUpperCase()}`}
+                    />
+                  ))}
+                  {monitors.length > 20 && (
+                    <div className="text-xs text-content-muted ml-1">+{monitors.length - 20}</div>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
-        </>
-      )}
 
-      <div className="text-xs text-gray-500 mt-3">Click for detailed view →</div>
+          <div className="flex items-center gap-1 text-xs text-content-muted group-hover:text-brand-400 transition-colors duration-fast">
+            <span>View detailed status</span>
+            <ArrowRight className="h-3 w-3" />
+          </div>
+        </CardContent>
+      </Card>
     </Link>
   )
 }

@@ -93,8 +93,8 @@ describe('Security page', () => {
     } as SecurityStatus)
 
     renderWithProviders(<Security />)
-    expect(await screen.findByText('Cerberus Disabled')).toBeInTheDocument()
-    const docBtns = screen.getAllByText('Documentation')
+    expect(await screen.findByText('Security Features Unavailable')).toBeInTheDocument()
+    const docBtns = screen.getAllByText('Learn More')
     expect(docBtns.length).toBeGreaterThan(0)
   })
 
@@ -181,7 +181,7 @@ describe('Security page', () => {
     }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(status as SecurityStatus)
     renderWithProviders(<Security />)
-    await waitFor(() => expect(screen.getByText('Cerberus Disabled')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Security Features Unavailable')).toBeInTheDocument())
     const crowdsecToggle = screen.getByTestId('toggle-crowdsec')
     expect(crowdsecToggle).toBeDisabled()
   })

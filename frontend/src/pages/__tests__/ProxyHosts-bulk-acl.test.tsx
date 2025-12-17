@@ -261,8 +261,8 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
     });
 
     // Select hosts and open modal
-    const checkboxes = screen.getAllByRole('checkbox');
-    await userEvent.click(checkboxes[0]);
+    const selectAll = screen.getByLabelText('Select all rows');
+    await userEvent.click(selectAll);
 
     await waitFor(() => {
       expect(screen.getByText('Manage ACL')).toBeTruthy();
@@ -274,14 +274,14 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
       expect(screen.getByText('Apply Access List')).toBeTruthy();
     });
 
-    // Apply button should be disabled - find it by looking for the action button (not toggle)
-    // The action button has bg-blue-600 class, the toggle has flex-1 class
+    // Apply action button should be disabled (the one with bg-blue-600 class, not the toggle)
+    // The action button text is "Apply" or "Apply (N)"
     const buttons = screen.getAllByRole('button');
     const applyButton = buttons.find(btn => {
       const text = btn.textContent?.trim() || '';
-      const hasApply = text.startsWith('Apply') && !text.includes('ACL'); // "Apply" or "Apply (N)" but not "Apply ACL"
-      const isActionButton = btn.className.includes('bg-blue-600');
-      return hasApply && isActionButton;
+      // Match "Apply" exactly but not "Apply ACL" (which is the toggle)
+      const isApplyAction = text === 'Apply' || /^Apply \(\d+\)$/.test(text);
+      return isApplyAction;
     });
     expect(applyButton).toBeTruthy();
     expect((applyButton as HTMLButtonElement)?.disabled).toBe(true);

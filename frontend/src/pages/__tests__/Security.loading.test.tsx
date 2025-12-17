@@ -83,12 +83,14 @@ describe('Security Loading Overlay Tests', () => {
   }
 
   describe('LS-01: Initial Page Load Shows Loading Text', () => {
-    it('should show "Loading security status..." during initial load', async () => {
+    it('should show Skeleton components during initial load', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockReturnValue(new Promise(() => {}))
 
       await renderSecurityPage()
 
-      expect(screen.getByText(/Loading security status/i)).toBeInTheDocument()
+      // Loading state now uses Skeleton components instead of text
+      const skeletons = document.querySelectorAll('.animate-pulse')
+      expect(skeletons.length).toBeGreaterThan(0)
     })
   })
 
