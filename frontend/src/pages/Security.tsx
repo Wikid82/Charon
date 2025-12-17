@@ -1,18 +1,78 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
-import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink } from 'lucide-react'
+import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Settings } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
 import { startCrowdsec, stopCrowdsec, statusCrowdsec } from '../api/crowdsec'
 import { updateSetting } from '../api/settings'
-import { Switch } from '../components/ui/Switch'
 import { toast } from '../utils/toast'
-import { Card } from '../components/ui/Card'
-import { Button } from '../components/ui/Button'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { SecurityNotificationSettingsModal } from '../components/SecurityNotificationSettingsModal'
+import { PageShell } from '../components/layout/PageShell'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+  Button,
+  Badge,
+  Alert,
+  Switch,
+  Skeleton,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '../components/ui'
+
+// Skeleton loader for security layer cards
+function SecurityCardSkeleton() {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-24" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="h-6 w-16 rounded-full" />
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1">
+        <div className="space-y-3">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </CardContent>
+      <CardFooter className="justify-between pt-4">
+        <Skeleton className="h-5 w-10" />
+        <Skeleton className="h-8 w-20 rounded-md" />
+      </CardFooter>
+    </Card>
+  )
+}
+
+// Loading skeleton for the entire security page
+function SecurityPageSkeleton() {
+  return (
+    <PageShell
+      title="Security"
+      description="Configure security layers for your reverse proxy"
+    >
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <SecurityCardSkeleton />
+        <SecurityCardSkeleton />
+        <SecurityCardSkeleton />
+        <SecurityCardSkeleton />
+      </div>
+    </PageShell>
+  )
+}
 
 export default function Security() {
   const navigate = useNavigate()
@@ -166,45 +226,51 @@ export default function Security() {
   const { message, submessage } = getMessage()
 
   if (isLoading) {
-    return <div className="p-8 text-center">Loading security status...</div>
+    return <SecurityPageSkeleton />
   }
 
   if (!status) {
-    return <div className="p-8 text-center text-red-500">Failed to load security status</div>
+    return (
+      <PageShell
+        title="Security"
+        description="Configure security layers for your reverse proxy"
+      >
+        <Alert variant="error" title="Error Loading Security Status">
+          Failed to load security configuration. Please try refreshing the page.
+        </Alert>
+      </PageShell>
+    )
   }
 
   const cerberusDisabled = !status.cerberus?.enabled
   const crowdsecToggleDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
   const crowdsecControlsDisabled = cerberusDisabled || crowdsecPowerMutation.isPending
 
-  // const suiteDisabled = !(status?.cerberus?.enabled ?? false)
-
-  // Replace the previous early-return that instructed enabling via env vars.
-  // If allDisabled, show a banner and continue to render the dashboard with disabled controls.
-  const headerBanner = (!status.cerberus?.enabled) ? (
-    <div className="flex flex-col items-center justify-center text-center space-y-4 p-6 bg-gray-900/5 dark:bg-gray-800 rounded-lg">
-      <div className="flex items-center gap-3">
-        <Shield className="w-8 h-8 text-gray-400" />
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Cerberus Disabled</h2>
-      </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-lg">
-        Cerberus powers CrowdSec, Coraza, ACLs, and Rate Limiting. Enable the Cerberus toggle in System Settings to awaken the guardian, then configure each head below.
-      </p>
+  // Header actions
+  const headerActions = (
+    <div className="flex items-center gap-2">
       <Button
-        variant="primary"
-        onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
-        className="flex items-center gap-2"
+        variant="secondary"
+        onClick={() => setShowNotificationSettings(true)}
+        disabled={!status.cerberus?.enabled}
       >
-        <ExternalLink className="w-4 h-4" />
-        Documentation
+        <Settings className="w-4 h-4 mr-2" />
+        Notifications
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
+      >
+        <ExternalLink className="w-4 h-4 mr-2" />
+        Docs
       </Button>
     </div>
-  ) : null
+  )
 
 
 
   return (
-    <>
+    <TooltipProvider>
       {isApplyingConfig && (
         <ConfigReloadOverlay
           message={message}
@@ -212,240 +278,332 @@ export default function Security() {
           type="cerberus"
         />
       )}
-      <div className="space-y-6">
-        {headerBanner}
-        <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <ShieldCheck className="w-8 h-8 text-green-500" />
-          Cerberus Dashboard
-        </h1>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => setShowNotificationSettings(true)}
-              disabled={!status.cerberus?.enabled}
-            >
-              Notification Settings
-            </Button>
-        <Button
-          variant="secondary"
-          onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
-          className="flex items-center gap-2"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Documentation
-        </Button>
+      <PageShell
+        title="Security"
+        description="Configure security layers for your reverse proxy"
+        actions={headerActions}
+      >
+        {/* Cerberus Status Header */}
+        <Card className="flex items-center gap-4 p-6">
+          <div className={`p-3 rounded-lg ${status.cerberus?.enabled ? 'bg-success/10' : 'bg-surface-muted'}`}>
+            <ShieldCheck className={`w-8 h-8 ${status.cerberus?.enabled ? 'text-success' : 'text-content-muted'}`} />
           </div>
-      </div>
-
-      <div className="mt-4 p-4 bg-gray-800 rounded-lg">
-        <label className="text-sm text-gray-400">Admin whitelist (comma-separated CIDR/IPs)</label>
-        <div className="flex gap-2 mt-2">
-          <input className="flex-1 p-2 rounded bg-gray-700 text-white" value={adminWhitelist} onChange={(e) => setAdminWhitelist(e.target.value)} />
-          <Button size="sm" variant="primary" onClick={() => updateSecurityConfigMutation.mutate({ name: 'default', admin_whitelist: adminWhitelist })}>Save</Button>
-          <Button size="sm" variant="secondary" onClick={() => generateBreakGlassMutation.mutate()}>Generate Token</Button>
-        </div>
-      </div>
-
-      <Outlet />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* CrowdSec - Layer 1: IP Reputation (first line of defense) */}
-        <Card className={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'border-green-200 dark:border-green-900' : ''}>
-          <div className="text-xs text-gray-400 mb-2">🛡️ Layer 1: IP Reputation</div>
-          <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">CrowdSec</h3>
+          <div className="flex-1">
             <div className="flex items-center gap-3">
-              <Switch
-                checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
-                disabled={crowdsecToggleDisabled}
-                onChange={(e) => {
-                  crowdsecPowerMutation.mutate(e.target.checked)
-                }}
-                data-testid="toggle-crowdsec"
-              />
-              <ShieldAlert className={`w-4 h-4 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-green-500' : 'text-gray-400'}`} />
+              <h2 className="text-xl font-semibold text-content-primary">Cerberus Dashboard</h2>
+              <Badge variant={status.cerberus?.enabled ? 'success' : 'default'}>
+                {status.cerberus?.enabled ? 'Active' : 'Disabled'}
+              </Badge>
             </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                (crowdsecStatus?.running ?? status.crowdsec.enabled)
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-              }`}>
-                {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? '● Active' : '○ Disabled'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {(crowdsecStatus?.running ?? status.crowdsec.enabled)
-                ? `Protects against: Known attackers, botnets, brute-force`
-                : 'Intrusion Prevention System'}
+            <p className="text-sm text-content-secondary mt-1">
+              {status.cerberus?.enabled
+                ? 'All security heads are ready for configuration'
+                : 'Enable Cerberus in System Settings to activate security features'}
             </p>
-            {crowdsecStatus && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">{crowdsecStatus.running ? `Running (pid ${crowdsecStatus.pid})` : 'Stopped'}</p>
-            )}
-            <div className="mt-4">
+          </div>
+        </Card>
+
+        {/* Cerberus Disabled Alert */}
+        {!status.cerberus?.enabled && (
+          <Alert variant="warning" title="Security Features Unavailable">
+            <div className="space-y-2">
+              <p>
+                Cerberus powers CrowdSec, Coraza WAF, Access Control, and Rate Limiting.
+                Enable the Cerberus toggle in System Settings to activate these features.
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
+                className="mt-2"
+              >
+                <ExternalLink className="w-3 h-3 mr-1.5" />
+                Learn More
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {/* Admin Whitelist Section */}
+        {status.cerberus?.enabled && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Admin Whitelist</CardTitle>
+              <CardDescription>Configure IP addresses that bypass security checks</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <label className="text-sm text-content-secondary">Comma-separated CIDR/IPs</label>
+              <div className="flex gap-2 mt-2">
+                <input
+                  className="flex-1 px-3 py-2 rounded-md border border-border bg-surface-elevated text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                  value={adminWhitelist}
+                  onChange={(e) => setAdminWhitelist(e.target.value)}
+                  placeholder="192.168.1.0/24, 10.0.0.1"
+                />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => updateSecurityConfigMutation.mutate({ name: 'default', admin_whitelist: adminWhitelist })}
+                >
+                  Save
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => generateBreakGlassMutation.mutate()}
+                    >
+                      Generate Token
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Generate a break-glass token for emergency access</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Outlet />
+
+        {/* Security Layer Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* CrowdSec - Layer 1: IP Reputation */}
+          <Card variant="interactive" className="flex flex-col">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" size="sm">Layer 1</Badge>
+                  <Badge variant="primary" size="sm">IDS</Badge>
+                </div>
+                <Badge variant={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'success' : 'default'}>
+                  {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'Enabled' : 'Disabled'}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-3 mt-3">
+                <div className={`p-2 rounded-lg ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'bg-success/10' : 'bg-surface-muted'}`}>
+                  <ShieldAlert className={`w-5 h-5 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-success' : 'text-content-muted'}`} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">CrowdSec</CardTitle>
+                  <CardDescription>IP Reputation & Threat Intelligence</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1">
+              <p className="text-sm text-content-muted">
+                {(crowdsecStatus?.running ?? status.crowdsec.enabled)
+                  ? 'Protects against: Known attackers, botnets, brute-force'
+                  : 'Intrusion Prevention System powered by community threat intelligence'}
+              </p>
+              {crowdsecStatus && (
+                <p className="text-xs text-content-muted mt-2">
+                  {crowdsecStatus.running ? `Running (PID ${crowdsecStatus.pid})` : 'Process stopped'}
+                </p>
+              )}
+            </CardContent>
+            <CardFooter className="justify-between pt-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch
+                      checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
+                      disabled={crowdsecToggleDisabled}
+                      onChange={(e) => crowdsecPowerMutation.mutate(e.target.checked)}
+                      data-testid="toggle-crowdsec"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle CrowdSec protection'}</p>
+                </TooltipContent>
+              </Tooltip>
               <Button
                 variant="secondary"
                 size="sm"
-                className="w-full text-xs"
                 onClick={() => navigate('/security/crowdsec')}
                 disabled={crowdsecControlsDisabled}
               >
-                Config
+                Configure
               </Button>
-            </div>
-          </div>
-        </Card>
+            </CardFooter>
+          </Card>
 
-        {/* ACL - Layer 2: Access Control (IP/Geo filtering) */}
-        <Card className={status.acl.enabled ? 'border-green-200 dark:border-green-900' : ''}>
-          <div className="text-xs text-gray-400 mb-2">🔒 Layer 2: Access Control</div>
-          <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">Access Control</h3>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={status.acl.enabled}
-                disabled={!status.cerberus?.enabled}
-                onChange={(e) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: e.target.checked })}
-                data-testid="toggle-acl"
-              />
-              <Lock className={`w-4 h-4 ${status.acl.enabled ? 'text-green-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                status.acl.enabled
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-              }`}>
-                {status.acl.enabled ? '● Active' : '○ Disabled'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Protects against: Unauthorized IPs, geo-based attacks, insider threats
-            </p>
-            {status.acl.enabled && (
-              <div className="mt-4">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => navigate('/security/access-lists')}
-                >
-                  Manage Lists
-                </Button>
+          {/* ACL - Layer 2: Access Control */}
+          <Card variant="interactive" className="flex flex-col">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" size="sm">Layer 2</Badge>
+                  <Badge variant="primary" size="sm">ACL</Badge>
+                </div>
+                <Badge variant={status.acl.enabled ? 'success' : 'default'}>
+                  {status.acl.enabled ? 'Enabled' : 'Disabled'}
+                </Badge>
               </div>
-            )}
-            {!status.acl.enabled && (
-              <div className="mt-4">
-                <Button size="sm" variant="secondary" onClick={() => navigate('/security/access-lists')}>Configure</Button>
+              <div className="flex items-center gap-3 mt-3">
+                <div className={`p-2 rounded-lg ${status.acl.enabled ? 'bg-success/10' : 'bg-surface-muted'}`}>
+                  <Lock className={`w-5 h-5 ${status.acl.enabled ? 'text-success' : 'text-content-muted'}`} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Access Control</CardTitle>
+                  <CardDescription>IP & Geo-based filtering</CardDescription>
+                </div>
               </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Coraza - Layer 3: Request Inspection */}
-        <Card className={status.waf.enabled ? 'border-green-200 dark:border-green-900' : ''}>
-          <div className="text-xs text-gray-400 mb-2">🛡️ Layer 3: Request Inspection</div>
-          <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">Coraza</h3>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={status.waf.enabled}
-                disabled={!status.cerberus?.enabled}
-                onChange={(e) => toggleServiceMutation.mutate({ key: 'security.waf.enabled', enabled: e.target.checked })}
-                data-testid="toggle-waf"
-              />
-              <Shield className={`w-4 h-4 ${status.waf.enabled ? 'text-green-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                status.waf.enabled
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-              }`}>
-                {status.waf.enabled ? '● Active' : '○ Disabled'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {status.waf.enabled
-                ? `Protects against: SQL injection, XSS, RCE, zero-day exploits*`
-                : 'Web Application Firewall'}
-            </p>
-            <div className="mt-4">
+            </CardHeader>
+            <CardContent className="flex-1">
+              <p className="text-sm text-content-muted">
+                Protects against: Unauthorized IPs, geo-based attacks, insider threats
+              </p>
+            </CardContent>
+            <CardFooter className="justify-between pt-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch
+                      checked={status.acl.enabled}
+                      disabled={!status.cerberus?.enabled}
+                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.acl.enabled', enabled: e.target.checked })}
+                      data-testid="toggle-acl"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Access Control'}</p>
+                </TooltipContent>
+              </Tooltip>
               <Button
                 variant="secondary"
                 size="sm"
-                className="w-full"
+                onClick={() => navigate('/security/access-lists')}
+              >
+                {status.acl.enabled ? 'Manage Lists' : 'Configure'}
+              </Button>
+            </CardFooter>
+          </Card>
+
+          {/* Coraza - Layer 3: Request Inspection */}
+          <Card variant="interactive" className="flex flex-col">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" size="sm">Layer 3</Badge>
+                  <Badge variant="primary" size="sm">WAF</Badge>
+                </div>
+                <Badge variant={status.waf.enabled ? 'success' : 'default'}>
+                  {status.waf.enabled ? 'Enabled' : 'Disabled'}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-3 mt-3">
+                <div className={`p-2 rounded-lg ${status.waf.enabled ? 'bg-success/10' : 'bg-surface-muted'}`}>
+                  <Shield className={`w-5 h-5 ${status.waf.enabled ? 'text-success' : 'text-content-muted'}`} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Coraza WAF</CardTitle>
+                  <CardDescription>Request inspection & filtering</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1">
+              <p className="text-sm text-content-muted">
+                {status.waf.enabled
+                  ? 'Protects against: SQL injection, XSS, RCE, zero-day exploits*'
+                  : 'Web Application Firewall with OWASP Core Rule Set'}
+              </p>
+            </CardContent>
+            <CardFooter className="justify-between pt-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch
+                      checked={status.waf.enabled}
+                      disabled={!status.cerberus?.enabled}
+                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.waf.enabled', enabled: e.target.checked })}
+                      data-testid="toggle-waf"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Coraza WAF'}</p>
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => navigate('/security/waf')}
               >
                 Configure
               </Button>
-            </div>
-          </div>
-        </Card>
+            </CardFooter>
+          </Card>
 
-        {/* Rate Limiting - Layer 4: Volume Control */}
-        <Card className={status.rate_limit.enabled ? 'border-green-200 dark:border-green-900' : ''}>
-          <div className="text-xs text-gray-400 mb-2">⚡ Layer 4: Volume Control</div>
-          <div className="flex flex-row items-center justify-between pb-2">
-            <h3 className="text-sm font-medium text-white">Rate Limiting</h3>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={status.rate_limit.enabled}
-                disabled={!status.cerberus?.enabled}
-                onChange={(e) => toggleServiceMutation.mutate({ key: 'security.rate_limit.enabled', enabled: e.target.checked })}
-                data-testid="toggle-rate-limit"
-              />
-              <Activity className={`w-4 h-4 ${status.rate_limit.enabled ? 'text-green-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                status.rate_limit.enabled
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-              }`}>
-                {status.rate_limit.enabled ? '● Active' : '○ Disabled'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Protects against: DDoS attacks, credential stuffing, API abuse
-            </p>
-            {status.rate_limit.enabled && (
-              <div className="mt-4">
-                <Button variant="secondary" size="sm" className="w-full" onClick={() => navigate('/security/rate-limiting')}>
-                  Configure Limits
-                </Button>
+          {/* Rate Limiting - Layer 4: Volume Control */}
+          <Card variant="interactive" className="flex flex-col">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" size="sm">Layer 4</Badge>
+                  <Badge variant="primary" size="sm">Rate</Badge>
+                </div>
+                <Badge variant={status.rate_limit.enabled ? 'success' : 'default'}>
+                  {status.rate_limit.enabled ? 'Enabled' : 'Disabled'}
+                </Badge>
               </div>
-            )}
-            {!status.rate_limit.enabled && (
-              <div className="mt-4">
-                <Button variant="secondary" size="sm" onClick={() => navigate('/security/rate-limiting')}>Configure</Button>
+              <div className="flex items-center gap-3 mt-3">
+                <div className={`p-2 rounded-lg ${status.rate_limit.enabled ? 'bg-success/10' : 'bg-surface-muted'}`}>
+                  <Activity className={`w-5 h-5 ${status.rate_limit.enabled ? 'text-success' : 'text-content-muted'}`} />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Rate Limiting</CardTitle>
+                  <CardDescription>Request volume control</CardDescription>
+                </div>
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* Live Activity Section */}
-      {status.cerberus?.enabled && (
-        <div className="mt-6">
-          <LiveLogViewer mode="security" securityFilters={emptySecurityFilters} className="w-full" />
+            </CardHeader>
+            <CardContent className="flex-1">
+              <p className="text-sm text-content-muted">
+                Protects against: DDoS attacks, credential stuffing, API abuse
+              </p>
+            </CardContent>
+            <CardFooter className="justify-between pt-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <Switch
+                      checked={status.rate_limit.enabled}
+                      disabled={!status.cerberus?.enabled}
+                      onChange={(e) => toggleServiceMutation.mutate({ key: 'security.rate_limit.enabled', enabled: e.target.checked })}
+                      data-testid="toggle-rate-limit"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Rate Limiting'}</p>
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate('/security/rate-limiting')}
+              >
+                Configure
+              </Button>
+            </CardFooter>
+          </Card>
         </div>
-      )}
 
-      {/* Notification Settings Modal */}
-      <SecurityNotificationSettingsModal
-        isOpen={showNotificationSettings}
-        onClose={() => setShowNotificationSettings(false)}
-      />
-      </div>
-    </>
+        {/* Live Activity Section */}
+        {status.cerberus?.enabled && (
+          <LiveLogViewer mode="security" securityFilters={emptySecurityFilters} className="w-full" />
+        )}
+
+        {/* Notification Settings Modal */}
+        <SecurityNotificationSettingsModal
+          isOpen={showNotificationSettings}
+          onClose={() => setShowNotificationSettings(false)}
+        />
+      </PageShell>
+    </TooltipProvider>
   )
 }

@@ -96,13 +96,13 @@ describe('Security Error Handling Tests', () => {
   }
 
   describe('EH-01: Failed Security Status Fetch Shows Error', () => {
-    it('should show "Failed to load security status" when API fails', async () => {
+    it('should show "Failed to load security configuration" when API fails', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('Network error'))
 
       await renderSecurityPage()
 
       await waitFor(() => {
-        expect(screen.getByText(/Failed to load security status/i)).toBeInTheDocument()
+        expect(screen.getByText(/Failed to load security configuration/i)).toBeInTheDocument()
       })
     })
   })

@@ -666,6 +666,55 @@ cd backend && go test -tags=integration ./integration -run TestCerberusIntegrati
 
 ---
 
+## 🎨 Modern UI/UX Design System
+
+Charon features a modern, accessible design system built on Tailwind CSS v4 with:
+
+### Design Tokens
+
+- **Semantic Colors**: Brand, surface, border, and text color scales with light/dark mode support
+- **Typography**: Consistent type scale with proper hierarchy
+- **Spacing**: Standardized spacing rhythm across all components
+- **Effects**: Unified shadows, border radius, and transitions
+
+### Component Library
+
+| Component | Description |
+|-----------|-------------|
+| **Badge** | Status indicators with success/warning/error/info variants |
+| **Alert** | Dismissible callouts for notifications and warnings |
+| **Dialog** | Accessible modal dialogs using Radix UI primitives |
+| **DataTable** | Sortable, selectable tables with sticky headers |
+| **StatsCard** | KPI/metric cards with trend indicators |
+| **EmptyState** | Consistent empty state patterns with actions |
+| **Select** | Accessible dropdown selects via Radix UI |
+| **Tabs** | Navigation tabs with keyboard support |
+| **Tooltip** | Contextual hints with proper positioning |
+| **Checkbox** | Accessible checkboxes with indeterminate state |
+| **Progress** | Progress indicators and loading bars |
+| **Skeleton** | Loading placeholder animations |
+
+### Layout Components
+
+- **PageShell**: Consistent page wrapper with title, description, and action slots
+- **Card**: Enhanced cards with hover states and variants
+- **Button**: Multiple variants (primary, secondary, danger, ghost, outline, link) with loading states
+
+### Accessibility
+
+- WCAG 2.1 compliant components via Radix UI
+- Proper focus management and keyboard navigation
+- ARIA attributes and screen reader support
+- Focus-visible states on all interactive elements
+
+### Dark Mode
+
+- Native dark mode with system preference detection
+- Consistent color tokens across light and dark themes
+- Smooth theme transitions without flash
+
+---
+
 ## Missing Something?
 
 **[Request a feature](https://github.com/Wikid82/charon/discussions)** — Tell us what you need!

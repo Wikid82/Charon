@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card } from '../components/ui/Card'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
+import { Label } from '../components/ui/Label'
+import { Alert } from '../components/ui/Alert'
+import { Checkbox } from '../components/ui/Checkbox'
+import { Skeleton } from '../components/ui/Skeleton'
 import { toast } from '../utils/toast'
 import { getProfile, regenerateApiKey, updateProfile } from '../api/user'
 import { getSettings, updateSetting } from '../api/settings'
-import { Copy, RefreshCw, Shield, Mail, User, AlertTriangle } from 'lucide-react'
+import { Copy, RefreshCw, Shield, Mail, User, AlertTriangle, Key } from 'lucide-react'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
 import { isValidEmail } from '../utils/validation'
 import { useAuth } from '../hooks/useAuth'
@@ -239,151 +243,194 @@ export default function Account() {
   }
 
   if (isLoadingProfile) {
-    return <div className="p-4">Loading profile...</div>
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i}>
+            <CardContent className="p-6 space-y-4">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Account Settings</h1>
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-brand-500/10 rounded-lg">
+          <User className="h-6 w-6 text-brand-500" />
+        </div>
+        <h1 className="text-2xl font-bold text-content-primary">Account Settings</h1>
+      </div>
 
       {/* Profile Settings */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <User className="w-5 h-5 text-blue-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Profile</h2>
-        </div>
-        <form onSubmit={handleUpdateProfile} className="space-y-4">
-          <Input
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            error={emailValid === false ? 'Please enter a valid email address' : undefined}
-            className={emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
-          />
-          <div className="flex justify-end">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <User className="h-5 w-5 text-brand-500" />
+            <CardTitle>Profile</CardTitle>
+          </div>
+          <CardDescription>Update your personal information.</CardDescription>
+        </CardHeader>
+        <form onSubmit={handleUpdateProfile}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="profile-name" required>Name</Label>
+              <Input
+                id="profile-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-email" required>Email</Label>
+              <Input
+                id="profile-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                error={emailValid === false ? 'Please enter a valid email address' : undefined}
+              />
+            </div>
+          </CardContent>
+          <CardFooter className="justify-end">
             <Button type="submit" isLoading={updateProfileMutation.isPending} disabled={emailValid === false}>
               Save Profile
             </Button>
-          </div>
+          </CardFooter>
         </form>
       </Card>
 
       {/* Certificate Email Settings */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Mail className="w-5 h-5 text-purple-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Certificate Email</h2>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          This email is used for Let's Encrypt notifications and recovery.
-        </p>
-        <form onSubmit={handleUpdateCertEmail} className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <input
-              type="checkbox"
-              id="useUserEmail"
-              checked={useUserEmail}
-              onChange={(e) => {
-                setUseUserEmail(e.target.checked)
-                if (e.target.checked && profile) {
-                  setCertEmail(profile.email)
-                }
-              }}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="useUserEmail" className="text-sm text-gray-700 dark:text-gray-300">
-              Use my account email ({profile?.email})
-            </label>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-info" />
+            <CardTitle>Certificate Email</CardTitle>
           </div>
+          <CardDescription>
+            This email is used for Let's Encrypt notifications and recovery.
+          </CardDescription>
+        </CardHeader>
+        <form onSubmit={handleUpdateCertEmail}>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="useUserEmail"
+                checked={useUserEmail}
+                onCheckedChange={(checked) => {
+                  setUseUserEmail(checked === true)
+                  if (checked && profile) {
+                    setCertEmail(profile.email)
+                  }
+                }}
+              />
+              <Label htmlFor="useUserEmail" className="cursor-pointer">
+                Use my account email ({profile?.email})
+              </Label>
+            </div>
 
-          {!useUserEmail && (
-            <Input
-              label="Custom Email"
-              type="email"
-              value={certEmail}
-              onChange={(e) => setCertEmail(e.target.value)}
-              required={!useUserEmail}
-              error={certEmailValid === false ? 'Please enter a valid email address' : undefined}
-              className={certEmailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
-            />
-          )}
-
-          <div className="flex justify-end">
+            {!useUserEmail && (
+              <div className="space-y-2">
+                <Label htmlFor="cert-email" required>Custom Email</Label>
+                <Input
+                  id="cert-email"
+                  type="email"
+                  value={certEmail}
+                  onChange={(e) => setCertEmail(e.target.value)}
+                  required={!useUserEmail}
+                  error={certEmailValid === false ? 'Please enter a valid email address' : undefined}
+                />
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="justify-end">
             <Button type="submit" isLoading={updateSettingMutation.isPending} disabled={!useUserEmail && certEmailValid === false}>
               Save Certificate Email
             </Button>
-          </div>
+          </CardFooter>
         </form>
       </Card>
 
       {/* Password Change */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Change Password</h2>
-        </div>
-        <form onSubmit={handlePasswordChange} className="space-y-4">
-          <Input
-            label="Current Password"
-            type="password"
-            value={oldPassword}
-            onChange={(e) => setOldPassword(e.target.value)}
-            required
-          />
-          <div>
-            <Input
-              label="New Password"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-            />
-            <PasswordStrengthMeter password={newPassword} />
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-success" />
+            <CardTitle>Change Password</CardTitle>
           </div>
-          <Input
-            label="Confirm New Password"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            error={confirmPassword && newPassword !== confirmPassword ? 'Passwords do not match' : undefined}
-          />
-          <div className="flex justify-end">
+          <CardDescription>Update your account password for security.</CardDescription>
+        </CardHeader>
+        <form onSubmit={handlePasswordChange}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="current-password" required>Current Password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password" required>New Password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
+              <PasswordStrengthMeter password={newPassword} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password" required>Confirm New Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                error={confirmPassword && newPassword !== confirmPassword ? 'Passwords do not match' : undefined}
+              />
+            </div>
+          </CardContent>
+          <CardFooter className="justify-end">
             <Button type="submit" isLoading={loading}>
               Update Password
             </Button>
-          </div>
+          </CardFooter>
         </form>
       </Card>
 
       {/* API Key */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="p-1 bg-yellow-100 dark:bg-yellow-900/30 rounded">
-            <span className="text-lg">🔑</span>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Key className="h-5 w-5 text-warning" />
+            <CardTitle>API Key</CardTitle>
           </div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">API Key</h2>
-        </div>
-        <div className="space-y-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <CardDescription>
             Use this key to authenticate with the API programmatically. Keep it secret!
-          </p>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="flex gap-2">
             <Input
               value={profile?.api_key || ''}
               readOnly
-              className="font-mono text-sm bg-gray-50 dark:bg-gray-900"
+              className="font-mono text-sm"
             />
             <Button type="button" variant="secondary" onClick={copyApiKey} title="Copy to clipboard">
-              <Copy className="w-4 h-4" />
+              <Copy className="h-4 w-4" />
             </Button>
             <Button
               type="button"
@@ -392,73 +439,92 @@ export default function Account() {
               isLoading={regenerateMutation.isPending}
               title="Regenerate API Key"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </CardContent>
       </Card>
+
+      <Alert variant="warning" title="Security Notice">
+        Never share your API key or password with anyone. If you believe your credentials have been compromised, regenerate your API key immediately.
+      </Alert>
 
       {/* Password Prompt Modal */}
       {showPasswordPrompt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4 text-blue-600 dark:text-blue-500">
-              <Shield className="w-6 h-6" />
-              <h3 className="text-lg font-bold">Confirm Password</h3>
-            </div>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">
-              Please enter your current password to confirm these changes.
-            </p>
-            <form onSubmit={handlePasswordPromptSubmit} className="space-y-4">
-                <Input
+          <Card className="max-w-md w-full">
+            <CardHeader>
+              <div className="flex items-center gap-3 text-brand-500">
+                <Shield className="h-6 w-6" />
+                <CardTitle>Confirm Password</CardTitle>
+              </div>
+              <CardDescription>
+                Please enter your current password to confirm these changes.
+              </CardDescription>
+            </CardHeader>
+            <form onSubmit={handlePasswordPromptSubmit}>
+              <CardContent>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-current-password" required>Current Password</Label>
+                  <Input
+                    id="confirm-current-password"
                     type="password"
-                    placeholder="Current Password"
+                    placeholder="Enter your password"
                     value={confirmPasswordForUpdate}
                     onChange={(e) => setConfirmPasswordForUpdate(e.target.value)}
                     required
                     autoFocus
-                />
-                <div className="flex flex-col gap-3">
+                  />
+                </div>
+              </CardContent>
+              <CardFooter className="flex-col gap-3">
                 <Button type="submit" className="w-full" isLoading={updateProfileMutation.isPending}>
-                    Confirm & Update
+                  Confirm & Update
                 </Button>
-                <Button type="button" onClick={() => {
+                <Button
+                  type="button"
+                  onClick={() => {
                     setShowPasswordPrompt(false)
                     setConfirmPasswordForUpdate('')
                     setPendingProfileUpdate(null)
-                }} variant="ghost" className="w-full text-gray-500">
-                    Cancel
+                  }}
+                  variant="ghost"
+                  className="w-full"
+                >
+                  Cancel
                 </Button>
-                </div>
+              </CardFooter>
             </form>
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Email Update Confirmation Modal */}
       {showEmailConfirmModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4 text-yellow-600 dark:text-yellow-500">
-              <AlertTriangle className="w-6 h-6" />
-              <h3 className="text-lg font-bold">Update Certificate Email?</h3>
-            </div>
-            <p className="text-gray-600 dark:text-gray-300 mb-6">
-              You are changing your account email to <strong>{email}</strong>.
-              Do you want to use this new email for SSL certificates as well?
-            </p>
-            <div className="flex flex-col gap-3">
+          <Card className="max-w-md w-full">
+            <CardHeader>
+              <div className="flex items-center gap-3 text-warning">
+                <AlertTriangle className="h-6 w-6" />
+                <CardTitle>Update Certificate Email?</CardTitle>
+              </div>
+              <CardDescription>
+                You are changing your account email to <strong className="text-content-primary">{email}</strong>.
+                Do you want to use this new email for SSL certificates as well?
+              </CardDescription>
+            </CardHeader>
+            <CardFooter className="flex-col gap-3">
               <Button onClick={() => confirmEmailUpdate(true)} className="w-full">
                 Yes, update certificate email too
               </Button>
               <Button onClick={() => confirmEmailUpdate(false)} variant="secondary" className="w-full">
                 No, keep using {previousEmail || certEmail}
               </Button>
-              <Button onClick={() => setShowEmailConfirmModal(false)} variant="ghost" className="w-full text-gray-500">
+              <Button onClick={() => setShowEmailConfirmModal(false)} variant="ghost" className="w-full">
                 Cancel
               </Button>
-            </div>
-          </div>
+            </CardFooter>
+          </Card>
         </div>
       )}
     </div>
