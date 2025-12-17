@@ -52,24 +52,23 @@ describe('ProxyHosts - Bulk Apply progress UI', () => {
     await waitFor(() => expect(screen.getByText('Progress 1')).toBeTruthy())
 
     // Select all
-    const selectAll = screen.getAllByRole('checkbox')[0]
+    const selectAll = screen.getByLabelText('Select all rows')
     await userEvent.click(selectAll)
 
     // Open Bulk Apply
     await userEvent.click(screen.getByText('Bulk Apply'))
     await waitFor(() => expect(screen.getByText('Bulk Apply Settings')).toBeTruthy())
 
-    // Enable one setting (Force SSL)
+    // Enable one setting (Force SSL) - use Radix Checkbox (role="checkbox") in the row
     const forceLabel = screen.getByText(/Force SSL/i) as HTMLElement
-    let forceContainer: HTMLElement | null = forceLabel
-    while (forceContainer && !forceContainer.querySelector('input[type="checkbox"]')) forceContainer = forceContainer.parentElement
-    const forceCheckbox = forceContainer ? (forceContainer.querySelector('input[type="checkbox"]') as HTMLElement | null) : null
-    if (forceCheckbox) await userEvent.click(forceCheckbox as HTMLElement)
+    const forceRow = forceLabel.closest('.p-3') as HTMLElement
+    const { within } = await import('@testing-library/react')
+    const forceCheckbox = within(forceRow).getAllByRole('checkbox')[0]
+    await userEvent.click(forceCheckbox)
 
     // Click Apply and assert progress UI appears
-    const modalRoot = screen.getByText('Bulk Apply Settings').closest('div')
-    const { within } = await import('@testing-library/react')
-    const applyButton = modalRoot ? within(modalRoot).getByRole('button', { name: /^Apply$/i }) : screen.getByRole('button', { name: /^Apply$/i })
+    const dialog = screen.getByRole('dialog')
+    const applyButton = within(dialog).getByRole('button', { name: /^Apply$/i })
     await userEvent.click(applyButton)
 
     // During the small delay the progress text should appear (there are two matching nodes)

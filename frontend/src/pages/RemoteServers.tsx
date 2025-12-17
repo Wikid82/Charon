@@ -1,14 +1,33 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList } from 'lucide-react'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import type { RemoteServer } from '../api/remoteServers'
 import RemoteServerForm from '../components/RemoteServerForm'
+import { PageShell } from '../components/layout/PageShell'
+import {
+  Badge,
+  Button,
+  Alert,
+  DataTable,
+  EmptyState,
+  SkeletonTable,
+  SkeletonCard,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  Card,
+  type Column,
+} from '../components/ui'
 
 export default function RemoteServers() {
-  const { servers, loading, isFetching, error, createServer, updateServer, deleteServer } = useRemoteServers()
+  const { servers, loading, error, createServer, updateServer, deleteServer } = useRemoteServers()
   const [showForm, setShowForm] = useState(false)
   const [editingServer, setEditingServer] = useState<RemoteServer | undefined>()
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [deleteConfirm, setDeleteConfirm] = useState<RemoteServer | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const handleAdd = () => {
     setEditingServer(undefined)
@@ -30,200 +49,263 @@ export default function RemoteServers() {
     setEditingServer(undefined)
   }
 
-  const handleDelete = async (uuid: string) => {
-    if (confirm('Are you sure you want to delete this remote server?')) {
-      try {
-        await deleteServer(uuid)
-      } catch (err) {
-        alert(err instanceof Error ? err.message : 'Failed to delete')
-      }
+  const handleDelete = async (server: RemoteServer) => {
+    setIsDeleting(true)
+    try {
+      await deleteServer(server.uuid)
+      setDeleteConfirm(null)
+    } finally {
+      setIsDeleting(false)
     }
   }
 
-  return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-white">Remote Servers</h1>
-          {isFetching && !loading && <Loader2 className="animate-spin text-blue-400" size={24} />}
-        </div>
-        <div className="flex gap-3">
-          <div className="flex bg-gray-800 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`px-3 py-1 rounded text-sm ${
-                viewMode === 'grid'
-                  ? 'bg-blue-active text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Grid
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1 rounded text-sm ${
-                viewMode === 'list'
-                  ? 'bg-blue-active text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              List
-            </button>
-          </div>
-          <button
-            onClick={handleAdd}
-            className="px-4 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors"
+  const columns: Column<RemoteServer>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      sortable: true,
+      cell: (server) => (
+        <span className="font-medium text-content-primary">{server.name}</span>
+      ),
+    },
+    {
+      key: 'provider',
+      header: 'Provider',
+      sortable: true,
+      cell: (server) => (
+        <Badge variant="outline" size="sm">{server.provider}</Badge>
+      ),
+    },
+    {
+      key: 'host',
+      header: 'Host',
+      cell: (server) => (
+        <span className="font-mono text-sm text-content-secondary">{server.host}</span>
+      ),
+    },
+    {
+      key: 'port',
+      header: 'Port',
+      cell: (server) => (
+        <span className="font-mono text-sm text-content-secondary">{server.port}</span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      cell: (server) => (
+        <Badge variant={server.enabled ? 'success' : 'default'} size="sm">
+          {server.enabled ? 'Enabled' : 'Disabled'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      cell: (server) => (
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleEdit(server)
+            }}
+            title="Edit"
           >
-            Add Server
-          </button>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeleteConfirm(server)
+            }}
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4 text-error" />
+          </Button>
         </div>
-      </div>
+      ),
+    },
+  ]
 
+  // Header actions
+  const headerActions = (
+    <div className="flex items-center gap-2">
+      <div className="flex bg-surface-muted rounded-lg p-1">
+        <button
+          onClick={() => setViewMode('grid')}
+          className={`p-2 rounded transition-colors ${
+            viewMode === 'grid'
+              ? 'bg-brand-500 text-white'
+              : 'text-content-muted hover:text-content-primary'
+          }`}
+          title="Grid view"
+        >
+          <LayoutGrid className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setViewMode('list')}
+          className={`p-2 rounded transition-colors ${
+            viewMode === 'list'
+              ? 'bg-brand-500 text-white'
+              : 'text-content-muted hover:text-content-primary'
+          }`}
+          title="List view"
+        >
+          <LayoutList className="w-4 h-4" />
+        </button>
+      </div>
+      <Button onClick={handleAdd}>
+        <Plus className="w-4 h-4 mr-2" />
+        Add Server
+      </Button>
+    </div>
+  )
+
+  if (loading) {
+    return (
+      <PageShell
+        title="Remote Servers"
+        description="Manage backend servers for your proxy hosts"
+        actions={headerActions}
+      >
+        {viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <SkeletonCard key={i} showImage={false} lines={4} />
+            ))}
+          </div>
+        ) : (
+          <SkeletonTable rows={5} columns={6} />
+        )}
+      </PageShell>
+    )
+  }
+
+  return (
+    <PageShell
+      title="Remote Servers"
+      description="Manage backend servers for your proxy hosts"
+      actions={headerActions}
+    >
       {error && (
-        <div className="bg-red-900/20 border border-red-500 text-red-400 px-4 py-3 rounded mb-6">
+        <Alert variant="error" title="Error">
           {error}
-        </div>
+        </Alert>
       )}
 
-      {loading ? (
-        <div className="text-center text-gray-400 py-12">Loading...</div>
-      ) : servers.length === 0 ? (
-        <div className="bg-dark-card rounded-lg border border-gray-800 p-6">
-          <div className="text-center text-gray-400 py-12">
-            No remote servers configured. Add servers to quickly select backends when creating proxy hosts.
-          </div>
-        </div>
+      {servers.length === 0 ? (
+        <EmptyState
+          icon={<Server className="h-12 w-12" />}
+          title="No Remote Servers"
+          description="Add servers to quickly select backends when creating proxy hosts"
+          action={{
+            label: 'Add Server',
+            onClick: handleAdd,
+          }}
+        />
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {servers.map((server) => (
-            <div
-              key={server.uuid}
-              className="bg-dark-card rounded-lg border border-gray-800 p-6 hover:border-gray-700 transition-colors"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-1">{server.name}</h3>
-                  <span className="inline-block px-2 py-1 text-xs bg-gray-800 text-gray-400 rounded">
-                    {server.provider}
-                  </span>
-                </div>
-                <span
-                  className={`px-2 py-1 text-xs rounded ${
-                    server.enabled
-                      ? 'bg-green-900/30 text-green-400'
-                      : 'bg-gray-700 text-gray-400'
-                  }`}
-                >
-                  {server.enabled ? 'Enabled' : 'Disabled'}
-                </span>
-              </div>
-              <div className="space-y-2 mb-4">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-400">Host:</span>
-                  <span className="text-white font-mono">{server.host}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-400">Port:</span>
-                  <span className="text-white font-mono">{server.port}</span>
-                </div>
-                {server.username && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-400">User:</span>
-                    <span className="text-white font-mono">{server.username}</span>
+            <Card key={server.uuid} className="flex flex-col">
+              <div className="p-6 flex-1">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-content-primary mb-1">{server.name}</h3>
+                    <Badge variant="outline" size="sm">{server.provider}</Badge>
                   </div>
-                )}
+                  <Badge variant={server.enabled ? 'success' : 'default'} size="sm">
+                    {server.enabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                </div>
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-content-muted">Host:</span>
+                    <span className="text-content-primary font-mono">{server.host}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-content-muted">Port:</span>
+                    <span className="text-content-primary font-mono">{server.port}</span>
+                  </div>
+                  {server.username && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-content-muted">User:</span>
+                      <span className="text-content-primary font-mono">{server.username}</span>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex gap-2 pt-4 border-t border-gray-800">
-                <button
+              <div className="flex gap-2 px-6 pb-6 pt-4 border-t border-border">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
                   onClick={() => handleEdit(server)}
-                  className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg font-medium transition-colors"
                 >
+                  <Pencil className="w-4 h-4 mr-2" />
                   Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(server.uuid)}
-                  className="flex-1 px-3 py-2 bg-red-900/20 hover:bg-red-900/30 text-red-400 text-sm rounded-lg font-medium transition-colors"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setDeleteConfirm(server)}
                 >
+                  <Trash2 className="w-4 h-4 mr-2" />
                   Delete
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (
-        <div className="bg-dark-card rounded-lg border border-gray-800 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-900 border-b border-gray-800">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Provider
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Host
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Port
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {servers.map((server) => (
-                <tr key={server.uuid} className="hover:bg-gray-900/50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-white">{server.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs bg-gray-800 text-gray-400 rounded">
-                      {server.provider}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-300 font-mono">{server.host}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-300 font-mono">{server.port}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 text-xs rounded ${
-                        server.enabled
-                          ? 'bg-green-900/30 text-green-400'
-                          : 'bg-gray-700 text-gray-400'
-                      }`}
-                    >
-                      {server.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(server)}
-                      className="text-blue-400 hover:text-blue-300 mr-4"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(server.uuid)}
-                      className="text-red-400 hover:text-red-300"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          data={servers}
+          columns={columns}
+          rowKey={(server) => server.uuid}
+          emptyState={
+            <EmptyState
+              icon={<Server className="h-12 w-12" />}
+              title="No Remote Servers"
+              description="Add servers to quickly select backends when creating proxy hosts"
+              action={{
+                label: 'Add Server',
+                onClick: handleAdd,
+              }}
+            />
+          }
+        />
       )}
 
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Remote Server</DialogTitle>
+          </DialogHeader>
+          <p className="text-content-secondary py-4">
+            Are you sure you want to delete &quot;{deleteConfirm?.name}&quot;? This action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteConfirm(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit Form Modal */}
       {showForm && (
         <RemoteServerForm
           server={editingServer}
@@ -234,6 +316,6 @@ export default function RemoteServers() {
           }}
         />
       )}
-    </div>
+    </PageShell>
   )
 }
