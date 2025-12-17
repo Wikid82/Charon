@@ -1,15 +1,20 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card } from '../components/ui/Card'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
+import { Label } from '../components/ui/Label'
+import { Alert } from '../components/ui/Alert'
+import { Badge } from '../components/ui/Badge'
+import { Skeleton } from '../components/ui/Skeleton'
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
-// CrowdSec runtime control is now in the Security page
-import { Loader2, Server, RefreshCw, Save, Activity } from 'lucide-react'
+import { Server, RefreshCw, Save, Activity, Info, ExternalLink } from 'lucide-react'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 interface HealthResponse {
@@ -137,8 +142,34 @@ export default function SystemSettings() {
     ? { message: 'Updating features...', submessage: 'Applying configuration changes' }
     : { message: 'Loading...', submessage: 'Please wait' }
 
+  // Loading skeleton for settings
+  const SettingsSkeleton = () => (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-8 w-8" />
+        <Skeleton className="h-8 w-48" />
+      </div>
+      {[1, 2, 3].map((i) => (
+        <Card key={i} className="p-6">
+          <div className="space-y-4">
+            <Skeleton className="h-6 w-32" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  )
+
+  // Show skeleton while loading initial data
+  if (!settings && !featureFlags) {
+    return <SettingsSkeleton />
+  }
+
   return (
-    <>
+    <TooltipProvider>
       {updateFlagMutation.isPending && (
         <ConfigReloadOverlay
           message={message}
@@ -147,207 +178,239 @@ export default function SystemSettings() {
         />
       )}
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <Server className="w-8 h-8" />
-          System Settings
-        </h1>
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-brand-500/10 rounded-lg">
+            <Server className="h-6 w-6 text-brand-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-content-primary">System Settings</h1>
+        </div>
 
         {/* Features */}
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Features</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {featureFlags ? (
-              featureToggles.map(({ key, label, tooltip }) => (
-                <div
-                  key={key}
-                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800"
-                  title={tooltip}
-                >
-                  <p className="text-sm font-medium text-gray-900 dark:text-white cursor-help">{label}</p>
-                  <Switch
-                    aria-label={`${label} toggle`}
-                    checked={!!featureFlags[key]}
-                    disabled={updateFlagMutation.isPending}
-                    onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
-                  />
+        <Card>
+          <CardHeader>
+            <CardTitle>Features</CardTitle>
+            <CardDescription>Enable or disable optional features for your Charon instance.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {featureFlags ? (
+                featureToggles.map(({ key, label, tooltip }) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between p-4 bg-surface-subtle rounded-lg border border-border"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm font-medium cursor-default">{label}</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-content-muted hover:text-content-primary">
+                            <Info className="h-4 w-4" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>{tooltip}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <Switch
+                      aria-label={`${label} toggle`}
+                      checked={!!featureFlags[key]}
+                      disabled={updateFlagMutation.isPending}
+                      onChange={(e) => updateFlagMutation.mutate({ [key]: e.target.checked })}
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-2 space-y-3">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
                 </div>
-              ))
-            ) : (
-              <p className="text-sm text-gray-500 col-span-2">Loading features...</p>
-            )}
-          </div>
+              )}
+            </div>
+          </CardContent>
         </Card>
 
         {/* General Configuration */}
-        <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">General Configuration</h2>
-        <div className="space-y-4">
-          <Input
-            label="Caddy Admin API Endpoint"
-            type="text"
-            value={caddyAdminAPI}
-            onChange={(e) => setCaddyAdminAPI(e.target.value)}
-            placeholder="http://localhost:2019"
-          />
-          <p className="text-sm text-gray-500 dark:text-gray-400 -mt-2">
-            URL to the Caddy admin API (usually on port 2019)
-          </p>
+        <Card>
+          <CardHeader>
+            <CardTitle>General Configuration</CardTitle>
+            <CardDescription>Configure Caddy and UI preferences.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="caddy-api">Caddy Admin API Endpoint</Label>
+              <Input
+                id="caddy-api"
+                type="text"
+                value={caddyAdminAPI}
+                onChange={(e) => setCaddyAdminAPI(e.target.value)}
+                placeholder="http://localhost:2019"
+                helperText="URL to the Caddy admin API (usually on port 2019)"
+              />
+            </div>
 
-          <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              SSL Provider
-            </label>
-            <select
-              value={sslProvider}
-              onChange={(e) => setSslProvider(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            >
-              <option value="auto">Auto (Recommended)</option>
-              <option value="letsencrypt-prod">Let's Encrypt (Prod)</option>
-              <option value="letsencrypt-staging">Let's Encrypt (Staging)</option>
-              <option value="zerossl">ZeroSSL</option>
-            </select>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback. Staging is for testing.
-            </p>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="ssl-provider">SSL Provider</Label>
+              <Select value={sslProvider} onValueChange={setSslProvider}>
+                <SelectTrigger id="ssl-provider">
+                  <SelectValue placeholder="Select SSL provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (Recommended)</SelectItem>
+                  <SelectItem value="letsencrypt-prod">Let's Encrypt (Prod)</SelectItem>
+                  <SelectItem value="letsencrypt-staging">Let's Encrypt (Staging)</SelectItem>
+                  <SelectItem value="zerossl">ZeroSSL</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-content-muted">
+                Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback.
+              </p>
+            </div>
 
-          <div className="w-full">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Domain Link Behavior
-            </label>
-            <select
-              value={domainLinkBehavior}
-              onChange={(e) => setDomainLinkBehavior(e.target.value)}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            >
-              <option value="same_tab">Same Tab</option>
-              <option value="new_tab">New Tab (Default)</option>
-              <option value="new_window">New Window</option>
-            </select>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Control how domain links open in the Proxy Hosts list.
-            </p>
-          </div>
-
-          <div className="flex justify-end">
+            <div className="space-y-2">
+              <Label htmlFor="domain-behavior">Domain Link Behavior</Label>
+              <Select value={domainLinkBehavior} onValueChange={setDomainLinkBehavior}>
+                <SelectTrigger id="domain-behavior">
+                  <SelectValue placeholder="Select link behavior" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="same_tab">Same Tab</SelectItem>
+                  <SelectItem value="new_tab">New Tab (Default)</SelectItem>
+                  <SelectItem value="new_window">New Window</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-content-muted">
+                Control how domain links open in the Proxy Hosts list.
+              </p>
+            </div>
+          </CardContent>
+          <CardFooter className="justify-end">
             <Button
               onClick={() => saveSettingsMutation.mutate()}
               isLoading={saveSettingsMutation.isPending}
             >
-              <Save className="w-4 h-4 mr-2" />
+              <Save className="h-4 w-4 mr-2" />
               Save Settings
             </Button>
-          </div>
-        </div>
-      </Card>
+          </CardFooter>
+        </Card>
 
-      {/* Optional Features - Removed (Moved to top) */}
-
-
-      {/* System Status */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          System Status
-        </h2>
-        {isLoadingHealth ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-          </div>
-        ) : health ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Service</p>
-              <p className="text-lg font-medium text-gray-900 dark:text-white">{health.service}</p>
+        {/* System Status */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-success" />
+              <CardTitle>System Status</CardTitle>
             </div>
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
-              <p className="text-lg font-medium text-green-600 dark:text-green-400 capitalize">
-                {health.status}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Version</p>
-              <p className="text-lg font-medium text-gray-900 dark:text-white">{health.version}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Build Time</p>
-              <p className="text-lg font-medium text-gray-900 dark:text-white">
-                {health.build_time || 'N/A'}
-              </p>
-            </div>
-            <div className="md:col-span-2">
-              <p className="text-sm text-gray-500 dark:text-gray-400">Git Commit</p>
-              <p className="text-sm font-mono text-gray-900 dark:text-white">
-                {health.git_commit || 'N/A'}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-red-500">Unable to fetch system status</p>
-        )}
-      </Card>
-
-      {/* Update Check */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Software Updates</h2>
-        <div className="space-y-4">
-          {updateInfo && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Current Version</p>
-                <p className="text-lg font-medium text-gray-900 dark:text-white">
-                  {updateInfo.current_version}
-                </p>
+          </CardHeader>
+          <CardContent>
+            {isLoadingHealth ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="space-y-2">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-6 w-32" />
+                  </div>
+                ))}
               </div>
-              <div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Latest Version</p>
-                <p className="text-lg font-medium text-gray-900 dark:text-white">
-                  {updateInfo.latest_version}
-                </p>
+            ) : health ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <Label variant="muted">Service</Label>
+                  <p className="text-lg font-medium text-content-primary">{health.service}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label variant="muted">Status</Label>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={health.status === 'healthy' ? 'success' : 'error'}>
+                      {health.status}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label variant="muted">Version</Label>
+                  <p className="text-lg font-medium text-content-primary">{health.version}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label variant="muted">Build Time</Label>
+                  <p className="text-lg font-medium text-content-primary">
+                    {health.build_time || 'N/A'}
+                  </p>
+                </div>
+                <div className="md:col-span-2 space-y-1">
+                  <Label variant="muted">Git Commit</Label>
+                  <p className="text-sm font-mono text-content-secondary bg-surface-subtle px-3 py-2 rounded-md">
+                    {health.git_commit || 'N/A'}
+                  </p>
+                </div>
               </div>
-              {updateInfo.update_available && (
-                <div className="md:col-span-2">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p className="text-blue-800 dark:text-blue-300 font-medium">
-                      A new version is available!
+            ) : (
+              <Alert variant="error">
+                Unable to fetch system status. Please check your connection.
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Update Check */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Software Updates</CardTitle>
+            <CardDescription>Check for new versions of Charon.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {updateInfo && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1">
+                    <Label variant="muted">Current Version</Label>
+                    <p className="text-lg font-medium text-content-primary">
+                      {updateInfo.current_version}
                     </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label variant="muted">Latest Version</Label>
+                    <p className="text-lg font-medium text-content-primary">
+                      {updateInfo.latest_version}
+                    </p>
+                  </div>
+                </div>
+
+                {updateInfo.update_available ? (
+                  <Alert variant="info" title="Update Available">
+                    A new version of Charon is available!{' '}
                     {updateInfo.release_url && (
                       <a
                         href={updateInfo.release_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
+                        className="inline-flex items-center gap-1 text-brand-500 hover:underline font-medium"
                       >
                         View Release Notes
+                        <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
-                  </div>
-                </div>
-              )}
-              {!updateInfo.update_available && (
-                <div className="md:col-span-2">
-                  <p className="text-green-600 dark:text-green-400">
-                    ✓ You are running the latest version
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-          <Button
-            onClick={() => checkUpdates()}
-            isLoading={isCheckingUpdates}
-            variant="secondary"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Check for Updates
-          </Button>
-        </div>
-      </Card>
-
-
-    </div>
-    </>
+                  </Alert>
+                ) : (
+                  <Alert variant="success" title="Up to Date">
+                    You are running the latest version of Charon.
+                  </Alert>
+                )}
+              </>
+            )}
+          </CardContent>
+          <CardFooter>
+            <Button
+              onClick={() => checkUpdates()}
+              isLoading={isCheckingUpdates}
+              variant="secondary"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Check for Updates
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    </TooltipProvider>
   )
 }

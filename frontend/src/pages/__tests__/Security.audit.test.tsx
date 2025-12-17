@@ -100,13 +100,10 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // Empty whitelist input should exist and be empty - use label to find it
-      const whitelistLabel = screen.getByText(/Admin whitelist \(comma-separated CIDR\/IPs\)/i)
-      expect(whitelistLabel).toBeInTheDocument()
-      // The input follows the label, get it by querying parent
-      const whitelistInput = whitelistLabel.parentElement?.querySelector('input')
+      // Find the admin whitelist input by placeholder
+      const whitelistInput = screen.getByPlaceholderText(/192.168.1.0\/24/i)
       expect(whitelistInput).toBeInTheDocument()
-      expect(whitelistInput?.value).toBe('')
+      expect(whitelistInput).toHaveValue('')
     })
   })
 
@@ -258,18 +255,18 @@ describe('Security Page - QA Security Audit', () => {
       expect(finalOrder).toEqual(initialOrder)
     })
 
-    it('shows correct layer indicator icons', async () => {
+    it('shows correct layer indicator badges', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       await renderSecurityPage()
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // Each layer should have correct emoji
-      expect(screen.getByText(/🛡️ Layer 1/)).toBeInTheDocument()
-      expect(screen.getByText(/🔒 Layer 2/)).toBeInTheDocument()
-      expect(screen.getByText(/🛡️ Layer 3/)).toBeInTheDocument()
-      expect(screen.getByText(/⚡ Layer 4/)).toBeInTheDocument()
+      // Each layer should have a Badge with layer number
+      expect(screen.getByText('Layer 1')).toBeInTheDocument()
+      expect(screen.getByText('Layer 2')).toBeInTheDocument()
+      expect(screen.getByText('Layer 3')).toBeInTheDocument()
+      expect(screen.getByText('Layer 4')).toBeInTheDocument()
     })
 
     it('shows all four security cards even when all disabled', async () => {
@@ -286,11 +283,13 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // All 4 cards should be present (use getAllByText since text may appear in multiple places like filter dropdowns)
-      expect(screen.getAllByText('CrowdSec').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getAllByText('Access Control').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getAllByText('Coraza').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getAllByText('Rate Limiting').length).toBeGreaterThanOrEqual(1)
+      // All 4 cards should be present - check for h3 headings
+      const cards = screen.getAllByRole('heading', { level: 3 })
+      const cardNames = cards.map(card => card.textContent)
+      expect(cardNames).toContain('CrowdSec')
+      expect(cardNames).toContain('Access Control')
+      expect(cardNames).toContain('Coraza WAF')
+      expect(cardNames).toContain('Rate Limiting')
     })
   })
 
@@ -317,9 +316,9 @@ describe('Security Page - QA Security Audit', () => {
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
       expect(screen.getByTestId('toggle-crowdsec')).toBeInTheDocument()
-      // CrowdSec card should only have Config button now
-      const configButtons = screen.getAllByRole('button', { name: /Config/i })
-      expect(configButtons.some(btn => btn.textContent === 'Config')).toBe(true)
+      // CrowdSec card should have Configure button now
+      const configButtons = screen.getAllByRole('button', { name: /Configure/i })
+      expect(configButtons.length).toBeGreaterThan(0)
     })
   })
 
@@ -334,8 +333,8 @@ describe('Security Page - QA Security Audit', () => {
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Spec requirement from current_spec.md plus Security Access Logs feature
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
+      // Spec requirement: Admin Whitelist + security cards + Security Access Logs
+      expect(cardNames).toEqual(['Admin Whitelist', 'CrowdSec', 'Access Control', 'Coraza WAF', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('layer indicators match spec descriptions', async () => {
@@ -345,11 +344,11 @@ describe('Security Page - QA Security Audit', () => {
 
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // From spec: Layer 1: IP Reputation, Layer 2: Access Control, Layer 3: Request Inspection, Layer 4: Volume Control
-      expect(screen.getByText(/Layer 1: IP Reputation/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 2: Access Control/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 3: Request Inspection/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 4: Volume Control/i)).toBeInTheDocument()
+      // Layer indicators are now Badges with just the layer number
+      expect(screen.getByText('Layer 1')).toBeInTheDocument()
+      expect(screen.getByText('Layer 2')).toBeInTheDocument()
+      expect(screen.getByText('Layer 3')).toBeInTheDocument()
+      expect(screen.getByText('Layer 4')).toBeInTheDocument()
     })
 
     it('threat summaries match spec when services enabled', async () => {

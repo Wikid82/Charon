@@ -1,15 +1,17 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import { FileKey, Loader2 } from 'lucide-react'
+import { Card, CardHeader, CardContent, Badge, Skeleton, Progress } from './ui'
 import type { Certificate } from '../api/certificates'
 import type { ProxyHost } from '../api/proxyHosts'
 
 interface CertificateStatusCardProps {
   certificates: Certificate[]
   hosts: ProxyHost[]
+  isLoading?: boolean
 }
 
-export default function CertificateStatusCard({ certificates, hosts }: CertificateStatusCardProps) {
+export default function CertificateStatusCard({ certificates, hosts, isLoading }: CertificateStatusCardProps) {
   const validCount = certificates.filter(c => c.status === 'valid').length
   const expiringCount = certificates.filter(c => c.status === 'expiring').length
   const untrustedCount = certificates.filter(c => c.status === 'untrusted').length
@@ -56,37 +58,86 @@ export default function CertificateStatusCard({ certificates, hosts }: Certifica
     ? Math.round((hostsWithCerts / totalSSLHosts) * 100)
     : 100
 
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-5 rounded" />
+            <Skeleton className="h-4 w-28" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-8 w-16" />
+          <div className="flex gap-2">
+            <Skeleton className="h-5 w-16 rounded-md" />
+            <Skeleton className="h-5 w-20 rounded-md" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <Link
-      to="/certificates"
-      className="bg-dark-card p-6 rounded-lg border border-gray-800 hover:border-gray-700 transition-colors block"
-    >
-      <div className="text-sm text-gray-400 mb-2">SSL Certificates</div>
-      <div className="text-3xl font-bold text-white mb-1">{certificates.length}</div>
-
-      {/* Status breakdown */}
-      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs">
-        <span className="text-green-400">{validCount} valid</span>
-        {expiringCount > 0 && <span className="text-yellow-400">{expiringCount} expiring</span>}
-        {untrustedCount > 0 && <span className="text-orange-400">{untrustedCount} staging</span>}
-      </div>
-
-      {/* Pending indicator */}
-      {hasProvisioning && (
-        <div className="mt-3 pt-3 border-t border-gray-700">
-          <div className="flex items-center gap-2 text-blue-400 text-xs">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            <span>{pendingCount} host{pendingCount !== 1 ? 's' : ''} awaiting certificate</span>
+    <Link to="/certificates" className="block group">
+      <Card variant="interactive" className="h-full">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-brand-500/10 p-2 text-brand-500">
+                <FileKey className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-medium text-content-secondary">SSL Certificates</span>
+            </div>
+            {hasProvisioning && (
+              <Badge variant="primary" size="sm" className="animate-pulse">
+                Provisioning
+              </Badge>
+            )}
           </div>
-          <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 transition-all duration-500 rounded-full"
-              style={{ width: `${progressPercent}%` }}
-            />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="text-3xl font-bold text-content-primary tabular-nums">
+            {certificates.length}
           </div>
-          <div className="text-xs text-gray-500 mt-1">{progressPercent}% provisioned</div>
-        </div>
-      )}
+
+          {/* Status breakdown */}
+          <div className="flex flex-wrap gap-2">
+            {validCount > 0 && (
+              <Badge variant="success" size="sm">
+                {validCount} valid
+              </Badge>
+            )}
+            {expiringCount > 0 && (
+              <Badge variant="warning" size="sm">
+                {expiringCount} expiring
+              </Badge>
+            )}
+            {untrustedCount > 0 && (
+              <Badge variant="outline" size="sm">
+                {untrustedCount} staging
+              </Badge>
+            )}
+            {certificates.length === 0 && (
+              <Badge variant="outline" size="sm">
+                No certificates
+              </Badge>
+            )}
+          </div>
+
+          {/* Pending indicator */}
+          {hasProvisioning && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <div className="flex items-center gap-2 text-brand-400 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{pendingCount} host{pendingCount !== 1 ? 's' : ''} awaiting certificate</span>
+              </div>
+              <Progress value={progressPercent} variant="default" />
+              <div className="text-xs text-content-muted">{progressPercent}% provisioned</div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </Link>
   )
 }

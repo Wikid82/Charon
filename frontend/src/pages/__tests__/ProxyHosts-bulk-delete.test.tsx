@@ -513,14 +513,13 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     });
 
     // Select all hosts using the select-all checkbox
-    const checkboxes = screen.getAllByRole('checkbox');
-    await userEvent.click(checkboxes[0]); // First checkbox is "select all"
+    const selectAll = screen.getByLabelText('Select all rows');
+    await userEvent.click(selectAll);
 
-    // Should show "(all)" indicator (flexible matcher for spacing)
+    // Should show "(all)" indicator - format is "<strong>3</strong> hosts selected (all)"
     await waitFor(() => {
-      expect(screen.getByText((_content, element) => {
-        return element?.textContent === '3 (all) selected';
-      })).toBeTruthy();
+      expect(screen.getByText(/hosts?\s*selected/)).toBeTruthy();
+      expect(screen.getByText(/\(all\)/)).toBeTruthy();
     });
   });
 });

@@ -74,13 +74,15 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      expect(screen.getByText(/Loading security status/i)).toBeInTheDocument()
+      // Loading state now uses Skeleton components instead of text
+      const skeletons = document.querySelectorAll('.animate-pulse')
+      expect(skeletons.length).toBeGreaterThan(0)
     })
 
     it('should show error if security status fails to load', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('Failed'))
       await renderSecurityPage()
-      await waitFor(() => expect(screen.getByText(/Failed to load security status/i)).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText(/Failed to load security configuration/i)).toBeInTheDocument())
     })
 
     it('should render Cerberus Dashboard when status loads', async () => {
@@ -92,7 +94,7 @@ describe('Security', () => {
     it('should show banner when Cerberus is disabled', async () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({ ...mockSecurityStatus, cerberus: { enabled: false } })
       await renderSecurityPage()
-      await waitFor(() => expect(screen.getByText(/Cerberus Disabled/i)).toBeInTheDocument())
+      await waitFor(() => expect(screen.getByText(/Security Features Unavailable/i)).toBeInTheDocument())
     })
   })
 
@@ -241,12 +243,12 @@ describe('Security', () => {
       await renderSecurityPage()
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // Get all card headings
+      // Get all card headings (CardTitle uses text-base class)
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
 
-      // Verify pipeline order: CrowdSec (Layer 1) → ACL (Layer 2) → Coraza (Layer 3) → Rate Limiting (Layer 4) + Security Access Logs
-      expect(cardNames).toEqual(['CrowdSec', 'Access Control', 'Coraza', 'Rate Limiting', 'Security Access Logs'])
+      // Verify pipeline order: Admin Whitelist + CrowdSec (Layer 1) → ACL (Layer 2) → Coraza (Layer 3) → Rate Limiting (Layer 4) + Security Access Logs
+      expect(cardNames).toEqual(['Admin Whitelist', 'CrowdSec', 'Access Control', 'Coraza WAF', 'Rate Limiting', 'Security Access Logs'])
     })
 
     it('should display layer indicators on each card', async () => {
@@ -255,11 +257,11 @@ describe('Security', () => {
       await renderSecurityPage()
       await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
 
-      // Verify each layer indicator is present
-      expect(screen.getByText(/Layer 1: IP Reputation/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 2: Access Control/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 3: Request Inspection/i)).toBeInTheDocument()
-      expect(screen.getByText(/Layer 4: Volume Control/i)).toBeInTheDocument()
+      // Layer indicators are now Badges with just the layer number
+      expect(screen.getByText('Layer 1')).toBeInTheDocument()
+      expect(screen.getByText('Layer 2')).toBeInTheDocument()
+      expect(screen.getByText('Layer 3')).toBeInTheDocument()
+      expect(screen.getByText('Layer 4')).toBeInTheDocument()
     })
 
     it('should display threat protection summaries', async () => {

@@ -49,7 +49,7 @@ describe('ProxyHosts - Bulk Apply all settings coverage', () => {
     await waitFor(() => expect(screen.getByText('Host 1')).toBeTruthy());
 
     // select all
-    const headerCheckbox = screen.getAllByRole('checkbox')[0];
+    const headerCheckbox = screen.getByLabelText('Select all rows');
     await userEvent.click(headerCheckbox);
 
     // open Bulk Apply
@@ -66,23 +66,23 @@ describe('ProxyHosts - Bulk Apply all settings coverage', () => {
       'Websockets Support',
     ];
 
+    const { within } = await import('@testing-library/react');
+
     for (const lbl of labels) {
       expect(screen.getByText(lbl)).toBeTruthy();
-      // find close checkbox and click its apply checkbox (the first input in the label area)
-      const el = screen.getByText(lbl) as HTMLElement;
-      let container: HTMLElement | null = el;
-      while (container && !container.querySelector('input[type="checkbox"]')) container = container.parentElement;
-      const cb = container?.querySelector('input[type="checkbox"]') as HTMLElement | null;
-      if (cb) await userEvent.click(cb);
+      // Find the setting row and click the Radix Checkbox (role="checkbox")
+      const labelEl = screen.getByText(lbl) as HTMLElement;
+      const row = labelEl.closest('.p-3') as HTMLElement;
+      const checkboxes = within(row).getAllByRole('checkbox');
+      await userEvent.click(checkboxes[0]);
     }
 
     // After toggling at least one, Apply should be enabled
-    const modalRoot = screen.getByText('Bulk Apply Settings').closest('div');
-    const { within } = await import('@testing-library/react');
-    const applyBtn = modalRoot ? within(modalRoot).getByRole('button', { name: /^Apply$/i }) : screen.getByRole('button', { name: /^Apply$/i });
+    const dialog = screen.getByRole('dialog');
+    const applyBtn = within(dialog).getByRole('button', { name: /^Apply$/i });
     expect(applyBtn).toBeTruthy();
     // Cancel to close
-    await userEvent.click(modalRoot ? within(modalRoot).getByRole('button', { name: /Cancel/i }) : screen.getByRole('button', { name: /Cancel/i }));
+    await userEvent.click(within(dialog).getByRole('button', { name: /Cancel/i }));
     await waitFor(() => expect(screen.queryByText('Bulk Apply Settings')).toBeNull());
   });
 });
