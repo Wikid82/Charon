@@ -13,14 +13,17 @@ func AuthMiddleware(authService *services.AuthService) gin.HandlerFunc {
 		authHeader := c.GetHeader("Authorization")
 
 		if authHeader == "" {
-			// Try cookie first for browser flows
+			// Try cookie first for browser flows (including WebSocket upgrades)
 			if cookie, err := c.Cookie("auth_token"); err == nil && cookie != "" {
 				authHeader = "Bearer " + cookie
 			}
 		}
 
+		// DEPRECATED: Query parameter authentication for WebSocket connections
+		// This fallback exists only for backward compatibility and will be removed in a future version.
+		// Query parameters are logged in access logs and should not be used for sensitive data.
+		// Use HttpOnly cookies instead, which are automatically sent by browsers and not logged.
 		if authHeader == "" {
-			// Try query param (token passthrough)
 			if token := c.Query("token"); token != "" {
 				authHeader = "Bearer " + token
 			}
