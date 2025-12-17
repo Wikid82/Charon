@@ -122,6 +122,7 @@ jobs:
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         if: steps.skip.outputs.skip_build != 'true'
+        timeout-minutes: 2
         run: |
           echo "🔍 Verifying Caddy binary contains patched expr-lang/expr@v1.17.7..."
           echo ""
@@ -137,7 +138,7 @@ jobs:
 
           echo ""
           echo "==> Caddy version:"
-          docker run --rm $IMAGE_REF caddy version || echo "Failed to get Caddy version"
+          timeout 30s docker run --rm $IMAGE_REF caddy version || echo "⚠️ Caddy version check timed out or failed"
 
           echo ""
           echo "==> Extracting Caddy binary for inspection..."
