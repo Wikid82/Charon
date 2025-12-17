@@ -243,10 +243,10 @@ RUN set -eux; \
 FROM ${CADDY_IMAGE}
 WORKDIR /app
 
-# Install runtime dependencies for Charon (no bash needed)
+# Install runtime dependencies for Charon, including bash for maintenance scripts
 # Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
-RUN apk --no-cache add ca-certificates sqlite-libs tzdata curl gettext \
+RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext \
     && apk --no-cache upgrade \
     && apk --no-cache upgrade c-ares
 
@@ -300,6 +300,10 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # Copy startup script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
+
+# Copy utility scripts (used for DB recovery and maintenance)
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/scripts/db-recovery.sh
 
 # Set default environment variables
 ENV CHARON_ENV=production \

@@ -10,6 +10,12 @@
 
 **This is NOT a logic bug.** The root cause is **SQLite database corruption** affecting specific records in the `uptime_heartbeats` table. The error `database disk image is malformed` is consistently returned when querying heartbeat history for exactly 6 specific monitor IDs.
 
+## Dockerfile Scripts Inclusion Check (Dec 17, 2025)
+
+- Observation: The runtime stage in Dockerfile (base `${CADDY_IMAGE}` → WORKDIR `/app`) copies Caddy, CrowdSec binaries, backend binary (`/app/charon`), frontend build, and `docker-entrypoint.sh`, but does **not** copy the repository `scripts/` directory. No prior stage copies `scripts/` either.
+- Impact: `docker exec -it charon /app/scripts/db-recovery.sh` fails after rebuild because `/app/scripts/db-recovery.sh` is absent in the image.
+- Minimal fix to apply: Add a copy step in the final stage, e.g. `COPY scripts/ /app/scripts/` followed by `RUN chmod +x /app/scripts/db-recovery.sh` to ensure the recovery script is present and executable inside the container at `/app/scripts/db-recovery.sh`.
+
 ---
 
 ## 1. Evidence from Container Logs
