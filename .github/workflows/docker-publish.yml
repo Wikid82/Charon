@@ -233,6 +233,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
       - name: Run Integration Test
+        timeout-minutes: 5
         run: ./scripts/integration-test.sh
 
       - name: Check container logs
