@@ -464,7 +464,52 @@ Your uptime history will be preserved.
 **What you do:** Click "Logs" in the sidebar.
 
 ---
+## 🗄️ Database Maintenance
 
+**What it does:** Keeps your configuration database healthy and recoverable.
+
+**Why you care:** Your proxy hosts, SSL certificates, and security settings are stored in a database. Keeping it healthy prevents data loss.
+
+### Optimized SQLite Configuration
+
+Charon uses SQLite with performance-optimized settings enabled automatically:
+
+- **WAL Mode** — Allows reading while writing, faster performance
+- **Busy Timeout** — Waits 5 seconds instead of failing immediately on lock
+- **Smart Caching** — 64MB memory cache for faster queries
+
+**What you do:** Nothing—these settings are applied automatically.
+
+### Database Recovery
+
+**What it does:** Detects and repairs database corruption.
+
+**Why you care:** Power outages or disk failures can (rarely) corrupt your database. The recovery script can often fix it.
+
+**When to use it:** If you see errors like "database disk image is malformed" or Charon won't start.
+
+**How to run it:**
+
+```bash
+# Docker (stop Charon first)
+docker stop charon
+docker run --rm -v charon_data:/app/data charon:latest /app/scripts/db-recovery.sh
+docker start charon
+
+# Local development
+./scripts/db-recovery.sh
+```
+
+The script will:
+
+1. Create a backup of your current database
+2. Check database integrity
+3. Attempt automatic recovery if corruption is found
+4. Keep the last 10 backups automatically
+
+**Learn more:** See the [Database Maintenance Guide](database-maintenance.md) for detailed documentation.
+
+---
 ## 🔴 Live Security Logs & Notifications
 
 **What it does:** Stream security events in real-time and get notified about critical threats.

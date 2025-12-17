@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -42,6 +43,14 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("get underlying db: %w", err)
 	}
 	configurePool(sqlDB)
+
+	// Verify WAL mode is enabled and log confirmation
+	var journalMode string
+	if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
+		logger.Log().WithError(err).Warn("Failed to verify SQLite journal mode")
+	} else {
+		logger.Log().WithField("journal_mode", journalMode).Info("SQLite database connected with WAL mode enabled")
+	}
 
 	return db, nil
 }

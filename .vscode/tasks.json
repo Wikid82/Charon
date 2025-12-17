@@ -258,6 +258,17 @@
             "command": "scripts/bump_beta.sh",
             "group": "none",
             "problemMatcher": []
+        },
+        {
+            "label": "Utility: Database Recovery",
+            "type": "shell",
+            "command": "scripts/db-recovery.sh",
+            "group": "none",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
         }
     ]
 }
