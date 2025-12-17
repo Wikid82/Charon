@@ -202,7 +202,8 @@ func TestAuthMiddleware_QueryParamFallback(t *testing.T) {
 	})
 
 	// Test that query param auth still works (deprecated fallback)
-	req, _ := http.NewRequest("GET", "/test?token="+token, http.NoBody)
+	req, err := http.NewRequest("GET", "/test?token="+token, http.NoBody)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -230,7 +231,8 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	})
 
 	// Both cookie and query param provided - cookie should win
-	req, _ := http.NewRequest("GET", "/test?token="+queryToken, http.NoBody)
+	req, err := http.NewRequest("GET", "/test?token="+queryToken, http.NoBody)
+	require.NoError(t, err)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: cookieToken})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
