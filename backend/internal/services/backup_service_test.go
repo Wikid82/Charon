@@ -2,9 +2,11 @@ package services
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/stretchr/testify/assert"
@@ -228,4 +230,148 @@ func TestBackupService_ListBackups_MissingDir(t *testing.T) {
 	backups, err := service.ListBackups()
 	require.NoError(t, err)
 	assert.Empty(t, backups)
+}
+
+func TestBackupService_CleanupOldBackups(t *testing.T) {
+	t.Run("deletes backups exceeding retention", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			DataDir:   filepath.Join(tmpDir, "data"),
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0o755)
+
+		// Create 10 backup files manually with different timestamps
+		for i := 0; i < 10; i++ {
+			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
+			zipPath := filepath.Join(service.BackupDir, filename)
+			f, err := os.Create(zipPath)
+			require.NoError(t, err)
+			f.Close()
+			// Set modification time to ensure proper ordering
+			modTime := time.Date(2025, 1, i+1, 10, 0, 0, 0, time.UTC)
+			os.Chtimes(zipPath, modTime, modTime)
+		}
+
+		backups, err := service.ListBackups()
+		require.NoError(t, err)
+		assert.Len(t, backups, 10)
+
+		// Keep only 3 backups
+		deleted, err := service.CleanupOldBackups(3)
+		require.NoError(t, err)
+		assert.Equal(t, 7, deleted)
+
+		// Verify only 3 remain
+		backups, err = service.ListBackups()
+		require.NoError(t, err)
+		assert.Len(t, backups, 3)
+	})
+
+	t.Run("keeps all when under retention", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			DataDir:   filepath.Join(tmpDir, "data"),
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0o755)
+
+		// Create 3 backup files
+		for i := 0; i < 3; i++ {
+			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
+			zipPath := filepath.Join(service.BackupDir, filename)
+			f, err := os.Create(zipPath)
+			require.NoError(t, err)
+			f.Close()
+		}
+
+		// Try to keep 7 - should delete nothing
+		deleted, err := service.CleanupOldBackups(7)
+		require.NoError(t, err)
+		assert.Equal(t, 0, deleted)
+
+		backups, err := service.ListBackups()
+		require.NoError(t, err)
+		assert.Len(t, backups, 3)
+	})
+
+	t.Run("minimum retention of 1", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			DataDir:   filepath.Join(tmpDir, "data"),
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0o755)
+
+		// Create 5 backup files
+		for i := 0; i < 5; i++ {
+			filename := fmt.Sprintf("backup_2025-01-%02d_10-00-00.zip", i+1)
+			zipPath := filepath.Join(service.BackupDir, filename)
+			f, err := os.Create(zipPath)
+			require.NoError(t, err)
+			f.Close()
+			modTime := time.Date(2025, 1, i+1, 10, 0, 0, 0, time.UTC)
+			os.Chtimes(zipPath, modTime, modTime)
+		}
+
+		// Try to keep 0 - should keep at least 1
+		deleted, err := service.CleanupOldBackups(0)
+		require.NoError(t, err)
+		assert.Equal(t, 4, deleted)
+
+		backups, err := service.ListBackups()
+		require.NoError(t, err)
+		assert.Len(t, backups, 1)
+	})
+
+	t.Run("empty backup directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0o755)
+
+		deleted, err := service.CleanupOldBackups(7)
+		require.NoError(t, err)
+		assert.Equal(t, 0, deleted)
+	})
+}
+
+func TestBackupService_GetLastBackupTime(t *testing.T) {
+	t.Run("returns latest backup time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dataDir := filepath.Join(tmpDir, "data")
+		os.MkdirAll(dataDir, 0o755)
+
+		dbPath := filepath.Join(dataDir, "charon.db")
+		os.WriteFile(dbPath, []byte("dummy db"), 0o644)
+
+		cfg := &config.Config{DatabasePath: dbPath}
+		service := NewBackupService(cfg)
+
+		// Create a backup
+		_, err := service.CreateBackup()
+		require.NoError(t, err)
+
+		lastBackup, err := service.GetLastBackupTime()
+		require.NoError(t, err)
+		assert.False(t, lastBackup.IsZero())
+		assert.WithinDuration(t, time.Now(), lastBackup, 5*time.Second)
+	})
+
+	t.Run("returns zero time when no backups", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		service := &BackupService{
+			BackupDir: filepath.Join(tmpDir, "backups"),
+		}
+		os.MkdirAll(service.BackupDir, 0o755)
+
+		lastBackup, err := service.GetLastBackupTime()
+		require.NoError(t, err)
+		assert.True(t, lastBackup.IsZero())
+	})
+}
+
+func TestDefaultBackupRetention(t *testing.T) {
+	assert.Equal(t, 7, DefaultBackupRetention)
 }

@@ -52,6 +52,19 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		logger.Log().WithField("journal_mode", journalMode).Info("SQLite database connected with WAL mode enabled")
 	}
 
+	// Run quick integrity check on startup (non-blocking, warn-only)
+	var quickCheckResult string
+	if err := db.Raw("PRAGMA quick_check").Scan(&quickCheckResult).Error; err != nil {
+		logger.Log().WithError(err).Warn("Failed to run SQLite integrity check on startup")
+	} else if quickCheckResult == "ok" {
+		logger.Log().Info("SQLite database integrity check passed")
+	} else {
+		// Database has corruption - log error but don't fail startup
+		logger.Log().WithField("quick_check_result", quickCheckResult).
+			WithField("error_type", "database_corruption").
+			Error("SQLite database integrity check failed - database may be corrupted")
+	}
+
 	return db, nil
 }
 
