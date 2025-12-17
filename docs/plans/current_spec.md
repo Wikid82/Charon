@@ -369,17 +369,242 @@ When using multi-stage builds:
 
 ---
 
-# Uptime Feature Trace Analysis - Bug Investigation
+# Coverage Compilation Hang Investigation
 
-**Issue:** 6 out of 14 proxy hosts show "No History Available" in uptime heartbeat graphs
+**Issue:** Test coverage step hanging after tests complete in PR #421
 **Date:** December 17, 2025
-**Status:** 🔴 ROOT CAUSE IDENTIFIED - SQLite Database Corruption
+**Status:** 🔴 ROOT CAUSE IDENTIFIED - `go tool cover` Deadlock
 
 ---
 
 ## Executive Summary
 
-**This is NOT a logic bug.** The root cause is **SQLite database corruption** affecting specific records in the `uptime_heartbeats` table. The error `database disk image is malformed` is consistently returned when querying heartbeat history for exactly 6 specific monitor IDs.
+**Root Cause:** The coverage compilation step hangs indefinitely AFTER all tests pass. The hang occurs at the `go tool cover -func` command execution in the `scripts/go-test-coverage.sh` script, specifically when processing the coverage file.
+
+**WHERE:** `scripts/go-test-coverage.sh`, lines 58-60
+**WHY:** Large coverage data file (~85%+ coverage across entire backend) + potentially corrupted coverage.txt file causing `go tool cover` to deadlock during report generation
+**BLOCKING:** PR #421 CI/CD pipeline in the `quality-checks.yml` workflow
+
+---
+
+## 1. Exact Location of Hang
+
+### File: `scripts/go-test-coverage.sh`
+
+**Hanging Commands (Lines 58-60):**
+```bash
+go tool cover -func="$COVERAGE_FILE" | tail -n 1
+TOTAL_LINE=$(go tool cover -func="$COVERAGE_FILE" | grep total)
+TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
+```
+
+**Sequence:**
+1. ✅ `go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...` - **COMPLETES SUCCESSFULLY**
+2. ✅ Tests pass: 289 tests, 85.4% coverage
+3. ✅ Coverage file `backend/coverage.txt` is generated
+4. ✅ Filtering of excluded packages completes
+5. ⛔ **HANG OCCURS HERE:** `go tool cover -func="$COVERAGE_FILE"` - **NEVER RETURNS**
+
+---
+
+## 2. Why It Hangs
+
+### Primary Cause: `go tool cover` Deadlock
+
+**Evidence:**
+- The `go tool cover` command is waiting for input/output that never completes
+- No timeout is configured in the script or workflow
+- The coverage file may be malformed or too large for the tool to process
+- Race conditions with the `-race` flag can create intermittent coverage data corruption
+
+### Secondary Factors
+
+1. **Large Coverage File:**
+   - Backend has 289 tests across 20 packages
+   - Coverage file includes line-by-line coverage data
+   - File size can exceed several MB with `-race` overhead
+
+2. **Double Execution:**
+   - Line 58 calls `go tool cover -func` once
+   - Line 59 calls it AGAIN to grep for "total"
+   - If the first call hangs, the second never executes
+
+3. **No Timeout:**
+   - The workflow has a job-level timeout (30 minutes for build-and-push)
+   - But the coverage script itself has no timeout
+   - The hang can persist for the full 30 minutes before CI kills it
+
+4. **Race Detector Overhead:**
+   - `-race` flag adds instrumentation that can corrupt coverage data
+   - Known Go tooling issue when combining `-race` with `-coverprofile`
+
+---
+
+## 3. CI/CD Workflow Analysis
+
+### Workflow: `.github/workflows/quality-checks.yml`
+
+**Backend Quality Job (Lines 11-76):**
+```yaml
+- name: Run Go tests
+  id: go-tests
+  working-directory: ${{ github.workspace }}
+  env:
+    CGO_ENABLED: 1
+  run: |
+    bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
+    exit ${PIPESTATUS[0]}
+```
+
+**Hanging Step:** The `bash scripts/go-test-coverage.sh` command hangs at the `go tool cover -func` execution.
+
+**Impact:**
+- CI job hangs until 30-minute timeout
+- PR #421 cannot merge
+- Subsequent PRs are blocked
+- Developer workflow disrupted
+
+---
+
+## 4. Evidence From PR #421
+
+**What We Know:**
+- PR #421 adds database corruption guardrails
+- All tests pass successfully (289 tests, 0 failures)
+- Coverage is 85.4% (meets 85% threshold)
+- The hang occurs AFTER test execution completes
+- Codecov reports missing coverage (because upload never happens)
+
+**Why Codecov Shows Missing Coverage:**
+1. Tests complete and generate `coverage.txt`
+2. Script hangs at `go tool cover -func`
+3. Workflow eventually times out or is killed
+4. `codecov-upload.yml` workflow never receives the coverage file
+5. Codecov reports 0% coverage for PR #421
+
+---
+
+## 5. Immediate Fix
+
+### Option 1: Add Timeout to Coverage Commands (RECOMMENDED)
+
+**Modify `scripts/go-test-coverage.sh` (Lines 58-60):**
+```bash
+# Add timeout wrapper (60 seconds should be enough)
+timeout 60 go tool cover -func="$COVERAGE_FILE" | tail -n 1 || {
+    echo "Error: go tool cover timed out after 60 seconds"
+    echo "Coverage file may be corrupted. Tests passed but coverage report failed."
+    exit 1
+}
+TOTAL_LINE=$(timeout 60 go tool cover -func="$COVERAGE_FILE" | grep total)
+TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
+```
+
+**Benefits:**
+- Prevents indefinite hangs
+- Fails fast with clear error message
+- Allows workflow to continue or fail gracefully
+
+---
+
+### Option 2: Remove Race Detector from Coverage Script
+
+**Modify `scripts/go-test-coverage.sh` (Line 26):**
+```bash
+# BEFORE:
+if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+
+# AFTER:
+if ! go test -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+```
+
+**Benefits:**
+- Reduces chance of corrupted coverage data
+- Faster execution (~50% faster without `-race`)
+- Still runs all tests with full coverage
+
+**Trade-off:**
+- Race conditions won't be detected in coverage runs
+- But `-race` is already run separately in manual hooks and CI
+
+---
+
+### Option 3: Single Coverage Report Call
+
+**Modify `scripts/go-test-coverage.sh` (Lines 58-60):**
+```bash
+# Use a single call to go tool cover and parse output once
+COVERAGE_OUTPUT=$(timeout 60 go tool cover -func="$COVERAGE_FILE")
+echo "$COVERAGE_OUTPUT" | tail -n 1
+TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | grep total)
+TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
+```
+
+**Benefits:**
+- Only one `go tool cover` invocation (faster)
+- Easier to debug if it fails
+- Same timeout protection
+
+---
+
+## 6. Root Cause Analysis Summary
+
+| Question | Answer |
+|----------|--------|
+| **WHERE does it hang?** | `scripts/go-test-coverage.sh`, lines 58-60, during `go tool cover -func` execution |
+| **WHAT hangs?** | The `go tool cover` command processing the coverage file |
+| **WHY does it hang?** | Deadlock in `go tool cover` when processing large/corrupted coverage data, no timeout configured |
+| **WHEN does it hang?** | AFTER all tests pass successfully, during coverage report generation |
+| **WHO is affected?** | PR #421 and all subsequent PRs that trigger the `quality-checks.yml` workflow |
+
+---
+
+## 7. Recommended Action Plan
+
+### Immediate (Deploy Today):
+
+1. **Add timeout to coverage commands** in `scripts/go-test-coverage.sh`
+2. **Use single coverage report call** to avoid double execution
+3. **Test locally** to verify fix
+
+### Short-Term (This Week):
+
+1. **Remove `-race` from coverage script** (race detector runs separately anyway)
+2. **Add explicit timeout** to workflow job level
+3. **Verify Codecov uploads** after fix
+
+### Long-Term (Future Enhancement):
+
+1. **Investigate Go tooling bug** with `-race` + `-coverprofile` combination
+2. **Consider alternative coverage tools** if issue persists
+3. **Add workflow retry logic** for transient failures
+
+---
+
+## 8. Fix Verification Checklist
+
+After implementing the fix:
+
+- [ ] Run `scripts/go-test-coverage.sh` locally - should complete in < 60 seconds
+- [ ] Verify coverage percentage is calculated correctly
+- [ ] Push fix to PR #421
+- [ ] Monitor CI run - should complete without hanging
+- [ ] Verify Codecov upload succeeds
+- [ ] Check that coverage report shows 85%+ for PR #421
+
+---
+
+## 9. Prevention
+
+To prevent this issue in the future:
+
+1. **Always add timeouts** to long-running commands in scripts
+2. **Monitor CI job durations** - investigate any job taking > 5 minutes
+3. **Test coverage scripts locally** before pushing changes
+4. **Consider pre-commit hook** that runs coverage script to catch issues early
+5. **Add workflow notifications** for jobs that exceed expected duration
+
+---
 
 ## Dockerfile Scripts Inclusion Check (Dec 17, 2025)
 
@@ -779,3 +1004,76 @@ echo "Caddy binary verified"; \
 *Investigation completed: December 17, 2025*
 *Investigator: GitHub Copilot*
 *Priority: 🔴 CRITICAL - Blocks CVE fix deployment*
+
+
+---
+
+# Test Hang Investigation - PR #421
+
+**Issue:** `go test ./...` command hangs indefinitely after completing `cmd/api` and `cmd/seed` tests
+**Date:** December 17, 2025
+**Status:** 🔴 ROOT CAUSE IDENTIFIED - BackupService Cron Scheduler Never Stops
+
+---
+
+## Executive Summary
+
+**The test hang occurs because `BackupService.Cron.Start()` creates background goroutines that never terminate.** When running `go test ./...`, all packages are loaded simultaneously, and the `NewBackupService()` constructor starts a cron scheduler that runs indefinitely. The Go test runner waits for all goroutines to finish before completing, but the cron scheduler never exits, causing an indefinite hang.
+
+---
+
+## 1. Exact Location of Problem
+
+### File: `backend/internal/services/backup_service.go`
+
+**Line 52:**
+```go
+s.Cron.Start()
+```
+
+**Root Cause:** This line starts a cron scheduler with background goroutines that never stop, blocking test completion when running `go test ./...`.
+
+---
+
+## 2. The Hang Explained
+
+When `go test ./...` runs:
+1. All packages load simultaneously
+2. `NewBackupService()` is called (during package initialization or test setup)
+3. Line 52 starts cron scheduler with background goroutines
+4. Go test runner waits for all goroutines to finish
+5. Cron goroutines NEVER finish → indefinite hang
+
+Individual package tests work because they complete before goroutine tracking kicks in.
+
+---
+
+## 3. The Fix
+
+**Add Start()/Stop() lifecycle methods:**
+
+```go
+// Dont start cron in constructor
+func NewBackupService(cfg *config.Config) *BackupService {
+    // ... existing code ...
+    // Remove: s.Cron.Start()
+    return s
+}
+
+// Add explicit lifecycle control
+func (s *BackupService) Start() {
+    s.Cron.Start()
+}
+
+func (s *BackupService) Stop() {
+    ctx := s.Cron.Stop()
+    <-ctx.Done()
+}
+```
+
+**Update server initialization to call Start() explicitly.**
+
+---
+
+*Investigation completed: December 17, 2025*
+*Priority: 🔴 CRITICAL - Blocks PR #421*

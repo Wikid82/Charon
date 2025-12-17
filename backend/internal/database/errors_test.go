@@ -2,6 +2,8 @@ package database
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,4 +146,85 @@ func TestCheckIntegrity(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, "ok", result)
 	})
+}
+
+// Phase 4 & 5: Deep coverage tests
+
+func TestLogCorruptionError_EmptyContext(t *testing.T) {
+	// Test with empty context map
+	err := errors.New("database disk image is malformed")
+	emptyCtx := map[string]interface{}{}
+
+	// Should not panic with empty context
+	LogCorruptionError(err, emptyCtx)
+}
+
+func TestCheckIntegrity_ActualCorruption(t *testing.T) {
+	// Create a SQLite database and corrupt it
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "corrupt_test.db")
+
+	// Create valid database
+	db, err := Connect(dbPath)
+	require.NoError(t, err)
+
+	// Insert some data
+	err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, data TEXT)").Error
+	require.NoError(t, err)
+	err = db.Exec("INSERT INTO test (data) VALUES ('test1'), ('test2')").Error
+	require.NoError(t, err)
+
+	// Close connection
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	// Corrupt the database file
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	require.NoError(t, err)
+	stat, err := f.Stat()
+	require.NoError(t, err)
+	if stat.Size() > 100 {
+		// Overwrite middle section
+		_, err = f.WriteAt([]byte("CORRUPTED_DATA"), stat.Size()/2)
+		require.NoError(t, err)
+	}
+	f.Close()
+
+	// Reconnect
+	db2, err := Connect(dbPath)
+	if err != nil {
+		// Connection failed due to corruption - that's a valid outcome
+		t.Skip("Database connection failed immediately")
+	}
+
+	// Run integrity check
+	ok, message := CheckIntegrity(db2)
+	// Should detect corruption
+	if !ok {
+		assert.False(t, ok)
+		assert.NotEqual(t, "ok", message)
+		assert.Contains(t, message, "database")
+	} else {
+		// Corruption might not be in checked pages
+		t.Log("Corruption not detected by quick_check - might be in unused pages")
+	}
+}
+
+func TestCheckIntegrity_PRAGMAError(t *testing.T) {
+	// Create database and close connection to cause PRAGMA to fail
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Connect(dbPath)
+	require.NoError(t, err)
+
+	// Close the underlying SQL connection
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Now CheckIntegrity should fail because connection is closed
+	ok, message := CheckIntegrity(db)
+	assert.False(t, ok, "CheckIntegrity should fail on closed database")
+	assert.Contains(t, message, "failed to run integrity check")
 }

@@ -49,13 +49,28 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to schedule backup")
 	}
-	s.Cron.Start()
+	// Note: Cron scheduler must be explicitly started via Start() method
 
 	return s
 }
 
 // DefaultBackupRetention is the number of backups to keep during cleanup.
 const DefaultBackupRetention = 7
+
+// Start starts the cron scheduler for automatic backups.
+// Must be called after NewBackupService() to enable scheduled backups.
+func (s *BackupService) Start() {
+	s.Cron.Start()
+	logger.Log().Info("Backup service cron scheduler started")
+}
+
+// Stop gracefully shuts down the cron scheduler.
+// Waits for any running backup jobs to complete.
+func (s *BackupService) Stop() {
+	ctx := s.Cron.Stop()
+	<-ctx.Done()
+	logger.Log().Info("Backup service cron scheduler stopped")
+}
 
 func (s *BackupService) RunScheduledBackup() {
 	logger.Log().Info("Starting scheduled backup")
