@@ -214,11 +214,15 @@ func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	authService := setupAuthService(t)
 	
 	// Create two different users
-	cookieUser, _ := authService.Register("cookie@example.com", "password", "Cookie User")
-	cookieToken, _ := authService.GenerateToken(cookieUser)
+	cookieUser, err := authService.Register("cookie@example.com", "password", "Cookie User")
+	require.NoError(t, err)
+	cookieToken, err := authService.GenerateToken(cookieUser)
+	require.NoError(t, err)
 	
-	queryUser, _ := authService.Register("query@example.com", "password", "Query User")
-	queryToken, _ := authService.GenerateToken(queryUser)
+	queryUser, err := authService.Register("query@example.com", "password", "Query User")
+	require.NoError(t, err)
+	queryToken, err := authService.GenerateToken(queryUser)
+	require.NoError(t, err)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
