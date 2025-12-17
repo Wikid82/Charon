@@ -128,11 +128,8 @@ export const connectLiveLogs = (
   if (filters.level) params.append('level', filters.level);
   if (filters.source) params.append('source', filters.source);
 
-  // Get auth token from localStorage (key: charon_auth_token)
-  const token = localStorage.getItem('charon_auth_token');
-  if (token) {
-    params.append('token', token);
-  }
+  // Authentication is handled via HttpOnly cookies sent automatically by the browser
+  // This prevents tokens from being logged in access logs or exposed to XSS attacks
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
@@ -196,11 +193,8 @@ export const connectSecurityLogs = (
   if (filters.host) params.append('host', filters.host);
   if (filters.blocked_only) params.append('blocked_only', 'true');
 
-  // Get auth token from localStorage (key: charon_auth_token)
-  const token = localStorage.getItem('charon_auth_token');
-  if (token) {
-    params.append('token', token);
-  }
+  // Authentication is handled via HttpOnly cookies sent automatically by the browser
+  // This prevents tokens from being logged in access logs or exposed to XSS attacks
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${params.toString()}`;

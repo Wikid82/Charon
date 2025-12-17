@@ -25,20 +25,24 @@
 ```text
 Frontend                              Backend
 ────────                              ───────
-localStorage.getItem('charon_auth_token')
-        │
-        ▼
-Query param: ?token=<jwt>  ────────►  AuthMiddleware:
-                                      1. Check Authorization header
-                                      2. Check auth_token cookie
-                                      3. Check token query param ◄── MATCHES
-                                              │
-                                              ▼
-                                      ValidateToken(jwt) → OK
-                                              │
-                                              ▼
-                                      Upgrade to WebSocket
+User logs in
+     │
+     ▼
+Backend sets HttpOnly auth_token cookie ──►  AuthMiddleware:
+     │                                       1. Check Authorization header
+     │                                       2. Check auth_token cookie ◄── SECURE METHOD
+     │                                       3. (Deprecated) Check token query param
+     ▼                                              │
+WebSocket connection initiated                     ▼
+(Cookie sent automatically by browser)     ValidateToken(jwt) → OK
+     │                                              │
+     │                                              ▼
+     └──────────────────────────────────►  Upgrade to WebSocket
 ```
+
+**Security Note:** Authentication now uses HttpOnly cookies instead of query parameters.
+This prevents JWT tokens from being logged in access logs, proxies, and other telemetry.
+The browser automatically sends the cookie with WebSocket upgrade requests.
 
 ### Logic Gap Analysis
 
@@ -46,21 +50,25 @@ Query param: ?token=<jwt>  ────────►  AuthMiddleware:
 
 | Question | Answer |
 |----------|--------|
-| Frontend auth method | Query param `?token=<jwt>` from `localStorage.getItem('charon_auth_token')` |
-| Backend auth method | Accepts: Header → Cookie → Query param `token` ✅ |
+| Frontend auth method | HttpOnly cookie (`auth_token`) sent automatically by browser ✅ SECURE |
+| Backend auth method | Accepts: Header → Cookie (preferred) → Query param (deprecated) ✅ |
 | Filter params | Both use `source`, `level`, `ip`, `host`, `blocked_only` ✅ |
 | Data format | `SecurityLogEntry` struct matches frontend TypeScript type ✅ |
+| Security | Tokens no longer logged in access logs or exposed to XSS ✅ |
 
 ---
 
 ## 1. VERIFICATION STATUS
 
-### ✅ localStorage Key IS Correct
+### ✅ Authentication Method Updated for Security
 
-Both WebSocket functions in `frontend/src/api/logs.ts` correctly use `charon_auth_token`:
+WebSocket authentication now uses HttpOnly cookies instead of query parameters:
 
-- **Line 119-122** (`connectLiveLogs`): `localStorage.getItem('charon_auth_token')`
-- **Line 178-181** (`connectSecurityLogs`): `localStorage.getItem('charon_auth_token')`
+- **`connectLiveLogs`** (frontend/src/api/logs.ts): Uses browser's automatic cookie transmission
+- **`connectSecurityLogs`** (frontend/src/api/logs.ts): Uses browser's automatic cookie transmission
+- **Backend middleware**: Prioritizes cookie-based auth, query param is deprecated
+
+This change prevents JWT tokens from appearing in access logs, proxy logs, and other telemetry.
 
 ---
 
@@ -186,12 +194,13 @@ The `showBlockedOnly` state in useEffect dependencies causes reconnection when t
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| localStorage key | ✅ Fixed | Now uses `charon_auth_token` |
-| Auth middleware | ✅ Working | Accepts query param `token` |
+| WebSocket authentication | ✅ Secured | Now uses HttpOnly cookies instead of query parameters |
+| Auth middleware | ✅ Updated | Cookie-based auth prioritized, query param deprecated |
 | WebSocket endpoint | ✅ Working | Protected route, upgrades correctly |
 | LogWatcher service | ✅ Working | Tails access.log successfully |
 | **Frontend memoization** | ✅ Fixed | `useMemo` in Security.tsx |
 | **Stable default props** | ✅ Fixed | Constants in LiveLogViewer.tsx |
+| **Security improvement** | ✅ Complete | Tokens no longer exposed in logs |
 
 ---
 
@@ -221,7 +230,9 @@ docker logs charon 2>&1 | grep -i "cerberus.*websocket" | tail -10
 
 **Logic Gap Between Frontend/Backend:** **NO** - Both are correctly aligned
 
-**Current Status:** ✅ All fixes applied and working
+**Security Enhancement:** WebSocket authentication now uses HttpOnly cookies instead of query parameters, preventing token leakage in logs
+
+**Current Status:** ✅ All fixes applied and working securely
 
 ---
 
