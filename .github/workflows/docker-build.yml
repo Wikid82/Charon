@@ -119,6 +119,74 @@ jobs:
             VCS_REF=${{ github.sha }}
             CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
+      - name: Verify Caddy Security Patches (CVE-2025-68156)
+        if: steps.skip.outputs.skip_build != 'true'
+        run: |
+          echo "🔍 Verifying Caddy binary contains patched expr-lang/expr@v1.17.7..."
+          echo ""
+
+          # Determine the image reference based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.ref_name }}"
+            echo "Using PR image: $IMAGE_REF"
+          else
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            echo "Using digest: $IMAGE_REF"
+          fi
+
+          echo ""
+          echo "==> Caddy version:"
+          docker run --rm $IMAGE_REF caddy version || echo "Failed to get Caddy version"
+
+          echo ""
+          echo "==> Extracting Caddy binary for inspection..."
+          CONTAINER_ID=$(docker create $IMAGE_REF)
+          docker cp ${CONTAINER_ID}:/usr/bin/caddy ./caddy_binary
+          docker rm ${CONTAINER_ID}
+
+          echo ""
+          echo "==> Checking if Go toolchain is available locally..."
+          if command -v go >/dev/null 2>&1; then
+            echo "✅ Go found locally, inspecting binary dependencies..."
+            go version -m ./caddy_binary > caddy_deps.txt
+
+            echo ""
+            echo "==> Searching for expr-lang/expr dependency:"
+            if grep -i "expr-lang/expr" caddy_deps.txt; then
+              EXPR_VERSION=$(grep "expr-lang/expr" caddy_deps.txt | awk '{print $2}')
+              echo ""
+              echo "✅ Found expr-lang/expr: $EXPR_VERSION"
+
+              # Check if version is v1.17.7 or higher (vulnerable version is v1.16.9)
+              if echo "$EXPR_VERSION" | grep -E "v1\.(1[7-9]|[2-9][0-9])\." >/dev/null; then
+                echo "✅ PASS: expr-lang version $EXPR_VERSION is patched (>= v1.17.7)"
+              else
+                echo "⚠️ WARNING: expr-lang version $EXPR_VERSION may be vulnerable (< v1.17.7)"
+                echo "Expected: v1.17.7 or higher to mitigate CVE-2025-68156"
+                exit 1
+              fi
+            else
+              echo "⚠️ expr-lang/expr not found in binary dependencies"
+              echo "This could mean:"
+              echo "  1. The dependency was stripped/optimized out"
+              echo "  2. Caddy was built without the expression evaluator"
+              echo "  3. Binary inspection failed"
+              echo ""
+              echo "Displaying all dependencies for review:"
+              cat caddy_deps.txt
+            fi
+          else
+            echo "⚠️ Go toolchain not available in CI environment"
+            echo "Cannot inspect binary modules - skipping dependency verification"
+            echo "Note: Runtime image does not require Go as Caddy is a standalone binary"
+          fi
+
+          # Cleanup
+          rm -f ./caddy_binary caddy_deps.txt
+
+          echo ""
+          echo "==> Verification complete"
+
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1

@@ -111,53 +111,56 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
 # Build Caddy for the target architecture with security plugins.
-# We use XCADDY_SKIP_CLEANUP=1 to keep the build environment, then patch dependencies.
+# Two-stage approach: xcaddy generates go.mod, we patch it, then build from scratch.
+# This ensures the final binary is compiled with fully patched dependencies.
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     sh -c 'set -e; \
         export XCADDY_SKIP_CLEANUP=1; \
-        # Run xcaddy build - it will fail at the end but create the go.mod
+        echo "Stage 1: Generate go.mod with xcaddy..."; \
+        # Run xcaddy to generate the build directory and go.mod
         GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security \
             --with github.com/corazawaf/coraza-caddy/v2 \
             --with github.com/hslatman/caddy-crowdsec-bouncer \
             --with github.com/zhangjiayin/caddy-geoip2 \
             --with github.com/mholt/caddy-ratelimit \
-            --output /tmp/caddy-temp || true; \
-        # Find the build directory
+            --output /tmp/caddy-initial || true; \
+        # Find the build directory created by xcaddy
         BUILDDIR=$(ls -td /tmp/buildenv_* 2>/dev/null | head -1); \
-        if [ -d "$BUILDDIR" ] && [ -f "$BUILDDIR/go.mod" ]; then \
-            echo "Patching dependencies in $BUILDDIR"; \
-            cd "$BUILDDIR"; \
-            # Upgrade transitive dependencies to pick up security fixes.
-            # These are Caddy dependencies that lag behind upstream releases.
-            # Renovate tracks these via regex manager in renovate.json
-            # TODO: Remove this block once Caddy ships with fixed deps (check v2.10.3+)
-            # renovate: datasource=go depName=github.com/expr-lang/expr
-            go get github.com/expr-lang/expr@v1.17.7 || true; \
-            # renovate: datasource=go depName=github.com/quic-go/quic-go
-            go get github.com/quic-go/quic-go@v0.57.1 || true; \
-            # renovate: datasource=go depName=github.com/smallstep/certificates
-            go get github.com/smallstep/certificates@v0.29.0 || true; \
-            go mod tidy || true; \
-            # Rebuild with patched dependencies
-            echo "Rebuilding Caddy with patched dependencies..."; \
-            GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy \
-                -ldflags "-w -s" -trimpath -tags "nobadger,nomysql,nopgx" . && \
-            echo "Build successful"; \
-        else \
-            echo "Build directory not found, using standard xcaddy build"; \
-            GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
-                --with github.com/greenpau/caddy-security \
-                --with github.com/corazawaf/coraza-caddy/v2 \
-                --with github.com/hslatman/caddy-crowdsec-bouncer \
-                --with github.com/zhangjiayin/caddy-geoip2 \
-                --with github.com/mholt/caddy-ratelimit \
-                --output /usr/bin/caddy; \
+        if [ ! -d "$BUILDDIR" ] || [ ! -f "$BUILDDIR/go.mod" ]; then \
+            echo "ERROR: Build directory not found or go.mod missing"; \
+            exit 1; \
         fi; \
-        rm -rf /tmp/buildenv_* /tmp/caddy-temp; \
-        /usr/bin/caddy version'
+        echo "Found build directory: $BUILDDIR"; \
+        cd "$BUILDDIR"; \
+        echo "Stage 2: Apply security patches to go.mod..."; \
+        # Patch ALL dependencies BEFORE building the final binary
+        # These patches fix CVEs in transitive dependencies
+        # Renovate tracks these via regex manager in renovate.json
+        # renovate: datasource=go depName=github.com/expr-lang/expr
+        go get github.com/expr-lang/expr@v1.17.7; \
+        # renovate: datasource=go depName=github.com/quic-go/quic-go
+        go get github.com/quic-go/quic-go@v0.57.1; \
+        # renovate: datasource=go depName=github.com/smallstep/certificates
+        go get github.com/smallstep/certificates@v0.29.0; \
+        # Clean up go.mod and ensure all dependencies are resolved
+        go mod tidy; \
+        echo "Dependencies patched successfully"; \
+        # Remove any temporary binaries from initial xcaddy run
+        rm -f /tmp/caddy-initial; \
+        echo "Stage 3: Build final Caddy binary with patched dependencies..."; \
+        # Build the final binary from scratch with the fully patched go.mod
+        # This ensures no vulnerable metadata is embedded
+        GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /usr/bin/caddy \
+            -ldflags "-w -s" -trimpath -tags "nobadger,nomysql,nopgx" .; \
+        echo "Build successful with patched dependencies"; \
+        # Verify the binary exists and is executable (no execution to avoid hang)
+        test -x /usr/bin/caddy || exit 1; \
+        echo "Caddy binary verified"; \
+        # Clean up temporary build directories
+        rm -rf /tmp/buildenv_* /tmp/caddy-initial'
 
 # ---- CrowdSec Builder ----
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
