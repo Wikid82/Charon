@@ -1,3 +1,26 @@
+# QA Report: DevOps Docker Build PR Image Load
+
+**Date:** December 17, 2025
+**Scope:** Validate docker-build workflow PR image loading and required QA gates after DevOps changes
+**Status:** ⚠️ QA BLOCKED (version check failure)
+
+## Findings
+
+- Workflow check: [ .github/workflows/docker-build.yml](.github/workflows/docker-build.yml) now loads the Docker image for `pull_request` events via `load: ${{ github.event_name == 'pull_request' }}` and skips registry push; PR tag `pr-${{ github.event.pull_request.number }}` is emitted. This matches the requirement to avoid missing local images during PR CI and should resolve the prior CI failure.
+
+## Check Results
+
+- Pre-commit ❌ FAIL — `check-version-match`: `.version` reports 0.9.3 while latest git tag is v0.11.2 (`pre-commit run --all-files`).
+- Backend coverage ✅ PASS — `scripts/go-test-coverage.sh` (Computed coverage: 85.6%, threshold 85%).
+- Frontend coverage ✅ PASS — `scripts/frontend-test-coverage.sh` (Computed coverage: 89.48%, threshold 85%).
+- TypeScript check ✅ PASS — `cd frontend && npm run type-check`.
+
+## Issues & Recommended Remediation
+
+1. Align version metadata to satisfy `check-version-match` (either bump `.version` to v0.11.2 or create/tag release matching 0.9.3). Do not bypass the hook.
+
+---
+
 # QA Report: Database Corruption Guardrails
 
 **Date:** December 17, 2025
