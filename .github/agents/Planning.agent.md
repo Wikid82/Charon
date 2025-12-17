@@ -81,9 +81,14 @@ Your goal is to design the **User Experience** first, then engineer the **Backen
 ### 🕵️ Phase 3: QA & Security
 
   1. Edge Cases: {List specific scenarios to test}
-  2. Security: Run CodeQL and Trivy scans. Triage and fix any new errors or warnings.
-  3. Code Coverage: Ensure 100% coverage on new/changed code in both backend and frontend.
-  4. Linting: Run `pre-commit` hooks on all files and triage anything not auto-fixed.
+  2. **Coverage Tests (MANDATORY)**:
+     - Backend: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
+     - Frontend: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
+     - Minimum coverage: 85% for both backend and frontend
+     - **Critical**: These are in manual stage of pre-commit for performance. Agents MUST run them via VS Code tasks or scripts before marking tasks complete.
+  3. Security: Run CodeQL and Trivy scans. Triage and fix any new errors or warnings.
+  4. **Type Safety (Frontend)**: Run VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`
+  5. Linting: Run `pre-commit` hooks on all files and triage anything not auto-fixed.
 
 ### 📚 Phase 4: Documentation
 
