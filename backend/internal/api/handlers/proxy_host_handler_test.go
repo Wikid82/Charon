@@ -1129,3 +1129,285 @@ func TestProxyHostUpdate_InvalidSecurityHeaderProfileID(t *testing.T) {
 	// For now, just verify it doesn't crash
 	require.NotEqual(t, http.StatusInternalServerError, resp.Code)
 }
+
+// Test profile change from Strict → Basic (actual bug user encountered)
+func TestProxyHostUpdate_SecurityHeaderProfile_StrictToBasic(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create two profiles: "Strict" and "Basic"
+	strictProfile := &models.SecurityHeaderProfile{
+		UUID:                  "profile-strict",
+		Name:                  "Strict",
+		HSTSEnabled:           true,
+		HSTSMaxAge:            31536000,
+		HSTSIncludeSubdomains: true,
+		HSTSPreload:           true,
+		XContentTypeOptions:   true,
+		XFrameOptions:         "DENY",
+		CSPEnabled:            true,
+		CSPDirectives:         `{"default-src":["'self'"]}`,
+	}
+	require.NoError(t, db.Create(strictProfile).Error)
+
+	basicProfile := &models.SecurityHeaderProfile{
+		UUID:                "profile-basic",
+		Name:                "Basic",
+		HSTSEnabled:         false,
+		XContentTypeOptions: true,
+		XFrameOptions:       "SAMEORIGIN",
+	}
+	require.NoError(t, db.Create(basicProfile).Error)
+
+	// Create host with Strict profile
+	host := &models.ProxyHost{
+		UUID:                    "sec-strict-to-basic-uuid",
+		Name:                    "Host Strict to Basic",
+		DomainNames:             "strict-to-basic.example.com",
+		ForwardHost:             "localhost",
+		ForwardPort:             8080,
+		SecurityHeaderProfileID: &strictProfile.ID,
+		Enabled:                 true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Update to Basic profile
+	updateBody := fmt.Sprintf(`{"security_header_profile_id": %d}`, basicProfile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// Verify profile changed in DB
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.SecurityHeaderProfileID)
+	require.Equal(t, basicProfile.ID, *dbHost.SecurityHeaderProfileID, "Profile should change from Strict to Basic")
+}
+
+// Test profile change to None (null)
+func TestProxyHostUpdate_SecurityHeaderProfile_ToNone(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:                "profile-to-none",
+		Name:                "To None Profile",
+		HSTSEnabled:         true,
+		XContentTypeOptions: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create host with profile
+	host := &models.ProxyHost{
+		UUID:                    "sec-to-none-uuid",
+		Name:                    "Host To None",
+		DomainNames:             "to-none.example.com",
+		ForwardHost:             "localhost",
+		ForwardPort:             8080,
+		SecurityHeaderProfileID: &profile.ID,
+		Enabled:                 true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Update to None (null)
+	updateBody := `{"security_header_profile_id": null}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// Verify profile is null in DB
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.Nil(t, dbHost.SecurityHeaderProfileID, "Profile should be null")
+}
+
+// Test profile change from None to valid ID
+func TestProxyHostUpdate_SecurityHeaderProfile_FromNoneToValid(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:                "profile-from-none",
+		Name:                "From None Profile",
+		HSTSEnabled:         true,
+		XContentTypeOptions: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create host without profile
+	host := &models.ProxyHost{
+		UUID:        "sec-from-none-uuid",
+		Name:        "Host From None",
+		DomainNames: "from-none.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Verify host has no profile
+	var checkHost models.ProxyHost
+	require.NoError(t, db.First(&checkHost, "uuid = ?", host.UUID).Error)
+	require.Nil(t, checkHost.SecurityHeaderProfileID, "Should start with null profile")
+
+	// Update to valid profile
+	updateBody := fmt.Sprintf(`{"security_header_profile_id": %d}`, profile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// Verify profile assigned in DB
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.SecurityHeaderProfileID)
+	require.Equal(t, profile.ID, *dbHost.SecurityHeaderProfileID, "Profile should be assigned")
+}
+
+// Test invalid string value (should fail gracefully)
+func TestProxyHostUpdate_SecurityHeaderProfile_InvalidString(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create host
+	host := &models.ProxyHost{
+		UUID:        "sec-invalid-string-uuid",
+		Name:        "Host Invalid String",
+		DomainNames: "invalid-string.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to assign invalid string value
+	updateBody := `{"security_header_profile_id": "not-a-number"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "invalid security_header_profile_id")
+}
+
+// Test invalid float value (should fail gracefully)
+func TestProxyHostUpdate_SecurityHeaderProfile_InvalidFloat(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create host
+	host := &models.ProxyHost{
+		UUID:        "sec-invalid-float-uuid",
+		Name:        "Host Invalid Float",
+		DomainNames: "invalid-float.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to assign negative float value
+	updateBody := `{"security_header_profile_id": -1}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "invalid security_header_profile_id")
+}
+
+// Test valid string value conversion
+func TestProxyHostUpdate_SecurityHeaderProfile_ValidString(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:                "profile-valid-string",
+		Name:                "Valid String Profile",
+		HSTSEnabled:         true,
+		XContentTypeOptions: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create host
+	host := &models.ProxyHost{
+		UUID:        "sec-valid-string-uuid",
+		Name:        "Host Valid String",
+		DomainNames: "valid-string.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Assign profile using string value
+	updateBody := fmt.Sprintf(`{"security_header_profile_id": "%d"}`, profile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// Verify profile assigned in DB
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.SecurityHeaderProfileID)
+	require.Equal(t, profile.ID, *dbHost.SecurityHeaderProfileID)
+}
+
+// Test unsupported type (bool, object, array, etc)
+func TestProxyHostUpdate_SecurityHeaderProfile_UnsupportedType(t *testing.T) {
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create host
+	host := &models.ProxyHost{
+		UUID:        "sec-unsupported-type-uuid",
+		Name:        "Host Unsupported Type",
+		DomainNames: "unsupported-type.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to assign boolean value
+	updateBody := `{"security_header_profile_id": true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]interface{}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "invalid security_header_profile_id")
+}
