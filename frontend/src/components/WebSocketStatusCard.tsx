@@ -112,7 +112,7 @@ export function WebSocketStatusCard({ className = '', showDetails = false }: Web
         )}
 
         {/* Connection Details */}
-        {expanded && connections && connections.connections.length > 0 && (
+        {expanded && connections?.connections && connections.connections.length > 0 && (
           <div className="pt-3 border-t border-border space-y-3">
             <p className="text-sm font-medium">Active Connections</p>
             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -154,7 +154,7 @@ export function WebSocketStatusCard({ className = '', showDetails = false }: Web
         )}
 
         {/* Toggle Details Button */}
-        {connections && connections.connections.length > 0 && (
+        {connections?.connections && connections.connections.length > 0 && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="w-full pt-3 text-sm text-primary hover:text-primary/80 transition-colors"
