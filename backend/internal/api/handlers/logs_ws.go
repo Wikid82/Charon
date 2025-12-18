@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 var upgrader = websocket.Upgrader{
@@ -31,8 +32,26 @@ type LogEntry struct {
 	Fields    map[string]interface{} `json:"fields"`
 }
 
+// LogsWSHandler handles WebSocket connections for live log streaming.
+type LogsWSHandler struct {
+	tracker *services.WebSocketTracker
+}
+
+// NewLogsWSHandler creates a new handler for log streaming.
+func NewLogsWSHandler(tracker *services.WebSocketTracker) *LogsWSHandler {
+	return &LogsWSHandler{tracker: tracker}
+}
+
 // LogsWebSocketHandler handles WebSocket connections for live log streaming.
+// DEPRECATED: Use NewLogsWSHandler().HandleWebSocket instead. Kept for backward compatibility.
 func LogsWebSocketHandler(c *gin.Context) {
+	// For backward compatibility, create a nil tracker if called directly
+	handler := NewLogsWSHandler(nil)
+	handler.HandleWebSocket(c)
+}
+
+// HandleWebSocket handles WebSocket connections for live log streaming.
+func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logger.Log().Info("WebSocket connection attempt received")
 
 	// Upgrade HTTP connection to WebSocket
@@ -51,6 +70,22 @@ func LogsWebSocketHandler(c *gin.Context) {
 	subscriberID := uuid.New().String()
 
 	logger.Log().WithField("subscriber_id", subscriberID).Info("WebSocket connection established successfully")
+
+	// Register connection with tracker if available
+	if h.tracker != nil {
+		filters := c.Request.URL.RawQuery
+		connInfo := &services.ConnectionInfo{
+			ID:             subscriberID,
+			Type:           "logs",
+			ConnectedAt:    time.Now(),
+			LastActivityAt: time.Now(),
+			RemoteAddr:     c.Request.RemoteAddr,
+			UserAgent:      c.Request.UserAgent(),
+			Filters:        filters,
+		}
+		h.tracker.Register(connInfo)
+		defer h.tracker.Unregister(subscriberID)
+	}
 
 	// Parse query parameters for filtering
 	levelFilter := strings.ToLower(c.Query("level"))
@@ -113,6 +148,11 @@ func LogsWebSocketHandler(c *gin.Context) {
 			if err := conn.WriteJSON(logEntry); err != nil {
 				logger.Log().WithError(err).Debug("Failed to write to WebSocket")
 				return
+			}
+
+			// Update activity timestamp
+			if h.tracker != nil {
+				h.tracker.UpdateActivity(subscriberID)
 			}
 
 		case <-ticker.C:
