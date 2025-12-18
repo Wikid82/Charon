@@ -7,6 +7,18 @@ import SystemSettings from '../SystemSettings'
 import * as settingsApi from '../../api/settings'
 import * as featureFlagsApi from '../../api/featureFlags'
 import client from '../../api/client'
+import { LanguageProvider } from '../../context/LanguageContext'
+
+// Mock i18next
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: {
+      changeLanguage: vi.fn(),
+      language: 'en',
+    },
+  }),
+}))
 
 // Mock API modules
 vi.mock('../../api/settings', () => ({
@@ -37,7 +49,9 @@ const renderWithProviders = (ui: React.ReactNode) => {
   const queryClient = createQueryClient()
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <LanguageProvider>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </LanguageProvider>
     </QueryClientProvider>
   )
 }
