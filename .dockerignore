@@ -145,9 +145,8 @@ docker-compose*.yml
 dist/
 
 # -----------------------------------------------------------------------------
-# Scripts & Tools (not needed in image)
+# Tools (not needed in image)
 # -----------------------------------------------------------------------------
-scripts/
 tools/
 create_issues.sh
 cookies.txt
