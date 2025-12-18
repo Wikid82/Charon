@@ -41,15 +41,22 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
 
 3. **Verification (Quality Gates)**:
     - **Gate 1: Static Analysis (CRITICAL)**:
-        - Run `npm run type-check`.
-        - Run `npm run lint`.
-        - **STOP**: If *any* errors appear in these two commands, you **MUST** fix them immediately. Do not say "I'll leave this for later." **Fix the type errors, then re-run the check.**
+        - **Type Check (MANDATORY)**: Run the VS Code task "Lint: TypeScript Check" or execute `npm run type-check`.
+            - **Why**: This check is in manual stage of pre-commit for performance. You MUST run it explicitly before completing your task.
+            - **STOP**: If *any* errors appear, you **MUST** fix them immediately. Do not say "I'll leave this for later."
+        - **Lint**: Run `npm run lint`.
+            - This runs automatically in pre-commit, but verify locally before final submission.
     - **Gate 2: Logic**:
         - Run `npm run test:ci`.
-    - **Gate 3: Coverage**:
-        - Run `npm run check-coverage`.
-        - Ensure the script executes successfully and coverage goals are met.
+    - **Gate 3: Coverage (MANDATORY)**:
+        - **VS Code Task**: Use "Test: Frontend with Coverage" (recommended)
+        - **Manual Script**: Execute `/projects/Charon/scripts/frontend-test-coverage.sh` from the root directory
+        - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)
+        - **Critical**: If coverage drops below threshold, write additional tests immediately. Do not skip this step.
+        - **Why**: Coverage tests are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts before completing your task.
         - Ensure coverage goals are met as well as all tests pass. Just because Tests pass does not mean you are done. Goal Coverage Needs to be met even if the tests to get us there are outside the scope of your task. At this point, your task is to maintain coverage goal and all tests pass because we cannot commit changes if they fail.
+    - **Gate 4: Pre-commit**:
+        - Run `pre-commit run --all-files` as final check (this runs fast hooks only; coverage and type-check were verified above).
 </workflow>
 
 <constraints>

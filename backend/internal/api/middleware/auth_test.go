@@ -212,13 +212,13 @@ func TestAuthMiddleware_QueryParamFallback(t *testing.T) {
 
 func TestAuthMiddleware_PrefersCookieOverQueryParam(t *testing.T) {
 	authService := setupAuthService(t)
-	
+
 	// Create two different users
 	cookieUser, err := authService.Register("cookie@example.com", "password", "Cookie User")
 	require.NoError(t, err)
 	cookieToken, err := authService.GenerateToken(cookieUser)
 	require.NoError(t, err)
-	
+
 	queryUser, err := authService.Register("query@example.com", "password", "Query User")
 	require.NoError(t, err)
 	queryToken, err := authService.GenerateToken(queryUser)

@@ -78,11 +78,35 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 ## ✅ Task Completion Protocol (Definition of Done)
 
-Before marking an implementation task as complete, perform the following:
+Before marking an implementation task as complete, perform the following in order:
 
 1. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
     - If errors occur, **fix them immediately**.
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.
-2. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
-3. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
+
+2. **Coverage Testing** (MANDATORY - Non-negotiable):
+    - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
+        - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
+        - If coverage drops below threshold, write additional tests to restore coverage.
+        - All tests must pass with zero failures.
+    - **Frontend Changes**: Run the VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`.
+        - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
+        - If coverage drops below threshold, write additional tests to restore coverage.
+        - All tests must pass with zero failures.
+    - **Critical**: Coverage tests are NOT run by default pre-commit hooks (they are in manual stage for performance). You MUST run them explicitly via VS Code tasks or scripts before completing any task.
+    - **Why**: CI enforces coverage in GitHub Actions. Local verification prevents CI failures and maintains code quality.
+
+3. **Type Safety** (Frontend only):
+    - Run the VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`.
+    - Fix all type errors immediately. This is non-negotiable.
+    - This check is also in manual stage for performance but MUST be run before completion.
+
+4. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
+    - Backend: `cd backend && go build ./...`
+    - Frontend: `cd frontend && npm run build`
+
+5. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
+    - Remove `console.log`, `fmt.Println`, and similar debugging statements.
+    - Delete commented-out code blocks.
+    - Remove unused imports.

@@ -108,7 +108,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 	// Backup routes
 	backupService := services.NewBackupService(&cfg)
+	backupService.Start() // Start cron scheduler for scheduled backups
 	backupHandler := handlers.NewBackupHandler(backupService)
+
+	// DB Health endpoint (uses backup service for last backup time)
+	dbHealthHandler := handlers.NewDBHealthHandler(db, backupService)
+	router.GET("/api/v1/health/db", dbHealthHandler.Check)
 
 	// Log routes
 	logService := services.NewLogService(&cfg)

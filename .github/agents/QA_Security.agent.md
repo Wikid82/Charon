@@ -62,9 +62,32 @@ When Trivy reports CVEs in container dependencies (especially Caddy transitive d
     - Renovate will auto-PR when newer versions release.
 </trivy-cve-remediation>
 
-## DEFENITION OF DONE ##
+## DEFINITION OF DONE ##
 
-- The Task is not complete until pre-commit, frontend coverage tests, all linting, CodeQL, and Trivy pass with zero issues. Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless if they are unrelated to the original task and severity. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
+The task is not complete until ALL of the following pass with zero issues:
+
+1. **Coverage Tests (MANDATORY - Run Explicitly)**:
+    - **Backend**: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
+    - **Frontend**: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
+    - **Why**: These are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts.
+    - Minimum coverage: 85% for both backend and frontend.
+    - All tests must pass with zero failures.
+
+2. **Type Safety (Frontend)**:
+    - Run VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`
+    - **Why**: This check is in manual stage of pre-commit for performance. You MUST run it explicitly.
+    - Fix all type errors immediately.
+
+3. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
+
+4. **Security Scans**:
+    - CodeQL: Run as VS Code task or via GitHub Actions
+    - Trivy: Run as VS Code task or via Docker
+    - Zero Critical or High severity issues allowed
+
+5. **Linting**: All language-specific linters must pass (Go vet, ESLint, markdownlint)
+
+**Critical Note**: Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless of whether they are unrelated to the original task. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
 
 <constraints>
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY the code blocks or command results.
