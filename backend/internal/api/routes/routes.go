@@ -164,11 +164,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/logs", logsHandler.List)
 		protected.GET("/logs/:filename", logsHandler.Read)
 		protected.GET("/logs/:filename/download", logsHandler.Download)
-		
+
 		// WebSocket endpoints
 		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
 		protected.GET("/logs/live", logsWSHandler.HandleWebSocket)
-		
+
 		// WebSocket status monitoring
 		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
 		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
