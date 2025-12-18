@@ -41,9 +41,14 @@ Your priority is writing code that is clean, tested, and secure by default.
     - Run `go mod tidy`.
     - Run `go fmt ./...`.
     - Run `go test ./...` to ensure no regressions.
-    - **Coverage**: Run the coverage script.
-        - *Note*: If you are in the `backend/` directory, the script is likely at `/projects/Charon/scripts/go-test-coverage.sh`. Verify location before running.
+    - **Coverage (MANDATORY)**: Run the coverage script explicitly. This is NOT run by pre-commit automatically.
+        - **VS Code Task**: Use "Test: Backend with Coverage" (recommended)
+        - **Manual Script**: Execute `/projects/Charon/scripts/go-test-coverage.sh` from the root directory
+        - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)
+        - **Critical**: If coverage drops below threshold, write additional tests immediately. Do not skip this step.
+        - **Why**: Coverage tests are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts before completing your task.
     - Ensure coverage goals are met as well as all tests pass. Just because Tests pass does not mean you are done. Goal Coverage Needs to be met even if the tests to get us there are outside the scope of your task. At this point, your task is to maintain coverage goal and all tests pass because we cannot commit changes if they fail.
+    - Run `pre-commit run --all-files` as final check (this runs fast hooks only; coverage was verified above).
 </workflow>
 
 <constraints>

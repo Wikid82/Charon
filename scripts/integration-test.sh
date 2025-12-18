@@ -1,5 +1,16 @@
 #!/bin/bash
 set -e
+set -o pipefail
+
+# Fail entire script if it runs longer than 4 minutes (240 seconds)
+# This prevents CI hangs from indefinite waits
+TIMEOUT=${INTEGRATION_TEST_TIMEOUT:-240}
+if command -v timeout >/dev/null 2>&1; then
+  if [ "${INTEGRATION_TEST_WRAPPED:-}" != "1" ]; then
+    export INTEGRATION_TEST_WRAPPED=1
+    exec timeout $TIMEOUT "$0" "$@"
+  fi
+fi
 
 # Configuration
 API_URL="http://localhost:8080/api/v1"
