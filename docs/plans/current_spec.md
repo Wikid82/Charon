@@ -1,1224 +1,900 @@
-# HTTP Security Headers Implementation Plan (Issue #20)
+# Security Headers UX Fix - Complete Specification
 
-**Created**: December 18, 2025
-**Status**: Planning Complete - Ready for Implementation
-**Issue**: GitHub Issue #20 - HTTP Security Headers
+**Created:** 2025-12-18
+**Status:** Ready for Implementation
 
 ---
 
 ## Executive Summary
 
-This plan implements automatic security header injection for proxy hosts in Charon. The feature enables users to configure HTTP security headers (HSTS, CSP, X-Frame-Options, etc.) through presets or custom configurations, with a security score calculator to help users understand their security posture.
+This plan addresses two critical UX issues with Security Headers:
 
-**Key Goals:**
+1. **"Apply" button creates copies instead of assigning presets** - Users expect presets to be assignable profiles, not templates that clone
+2. **No UI to assign profiles to proxy hosts** - Users cannot activate security headers for their hosts
 
-- Zero-config secure defaults for novice users
-- Granular control for advanced users
-- Visual security score feedback
-- Per-host and global configuration options
-- CSP builder that doesn't break sites
+### Current State Analysis
 
----
+#### ✅ What Works
+- `EnsurePresetsExist()` **IS called on startup** ([routes.go:272](../backend/internal/api/routes/routes.go#L272))
+- Basic, Strict, Paranoid presets **ARE created in the database** with `is_preset=true`
+- Backend model **HAS** `SecurityHeaderProfileID` field ([proxy_host.go:41](../backend/internal/models/proxy_host.go#L41))
+- Backend relationships are properly configured with GORM foreign keys
 
-## Architecture Overview
-
-### Data Flow
-
-```text
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Frontend   │────▶│  Backend API │────▶│    Models    │────▶│    Caddy     │
-│  UI/Config   │     │   Handlers   │     │  (SQLite)    │     │ JSON Config  │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-        │                    │                    │                    │
-        │                    │                    │                    │
-   ┌────▼────┐          ┌────▼────┐         ┌────▼────┐          ┌────▼────┐
-   │ Presets │          │ CRUD    │         │ Profile │          │ Headers │
-   │ Selector│          │ Profile │         │ Storage │          │ Handler │
-   │ Score   │          │ Score   │         │ Host FK │          │ Inject  │
-   └─────────┘          └─────────┘         └─────────┘          └─────────┘
-```
-
-### Key Design Decisions
-
-1. **Security Header Profiles** - Reusable configurations that can be shared across hosts
-2. **Per-Host Override** - Each proxy host can reference a profile OR have inline settings
-3. **Presets System** - Pre-built profiles (basic, strict, paranoid) for easy setup
-4. **Score Calculator** - Visual feedback showing security level (0-100)
-5. **CSP Builder** - Interactive tool to build Content-Security-Policy without breaking sites
+#### ❌ What's Broken
+- **Frontend UI** - ProxyHostForm has NO security headers section
+- **Frontend types** - ProxyHost interface missing `security_header_profile_id`
+- **Backend handler** - Update handler does NOT process `security_header_profile_id` field
+- **UX confusion** - "Apply" button suggests copying instead of assigning
 
 ---
 
-## Phase 1: Backend Models and Migrations
+## Part A: Fix Preset System (Make Presets "Real")
 
-### 1.1 New Model: `SecurityHeaderProfile`
+### Problem Statement
 
-**File**: `backend/internal/models/security_header_profile.go`
-
-```go
-package models
-
-import (
-    "time"
-)
-
-// SecurityHeaderProfile stores reusable security header configurations.
-// Users can create profiles and assign them to proxy hosts.
-type SecurityHeaderProfile struct {
-    ID        uint      `json:"id" gorm:"primaryKey"`
-    UUID      string    `json:"uuid" gorm:"uniqueIndex;not null"`
-    Name      string    `json:"name" gorm:"index;not null"`
-
-    // HSTS Configuration
-    HSTSEnabled           bool   `json:"hsts_enabled" gorm:"default:true"`
-    HSTSMaxAge            int    `json:"hsts_max_age" gorm:"default:31536000"` // 1 year in seconds
-    HSTSIncludeSubdomains bool   `json:"hsts_include_subdomains" gorm:"default:true"`
-    HSTSPreload           bool   `json:"hsts_preload" gorm:"default:false"`
-
-    // Content-Security-Policy
-    CSPEnabled    bool   `json:"csp_enabled" gorm:"default:false"`
-    CSPDirectives string `json:"csp_directives" gorm:"type:text"` // JSON object of CSP directives
-    CSPReportOnly bool   `json:"csp_report_only" gorm:"default:false"`
-    CSPReportURI  string `json:"csp_report_uri"`
-
-    // X-Frame-Options
-    XFrameOptions string `json:"x_frame_options" gorm:"default:DENY"` // DENY, SAMEORIGIN, or empty
-
-    // X-Content-Type-Options
-    XContentTypeOptions bool `json:"x_content_type_options" gorm:"default:true"` // nosniff
-
-    // Referrer-Policy
-    ReferrerPolicy string `json:"referrer_policy" gorm:"default:strict-origin-when-cross-origin"`
-
-    // Permissions-Policy (formerly Feature-Policy)
-    PermissionsPolicy string `json:"permissions_policy" gorm:"type:text"` // JSON array of policies
-
-    // Cross-Origin Headers
-    CrossOriginOpenerPolicy   string `json:"cross_origin_opener_policy" gorm:"default:same-origin"`
-    CrossOriginResourcePolicy string `json:"cross_origin_resource_policy" gorm:"default:same-origin"`
-    CrossOriginEmbedderPolicy string `json:"cross_origin_embedder_policy"` // require-corp or empty
-
-    // X-XSS-Protection (legacy but still useful)
-    XSSProtection bool `json:"xss_protection" gorm:"default:true"`
-
-    // Cache-Control for security
-    CacheControlNoStore bool `json:"cache_control_no_store" gorm:"default:false"`
-
-    // Computed Security Score (0-100)
-    SecurityScore int `json:"security_score" gorm:"default:0"`
-
-    // Metadata
-    IsPreset    bool   `json:"is_preset" gorm:"default:false"` // System presets can't be deleted
-    PresetType  string `json:"preset_type"`                    // "basic", "strict", "paranoid", or empty for custom
-    Description string `json:"description" gorm:"type:text"`
-
-    CreatedAt time.Time `json:"created_at"`
-    UpdatedAt time.Time `json:"updated_at"`
-}
-
-// CSPDirective represents a single CSP directive for the builder
-type CSPDirective struct {
-    Directive string   `json:"directive"` // e.g., "default-src", "script-src"
-    Values    []string `json:"values"`    // e.g., ["'self'", "https:"]
-}
-
-// PermissionsPolicyItem represents a single Permissions-Policy entry
-type PermissionsPolicyItem struct {
-    Feature   string   `json:"feature"`   // e.g., "camera", "microphone"
-    Allowlist []string `json:"allowlist"` // e.g., ["self"], ["*"], []
-}
+Current flow (CONFUSING):
+```
+User clicks "Apply" on Basic preset
+  ↓
+Creates NEW profile "Basic Security Profile"
+  ↓
+User cannot assign this to hosts (no UI)
+  ↓
+User is confused
 ```
 
-### 1.2 Update ProxyHost Model
-
-**File**: `backend/internal/models/proxy_host.go`
-
-Add the following fields to `ProxyHost`:
-
-```go
-// Security Headers Configuration
-// Either reference a profile OR use inline settings
-SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
-SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
-
-// Inline security header settings (used when no profile is selected)
-// These override profile settings if both are set
-SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
-SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"` // JSON for custom headers
+Desired flow (CLEAR):
+```
+System creates Basic, Strict, Paranoid on startup
+  ↓
+User goes to Proxy Host form
+  ↓
+Selects "Basic Security" from dropdown
+  ↓
+Host uses preset directly (no copying)
 ```
 
-### 1.3 Migration Updates
+### Solution: Remove "Apply" Button, Keep Presets as Assignable Profiles
 
-**File**: `backend/internal/api/routes/routes.go`
+#### Changes to SecurityHeaders.tsx
 
-Add to `AutoMigrate`:
-
-```go
-&models.SecurityHeaderProfile{},
-```
-
-### 1.4 Unit Tests
-
-**File**: `backend/internal/models/security_header_profile_test.go`
-
-Test cases:
-
-- Profile creation with default values
-- JSON serialization/deserialization of CSPDirectives
-- JSON serialization/deserialization of PermissionsPolicy
-- UUID generation on creation
-- Security score calculation triggers
-
----
-
-## Phase 2: Backend API Handlers
-
-### 2.1 Security Headers Handler
-
-**File**: `backend/internal/api/handlers/security_headers_handler.go`
-
-```go
-package handlers
-
-// SecurityHeadersHandler manages security header profiles
-type SecurityHeadersHandler struct {
-    db           *gorm.DB
-    caddyManager *caddy.Manager
-}
-
-// NewSecurityHeadersHandler creates a new handler
-func NewSecurityHeadersHandler(db *gorm.DB, caddyManager *caddy.Manager) *SecurityHeadersHandler
-
-// RegisterRoutes registers all security headers routes
-func (h *SecurityHeadersHandler) RegisterRoutes(router *gin.RouterGroup)
-
-// --- Profile CRUD ---
-
-// ListProfiles returns all security header profiles
-// GET /api/v1/security/headers/profiles
-func (h *SecurityHeadersHandler) ListProfiles(c *gin.Context)
-
-// GetProfile returns a single profile by ID or UUID
-// GET /api/v1/security/headers/profiles/:id
-func (h *SecurityHeadersHandler) GetProfile(c *gin.Context)
-
-// CreateProfile creates a new security header profile
-// POST /api/v1/security/headers/profiles
-func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context)
-
-// UpdateProfile updates an existing profile
-// PUT /api/v1/security/headers/profiles/:id
-func (h *SecurityHeadersHandler) UpdateProfile(c *gin.Context)
-
-// DeleteProfile deletes a profile (not presets)
-// DELETE /api/v1/security/headers/profiles/:id
-func (h *SecurityHeadersHandler) DeleteProfile(c *gin.Context)
-
-// --- Presets ---
-
-// GetPresets returns the list of built-in presets
-// GET /api/v1/security/headers/presets
-func (h *SecurityHeadersHandler) GetPresets(c *gin.Context)
-
-// ApplyPreset applies a preset to create/update a profile
-// POST /api/v1/security/headers/presets/apply
-func (h *SecurityHeadersHandler) ApplyPreset(c *gin.Context)
-
-// --- Security Score ---
-
-// CalculateScore calculates security score for given settings
-// POST /api/v1/security/headers/score
-func (h *SecurityHeadersHandler) CalculateScore(c *gin.Context)
-
-// --- CSP Builder ---
-
-// ValidateCSP validates a CSP string
-// POST /api/v1/security/headers/csp/validate
-func (h *SecurityHeadersHandler) ValidateCSP(c *gin.Context)
-
-// BuildCSP builds a CSP string from directives
-// POST /api/v1/security/headers/csp/build
-func (h *SecurityHeadersHandler) BuildCSP(c *gin.Context)
-```
-
-### 2.2 API Routes Registration
-
-**File**: `backend/internal/api/routes/routes.go`
-
-Add to the protected routes section:
-
-```go
-// Security Headers
-securityHeadersHandler := handlers.NewSecurityHeadersHandler(db, caddyManager)
-securityHeadersHandler.RegisterRoutes(protected)
-```
-
-### 2.3 Request/Response Types
-
-```go
-// CreateProfileRequest for creating a new profile
-type CreateProfileRequest struct {
-    Name                      string `json:"name" binding:"required"`
-    HSTSEnabled               bool   `json:"hsts_enabled"`
-    HSTSMaxAge                int    `json:"hsts_max_age"`
-    HSTSIncludeSubdomains     bool   `json:"hsts_include_subdomains"`
-    HSTSPreload               bool   `json:"hsts_preload"`
-    CSPEnabled                bool   `json:"csp_enabled"`
-    CSPDirectives             string `json:"csp_directives"`
-    CSPReportOnly             bool   `json:"csp_report_only"`
-    CSPReportURI              string `json:"csp_report_uri"`
-    XFrameOptions             string `json:"x_frame_options"`
-    XContentTypeOptions       bool   `json:"x_content_type_options"`
-    ReferrerPolicy            string `json:"referrer_policy"`
-    PermissionsPolicy         string `json:"permissions_policy"`
-    CrossOriginOpenerPolicy   string `json:"cross_origin_opener_policy"`
-    CrossOriginResourcePolicy string `json:"cross_origin_resource_policy"`
-    CrossOriginEmbedderPolicy string `json:"cross_origin_embedder_policy"`
-    XSSProtection             bool   `json:"xss_protection"`
-    CacheControlNoStore       bool   `json:"cache_control_no_store"`
-    Description               string `json:"description"`
-}
-
-// CalculateScoreRequest for scoring
-type CalculateScoreRequest struct {
-    HSTSEnabled               bool   `json:"hsts_enabled"`
-    HSTSMaxAge                int    `json:"hsts_max_age"`
-    HSTSIncludeSubdomains     bool   `json:"hsts_include_subdomains"`
-    HSTSPreload               bool   `json:"hsts_preload"`
-    CSPEnabled                bool   `json:"csp_enabled"`
-    CSPDirectives             string `json:"csp_directives"`
-    XFrameOptions             string `json:"x_frame_options"`
-    XContentTypeOptions       bool   `json:"x_content_type_options"`
-    ReferrerPolicy            string `json:"referrer_policy"`
-    PermissionsPolicy         string `json:"permissions_policy"`
-    CrossOriginOpenerPolicy   string `json:"cross_origin_opener_policy"`
-    CrossOriginResourcePolicy string `json:"cross_origin_resource_policy"`
-    XSSProtection             bool   `json:"xss_protection"`
-}
-
-// ScoreResponse returns the calculated score
-type ScoreResponse struct {
-    Score       int            `json:"score"`
-    MaxScore    int            `json:"max_score"`
-    Breakdown   map[string]int `json:"breakdown"`
-    Suggestions []string       `json:"suggestions"`
-}
-```
-
-### 2.4 Unit Tests
-
-**File**: `backend/internal/api/handlers/security_headers_handler_test.go`
-
-Test cases:
-
-- `TestListProfiles` - List all profiles
-- `TestGetProfile` - Get profile by ID
-- `TestGetProfileByUUID` - Get profile by UUID
-- `TestCreateProfile` - Create new profile
-- `TestUpdateProfile` - Update existing profile
-- `TestDeleteProfile` - Delete custom profile
-- `TestDeletePresetFails` - Cannot delete system presets
-- `TestGetPresets` - List all presets
-- `TestApplyPreset` - Apply preset to create profile
-- `TestCalculateScore` - Score calculation
-- `TestValidateCSP` - CSP validation
-- `TestBuildCSP` - CSP building
-
----
-
-## Phase 3: Caddy Integration for Header Injection
-
-### 3.1 Header Builder Function
-
-**File**: `backend/internal/caddy/config.go`
-
-Add new function:
-
-```go
-// buildSecurityHeadersHandler creates a headers handler for security headers
-// based on the profile configuration or host-level settings
-func buildSecurityHeadersHandler(host *models.ProxyHost, profile *models.SecurityHeaderProfile) (Handler, error) {
-    if profile == nil && !host.SecurityHeadersEnabled {
-        return nil, nil
-    }
-
-    responseHeaders := make(map[string][]string)
-
-    // Use profile settings or host defaults
-    var cfg *models.SecurityHeaderProfile
-    if profile != nil {
-        cfg = profile
-    } else {
-        // Use host's inline settings or defaults
-        cfg = getDefaultSecurityHeaderProfile()
-    }
-
-    // HSTS
-    if cfg.HSTSEnabled {
-        hstsValue := fmt.Sprintf("max-age=%d", cfg.HSTSMaxAge)
-        if cfg.HSTSIncludeSubdomains {
-            hstsValue += "; includeSubDomains"
-        }
-        if cfg.HSTSPreload {
-            hstsValue += "; preload"
-        }
-        responseHeaders["Strict-Transport-Security"] = []string{hstsValue}
-    }
-
-    // CSP
-    if cfg.CSPEnabled && cfg.CSPDirectives != "" {
-        cspHeader := "Content-Security-Policy"
-        if cfg.CSPReportOnly {
-            cspHeader = "Content-Security-Policy-Report-Only"
-        }
-        responseHeaders[cspHeader] = []string{buildCSPString(cfg.CSPDirectives)}
-    }
-
-    // X-Frame-Options
-    if cfg.XFrameOptions != "" {
-        responseHeaders["X-Frame-Options"] = []string{cfg.XFrameOptions}
-    }
-
-    // X-Content-Type-Options
-    if cfg.XContentTypeOptions {
-        responseHeaders["X-Content-Type-Options"] = []string{"nosniff"}
-    }
-
-    // Referrer-Policy
-    if cfg.ReferrerPolicy != "" {
-        responseHeaders["Referrer-Policy"] = []string{cfg.ReferrerPolicy}
-    }
-
-    // Permissions-Policy
-    if cfg.PermissionsPolicy != "" {
-        responseHeaders["Permissions-Policy"] = []string{buildPermissionsPolicyString(cfg.PermissionsPolicy)}
-    }
-
-    // Cross-Origin headers
-    if cfg.CrossOriginOpenerPolicy != "" {
-        responseHeaders["Cross-Origin-Opener-Policy"] = []string{cfg.CrossOriginOpenerPolicy}
-    }
-    if cfg.CrossOriginResourcePolicy != "" {
-        responseHeaders["Cross-Origin-Resource-Policy"] = []string{cfg.CrossOriginResourcePolicy}
-    }
-    if cfg.CrossOriginEmbedderPolicy != "" {
-        responseHeaders["Cross-Origin-Embedder-Policy"] = []string{cfg.CrossOriginEmbedderPolicy}
-    }
-
-    // X-XSS-Protection
-    if cfg.XSSProtection {
-        responseHeaders["X-XSS-Protection"] = []string{"1; mode=block"}
-    }
-
-    // Cache-Control
-    if cfg.CacheControlNoStore {
-        responseHeaders["Cache-Control"] = []string{"no-store"}
-    }
-
-    if len(responseHeaders) == 0 {
-        return nil, nil
-    }
-
-    return Handler{
-        "handler": "headers",
-        "response": map[string]interface{}{
-            "set": responseHeaders,
-        },
-    }, nil
-}
-
-// buildCSPString converts JSON CSP directives to a CSP string
-func buildCSPString(directivesJSON string) string
-
-// buildPermissionsPolicyString converts JSON permissions to policy string
-func buildPermissionsPolicyString(permissionsJSON string) string
-
-// getDefaultSecurityHeaderProfile returns secure defaults
-func getDefaultSecurityHeaderProfile() *models.SecurityHeaderProfile
-```
-
-### 3.2 Update GenerateConfig
-
-**File**: `backend/internal/caddy/config.go`
-
-In the `GenerateConfig` function, add security headers handler to the handler chain:
-
-```go
-// After building securityHandlers and before the main reverse proxy handler:
-
-// Add Security Headers handler
-if secHeadersHandler, err := buildSecurityHeadersHandler(&host, host.SecurityHeaderProfile); err == nil && secHeadersHandler != nil {
-    handlers = append(handlers, secHeadersHandler)
-}
-```
-
-### 3.3 Update Manager to Load Profiles
-
-**File**: `backend/internal/caddy/manager.go`
-
-Update `ApplyConfig` to preload security header profiles:
-
-```go
-// Preload security header profiles for hosts
-var profiles []models.SecurityHeaderProfile
-if err := m.db.Find(&profiles).Error; err != nil {
-    return fmt.Errorf("failed to load security header profiles: %w", err)
-}
-profileMap := make(map[uint]*models.SecurityHeaderProfile)
-for i := range profiles {
-    profileMap[profiles[i].ID] = &profiles[i]
-}
-
-// Attach profiles to hosts
-for i := range hosts {
-    if hosts[i].SecurityHeaderProfileID != nil {
-        hosts[i].SecurityHeaderProfile = profileMap[*hosts[i].SecurityHeaderProfileID]
-    }
-}
-```
-
-### 3.4 Unit Tests
-
-**File**: `backend/internal/caddy/config_security_headers_test.go`
-
-Test cases:
-
-- `TestBuildSecurityHeadersHandler_AllEnabled` - All headers enabled
-- `TestBuildSecurityHeadersHandler_HSTSOnly` - Only HSTS
-- `TestBuildSecurityHeadersHandler_CSPOnly` - Only CSP
-- `TestBuildSecurityHeadersHandler_CSPReportOnly` - CSP in report-only mode
-- `TestBuildSecurityHeadersHandler_NoProfile` - Default behavior
-- `TestBuildSecurityHeadersHandler_Disabled` - Headers disabled
-- `TestBuildCSPString` - CSP JSON to string conversion
-- `TestBuildPermissionsPolicyString` - Permissions JSON to string
-- `TestGenerateConfig_WithSecurityHeaders` - Full integration
-
----
-
-## Phase 4: Frontend UI Components
-
-### 4.1 API Client
-
-**File**: `frontend/src/api/securityHeaders.ts`
-
-```typescript
-import client from './client'
-
-// Types
-export interface SecurityHeaderProfile {
-  id: number
-  uuid: string
-  name: string
-  hsts_enabled: boolean
-  hsts_max_age: number
-  hsts_include_subdomains: boolean
-  hsts_preload: boolean
-  csp_enabled: boolean
-  csp_directives: string
-  csp_report_only: boolean
-  csp_report_uri: string
-  x_frame_options: string
-  x_content_type_options: boolean
-  referrer_policy: string
-  permissions_policy: string
-  cross_origin_opener_policy: string
-  cross_origin_resource_policy: string
-  cross_origin_embedder_policy: string
-  xss_protection: boolean
-  cache_control_no_store: boolean
-  security_score: number
-  is_preset: boolean
-  preset_type: string
-  description: string
-  created_at: string
-  updated_at: string
-}
-
-export interface SecurityHeaderPreset {
-  type: 'basic' | 'strict' | 'paranoid'
-  name: string
-  description: string
-  score: number
-  config: Partial<SecurityHeaderProfile>
-}
-
-export interface ScoreBreakdown {
-  score: number
-  max_score: number
-  breakdown: Record<string, number>
-  suggestions: string[]
-}
-
-export interface CSPDirective {
-  directive: string
-  values: string[]
-}
-
-// API Functions
-export const listProfiles = async (): Promise<{ profiles: SecurityHeaderProfile[] }> => {
-  const response = await client.get('/security/headers/profiles')
-  return response.data
-}
-
-export const getProfile = async (id: number | string): Promise<{ profile: SecurityHeaderProfile }> => {
-  const response = await client.get(`/security/headers/profiles/${id}`)
-  return response.data
-}
-
-export const createProfile = async (data: Partial<SecurityHeaderProfile>): Promise<{ profile: SecurityHeaderProfile }> => {
-  const response = await client.post('/security/headers/profiles', data)
-  return response.data
-}
-
-export const updateProfile = async (id: number, data: Partial<SecurityHeaderProfile>): Promise<{ profile: SecurityHeaderProfile }> => {
-  const response = await client.put(`/security/headers/profiles/${id}`, data)
-  return response.data
-}
-
-export const deleteProfile = async (id: number): Promise<{ deleted: boolean }> => {
-  const response = await client.delete(`/security/headers/profiles/${id}`)
-  return response.data
-}
-
-export const getPresets = async (): Promise<{ presets: SecurityHeaderPreset[] }> => {
-  const response = await client.get('/security/headers/presets')
-  return response.data
-}
-
-export const applyPreset = async (presetType: string, name: string): Promise<{ profile: SecurityHeaderProfile }> => {
-  const response = await client.post('/security/headers/presets/apply', { preset_type: presetType, name })
-  return response.data
-}
-
-export const calculateScore = async (config: Partial<SecurityHeaderProfile>): Promise<ScoreBreakdown> => {
-  const response = await client.post('/security/headers/score', config)
-  return response.data
-}
-
-export const validateCSP = async (csp: string): Promise<{ valid: boolean; errors: string[] }> => {
-  const response = await client.post('/security/headers/csp/validate', { csp })
-  return response.data
-}
-
-export const buildCSP = async (directives: CSPDirective[]): Promise<{ csp: string }> => {
-  const response = await client.post('/security/headers/csp/build', { directives })
-  return response.data
-}
-```
-
-### 4.2 React Query Hooks
-
-**File**: `frontend/src/hooks/useSecurityHeaders.ts`
-
-```typescript
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import * as api from '../api/securityHeaders'
-import toast from 'react-hot-toast'
-
-export function useSecurityHeaderProfiles() {
-  return useQuery({
-    queryKey: ['securityHeaderProfiles'],
-    queryFn: api.listProfiles,
-  })
-}
-
-export function useSecurityHeaderProfile(id: number | string) {
-  return useQuery({
-    queryKey: ['securityHeaderProfile', id],
-    queryFn: () => api.getProfile(id),
-    enabled: !!id,
-  })
-}
-
-export function useCreateSecurityHeaderProfile() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: api.createProfile,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['securityHeaderProfiles'] })
-      toast.success('Profile created')
-    },
-    onError: (err: Error) => {
-      toast.error(`Failed to create profile: ${err.message}`)
-    },
-  })
-}
-
-export function useUpdateSecurityHeaderProfile() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<api.SecurityHeaderProfile> }) =>
-      api.updateProfile(id, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['securityHeaderProfiles'] })
-      toast.success('Profile updated')
-    },
-    onError: (err: Error) => {
-      toast.error(`Failed to update profile: ${err.message}`)
-    },
-  })
-}
-
-export function useDeleteSecurityHeaderProfile() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: api.deleteProfile,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['securityHeaderProfiles'] })
-      toast.success('Profile deleted')
-    },
-    onError: (err: Error) => {
-      toast.error(`Failed to delete profile: ${err.message}`)
-    },
-  })
-}
-
-export function useSecurityHeaderPresets() {
-  return useQuery({
-    queryKey: ['securityHeaderPresets'],
-    queryFn: api.getPresets,
-  })
-}
-
-export function useApplySecurityHeaderPreset() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ presetType, name }: { presetType: string; name: string }) =>
-      api.applyPreset(presetType, name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['securityHeaderProfiles'] })
-      toast.success('Preset applied')
-    },
-    onError: (err: Error) => {
-      toast.error(`Failed to apply preset: ${err.message}`)
-    },
-  })
-}
-
-export function useCalculateSecurityScore() {
-  return useMutation({
-    mutationFn: api.calculateScore,
-  })
-}
-
-export function useValidateCSP() {
-  return useMutation({
-    mutationFn: api.validateCSP,
-  })
-}
-
-export function useBuildCSP() {
-  return useMutation({
-    mutationFn: api.buildCSP,
-  })
-}
-```
-
-### 4.3 Security Headers Page
-
-**File**: `frontend/src/pages/SecurityHeaders.tsx`
-
-Main page with:
-
-- List of custom profiles
-- Preset cards (Basic, Strict, Paranoid)
-- Create/Edit profile modal
-- Security score display
-- Delete confirmation dialog
-
-### 4.4 Security Header Profile Form
-
-**File**: `frontend/src/components/SecurityHeaderProfileForm.tsx`
-
-Form component with:
-
-- Name input
-- HSTS section (enable, max-age, subdomains, preload)
-- CSP section with builder
-- X-Frame-Options selector
-- X-Content-Type-Options toggle
-- Referrer-Policy selector
-- Permissions-Policy builder
-- Cross-Origin headers section
-- Live security score preview
-- Save/Cancel buttons
-
-### 4.5 CSP Builder Component
-
-**File**: `frontend/src/components/CSPBuilder.tsx`
-
-Interactive CSP builder:
-
-- Directive selector dropdown
-- Value input with suggestions
-- Add/Remove directives
-- Preview CSP string
-- Validate button
-- Common presets (default strict, allow scripts, etc.)
-
-### 4.6 Security Score Display
-
-**File**: `frontend/src/components/SecurityScoreDisplay.tsx`
-
-Visual component showing:
-
-- Circular progress indicator (0-100)
-- Color coding (red < 50, yellow 50-75, green > 75)
-- Score breakdown by category
-- Suggestions for improvement
-
-### 4.7 Permissions Policy Builder
-
-**File**: `frontend/src/components/PermissionsPolicyBuilder.tsx`
-
-Interactive builder for:
-
-- Feature selector (camera, microphone, geolocation, etc.)
-- Allowlist selector (none, self, all, specific origins)
-- Preview policy string
-
-### 4.8 Update ProxyHostForm
-
-**File**: `frontend/src/components/ProxyHostForm.tsx`
-
-Add to the form:
-
-- "Security Headers" section
-- Profile selector dropdown
-- "Create New Profile" button
-- Security score preview for selected profile
-- Quick preset buttons
-
-### 4.9 Unit Tests
-
-**Files**:
-
-- `frontend/src/hooks/__tests__/useSecurityHeaders.test.ts`
-- `frontend/src/components/__tests__/SecurityHeaderProfileForm.test.tsx`
-- `frontend/src/components/__tests__/CSPBuilder.test.tsx`
-- `frontend/src/components/__tests__/SecurityScoreDisplay.test.tsx`
-- `frontend/src/pages/__tests__/SecurityHeaders.test.tsx`
-
----
-
-## Phase 5: Presets and Score Calculator
-
-### 5.1 Built-in Presets
-
-**File**: `backend/internal/services/security_headers_service.go`
-
-```go
-package services
-
-// SecurityHeadersService manages security header profiles
-type SecurityHeadersService struct {
-    db *gorm.DB
-}
-
-// GetPresets returns the built-in presets
-func (s *SecurityHeadersService) GetPresets() []models.SecurityHeaderProfile {
-    return []models.SecurityHeaderProfile{
-        {
-            Name:                  "Basic Security",
-            PresetType:            "basic",
-            IsPreset:              true,
-            Description:           "Essential security headers for most websites. Safe defaults that won't break functionality.",
-            HSTSEnabled:           true,
-            HSTSMaxAge:            31536000, // 1 year
-            HSTSIncludeSubdomains: false,
-            HSTSPreload:           false,
-            CSPEnabled:            false, // CSP can break sites
-            XFrameOptions:         "SAMEORIGIN",
-            XContentTypeOptions:   true,
-            ReferrerPolicy:        "strict-origin-when-cross-origin",
-            XSSProtection:         true,
-            SecurityScore:         65,
-        },
-        {
-            Name:                      "Strict Security",
-            PresetType:                "strict",
-            IsPreset:                  true,
-            Description:               "Strong security for applications handling sensitive data. May require CSP adjustments.",
-            HSTSEnabled:               true,
-            HSTSMaxAge:                31536000,
-            HSTSIncludeSubdomains:     true,
-            HSTSPreload:               false,
-            CSPEnabled:                true,
-            CSPDirectives:             `{"default-src":["'self'"],"script-src":["'self'"],"style-src":["'self'","'unsafe-inline'"],"img-src":["'self'","data:","https:"],"font-src":["'self'","data:"],"connect-src":["'self'"],"frame-src":["'none'"],"object-src":["'none'"]}`,
-            XFrameOptions:             "DENY",
-            XContentTypeOptions:       true,
-            ReferrerPolicy:            "strict-origin-when-cross-origin",
-            PermissionsPolicy:         `[{"feature":"camera","allowlist":[]},{"feature":"microphone","allowlist":[]},{"feature":"geolocation","allowlist":[]}]`,
-            XSSProtection:             true,
-            CrossOriginOpenerPolicy:   "same-origin",
-            CrossOriginResourcePolicy: "same-origin",
-            SecurityScore:             85,
-        },
-        {
-            Name:                      "Paranoid Security",
-            PresetType:                "paranoid",
-            IsPreset:                  true,
-            Description:               "Maximum security for high-risk applications. May break some functionality. Test thoroughly.",
-            HSTSEnabled:               true,
-            HSTSMaxAge:                63072000, // 2 years
-            HSTSIncludeSubdomains:     true,
-            HSTSPreload:               true,
-            CSPEnabled:                true,
-            CSPDirectives:             `{"default-src":["'none'"],"script-src":["'self'"],"style-src":["'self'"],"img-src":["'self'"],"font-src":["'self'"],"connect-src":["'self'"],"frame-src":["'none'"],"object-src":["'none'"],"base-uri":["'self'"],"form-action":["'self'"],"frame-ancestors":["'none'"]}`,
-            XFrameOptions:             "DENY",
-            XContentTypeOptions:       true,
-            ReferrerPolicy:            "no-referrer",
-            PermissionsPolicy:         `[{"feature":"camera","allowlist":[]},{"feature":"microphone","allowlist":[]},{"feature":"geolocation","allowlist":[]},{"feature":"payment","allowlist":[]},{"feature":"usb","allowlist":[]}]`,
-            XSSProtection:             true,
-            CrossOriginOpenerPolicy:   "same-origin",
-            CrossOriginResourcePolicy: "same-origin",
-            CrossOriginEmbedderPolicy: "require-corp",
-            CacheControlNoStore:       true,
-            SecurityScore:             100,
-        },
-    }
-}
-
-// EnsurePresetsExist creates default presets if they don't exist
-func (s *SecurityHeadersService) EnsurePresetsExist() error
-```
-
-### 5.2 Security Score Calculator
-
-**File**: `backend/internal/services/security_score.go`
-
-```go
-package services
-
-import "strings"
-
-// ScoreBreakdown represents the detailed score calculation
-type ScoreBreakdown struct {
-    TotalScore  int            `json:"score"`
-    MaxScore    int            `json:"max_score"`
-    Breakdown   map[string]int `json:"breakdown"`
-    Suggestions []string       `json:"suggestions"`
-}
-
-// CalculateSecurityScore calculates the security score for a profile
-func CalculateSecurityScore(profile *models.SecurityHeaderProfile) ScoreBreakdown {
-    breakdown := make(map[string]int)
-    suggestions := []string{}
-    maxScore := 100
-
-    // HSTS (25 points max)
-    hstsScore := 0
-    if profile.HSTSEnabled {
-        hstsScore += 10
-        if profile.HSTSMaxAge >= 31536000 {
-            hstsScore += 5
-        } else {
-            suggestions = append(suggestions, "Increase HSTS max-age to at least 1 year")
-        }
-        if profile.HSTSIncludeSubdomains {
-            hstsScore += 5
-        } else {
-            suggestions = append(suggestions, "Enable HSTS for subdomains")
-        }
-        if profile.HSTSPreload {
-            hstsScore += 5
-        } else {
-            suggestions = append(suggestions, "Consider HSTS preload for browser preload lists")
-        }
-    } else {
-        suggestions = append(suggestions, "Enable HSTS to enforce HTTPS")
-    }
-    breakdown["hsts"] = hstsScore
-
-    // CSP (25 points max)
-    cspScore := 0
-    if profile.CSPEnabled {
-        cspScore += 15
-        // Additional points for strict CSP
-        if !strings.Contains(profile.CSPDirectives, "'unsafe-inline'") {
-            cspScore += 5
-        } else {
-            suggestions = append(suggestions, "Avoid 'unsafe-inline' in CSP for better security")
-        }
-        if !strings.Contains(profile.CSPDirectives, "'unsafe-eval'") {
-            cspScore += 5
-        } else {
-            suggestions = append(suggestions, "Avoid 'unsafe-eval' in CSP for better security")
-        }
-    } else {
-        suggestions = append(suggestions, "Enable Content-Security-Policy")
-    }
-    breakdown["csp"] = cspScore
-
-    // X-Frame-Options (10 points)
-    xfoScore := 0
-    if profile.XFrameOptions == "DENY" {
-        xfoScore = 10
-    } else if profile.XFrameOptions == "SAMEORIGIN" {
-        xfoScore = 7
-    } else {
-        suggestions = append(suggestions, "Set X-Frame-Options to DENY or SAMEORIGIN")
-    }
-    breakdown["x_frame_options"] = xfoScore
-
-    // X-Content-Type-Options (10 points)
-    xctoScore := 0
-    if profile.XContentTypeOptions {
-        xctoScore = 10
-    } else {
-        suggestions = append(suggestions, "Enable X-Content-Type-Options: nosniff")
-    }
-    breakdown["x_content_type_options"] = xctoScore
-
-    // Referrer-Policy (10 points)
-    rpScore := 0
-    strictPolicies := []string{"no-referrer", "strict-origin", "strict-origin-when-cross-origin"}
-    for _, p := range strictPolicies {
-        if profile.ReferrerPolicy == p {
-            rpScore = 10
-            break
-        }
-    }
-    if profile.ReferrerPolicy == "origin-when-cross-origin" {
-        rpScore = 7
-    }
-    if rpScore == 0 && profile.ReferrerPolicy != "" {
-        rpScore = 3
-    }
-    if rpScore < 10 {
-        suggestions = append(suggestions, "Use a stricter Referrer-Policy")
-    }
-    breakdown["referrer_policy"] = rpScore
-
-    // Permissions-Policy (10 points)
-    ppScore := 0
-    if profile.PermissionsPolicy != "" {
-        ppScore = 10
-    } else {
-        suggestions = append(suggestions, "Add Permissions-Policy to restrict browser features")
-    }
-    breakdown["permissions_policy"] = ppScore
-
-    // Cross-Origin headers (10 points)
-    coScore := 0
-    if profile.CrossOriginOpenerPolicy != "" {
-        coScore += 4
-    }
-    if profile.CrossOriginResourcePolicy != "" {
-        coScore += 3
-    }
-    if profile.CrossOriginEmbedderPolicy != "" {
-        coScore += 3
-    }
-    if coScore < 10 {
-        suggestions = append(suggestions, "Add Cross-Origin isolation headers")
-    }
-    breakdown["cross_origin"] = coScore
-
-    // Calculate total
-    total := hstsScore + cspScore + xfoScore + xctoScore + rpScore + ppScore + coScore
-
-    return ScoreBreakdown{
-        TotalScore:  total,
-        MaxScore:    maxScore,
-        Breakdown:   breakdown,
-        Suggestions: suggestions,
-    }
-}
-```
-
-### 5.3 Initialize Presets on Startup
-
-**File**: `backend/internal/api/routes/routes.go`
-
-Add to the Register function:
-
-```go
-// Ensure security header presets exist
-secHeadersSvc := services.NewSecurityHeadersService(db)
-if err := secHeadersSvc.EnsurePresetsExist(); err != nil {
-    logger.Log().WithError(err).Warn("Failed to initialize security header presets")
-}
-```
-
-### 5.4 Unit Tests
-
-**File**: `backend/internal/services/security_score_test.go`
-
-Test cases:
-
-- `TestCalculateScore_AllEnabled` - Full score
-- `TestCalculateScore_HSTSOnly` - Partial score
-- `TestCalculateScore_NoHeaders` - Zero score
-- `TestCalculateScore_UnsafeCSP` - CSP with unsafe directives
-- `TestCalculateScore_Suggestions` - Verify suggestions generated
-
-**File**: `backend/internal/services/security_headers_service_test.go`
-
-Test cases:
-
-- `TestGetPresets` - Returns all presets
-- `TestEnsurePresetsExist_Creates` - Creates presets when missing
-- `TestEnsurePresetsExist_NoOp` - Doesn't duplicate presets
-
----
-
-## Phase 6: Route Registration and Final Integration
-
-### 6.1 Frontend Routes
-
-**File**: `frontend/src/App.tsx`
-
-Add routes:
-
+**Before:**
 ```tsx
-<Route path="/security/headers" element={<SecurityHeaders />} />
-<Route path="/security/headers/:id" element={<SecurityHeadersEdit />} />
-<Route path="/security/headers/new" element={<SecurityHeadersCreate />} />
+<Button onClick={() => handleApplyPreset(profile.preset_type)}>
+  <Play className="h-4 w-4 mr-1" /> Apply
+</Button>
 ```
 
-### 6.2 Navigation Update
+**After:**
+```tsx
+<Button onClick={() => setEditingProfile(profile)}>
+  <Eye className="h-4 w-4 mr-1" /> View Details
+</Button>
+```
 
-Add "Security Headers" to the Security section in the navigation.
+**Rationale:**
+- Remove confusing "Apply" action
+- Users can view preset settings (read-only modal)
+- Users can clone if they want to customize
+- Assignment happens in Proxy Host form (Part B)
 
-### 6.3 Integration Test
+#### Remove ApplyPreset Mutation
 
-**File**: `backend/integration/security_headers_test.go`
-
-End-to-end test:
-
-1. Create a security header profile
-2. Assign to a proxy host
-3. Generate Caddy config
-4. Verify headers in generated config
-
----
-
-## Implementation Summary
-
-### Files to Create
-
-| Phase | File Path | Description |
-|-------|-----------|-------------|
-| 1 | `backend/internal/models/security_header_profile.go` | New model |
-| 1 | `backend/internal/models/security_header_profile_test.go` | Model tests |
-| 2 | `backend/internal/api/handlers/security_headers_handler.go` | API handlers |
-| 2 | `backend/internal/api/handlers/security_headers_handler_test.go` | Handler tests |
-| 3 | `backend/internal/caddy/config_security_headers_test.go` | Caddy integration tests |
-| 4 | `frontend/src/api/securityHeaders.ts` | API client |
-| 4 | `frontend/src/hooks/useSecurityHeaders.ts` | React Query hooks |
-| 4 | `frontend/src/pages/SecurityHeaders.tsx` | Main page |
-| 4 | `frontend/src/components/SecurityHeaderProfileForm.tsx` | Profile form |
-| 4 | `frontend/src/components/CSPBuilder.tsx` | CSP builder |
-| 4 | `frontend/src/components/SecurityScoreDisplay.tsx` | Score display |
-| 4 | `frontend/src/components/PermissionsPolicyBuilder.tsx` | Permissions builder |
-| 5 | `backend/internal/services/security_headers_service.go` | Service layer |
-| 5 | `backend/internal/services/security_score.go` | Score calculator |
-| 5 | `backend/internal/services/security_score_test.go` | Score tests |
-| 5 | `backend/internal/services/security_headers_service_test.go` | Service tests |
-
-### Files to Modify
-
-| Phase | File Path | Changes |
-|-------|-----------|---------|
-| 1 | `backend/internal/models/proxy_host.go` | Add security header fields |
-| 1 | `backend/internal/api/routes/routes.go` | Add AutoMigrate |
-| 2 | `backend/internal/api/routes/routes.go` | Register handlers |
-| 3 | `backend/internal/caddy/config.go` | Add header handler builder |
-| 3 | `backend/internal/caddy/manager.go` | Preload profiles |
-| 4 | `frontend/src/components/ProxyHostForm.tsx` | Add profile selector |
-| 4 | `frontend/src/App.tsx` | Add routes |
-| 6 | Navigation component | Add menu item |
+Since we're not copying presets anymore, remove:
+- Frontend: `useApplySecurityHeaderPreset` hook
+- Frontend: `applyPresetMutation` state
+- Frontend: `handleApplyPreset` function
+- Backend: Keep `ApplyPreset` service method (might be useful for future features)
+- Backend: Keep `/presets/apply` endpoint (might be useful for API users)
 
 ---
 
-## Configuration File Updates
+## Part B: Add Profile Selector to Proxy Host Form
 
-### .gitignore
+### Backend Changes
 
-No changes required - existing patterns cover new files.
+#### 1. Update Proxy Host Handler - Add security_header_profile_id Support
 
-### .codecov.yml
+**File:** `backend/internal/api/handlers/proxy_host_handler.go`
 
-No changes required - existing patterns cover new test files.
+**Location:** In `Update()` method, after the `access_list_id` handling block (around line 265)
 
-### .dockerignore
+**Add this code:**
+```go
+if v, ok := payload["security_header_profile_id"]; ok {
+    if v == nil {
+        host.SecurityHeaderProfileID = nil
+    } else {
+        switch t := v.(type) {
+        case float64:
+            if id, ok := safeFloat64ToUint(t); ok {
+                host.SecurityHeaderProfileID = &id
+            }
+        case int:
+            if id, ok := safeIntToUint(t); ok {
+                host.SecurityHeaderProfileID = &id
+            }
+        case string:
+            if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+                id := uint(n)
+                host.SecurityHeaderProfileID = &id
+            }
+        }
+    }
+}
+```
 
-No changes required - existing patterns cover new files.
+**Why:** Backend needs to accept and persist the security header profile assignment
 
-### Dockerfile
+#### 2. Preload Security Header Profile in Queries
 
-No changes required - no new build dependencies needed.
+**File:** `backend/internal/services/proxy_host_service.go`
+
+**Method:** `GetByUUID()` and `List()`
+
+**Change:**
+```go
+// Before
+db.Preload("Certificate").Preload("AccessList").Preload("Locations")
+
+// After
+db.Preload("Certificate").Preload("AccessList").Preload("Locations").Preload("SecurityHeaderProfile")
+```
+
+**Why:** Frontend needs to display which profile is assigned to each host
 
 ---
 
-## Acceptance Criteria Checklist
+### Frontend Changes
 
-| Criteria | Phase | Implementation |
-|----------|-------|----------------|
-| ✅ Security headers automatically added | Phase 3 | `buildSecurityHeadersHandler()` |
-| ✅ CSP configurable without breaking sites | Phase 4 | `CSPBuilder.tsx` with validation |
-| ✅ Presets available for easy setup | Phase 5 | Basic, Strict, Paranoid presets |
-| ✅ Security score shown in UI | Phase 4 | `SecurityScoreDisplay.tsx` |
-| ✅ HSTS with preload support | Phase 1 | Model fields for all HSTS options |
-| ✅ Content-Security-Policy builder | Phase 4 | `CSPBuilder.tsx` |
-| ✅ X-Frame-Options (DENY/SAMEORIGIN) | Phase 1 | Model field with validation |
-| ✅ X-Content-Type-Options (nosniff) | Phase 1 | Model boolean field |
-| ✅ Referrer-Policy configuration | Phase 1 | Model field with enum values |
-| ✅ Permissions-Policy headers | Phase 1/4 | Model + `PermissionsPolicyBuilder.tsx` |
-| ✅ Security header presets | Phase 5 | basic, strict, paranoid |
-| ✅ Security score calculator | Phase 5 | `CalculateSecurityScore()` |
+#### 1. Update ProxyHost Interface
+
+**File:** `frontend/src/api/proxyHosts.ts`
+
+**Add field:**
+```typescript
+export interface ProxyHost {
+  // ... existing fields ...
+  access_list_id?: number | null;
+  security_header_profile_id?: number | null;  // ADD THIS
+  security_header_profile?: {                   // ADD THIS
+    id: number;
+    uuid: string;
+    name: string;
+    description: string;
+    security_score: number;
+    is_preset: boolean;
+  } | null;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+**Why:** TypeScript needs to know about the new field
+
+#### 2. Add Security Headers Section to ProxyHostForm
+
+**File:** `frontend/src/components/ProxyHostForm.tsx`
+
+**Location:** After the "Access Control List" section (after line 750), before "Application Preset"
+
+**Add imports:**
+```typescript
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import { SecurityScoreDisplay } from './SecurityScoreDisplay'
+```
+
+**Add hook:**
+```typescript
+const { data: securityProfiles } = useSecurityHeaderProfiles()
+```
+
+**Add to formData state:**
+```typescript
+const [formData, setFormData] = useState<ProxyHostFormState>({
+  // ... existing fields ...
+  access_list_id: host?.access_list_id,
+  security_header_profile_id: host?.security_header_profile_id,  // ADD THIS
+})
+```
+
+**Add UI section:**
+```tsx
+{/* Security Headers Profile */}
+<div>
+  <label className="block text-sm font-medium text-gray-300 mb-2">
+    Security Headers
+    <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+  </label>
+
+  <select
+    value={formData.security_header_profile_id || 0}
+    onChange={e => {
+      const value = parseInt(e.target.value) || null
+      setFormData({ ...formData, security_header_profile_id: value })
+    }}
+    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+  >
+    <option value={0}>None (No Security Headers)</option>
+    <optgroup label="Quick Presets">
+      {securityProfiles
+        ?.filter(p => p.is_preset)
+        .sort((a, b) => a.security_score - b.security_score)
+        .map(profile => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name} (Score: {profile.security_score}/100)
+          </option>
+        ))}
+    </optgroup>
+    {securityProfiles?.filter(p => !p.is_preset).length > 0 && (
+      <optgroup label="Custom Profiles">
+        {securityProfiles
+          .filter(p => !p.is_preset)
+          .map(profile => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name} (Score: {profile.security_score}/100)
+            </option>
+          ))}
+      </optgroup>
+    )}
+  </select>
+
+  {formData.security_header_profile_id && (
+    <div className="mt-2 flex items-center gap-2">
+      {(() => {
+        const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+        if (!selected) return null
+
+        return (
+          <>
+            <SecurityScoreDisplay
+              score={selected.security_score}
+              size="sm"
+              showDetails={false}
+            />
+            <span className="text-xs text-gray-400">
+              {selected.description}
+            </span>
+          </>
+        )
+      })()}
+    </div>
+  )}
+
+  <p className="text-xs text-gray-500 mt-1">
+    Apply HTTP security headers to protect against common web vulnerabilities.{' '}
+    <a
+      href="/security-headers"
+      target="_blank"
+      className="text-blue-400 hover:text-blue-300"
+    >
+      Manage Profiles →
+    </a>
+  </p>
+</div>
+```
+
+**Why:**
+- Users need a clear, discoverable way to assign security headers
+- Grouped by Presets vs Custom for easy scanning
+- Shows security score inline for quick decision-making
+- Link to Security Headers page for advanced users
+
+---
+
+## Part C: Update SecurityHeaders Page UI
+
+### Changes to SecurityHeaders.tsx
+
+**File:** `frontend/src/pages/SecurityHeaders.tsx`
+
+#### 1. Remove "Apply" Button from Preset Cards
+
+**Before (lines 143-149):**
+```tsx
+<Button
+  variant="outline"
+  size="sm"
+  onClick={() => handleApplyPreset(profile.preset_type)}
+  disabled={applyPresetMutation.isPending}
+>
+  <Play className="h-4 w-4 mr-1" /> Apply
+</Button>
+```
+
+**After:**
+```tsx
+<Button
+  variant="outline"
+  size="sm"
+  onClick={() => setEditingProfile(profile)}
+>
+  <Eye className="h-4 w-4 mr-1" /> View
+</Button>
+```
+
+#### 2. Remove Unused Imports
+
+**Remove:**
+```typescript
+import { useApplySecurityHeaderPreset } from '../hooks/useSecurityHeaders'
+import { Play } from 'lucide-react'
+```
+
+**Keep:**
+```typescript
+import { Eye } from 'lucide-react'
+```
+
+#### 3. Remove Mutation and Handler
+
+**Remove:**
+```typescript
+const applyPresetMutation = useApplySecurityHeaderPreset()
+
+const handleApplyPreset = (presetType: string) => {
+  const name = `${presetType.charAt(0).toUpperCase() + presetType.slice(1)} Security Profile`
+  applyPresetMutation.mutate({ preset_type: presetType, name })
+}
+```
+
+#### 4. Update Quick Presets Section Title and Description
+
+**Before:**
+```tsx
+<h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Presets</h2>
+```
+
+**After:**
+```tsx
+<h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+  System Profiles (Read-Only)
+</h2>
+<p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+  Pre-configured security profiles you can assign to proxy hosts. Clone to customize.
+</p>
+```
+
+#### 5. Update Preset Modal to Show Read-Only Badge
+
+**File:** `frontend/src/components/SecurityHeaderProfileForm.tsx`
+
+**Add visual indicator when viewing presets:**
+```tsx
+{initialData?.is_preset && (
+  <Alert variant="info" className="mb-4">
+    <Shield className="w-4 h-4" />
+    <div>
+      <p className="font-semibold">System Profile (Read-Only)</p>
+      <p className="text-sm mt-1">
+        This is a built-in security profile. You cannot edit it, but you can clone it to create a custom version.
+      </p>
+    </div>
+  </Alert>
+)}
+```
+
+---
+
+## UI Mockups (Text-Based)
+
+### Proxy Host Form - Security Headers Section
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Security Headers (Optional)                                    │
+├────────────────────────────────────────────────────────────────┤
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ [Dropdown]                                                 │ │
+│ │  None (No Security Headers)                                │ │
+│ │  ─────────────────────────                                 │ │
+│ │  Quick Presets                                             │ │
+│ │    Basic Security (Score: 65/100)           ◄──── PRESET  │ │
+│ │    Strict Security (Score: 85/100)          ◄──── PRESET  │ │
+│ │    Paranoid Security (Score: 100/100)       ◄──── PRESET  │ │
+│ │  ─────────────────────────                                 │ │
+│ │  Custom Profiles                                           │ │
+│ │    My API Profile (Score: 72/100)                          │ │
+│ │    Production Profile (Score: 90/100)                      │ │
+│ └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│ [🛡️ 85] Strong security for sensitive data                     │
+│                                                                 │
+│ Apply HTTP security headers to protect against common          │
+│ web vulnerabilities. Manage Profiles →                         │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Security Headers Page - Presets Section
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ System Profiles (Read-Only)                                    │
+│ Pre-configured security profiles you can assign to proxy hosts.│
+│ Clone to customize.                                            │
+├────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│ ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐│
+│ │ Basic Security  │  │ Strict Security │  │ Paranoid Sec.  ││
+│ │ [🛡️ 65/100]     │  │ [🛡️ 85/100]     │  │ [🛡️ 100/100]  ││
+│ │                  │  │                  │  │                 ││
+│ │ Essential        │  │ Strong security  │  │ Maximum sec.   ││
+│ │ security for     │  │ for sensitive    │  │ for high-risk  ││
+│ │ most websites    │  │ data             │  │ applications   ││
+│ │                  │  │                  │  │                 ││
+│ │ [View] [Clone]   │  │ [View] [Clone]   │  │ [View] [Clone] ││
+│ └──────────────────┘  └──────────────────┘  └────────────────┘│
+│                                                                 │
+│ Custom Profiles                                                 │
+│ ┌──────────────────┐  ┌──────────────────┐                    │
+│ │ My Profile       │  │ API Profile      │                    │
+│ │ [🛡️ 72/100]     │  │ [🛡️ 90/100]     │                    │
+│ │ [Edit] [Clone]   │  │ [Edit] [Clone]   │                    │
+│ └──────────────────┘  └──────────────────┘                    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Implementation Steps
+
+### Phase 1: Backend Support (30 min)
+
+1. ✅ **Verify Presets Creation**
+   - Check logs on startup to confirm `EnsurePresetsExist()` runs
+   - Query database: `SELECT * FROM security_header_profiles WHERE is_preset = true;`
+   - Should see 3 rows: Basic, Strict, Paranoid
+
+2. **Update Proxy Host Handler**
+   - File: `backend/internal/api/handlers/proxy_host_handler.go`
+   - Add `security_header_profile_id` handling in Update method
+   - Test with curl:
+     ```bash
+     curl -X PUT http://localhost:8080/api/v1/proxy-hosts/{uuid} \
+       -H "Content-Type: application/json" \
+       -d '{"security_header_profile_id": 1}'
+     ```
+
+3. **Update Service Layer**
+   - File: `backend/internal/services/proxy_host_service.go`
+   - Add `.Preload("SecurityHeaderProfile")` to List and GetByUUID
+   - Verify profile loads with GET request
+
+### Phase 2: Frontend Types (10 min)
+
+4. **Update TypeScript Interfaces**
+   - File: `frontend/src/api/proxyHosts.ts`
+   - Add `security_header_profile_id` and `security_header_profile` fields
+   - Run `npm run type-check` to verify
+
+### Phase 3: Frontend UI (45 min)
+
+5. **Update ProxyHostForm**
+   - File: `frontend/src/components/ProxyHostForm.tsx`
+   - Add security headers section (see Part B)
+   - Import `useSecurityHeaderProfiles` hook
+   - Add dropdown with presets + custom profiles
+   - Add score display and description
+   - Test creating/editing hosts with profiles
+
+6. **Update SecurityHeaders Page**
+   - File: `frontend/src/pages/SecurityHeaders.tsx`
+   - Remove "Apply" button from presets
+   - Change to "View" button
+   - Remove `useApplySecurityHeaderPreset` hook
+   - Remove `handleApplyPreset` function
+   - Update section titles and descriptions
+   - Test viewing/cloning presets
+
+### Phase 4: Testing (45 min)
+
+7. **Backend Tests**
+   - File: `backend/internal/api/handlers/proxy_host_handler_test.go`
+   - Add test: `TestUpdateProxyHost_SecurityHeaderProfile`
+   - Verify profile assignment works
+   - Verify profile can be cleared (set to null)
+
+8. **Integration Testing**
+   - Create new proxy host
+   - Assign "Basic Security" preset
+   - Save and verify in database
+   - Edit host, change to "Strict Security"
+   - Edit host, remove profile (set to None)
+   - Verify Caddy config includes security headers when profile assigned
+
+9. **UX Testing**
+   - User flow: Create host → Assign preset → Save
+   - User flow: Edit host → Change profile → Save
+   - User flow: View preset details (read-only modal)
+   - User flow: Clone preset → Customize → Assign to host
+   - Verify no confusing "Apply" button remains
+   - Verify dropdown shows presets grouped separately
+
+### Phase 5: Documentation (15 min)
+
+10. **Update Feature Docs**
+    - File: `docs/features.md`
+    - Document new security header assignment flow
+    - Add screenshots (if possible)
+    - Explain preset vs custom profiles
+
+11. **Update PR Template**
+    - Mention UX improvement in PR description
+    - Link to this spec document
 
 ---
 
 ## Testing Requirements
 
-### Backend Unit Tests (Target: 85%+ coverage)
+### Unit Tests
 
-- Model CRUD operations
-- Handler request/response validation
-- Score calculation accuracy
-- CSP string building
-- Permissions-Policy string building
-- Caddy config generation with headers
+**Backend:**
+```go
+// File: backend/internal/api/handlers/proxy_host_handler_test.go
 
-### Frontend Unit Tests (Target: 85%+ coverage)
+func TestUpdateProxyHost_SecurityHeaderProfile(t *testing.T) {
+    // Test assigning profile
+    // Test changing profile
+    // Test removing profile (null)
+    // Test invalid profile ID (should fail gracefully)
+}
 
-- Component rendering
-- Form validation
-- API hook behavior
-- Score display logic
-- CSP builder interactions
+func TestCreateProxyHost_WithSecurityHeaderProfile(t *testing.T) {
+    // Test creating host with profile assigned
+}
+```
+
+**Frontend:**
+```typescript
+// File: frontend/src/components/ProxyHostForm.test.tsx
+
+describe('ProxyHostForm - Security Headers', () => {
+  it('shows security header dropdown', () => {})
+  it('displays preset profiles grouped', () => {})
+  it('displays custom profiles grouped', () => {})
+  it('shows selected profile score', () => {})
+  it('includes security_header_profile_id in submission', () => {})
+  it('allows clearing profile selection', () => {})
+})
+```
 
 ### Integration Tests
 
-- End-to-end profile creation and application
-- Caddy config generation verification
-- Preset application flow
+1. **Preset Creation on Startup**
+   - Start fresh Charon instance
+   - Verify 3 presets exist in database
+   - Verify UUIDs are correct: `preset-basic`, `preset-strict`, `preset-paranoid`
+
+2. **Profile Assignment Flow**
+   - Create proxy host with Basic Security preset
+   - Verify `security_header_profile_id` is set in database
+   - Verify profile relationship loads correctly
+   - Verify Caddy config includes security headers
+
+3. **Profile Update Flow**
+   - Edit proxy host, change from Basic to Strict
+   - Verify `security_header_profile_id` updates
+   - Verify Caddy config updates with new headers
+
+4. **Profile Removal Flow**
+   - Edit proxy host, set profile to None
+   - Verify `security_header_profile_id` is NULL
+   - Verify Caddy config removes security headers
+
+### Manual QA Checklist
+
+- [ ] Presets visible on Security Headers page
+- [ ] "Apply" button removed from presets
+- [ ] "View" button opens read-only modal
+- [ ] Clone button creates editable copy
+- [ ] Proxy Host form shows Security Headers dropdown
+- [ ] Dropdown groups Presets vs Custom
+- [ ] Selected profile shows score inline
+- [ ] "Manage Profiles" link works
+- [ ] Creating host with profile saves correctly
+- [ ] Editing host can change profile
+- [ ] Removing profile (set to None) works
+- [ ] Caddy config includes headers when profile assigned
+- [ ] No errors in browser console
+- [ ] TypeScript compiles without errors
+
+---
+
+## Edge Cases & Considerations
+
+### 1. Deleting a Profile That's In Use
+
+**Current Behavior:**
+Backend checks if profile is in use before deletion ([security_headers_handler.go:202](../backend/internal/api/handlers/security_headers_handler.go#L202))
+
+**Expected Behavior:**
+- User tries to delete profile
+- Backend returns error: "Cannot delete profile, it is assigned to N hosts"
+- Frontend shows error toast
+- User must reassign hosts first
+
+**No Changes Needed** - Already handled correctly
+
+### 2. Editing a Preset (Should Be Read-Only)
+
+**Current Behavior:**
+`SecurityHeaderProfileForm` checks `initialData?.is_preset` and disables fields
+
+**Expected Behavior:**
+- User clicks "View" on preset
+- Modal opens in read-only mode
+- All fields disabled
+- "Save" button hidden
+- "Clone" button available
+
+**Implementation:**
+Already handled in `SecurityHeaderProfileForm.tsx` - verify it works
+
+### 3. Preset Updates (When Charon Updates)
+
+**Scenario:**
+New Charon version updates Strict preset from Score 85 → 87
+
+**Current Behavior:**
+`EnsurePresetsExist()` updates existing presets on startup
+
+**Expected Behavior:**
+- User updates Charon
+- Startup runs `EnsurePresetsExist()`
+- Presets update to new values
+- Hosts using presets automatically get new headers on next Caddy reload
+
+**No Changes Needed** - Already handled correctly
+
+### 4. Cloning a Preset
+
+**Expected Behavior:**
+- User clicks "Clone" on "Basic Security"
+- Creates new profile "Basic Security (Copy)"
+- `is_preset = false`
+- `preset_type = ""`
+- New UUID generated
+- User can now edit it
+
+**Implementation:**
+Already implemented via `handleCloneProfile()` - verify it works
+
+### 5. Deleting All Custom Profiles
+
+**Expected Behavior:**
+- User deletes all custom profiles
+- Custom Profiles section shows empty state
+- Presets section still visible
+- No UI breakage
+
+**Implementation:**
+Already handled - conditional rendering based on `customProfiles.length === 0`
+
+---
+
+## Rollback Plan
+
+If critical issues found after deployment:
+
+1. **Frontend Only Rollback**
+   - Revert ProxyHostForm changes
+   - Users lose ability to assign profiles (but data safe)
+   - Existing assignments remain in database
+
+2. **Full Rollback**
+   - Revert all changes
+   - Data: Keep `security_header_profile_id` values in database
+   - No data loss - just UI reverts
+
+3. **Database Migration (if needed)**
+   - Not required - field already exists
+   - No schema changes in this update
+
+---
+
+## Success Metrics
+
+### User Experience
+- ✅ No more confusing "Apply" button
+- ✅ Clear visual hierarchy: System Profiles vs Custom
+- ✅ Easy discovery of security header assignment
+- ✅ Inline security score helps decision-making
+
+### Technical
+- ✅ Zero breaking changes to API
+- ✅ Backward compatible with existing data
+- ✅ No new database migrations needed
+- ✅ Type-safe TypeScript interfaces
+
+### Validation
+- [ ] Run pre-commit checks (all pass)
+- [ ] Backend unit tests (coverage ≥85%)
+- [ ] Frontend unit tests (coverage ≥85%)
+- [ ] Manual QA checklist (all items checked)
+- [ ] TypeScript compiles without errors
+
+---
+
+## Files to Modify
+
+### Backend (2 files)
+1. `backend/internal/api/handlers/proxy_host_handler.go` - Add security_header_profile_id support
+2. `backend/internal/services/proxy_host_service.go` - Add Preload("SecurityHeaderProfile")
+
+### Frontend (3 files)
+1. `frontend/src/api/proxyHosts.ts` - Add security_header_profile_id to interface
+2. `frontend/src/components/ProxyHostForm.tsx` - Add Security Headers section
+3. `frontend/src/pages/SecurityHeaders.tsx` - Remove Apply button, update UI
+
+### Tests (2+ files)
+1. `backend/internal/api/handlers/proxy_host_handler_test.go` - Add security profile tests
+2. `frontend/src/components/ProxyHostForm.test.tsx` - Add security headers tests
+
+### Docs (1 file)
+1. `docs/features.md` - Update security headers documentation
+
+---
+
+## Dependencies & Prerequisites
+
+### Already Satisfied ✅
+- Backend model has `SecurityHeaderProfileID` field
+- Backend relationships configured (GORM foreign keys)
+- `EnsurePresetsExist()` runs on startup
+- Presets service methods exist
+- Security header profiles API endpoints exist
+- Frontend hooks for security headers exist
+
+### New Dependencies ❌
+- None - All required functionality already exists
 
 ---
 
 ## Risk Assessment
 
-| Risk | Mitigation |
-|------|------------|
-| CSP breaks existing sites | CSP disabled by default, builder has validation |
-| HSTS preload locked forever | Warning in UI, preload disabled by default |
-| Performance impact | Headers cached per-host, no per-request calculation |
-| Migration issues | New table, no schema changes to existing tables |
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Breaking existing hosts | Low | High | Backward compatible - field already exists, nullable |
+| TypeScript errors | Low | Medium | Run type-check before commit |
+| Caddy config errors | Low | High | Test with various profile types |
+| UI confusion | Low | Low | Clear labels, grouped options |
+| Performance impact | Very Low | Low | Single extra Preload, negligible |
 
 ---
 
-## Next Steps
+## Timeline
 
-1. **Phase 1**: Create model and migration (1 day)
-2. **Phase 2**: Implement API handlers (1-2 days)
-3. **Phase 3**: Caddy integration (1 day)
-4. **Phase 4**: Frontend components (2-3 days)
-5. **Phase 5**: Presets and score calculator (1 day)
-6. **Phase 6**: Final integration and testing (1 day)
+- **Phase 1-2 (Backend + Types):** 40 minutes
+- **Phase 3 (Frontend UI):** 45 minutes
+- **Phase 4 (Testing):** 45 minutes
+- **Phase 5 (Documentation):** 15 minutes
 
-**Total Estimated Time**: 7-9 days
+**Total:** ~2.5 hours for complete implementation and testing
 
 ---
 
-*Plan created by Planning Agent for Issue #20*
+## Appendix A: Current Code Analysis
+
+### Startup Flow
+
+```
+main()
+  ↓
+server.Run()
+  ↓
+routes.RegisterRoutes()
+  ↓
+secHeadersSvc.EnsurePresetsExist()  ← RUNS HERE
+  ↓
+Creates/Updates 3 presets in database
+```
+
+**Verification Query:**
+```sql
+SELECT id, uuid, name, is_preset, preset_type, security_score
+FROM security_header_profiles
+WHERE is_preset = true;
+```
+
+**Expected Result:**
+```
+id | uuid            | name                | is_preset | preset_type | security_score
+---+-----------------+---------------------+-----------+-------------+---------------
+1  | preset-basic    | Basic Security      | true      | basic       | 65
+2  | preset-strict   | Strict Security     | true      | strict      | 85
+3  | preset-paranoid | Paranoid Security   | true      | paranoid    | 100
+```
+
+### Current ProxyHost Data Flow
+
+```
+Frontend (ProxyHostForm)
+  ↓ POST /api/v1/proxy-hosts
+Backend Handler (Create)
+  ↓ Validates JSON
+ProxyHostService.Create()
+  ↓ GORM Insert
+Database (proxy_hosts table)
+  ↓ Includes certificate_id, access_list_id
+  ↓ SHOULD include security_header_profile_id (but form doesn't send it)
+```
+
+### Missing Piece
+
+**Form doesn't include:**
+```typescript
+security_header_profile_id: formData.security_header_profile_id
+```
+
+**Handler doesn't read:**
+```go
+if v, ok := payload["security_header_profile_id"]; ok {
+    // ... handle it
+}
+```
+
+---
+
+## Appendix B: Preset Definitions
+
+### Basic Security (Score: 65)
+- HSTS: 1 year, no subdomains
+- X-Frame-Options: SAMEORIGIN
+- X-Content-Type-Options: nosniff
+- Referrer-Policy: strict-origin-when-cross-origin
+- XSS-Protection: enabled
+- **No CSP** (to avoid breaking sites)
+
+### Strict Security (Score: 85)
+- HSTS: 1 year, includes subdomains
+- CSP: Restrictive defaults
+- X-Frame-Options: DENY
+- Permissions-Policy: Block camera/mic/geolocation
+- CORS policies: same-origin
+- XSS-Protection: enabled
+
+### Paranoid Security (Score: 100)
+- HSTS: 2 years, preload enabled
+- CSP: Maximum restrictions
+- X-Frame-Options: DENY
+- Permissions-Policy: Block all dangerous features
+- CORS: Strict same-origin
+- Cache-Control: no-store
+- Cross-Origin-Embedder-Policy: require-corp
+
+---
+
+## Notes for Implementation
+
+1. **Start with Backend** - Easier to test with curl before UI work
+2. **Use VS Code Tasks** - Run "Lint: TypeScript Check" after frontend changes
+3. **Test Incrementally** - Don't wait until everything is done
+4. **Check Caddy Config** - Verify headers appear in generated config
+5. **Mobile Responsive** - Test dropdown on mobile viewport
+6. **Accessibility** - Ensure dropdown has proper labels
+7. **Dark Mode** - Verify colors work in both themes
+
+---
+
+## Questions Resolved During Investigation
+
+**Q: Are presets created in the database?**
+**A:** Yes, `EnsurePresetsExist()` runs on startup and creates/updates them.
+
+**Q: Does the backend model support profile assignment?**
+**A:** Yes, `SecurityHeaderProfileID` field exists with proper GORM relationships.
+
+**Q: Do the handlers support the field?**
+**A:** No - Update handler needs to be modified to accept `security_header_profile_id`.
+
+**Q: Is there UI to assign profiles?**
+**A:** No - ProxyHostForm has no security headers section. This is the main missing piece.
+
+**Q: What does "Apply" button do?**
+**A:** It calls `ApplyPreset()` which COPIES the preset to create a new custom profile. Confusing!
+
+---
+
+**End of Specification**
+
+This document is ready for implementation. Follow the phases in order, run tests after each phase, and verify the UX improvements work as expected.
