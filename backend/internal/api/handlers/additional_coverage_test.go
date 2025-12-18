@@ -345,6 +345,7 @@ func TestBackupHandler_List_DBError(t *testing.T) {
 	}
 
 	svc := services.NewBackupService(cfg)
+	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
 	w := httptest.NewRecorder()
@@ -598,6 +599,7 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 	}
 
 	svc := services.NewBackupService(cfg)
+	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
 	w := httptest.NewRecorder()
@@ -627,6 +629,7 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 	}
 
 	svc := services.NewBackupService(cfg)
+	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
 	// Create a backup
@@ -750,6 +753,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 	}
 
 	svc := services.NewBackupService(cfg)
+	defer svc.Stop() // Prevent goroutine leaks
 	h := NewBackupHandler(svc)
 
 	w := httptest.NewRecorder()

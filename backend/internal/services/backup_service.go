@@ -49,9 +49,27 @@ func NewBackupService(cfg *config.Config) *BackupService {
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to schedule backup")
 	}
-	s.Cron.Start()
+	// Note: Cron scheduler must be explicitly started via Start() method
 
 	return s
+}
+
+// DefaultBackupRetention is the number of backups to keep during cleanup.
+const DefaultBackupRetention = 7
+
+// Start starts the cron scheduler for automatic backups.
+// Must be called after NewBackupService() to enable scheduled backups.
+func (s *BackupService) Start() {
+	s.Cron.Start()
+	logger.Log().Info("Backup service cron scheduler started")
+}
+
+// Stop gracefully shuts down the cron scheduler.
+// Waits for any running backup jobs to complete.
+func (s *BackupService) Stop() {
+	ctx := s.Cron.Stop()
+	<-ctx.Done()
+	logger.Log().Info("Backup service cron scheduler stopped")
 }
 
 func (s *BackupService) RunScheduledBackup() {
@@ -60,7 +78,62 @@ func (s *BackupService) RunScheduledBackup() {
 		logger.Log().WithError(err).Error("Scheduled backup failed")
 	} else {
 		logger.Log().WithField("backup", name).Info("Scheduled backup created")
+
+		// Clean up old backups after successful creation
+		if deleted, err := s.CleanupOldBackups(DefaultBackupRetention); err != nil {
+			logger.Log().WithError(err).Warn("Failed to cleanup old backups")
+		} else if deleted > 0 {
+			logger.Log().WithField("deleted_count", deleted).Info("Cleaned up old backups")
+		}
 	}
+}
+
+// CleanupOldBackups removes backups exceeding the retention count.
+// Keeps the most recent 'keep' backups, deletes the rest.
+// Returns the number of deleted backups.
+func (s *BackupService) CleanupOldBackups(keep int) (int, error) {
+	if keep < 1 {
+		keep = 1 // Always keep at least one backup
+	}
+
+	backups, err := s.ListBackups()
+	if err != nil {
+		return 0, fmt.Errorf("list backups for cleanup: %w", err)
+	}
+
+	// ListBackups returns sorted newest first, so skip the first 'keep' entries
+	if len(backups) <= keep {
+		return 0, nil
+	}
+
+	deleted := 0
+	toDelete := backups[keep:]
+
+	for _, backup := range toDelete {
+		if err := s.DeleteBackup(backup.Filename); err != nil {
+			logger.Log().WithError(err).WithField("filename", backup.Filename).Warn("Failed to delete old backup")
+			continue
+		}
+		deleted++
+		logger.Log().WithField("filename", backup.Filename).Debug("Deleted old backup")
+	}
+
+	return deleted, nil
+}
+
+// GetLastBackupTime returns the timestamp of the most recent backup, or zero if none exist.
+func (s *BackupService) GetLastBackupTime() (time.Time, error) {
+	backups, err := s.ListBackups()
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	if len(backups) == 0 {
+		return time.Time{}, nil
+	}
+
+	// ListBackups returns sorted newest first
+	return backups[0].Time, nil
 }
 
 // ListBackups returns all backup files sorted by time (newest first)

@@ -39,6 +39,21 @@ You do not guess why a build failed. You interrogate the server to find the exac
 
 </workflow>
 
+<coverage_and_ci>
+**Coverage Tests in CI**: GitHub Actions workflows run coverage tests automatically:
+- `.github/workflows/codecov-upload.yml`: Uploads coverage to Codecov
+- `.github/workflows/quality-checks.yml`: Enforces coverage thresholds
+
+**Your Role as DevOps**:
+- You do NOT write coverage tests (that's `Backend_Dev` and `Frontend_Dev`).
+- You DO ensure CI workflows run coverage scripts correctly.
+- You DO verify that coverage thresholds match local requirements (85% by default).
+- If CI coverage fails but local tests pass, check for:
+    1. Different `CHARON_MIN_COVERAGE` values between local and CI
+    2. Missing test files in CI (check `.gitignore`, `.dockerignore`)
+    3. Race condition timeouts (check `PERF_MAX_MS_*` environment variables)
+</coverage_and_ci>
+
 <output_format>
 (Only use this if handing off to a Developer Agent)
 
