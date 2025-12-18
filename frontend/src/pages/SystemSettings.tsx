@@ -17,6 +17,7 @@ import client from '../api/client'
 import { Server, RefreshCw, Save, Activity, Info, ExternalLink } from 'lucide-react'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
+import { LanguageSelector } from '../components/LanguageSelector'
 
 interface HealthResponse {
   status: string
@@ -282,6 +283,14 @@ export default function SystemSettings() {
               </Select>
               <p className="text-sm text-content-muted">
                 Control how domain links open in the Proxy Hosts list.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="language">Language</Label>
+              <LanguageSelector />
+              <p className="text-sm text-content-muted">
+                Select your preferred language. Changes take effect immediately.
               </p>
             </div>
           </CardContent>
