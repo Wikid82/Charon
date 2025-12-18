@@ -164,44 +164,6 @@ describe('SecurityHeaders', () => {
     });
   });
 
-  it('should apply preset', async () => {
-    const mockProfiles = [
-      {
-        id: 1,
-        name: 'Basic Security',
-        description: 'Essential headers',
-        is_preset: true,
-        preset_type: 'basic',
-        security_score: 65,
-        updated_at: '2025-12-18T00:00:00Z',
-      },
-    ];
-
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
-    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.applyPreset).mockResolvedValue({
-      id: 2,
-      name: 'Basic Security Profile',
-      security_score: 65,
-    } as any);
-
-    render(<SecurityHeaders />, { wrapper: createWrapper() });
-
-    await waitFor(() => {
-      expect(screen.getByText('Basic Security')).toBeInTheDocument();
-    });
-
-    const applyButton = screen.getByRole('button', { name: /Apply/ });
-    fireEvent.click(applyButton);
-
-    await waitFor(() => {
-      expect(securityHeadersApi.applyPreset).toHaveBeenCalledWith({
-        preset_type: 'basic',
-        name: 'Basic Security Profile',
-      });
-    });
-  });
-
   it('should clone profile', async () => {
     const mockProfiles = [
       {
@@ -312,15 +274,15 @@ describe('SecurityHeaders', () => {
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(screen.getByText('Quick Presets')).toBeInTheDocument();
+      expect(screen.getByText('System Profiles (Read-Only)')).toBeInTheDocument();
       expect(screen.getByText('Custom Profiles')).toBeInTheDocument();
     });
 
-    // Quick preset should have preset_type badge and View/Apply/Clone buttons
+    // System profiles should have View and Clone buttons
     const presetCard = screen.getByText('Basic Security').closest('div');
-    expect(presetCard?.textContent).toContain('basic');
+    expect(presetCard).toBeInTheDocument();
 
-    // Custom profile should have "Edit" and delete buttons
+    // Custom profile should have Edit button
     const customCard = screen.getByText('Custom Profile').closest('div');
     expect(customCard?.textContent).toContain('Custom Profile');
   });

@@ -263,6 +263,29 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Security Header Profile: update only if provided
+	if v, ok := payload["security_header_profile_id"]; ok {
+		if v == nil {
+			host.SecurityHeaderProfileID = nil
+		} else {
+			switch t := v.(type) {
+			case float64:
+				if id, ok := safeFloat64ToUint(t); ok {
+					host.SecurityHeaderProfileID = &id
+				}
+			case int:
+				if id, ok := safeIntToUint(t); ok {
+					host.SecurityHeaderProfileID = &id
+				}
+			case string:
+				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+					id := uint(n)
+					host.SecurityHeaderProfileID = &id
+				}
+			}
+		}
+	}
+
 	// Locations: replace only if provided
 	if v, ok := payload["locations"].([]interface{}); ok {
 		// Rebind to []models.Location

@@ -40,6 +40,15 @@ export interface ProxyHost {
   certificate_id?: number | null;
   certificate?: Certificate | null;
   access_list_id?: number | null;
+  security_header_profile_id?: number | null;
+  security_header_profile?: {
+    id: number;
+    uuid: string;
+    name: string;
+    description: string;
+    security_score: number;
+    is_preset: boolean;
+  } | null;
   created_at: string;
   updated_at: string;
 }
