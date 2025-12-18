@@ -141,7 +141,7 @@ export default function SecurityHeaders() {
       </Alert>
 
       {/* Presets Section */}
-      {presets && presets.length > 0 && (
+      {presets && Array.isArray(presets) && presets.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Start Presets</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
