@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -179,7 +180,7 @@ func TestWebSocketTracker_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			conn := &ConnectionInfo{
-				ID:          string(rune('a' + id)),
+				ID:          fmt.Sprintf("conn-%d", id),
 				Type:        "logs",
 				ConnectedAt: time.Now(),
 			}
@@ -211,7 +212,7 @@ func TestWebSocketTracker_ConcurrentAccess(t *testing.T) {
 	// Test concurrent unregister
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			tracker.Unregister(string(rune('a' + id)))
+			tracker.Unregister(fmt.Sprintf("conn-%d", id))
 			done <- true
 		}(i)
 	}
