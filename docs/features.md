@@ -900,25 +900,40 @@ Without these headers, browsers operate in "permissive mode" that prioritizes co
 
 **Use when:** Security is paramount and you can invest time in thorough testing.
 
-**How to apply a preset:**
+**How to use presets:**
+
+**Option 1: Assign directly to a host**
+
+1. Go to **Proxy Hosts**, edit or create a host
+2. Find the **"Security Headers"** dropdown
+3. Select a preset (Basic, Strict, or Paranoid)
+4. Save the host — Caddy applies the headers immediately
+
+**Option 2: Clone and customize**
 
 1. Go to **Security → HTTP Headers**
-2. Click **"Apply Preset"**
-3. Choose your preset (Basic/Strict/Paranoid)
-4. Review the generated configuration
-5. Assign the profile to your proxy hosts
+2. Find the preset you want (e.g., "Strict")
+3. Click **"Clone"**
+4. Customize the copied profile
+5. Assign your custom profile to proxy hosts
 
 ### Reusable Header Profiles
 
-**What it does:** Create named profiles with multiple header configurations that can be shared across proxy hosts.
+**What it does:** Create named profiles with multiple header configurations that can be assigned to proxy hosts via dropdown selection.
 
-**Why you care:** Define security policies once, apply to many websites. Update one profile to affect all hosts using it.
+**Why you care:** Define security policies once, apply to any website. Update one profile to affect all hosts using it.
+
+**Profile types:**
+
+- **System Profiles (Read-Only)** — Pre-configured presets (Basic, Strict, Paranoid) you can view or clone but not edit
+- **Custom Profiles** — Your own profiles that you can edit, delete, and customize freely
 
 **Profile workflow:**
 
-1. **Create Profile** — Name it (e.g., "Production API Headers") and configure headers
-2. **Assign to Hosts** — Select which proxy hosts use this profile
-3. **Make Changes** — Update the profile, all hosts get the new headers automatically
+1. **Create Profile** — Go to Security → HTTP Headers, create a new profile or apply a preset
+2. **Assign to Host** — Edit a proxy host, select the profile from the "Security Headers" dropdown
+3. **Caddy Applies** — Charon automatically configures Caddy to inject the headers for that host
+4. **View/Clone** — Browse presets, clone them to create customized versions
 
 **Profile features:**
 
@@ -1205,15 +1220,13 @@ Cache-Control: no-cache, no-store, must-revalidate, private
 
 **Steps:**
 
-1. Go to **Security → HTTP Headers**
-2. Click **"Apply Preset"** → Select **"Basic"**
-3. Review the generated profile (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy)
-4. Click **"Create Profile"**
-5. Go to **Proxy Hosts**, edit your host
-6. Select the new profile in **"Security Header Profile"** dropdown
-7. Save
+1. Go to **Proxy Hosts**, edit your host
+2. Scroll to **"Security Headers"** section
+3. Select **"Basic (Production Safe)"** from the dropdown
+4. Review the security score preview (Score: 65/100)
+5. Save
 
-**Result:** Essential headers applied, security score ~60-70, zero breakage risk.
+**Result:** Essential headers applied immediately via Caddy, security score ~60-70, zero breakage risk.
 
 #### Workflow 2: Custom Headers for SaaS Dashboard
 
@@ -1237,9 +1250,11 @@ Cache-Control: no-cache, no-store, must-revalidate, private
    - Referrer-Policy: strict-origin-when-cross-origin
    - Permissions-Policy: camera=(), microphone=(), geolocation=()
 4. Review security score (target: 80+)
-5. Assign to dashboard proxy host
-6. Test in browser console for CSP violations
-7. Adjust CSP based on violations
+5. Save the profile
+6. Go to **Proxy Hosts**, edit your dashboard host
+7. Select "Dashboard Security" from the **"Security Headers"** dropdown
+8. Save — test in browser console for CSP violations
+9. Edit profile as needed based on violations
 
 **Result:** Strong security with functional third-party integrations, score 80-85.
 
@@ -1247,15 +1262,16 @@ Cache-Control: no-cache, no-store, must-revalidate, private
 
 **Goal:** Apply paranoid security for a backend API that serves JSON only.
 
-**Steps:**
-
-1. Apply **"Paranoid"** preset
-2. Review generated profile:
+**SGo to **Proxy Hosts**, edit your API host
+2. Select **"Paranoid (Maximum Security)"** from the **"Security Headers"** dropdown
+3. Review the configuration preview:
    - HSTS with preload
    - Strict CSP (`default-src 'none'`)
    - All cross-origin headers set to `same-origin`
    - No unsafe directives
-3. Assign to API proxy host
+4. Save
+5. Test API endpoints (should work—APIs don't need CSP for HTML)
+6. Assign to API proxy host
 4. Test API endpoints (should work—APIs don't need CSP for HTML)
 5. Verify security score (90+)
 

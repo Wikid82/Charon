@@ -109,7 +109,7 @@ func (s *ProxyHostService) GetByID(id uint) (*models.ProxyHost, error) {
 // GetByUUID finds a proxy host by UUID.
 func (s *ProxyHostService) GetByUUID(uuidStr string) (*models.ProxyHost, error) {
 	var host models.ProxyHost
-	if err := s.db.Preload("Locations").Preload("Certificate").Where("uuid = ?", uuidStr).First(&host).Error; err != nil {
+	if err := s.db.Preload("Locations").Preload("Certificate").Preload("SecurityHeaderProfile").Where("uuid = ?", uuidStr).First(&host).Error; err != nil {
 		return nil, err
 	}
 	return &host, nil
@@ -118,7 +118,7 @@ func (s *ProxyHostService) GetByUUID(uuidStr string) (*models.ProxyHost, error) 
 // List returns all proxy hosts.
 func (s *ProxyHostService) List() ([]models.ProxyHost, error) {
 	var hosts []models.ProxyHost
-	if err := s.db.Preload("Locations").Preload("Certificate").Order("updated_at desc").Find(&hosts).Error; err != nil {
+	if err := s.db.Preload("Locations").Preload("Certificate").Preload("SecurityHeaderProfile").Order("updated_at desc").Find(&hosts).Error; err != nil {
 		return nil, err
 	}
 	return hosts, nil

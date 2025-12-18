@@ -328,6 +328,8 @@ func TestBuildSecurityHeadersHandler_InvalidCSPJSON(t *testing.T) {
 	profile := &models.SecurityHeaderProfile{
 		CSPEnabled:    true,
 		CSPDirectives: "invalid json",
+		// Add another header so handler isn't nil
+		XContentTypeOptions: true,
 	}
 
 	host := &models.ProxyHost{
@@ -342,6 +344,8 @@ func TestBuildSecurityHeadersHandler_InvalidCSPJSON(t *testing.T) {
 	response := handler["response"].(map[string]interface{})
 	headers := response["set"].(map[string][]string)
 	assert.NotContains(t, headers, "Content-Security-Policy")
+	// But should include the other header
+	assert.Contains(t, headers, "X-Content-Type-Options")
 }
 
 func TestBuildSecurityHeadersHandler_InvalidPermissionsJSON(t *testing.T) {

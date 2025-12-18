@@ -9,6 +9,8 @@ import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
 import AccessListSelector from './AccessListSelector'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
 
 // Application preset configurations
@@ -105,6 +107,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
     access_list_id: host?.access_list_id,
+    security_header_profile_id: host?.security_header_profile_id,
   })
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
@@ -141,7 +144,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       setCopiedField(field)
       setTimeout(() => setCopiedField(null), 2000)
     } catch {
-      console.error('Failed to copy to clipboard')
+      // Silently fail if clipboard access is denied
     }
   }
 
@@ -155,6 +158,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
   const { certificates } = useCertificates()
+  const { data: securityProfiles } = useSecurityHeaderProfiles()
 
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
 
@@ -239,9 +243,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     try {
       await createDomain(pendingDomain)
       setShowDomainPrompt(false)
-    } catch (err) {
-      console.error("Failed to save domain", err)
-      // Optionally show error
+    } catch {
+      // Failed to save domain - user can retry
     }
   }
 
@@ -261,8 +264,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       setTestStatus('success')
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
-    } catch (err) {
-      console.error("Test connection failed", err)
+    } catch {
       setTestStatus('error')
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
@@ -348,7 +350,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           } else {
             // If no public port is mapped, we can't reach it from outside
             // But we'll leave the internal port as a fallback, though it likely won't work
-            console.warn('No public port mapped for container on remote server')
           }
         }
       }
@@ -605,6 +606,75 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             value={formData.access_list_id || null}
             onChange={id => setFormData({ ...formData, access_list_id: id })}
           />
+
+          {/* Security Headers Profile */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Security Headers
+              <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+            </label>
+
+            <select
+              value={formData.security_header_profile_id || 0}
+              onChange={e => {
+                const value = parseInt(e.target.value) || null
+                setFormData({ ...formData, security_header_profile_id: value })
+              }}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>None (No Security Headers)</option>
+              <optgroup label="Quick Presets">
+                {securityProfiles
+                  ?.filter(p => p.is_preset)
+                  .sort((a, b) => a.security_score - b.security_score)
+                  .map(profile => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} (Score: {profile.security_score}/100)
+                    </option>
+                  ))}
+              </optgroup>
+              {(securityProfiles?.filter(p => !p.is_preset) || []).length > 0 && (
+                <optgroup label="Custom Profiles">
+                  {(securityProfiles || [])
+                    .filter(p => !p.is_preset)
+                    .map(profile => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} (Score: {profile.security_score}/100)
+                      </option>
+                    ))}
+                </optgroup>
+              )}
+            </select>
+
+            {formData.security_header_profile_id && (() => {
+              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              if (!selected) return null
+
+              return (
+                <div className="mt-2 flex items-center gap-2">
+                  <SecurityScoreDisplay
+                    score={selected.security_score}
+                    size="sm"
+                    showDetails={false}
+                  />
+                  <span className="text-xs text-gray-400">
+                    {selected.description}
+                  </span>
+                </div>
+              )
+            })()}
+
+            <p className="text-xs text-gray-500 mt-1">
+              Apply HTTP security headers to protect against common web vulnerabilities.{' '}
+              <a
+                href="/security-headers"
+                target="_blank"
+                className="text-blue-400 hover:text-blue-300"
+              >
+                Manage Profiles →
+              </a>
+            </p>
+          </div>
 
           {/* Application Preset */}
           <div>

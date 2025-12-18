@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Shield, Copy, Eye, Play } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, Copy, Eye } from 'lucide-react';
 import {
   useSecurityHeaderProfiles,
   useCreateSecurityHeaderProfile,
   useUpdateSecurityHeaderProfile,
   useDeleteSecurityHeaderProfile,
-  useApplySecurityHeaderPreset,
 } from '../hooks/useSecurityHeaders';
 import { SecurityHeaderProfileForm } from '../components/SecurityHeaderProfileForm';
 import { SecurityScoreDisplay } from '../components/SecurityScoreDisplay';
@@ -31,7 +30,6 @@ export default function SecurityHeaders() {
   const createMutation = useCreateSecurityHeaderProfile();
   const updateMutation = useUpdateSecurityHeaderProfile();
   const deleteMutation = useDeleteSecurityHeaderProfile();
-  const applyPresetMutation = useApplySecurityHeaderPreset();
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingProfile, setEditingProfile] = useState<SecurityHeaderProfile | null>(null);
@@ -78,11 +76,6 @@ export default function SecurityHeaders() {
       toast.error('Failed to create backup', { id: 'backup-toast' });
       setIsDeleting(false);
     }
-  };
-
-  const handleApplyPreset = (presetType: string) => {
-    const name = `${presetType.charAt(0).toUpperCase() + presetType.slice(1)} Security Profile`;
-    applyPresetMutation.mutate({ preset_type: presetType, name });
   };
 
   const handleCloneProfile = (profile: SecurityHeaderProfile) => {
@@ -141,7 +134,12 @@ export default function SecurityHeaders() {
       {/* Quick Presets (Read-Only) */}
       {presetProfiles.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Presets</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            System Profiles (Read-Only)
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Pre-configured security profiles you can assign to proxy hosts. Clone to customize.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {presetProfiles.map((profile: SecurityHeaderProfile) => (
               <Card key={profile.id} className="p-4">
@@ -165,14 +163,6 @@ export default function SecurityHeaders() {
                     onClick={() => setEditingProfile(profile)}
                   >
                     <Eye className="h-4 w-4 mr-1" /> View
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleApplyPreset(profile.preset_type)}
-                    disabled={applyPresetMutation.isPending}
-                  >
-                    <Play className="h-4 w-4 mr-1" /> Apply
                   </Button>
                   <Button
                     variant="outline"
