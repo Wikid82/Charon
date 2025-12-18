@@ -160,7 +160,7 @@ jobs:
               echo "✅ Found expr-lang/expr: $EXPR_VERSION"
 
               # Check if version is v1.17.7 or higher (vulnerable version is v1.16.9)
-              if echo "$EXPR_VERSION" | grep -E "v1\.(1[7-9]|[2-9][0-9])\." >/dev/null; then
+              if echo "$EXPR_VERSION" | grep -E "^v1\.(1[7-9]|[2-9][0-9])\.[0-9]+$" >/dev/null; then
                 echo "✅ PASS: expr-lang version $EXPR_VERSION is patched (>= v1.17.7)"
               else
                 echo "⚠️ WARNING: expr-lang version $EXPR_VERSION may be vulnerable (< v1.17.7)"
