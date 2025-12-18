@@ -155,7 +155,7 @@ jobs:
             echo ""
             echo "==> Searching for expr-lang/expr dependency:"
             if grep -i "expr-lang/expr" caddy_deps.txt; then
-              EXPR_VERSION=$(grep "expr-lang/expr" caddy_deps.txt | awk '{print $2}')
+              EXPR_VERSION=$(grep "expr-lang/expr" caddy_deps.txt | awk '{print $3}')
               echo ""
               echo "✅ Found expr-lang/expr: $EXPR_VERSION"
 
