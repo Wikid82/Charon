@@ -29,10 +29,12 @@ func TestCerberusLogsHandler_NewHandler(t *testing.T) {
 	t.Parallel()
 
 	watcher := services.NewLogWatcher("/tmp/test.log")
-	handler := NewCerberusLogsHandler(watcher)
+	tracker := services.NewWebSocketTracker()
+	handler := NewCerberusLogsHandler(watcher, tracker)
 
 	assert.NotNil(t, handler)
 	assert.Equal(t, watcher, handler.watcher)
+	assert.Equal(t, tracker, handler.tracker)
 }
 
 // TestCerberusLogsHandler_SuccessfulConnection verifies WebSocket upgrade.
@@ -51,7 +53,7 @@ func TestCerberusLogsHandler_SuccessfulConnection(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	// Create test server
 	router := gin.New()
@@ -88,7 +90,7 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	// Create test server
 	router := gin.New()
@@ -157,7 +159,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)
@@ -236,7 +238,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)
@@ -313,7 +315,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)
@@ -388,7 +390,7 @@ func TestCerberusLogsHandler_ClientDisconnect(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)
@@ -424,7 +426,7 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)
@@ -486,7 +488,7 @@ func TestCerberusLogsHandler_UpgradeFailure(t *testing.T) {
 	t.Parallel()
 
 	watcher := services.NewLogWatcher("/tmp/test.log")
-	handler := NewCerberusLogsHandler(watcher)
+	handler := NewCerberusLogsHandler(watcher, nil)
 
 	router := gin.New()
 	router.GET("/ws", handler.LiveLogs)

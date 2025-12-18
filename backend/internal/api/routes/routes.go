@@ -119,6 +119,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	logService := services.NewLogService(&cfg)
 	logsHandler := handlers.NewLogsHandler(logService)
 
+	// WebSocket tracker for connection monitoring
+	wsTracker := services.NewWebSocketTracker()
+	wsStatusHandler := handlers.NewWebSocketStatusHandler(wsTracker)
+
 	// Notification Service (needed for multiple handlers)
 	notificationService := services.NewNotificationService(db)
 
@@ -160,7 +164,14 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/logs", logsHandler.List)
 		protected.GET("/logs/:filename", logsHandler.Read)
 		protected.GET("/logs/:filename/download", logsHandler.Download)
-		protected.GET("/logs/live", handlers.LogsWebSocketHandler)
+
+		// WebSocket endpoints
+		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
+		protected.GET("/logs/live", logsWSHandler.HandleWebSocket)
+
+		// WebSocket status monitoring
+		protected.GET("/websocket/connections", wsStatusHandler.GetConnections)
+		protected.GET("/websocket/stats", wsStatusHandler.GetStats)
 
 		// Security Notification Settings
 		securityNotificationService := services.NewSecurityNotificationService(db)
@@ -395,7 +406,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		if err := logWatcher.Start(context.Background()); err != nil {
 			logger.Log().WithError(err).Error("Failed to start security log watcher")
 		}
-		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher)
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
 		protected.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
 
 		// Access Lists

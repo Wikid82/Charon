@@ -16,11 +16,15 @@ import (
 // CerberusLogsHandler handles WebSocket connections for streaming security logs.
 type CerberusLogsHandler struct {
 	watcher *services.LogWatcher
+	tracker *services.WebSocketTracker
 }
 
 // NewCerberusLogsHandler creates a new handler for Cerberus security log streaming.
-func NewCerberusLogsHandler(watcher *services.LogWatcher) *CerberusLogsHandler {
-	return &CerberusLogsHandler{watcher: watcher}
+func NewCerberusLogsHandler(watcher *services.LogWatcher, tracker *services.WebSocketTracker) *CerberusLogsHandler {
+	return &CerberusLogsHandler{
+		watcher: watcher,
+		tracker: tracker,
+	}
 }
 
 // LiveLogs handles WebSocket connections for Cerberus security log streaming.
@@ -51,6 +55,22 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	// Generate unique subscriber ID for logging
 	subscriberID := uuid.New().String()
 	logger.Log().WithField("subscriber_id", subscriberID).Info("Cerberus logs WebSocket connected")
+
+	// Register connection with tracker if available
+	if h.tracker != nil {
+		filters := c.Request.URL.RawQuery
+		connInfo := &services.ConnectionInfo{
+			ID:             subscriberID,
+			Type:           "cerberus",
+			ConnectedAt:    time.Now(),
+			LastActivityAt: time.Now(),
+			RemoteAddr:     c.Request.RemoteAddr,
+			UserAgent:      c.Request.UserAgent(),
+			Filters:        filters,
+		}
+		h.tracker.Register(connInfo)
+		defer h.tracker.Unregister(subscriberID)
+	}
 
 	// Parse query filters
 	sourceFilter := strings.ToLower(c.Query("source"))     // waf, crowdsec, ratelimit, acl, normal
@@ -115,6 +135,11 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 			if err := conn.WriteJSON(entry); err != nil {
 				logger.Log().WithError(err).WithField("subscriber_id", subscriberID).Debug("Failed to write Cerberus log to WebSocket")
 				return
+			}
+
+			// Update activity timestamp
+			if h.tracker != nil {
+				h.tracker.UpdateActivity(subscriberID)
 			}
 
 		case <-ticker.C:
