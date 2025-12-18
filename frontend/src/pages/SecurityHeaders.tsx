@@ -14,7 +14,6 @@ import { createBackup } from '../api/backups';
 import toast from 'react-hot-toast';
 import { PageShell } from '../components/layout/PageShell';
 import {
-  Badge,
   Button,
   Alert,
   Card,
@@ -149,12 +148,6 @@ export default function SecurityHeaders() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
-                    <Badge
-                      variant={profile.preset_type === 'basic' ? 'outline' : profile.preset_type === 'strict' ? 'warning' : 'error'}
-                      className="mt-1"
-                    >
-                      {profile.preset_type}
-                    </Badge>
                   </div>
                   <SecurityScoreDisplay
                     score={profile.security_score}
