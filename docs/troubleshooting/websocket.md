@@ -46,7 +46,7 @@ location /api/v1/logs/live {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    
+
     # Increase timeouts for long-lived connections
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
@@ -61,7 +61,7 @@ location /api/v1/cerberus/logs/ws {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    
+
     # Increase timeouts for long-lived connections
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
@@ -78,18 +78,18 @@ Key requirements:
 ```apache
 <VirtualHost *:443>
     ServerName charon.example.com
-    
+
     # Enable WebSocket proxy
     ProxyRequests Off
     ProxyPreserveHost On
-    
+
     # WebSocket endpoints
     ProxyPass /api/v1/logs/live ws://localhost:8080/api/v1/logs/live retry=0 timeout=3600
     ProxyPassReverse /api/v1/logs/live ws://localhost:8080/api/v1/logs/live
-    
+
     ProxyPass /api/v1/cerberus/logs/ws ws://localhost:8080/api/v1/cerberus/logs/ws retry=0 timeout=3600
     ProxyPassReverse /api/v1/cerberus/logs/ws ws://localhost:8080/api/v1/cerberus/logs/ws
-    
+
     # Regular HTTP endpoints
     ProxyPass / http://localhost:8080/
     ProxyPassReverse / http://localhost:8080/
@@ -116,7 +116,7 @@ Charon sends WebSocket ping frames every 30 seconds to keep connections alive. I
    ```bash
    # Linux iptables
    iptables -L -v -n | grep ESTABLISHED
-   
+
    # If timeout is too short, increase it:
    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
    echo 3600 > /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_established
