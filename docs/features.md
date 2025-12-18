@@ -4,7 +4,32 @@ Here's everything Charon can do for you, explained simply.
 
 ---
 
-## \u2699\ufe0f Optional Features
+## 🌍 Multi-Language Support
+
+Charon speaks your language! The interface is available in multiple languages.
+
+### What Languages Are Supported?
+
+- 🇬🇧 **English** - Default
+- 🇪🇸 **Spanish** (Español)
+- 🇫🇷 **French** (Français)
+- 🇩🇪 **German** (Deutsch)
+- 🇨🇳 **Chinese** (中文)
+
+### How to Change Language
+
+1. Go to **Settings** → **System**
+2. Scroll to the **Language** section
+3. Select your preferred language from the dropdown
+4. Changes take effect immediately — no page reload needed!
+
+### Want to Help Translate?
+
+We welcome translation contributions! See our [Translation Contributing Guide](https://github.com/Wikid82/Charon/blob/main/CONTRIBUTING_TRANSLATIONS.md) to learn how you can help make Charon available in more languages.
+
+---
+
+## ⚙️ Optional Features
 
 Charon includes optional features that can be toggled on or off based on your needs.
 All features are enabled by default, giving you the full Charon experience from the start.
