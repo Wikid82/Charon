@@ -31,10 +31,10 @@ export interface SecurityHeaderProfile {
 }
 
 export interface SecurityHeaderPreset {
-  type: 'basic' | 'strict' | 'paranoid';
+  preset_type: 'basic' | 'strict' | 'paranoid';
   name: string;
   description: string;
-  score: number;
+  security_score: number;
   config: Partial<SecurityHeaderProfile>;
 }
 
