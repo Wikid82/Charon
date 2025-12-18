@@ -83,32 +83,32 @@ export const securityHeadersApi = {
    * List all security header profiles
    */
   async listProfiles(): Promise<SecurityHeaderProfile[]> {
-    const response = await client.get<SecurityHeaderProfile[]>('/security/headers/profiles');
-    return response.data;
+    const response = await client.get<{profiles: SecurityHeaderProfile[]}>('/security/headers/profiles');
+    return response.data.profiles;
   },
 
   /**
    * Get a single profile by ID or UUID
    */
   async getProfile(id: number | string): Promise<SecurityHeaderProfile> {
-    const response = await client.get<SecurityHeaderProfile>(`/security/headers/profiles/${id}`);
-    return response.data;
+    const response = await client.get<{profile: SecurityHeaderProfile}>(`/security/headers/profiles/${id}`);
+    return response.data.profile;
   },
 
   /**
    * Create a new security header profile
    */
   async createProfile(data: CreateProfileRequest): Promise<SecurityHeaderProfile> {
-    const response = await client.post<SecurityHeaderProfile>('/security/headers/profiles', data);
-    return response.data;
+    const response = await client.post<{profile: SecurityHeaderProfile}>('/security/headers/profiles', data);
+    return response.data.profile;
   },
 
   /**
    * Update an existing profile
    */
   async updateProfile(id: number, data: Partial<CreateProfileRequest>): Promise<SecurityHeaderProfile> {
-    const response = await client.put<SecurityHeaderProfile>(`/security/headers/profiles/${id}`, data);
-    return response.data;
+    const response = await client.put<{profile: SecurityHeaderProfile}>(`/security/headers/profiles/${id}`, data);
+    return response.data.profile;
   },
 
   /**
@@ -122,16 +122,16 @@ export const securityHeadersApi = {
    * Get built-in presets
    */
   async getPresets(): Promise<SecurityHeaderPreset[]> {
-    const response = await client.get<SecurityHeaderPreset[]>('/security/headers/presets');
-    return response.data;
+    const response = await client.get<{presets: SecurityHeaderPreset[]}>('/security/headers/presets');
+    return response.data.presets;
   },
 
   /**
    * Apply a preset to create/update a profile
    */
   async applyPreset(data: ApplyPresetRequest): Promise<SecurityHeaderProfile> {
-    const response = await client.post<SecurityHeaderProfile>('/security/headers/presets/apply', data);
-    return response.data;
+    const response = await client.post<{profile: SecurityHeaderProfile}>('/security/headers/presets/apply', data);
+    return response.data.profile;
   },
 
   /**
