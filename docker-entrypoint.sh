@@ -91,7 +91,7 @@ ACQUIS_EOF
     # Update hub index to ensure CrowdSec can start
     if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
         echo "Updating CrowdSec hub index..."
-        cscli hub update 2>/dev/null || echo "Warning: Failed to update hub index (network issue?)"
+        timeout 60s cscli hub update 2>/dev/null || echo "⚠️ Hub update timed out or failed, continuing..."
     fi
 
     # Ensure local machine is registered (auto-heal for volume/config mismatch)
