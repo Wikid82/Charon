@@ -36,6 +36,16 @@ type ProxyHost struct {
 	// WAF override - when true, disables WAF for this specific host
 	WAFDisabled bool `json:"waf_disabled" gorm:"default:false"`
 
+	// Security Headers Configuration
+	// Either reference a profile OR use inline settings
+	SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
+	SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
+
+	// Inline security header settings (used when no profile is selected)
+	// These override profile settings if both are set
+	SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
+	SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"` // JSON for custom headers
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

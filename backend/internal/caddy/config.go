@@ -308,7 +308,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 
-		// Add HSTS header if enabled
+		// Add Security Headers handler
+		if secHeadersHandler, err := buildSecurityHeadersHandler(&host); err == nil && secHeadersHandler != nil {
+			handlers = append(handlers, secHeadersHandler)
+		}
+
+		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile)
 		if host.HSTSEnabled {
 			hstsValue := "max-age=31536000"
 			if host.HSTSSubdomains {
@@ -1132,4 +1137,180 @@ func parseBypassCIDRs(bypassList string) []string {
 		validCIDRs = append(validCIDRs, p)
 	}
 	return validCIDRs
+}
+
+// buildSecurityHeadersHandler creates a headers handler for security headers
+// based on the profile configuration or host-level settings
+func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
+	if host == nil {
+		return nil, nil
+	}
+
+	// Use profile if configured
+	var cfg *models.SecurityHeaderProfile
+	if host.SecurityHeaderProfile != nil {
+		cfg = host.SecurityHeaderProfile
+	} else if !host.SecurityHeadersEnabled {
+		// No profile and headers disabled - skip
+		return nil, nil
+	} else {
+		// Use default secure headers
+		cfg = getDefaultSecurityHeaderProfile()
+	}
+
+	responseHeaders := make(map[string][]string)
+
+	// HSTS
+	if cfg.HSTSEnabled {
+		hstsValue := fmt.Sprintf("max-age=%d", cfg.HSTSMaxAge)
+		if cfg.HSTSIncludeSubdomains {
+			hstsValue += "; includeSubDomains"
+		}
+		if cfg.HSTSPreload {
+			hstsValue += "; preload"
+		}
+		responseHeaders["Strict-Transport-Security"] = []string{hstsValue}
+	}
+
+	// CSP
+	if cfg.CSPEnabled && cfg.CSPDirectives != "" {
+		cspHeader := "Content-Security-Policy"
+		if cfg.CSPReportOnly {
+			cspHeader = "Content-Security-Policy-Report-Only"
+		}
+		cspString, err := buildCSPString(cfg.CSPDirectives)
+		if err == nil && cspString != "" {
+			responseHeaders[cspHeader] = []string{cspString}
+		}
+	}
+
+	// X-Frame-Options
+	if cfg.XFrameOptions != "" {
+		responseHeaders["X-Frame-Options"] = []string{cfg.XFrameOptions}
+	}
+
+	// X-Content-Type-Options
+	if cfg.XContentTypeOptions {
+		responseHeaders["X-Content-Type-Options"] = []string{"nosniff"}
+	}
+
+	// Referrer-Policy
+	if cfg.ReferrerPolicy != "" {
+		responseHeaders["Referrer-Policy"] = []string{cfg.ReferrerPolicy}
+	}
+
+	// Permissions-Policy
+	if cfg.PermissionsPolicy != "" {
+		ppString, err := buildPermissionsPolicyString(cfg.PermissionsPolicy)
+		if err == nil && ppString != "" {
+			responseHeaders["Permissions-Policy"] = []string{ppString}
+		}
+	}
+
+	// Cross-Origin headers
+	if cfg.CrossOriginOpenerPolicy != "" {
+		responseHeaders["Cross-Origin-Opener-Policy"] = []string{cfg.CrossOriginOpenerPolicy}
+	}
+	if cfg.CrossOriginResourcePolicy != "" {
+		responseHeaders["Cross-Origin-Resource-Policy"] = []string{cfg.CrossOriginResourcePolicy}
+	}
+	if cfg.CrossOriginEmbedderPolicy != "" {
+		responseHeaders["Cross-Origin-Embedder-Policy"] = []string{cfg.CrossOriginEmbedderPolicy}
+	}
+
+	// X-XSS-Protection
+	if cfg.XSSProtection {
+		responseHeaders["X-XSS-Protection"] = []string{"1; mode=block"}
+	}
+
+	// Cache-Control
+	if cfg.CacheControlNoStore {
+		responseHeaders["Cache-Control"] = []string{"no-store"}
+	}
+
+	if len(responseHeaders) == 0 {
+		return nil, nil
+	}
+
+	return Handler{
+		"handler": "headers",
+		"response": map[string]interface{}{
+			"set": responseHeaders,
+		},
+	}, nil
+}
+
+// buildCSPString converts JSON CSP directives to a CSP string
+func buildCSPString(directivesJSON string) (string, error) {
+	if directivesJSON == "" {
+		return "", nil
+	}
+
+	var directivesMap map[string][]string
+	if err := json.Unmarshal([]byte(directivesJSON), &directivesMap); err != nil {
+		return "", fmt.Errorf("invalid CSP JSON: %w", err)
+	}
+
+	var parts []string
+	for directive, values := range directivesMap {
+		if len(values) > 0 {
+			part := fmt.Sprintf("%s %s", directive, strings.Join(values, " "))
+			parts = append(parts, part)
+		}
+	}
+
+	return strings.Join(parts, "; "), nil
+}
+
+// buildPermissionsPolicyString converts JSON permissions to policy string
+func buildPermissionsPolicyString(permissionsJSON string) (string, error) {
+	if permissionsJSON == "" {
+		return "", nil
+	}
+
+	var permissions []models.PermissionsPolicyItem
+	if err := json.Unmarshal([]byte(permissionsJSON), &permissions); err != nil {
+		return "", fmt.Errorf("invalid permissions JSON: %w", err)
+	}
+
+	var parts []string
+	for _, perm := range permissions {
+		var allowlist string
+		if len(perm.Allowlist) == 0 {
+			allowlist = "()"
+		} else {
+			// Convert allowlist items to policy format
+			items := make([]string, len(perm.Allowlist))
+			for i, item := range perm.Allowlist {
+				if item == "self" {
+					items[i] = "self"
+				} else if item == "*" {
+					items[i] = "*"
+				} else {
+					items[i] = fmt.Sprintf("\"%s\"", item)
+				}
+			}
+			allowlist = fmt.Sprintf("(%s)", strings.Join(items, " "))
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", perm.Feature, allowlist))
+	}
+
+	return strings.Join(parts, ", "), nil
+}
+
+// getDefaultSecurityHeaderProfile returns secure defaults
+func getDefaultSecurityHeaderProfile() *models.SecurityHeaderProfile {
+	return &models.SecurityHeaderProfile{
+		HSTSEnabled:               true,
+		HSTSMaxAge:                31536000,
+		HSTSIncludeSubdomains:     false,
+		HSTSPreload:               false,
+		CSPEnabled:                false, // Off by default to avoid breaking sites
+		XFrameOptions:             "SAMEORIGIN",
+		XContentTypeOptions:       true,
+		ReferrerPolicy:            "strict-origin-when-cross-origin",
+		XSSProtection:             true,
+		CrossOriginOpenerPolicy:   "same-origin",
+		CrossOriginResourcePolicy: "same-origin",
+	}
 }
