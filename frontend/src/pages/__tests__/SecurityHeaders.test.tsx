@@ -80,25 +80,29 @@ describe('SecurityHeaders', () => {
   });
 
   it('should render presets', async () => {
-    const mockPresets = [
+    const mockProfiles = [
       {
-        type: 'basic' as const,
+        id: 1,
         name: 'Basic Security',
         description: 'Essential headers',
-        score: 65,
-        config: {},
+        is_preset: true,
+        preset_type: 'basic',
+        security_score: 65,
+        updated_at: '2025-12-18T00:00:00Z',
       },
       {
-        type: 'strict' as const,
+        id: 2,
         name: 'Strict Security',
         description: 'Strong security',
-        score: 85,
-        config: {},
+        is_preset: true,
+        preset_type: 'strict',
+        security_score: 85,
+        updated_at: '2025-12-18T00:00:00Z',
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue(mockPresets);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
@@ -161,20 +165,22 @@ describe('SecurityHeaders', () => {
   });
 
   it('should apply preset', async () => {
-    const mockPresets = [
+    const mockProfiles = [
       {
-        type: 'basic' as const,
+        id: 1,
         name: 'Basic Security',
         description: 'Essential headers',
-        score: 65,
-        config: {},
+        is_preset: true,
+        preset_type: 'basic',
+        security_score: 65,
+        updated_at: '2025-12-18T00:00:00Z',
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue([]);
-    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue(mockPresets);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(securityHeadersApi.applyPreset).mockResolvedValue({
-      id: 1,
+      id: 2,
       name: 'Basic Security Profile',
       security_score: 65,
     } as any);
@@ -185,7 +191,7 @@ describe('SecurityHeaders', () => {
       expect(screen.getByText('Basic Security')).toBeInTheDocument();
     });
 
-    const applyButton = screen.getByRole('button', { name: /Apply Preset/ });
+    const applyButton = screen.getByRole('button', { name: /Apply/ });
     fireEvent.click(applyButton);
 
     await waitFor(() => {
@@ -281,7 +287,7 @@ describe('SecurityHeaders', () => {
     });
   });
 
-  it('should separate system presets from custom profiles', async () => {
+  it('should separate quick presets from custom profiles', async () => {
     const mockProfiles = [
       {
         id: 1,
@@ -306,13 +312,13 @@ describe('SecurityHeaders', () => {
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
     await waitFor(() => {
-      expect(screen.getByText('System Presets')).toBeInTheDocument();
+      expect(screen.getByText('Quick Presets')).toBeInTheDocument();
       expect(screen.getByText('Custom Profiles')).toBeInTheDocument();
     });
 
-    // System preset should have "View" and "Clone" buttons
+    // Quick preset should have preset_type badge and View/Apply/Clone buttons
     const presetCard = screen.getByText('Basic Security').closest('div');
-    expect(presetCard?.textContent).toContain('System Preset');
+    expect(presetCard?.textContent).toContain('basic');
 
     // Custom profile should have "Edit" and delete buttons
     const customCard = screen.getByText('Custom Profile').closest('div');

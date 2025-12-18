@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Shield, Copy, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, Copy, Eye, Play } from 'lucide-react';
 import {
   useSecurityHeaderProfiles,
-  useSecurityHeaderPresets,
   useCreateSecurityHeaderProfile,
   useUpdateSecurityHeaderProfile,
   useDeleteSecurityHeaderProfile,
@@ -30,7 +29,6 @@ import {
 
 export default function SecurityHeaders() {
   const { data: profiles, isLoading } = useSecurityHeaderProfiles();
-  const { data: presets } = useSecurityHeaderPresets();
   const createMutation = useCreateSecurityHeaderProfile();
   const updateMutation = useUpdateSecurityHeaderProfile();
   const deleteMutation = useDeleteSecurityHeaderProfile();
@@ -115,7 +113,8 @@ export default function SecurityHeaders() {
   };
 
   const customProfiles = profiles?.filter((p: SecurityHeaderProfile) => !p.is_preset) || [];
-  const presetProfiles = profiles?.filter((p: SecurityHeaderProfile) => p.is_preset) || [];
+  const presetProfiles = (profiles?.filter((p: SecurityHeaderProfile) => p.is_preset) || [])
+    .sort((a, b) => a.security_score - b.security_score);
 
   return (
     <PageShell
@@ -140,53 +139,22 @@ export default function SecurityHeaders() {
         </div>
       </Alert>
 
-      {/* Presets Section */}
-      {presets && Array.isArray(presets) && presets.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Start Presets</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {presets.map((preset) => (
-              <Card key={preset.type} className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{preset.name}</h3>
-                    <Badge variant={preset.type === 'basic' ? 'outline' : preset.type === 'strict' ? 'warning' : 'error'} className="mt-1">
-                      {preset.type}
-                    </Badge>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{preset.score}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">Score</div>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{preset.description}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleApplyPreset(preset.type)}
-                  disabled={applyPresetMutation.isPending}
-                  className="w-full"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Apply Preset
-                </Button>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* System Presets (Read-Only) */}
+      {/* Quick Presets (Read-Only) */}
       {presetProfiles.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">System Presets</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Presets</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {presetProfiles.map((profile: SecurityHeaderProfile) => (
               <Card key={profile.id} className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
-                    <Badge variant="outline" className="mt-1">System Preset</Badge>
+                    <Badge
+                      variant={profile.preset_type === 'basic' ? 'outline' : profile.preset_type === 'strict' ? 'warning' : 'error'}
+                      className="mt-1"
+                    >
+                      {profile.preset_type}
+                    </Badge>
                   </div>
                   <SecurityScoreDisplay
                     score={profile.security_score}
@@ -202,19 +170,23 @@ export default function SecurityHeaders() {
                     variant="outline"
                     size="sm"
                     onClick={() => setEditingProfile(profile)}
-                    className="flex-1"
                   >
-                    <Pencil className="w-3 h-3 mr-1" />
-                    View
+                    <Eye className="h-4 w-4 mr-1" /> View
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleApplyPreset(profile.preset_type)}
+                    disabled={applyPresetMutation.isPending}
+                  >
+                    <Play className="h-4 w-4 mr-1" /> Apply
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleCloneProfile(profile)}
-                    className="flex-1"
                   >
-                    <Copy className="w-3 h-3 mr-1" />
-                    Clone
+                    <Copy className="h-4 w-4 mr-1" /> Clone
                   </Button>
                 </div>
               </Card>
