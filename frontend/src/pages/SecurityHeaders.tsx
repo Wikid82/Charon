@@ -70,7 +70,7 @@ export default function SecurityHeaders() {
           setEditingProfile(null);
           toast.success(`"${profile.name}" deleted. A backup was created before deletion.`);
         },
-        onError: (error) => {
+        onError: (error: Error) => {
           toast.error(`Failed to delete: ${error.message}`);
         },
         onSettled: () => {
@@ -114,8 +114,8 @@ export default function SecurityHeaders() {
     createMutation.mutate(clonedData);
   };
 
-  const customProfiles = profiles?.filter((p) => !p.is_preset) || [];
-  const presetProfiles = profiles?.filter((p) => p.is_preset) || [];
+  const customProfiles = profiles?.filter((p: SecurityHeaderProfile) => !p.is_preset) || [];
+  const presetProfiles = profiles?.filter((p: SecurityHeaderProfile) => p.is_preset) || [];
 
   return (
     <PageShell
@@ -181,7 +181,7 @@ export default function SecurityHeaders() {
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">System Presets</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {presetProfiles.map((profile) => (
+            {presetProfiles.map((profile: SecurityHeaderProfile) => (
               <Card key={profile.id} className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
@@ -241,7 +241,7 @@ export default function SecurityHeaders() {
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {customProfiles.map((profile) => (
+            {customProfiles.map((profile: SecurityHeaderProfile) => (
               <Card key={profile.id} className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
@@ -291,7 +291,7 @@ export default function SecurityHeaders() {
       </div>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreateForm || editingProfile !== null} onOpenChange={(open) => {
+      <Dialog open={showCreateForm || editingProfile !== null} onOpenChange={(open: boolean) => {
         if (!open) {
           setShowCreateForm(false);
           setEditingProfile(null);
@@ -318,7 +318,7 @@ export default function SecurityHeaders() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteConfirm !== null} onOpenChange={(open) => !open && setShowDeleteConfirm(null)}>
+      <Dialog open={showDeleteConfirm !== null} onOpenChange={(open: boolean) => !open && setShowDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm Deletion</DialogTitle>
