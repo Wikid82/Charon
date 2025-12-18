@@ -595,6 +595,7 @@ ws.onmessage = (event) => {
 - **[Security Guide](https://wikid82.github.io/charon/security)** \u2014 Learn about Cerberus features
 - **[API Documentation](https://wikid82.github.io/charon/api)** \u2014 Full API reference
 - **[Features Overview](https://wikid82.github.io/charon/features)** \u2014 See all Charon capabilities
+- **[WebSocket Troubleshooting](troubleshooting/websocket.md)** — Fix WebSocket connection issues
 - **[Troubleshooting](https://wikid82.github.io/charon/troubleshooting)** \u2014 Common issues and solutions
 
 ---

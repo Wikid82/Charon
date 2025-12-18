@@ -545,6 +545,39 @@ Uses WebSocket technology to stream logs with zero delay.
 - `?source=waf` — Only WAF-related events
 - `?source=cerberus` — All Cerberus security events
 
+### WebSocket Connection Monitoring
+
+**What it does:** Tracks and displays all active WebSocket connections in real-time, helping you troubleshoot connection issues and monitor system health.
+
+**What you see:**
+
+- Total active WebSocket connections
+- Breakdown by connection type (General Logs vs Security Logs)
+- Oldest connection age
+- Detailed connection information:
+  - Connection ID and type
+  - Remote address (client IP)
+  - Active filters being used
+  - Connection duration
+
+**Where to find it:** System Settings → WebSocket Connections card
+
+**API Endpoints:** Programmatically access WebSocket statistics:
+
+- `GET /api/v1/websocket/stats` — Aggregate connection statistics
+- `GET /api/v1/websocket/connections` — Detailed list of all active connections
+
+**Use cases:**
+
+- **Troubleshooting:** Verify WebSocket connections are working when live logs aren't updating
+- **Monitoring:** Track how many users are viewing live logs in real-time
+- **Debugging:** Identify connection issues with proxy/load balancer configurations
+- **Capacity Planning:** Understand WebSocket connection patterns and usage
+
+**Auto-refresh:** The status card automatically updates every 5 seconds to show current connection state.
+
+**See also:** [WebSocket Troubleshooting Guide](troubleshooting/websocket.md) for help resolving connection issues.
+
 ### Notification System
 
 **What it does:** Sends alerts when security events match your configured criteria.
