@@ -185,3 +185,4 @@ test-results/charon.hatfieldhosted.com.har
 test-results/local.har
 .cache
 trivy-scan-output.txt
+trivy-image-scan.txt
