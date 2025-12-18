@@ -16,6 +16,7 @@ import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
 import { Server, RefreshCw, Save, Activity, Info, ExternalLink } from 'lucide-react'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
 
 interface HealthResponse {
   status: string
@@ -410,6 +411,9 @@ export default function SystemSettings() {
             </Button>
           </CardFooter>
         </Card>
+
+        {/* WebSocket Connection Status */}
+        <WebSocketStatusCard showDetails={true} />
       </div>
     </TooltipProvider>
   )
