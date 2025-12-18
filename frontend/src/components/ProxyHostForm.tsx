@@ -617,7 +617,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <select
               value={formData.security_header_profile_id || 0}
               onChange={e => {
-                const value = parseInt(e.target.value) || null
+                const value = e.target.value === "0" ? null : parseInt(e.target.value) || null
                 setFormData({ ...formData, security_header_profile_id: value })
               }}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"

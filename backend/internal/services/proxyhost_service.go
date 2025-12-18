@@ -89,7 +89,12 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 		}
 	}
 
-	return s.db.Save(host).Error
+	// Use Updates to handle nullable foreign keys properly
+	// Must use Select to explicitly allow setting nullable fields to nil
+	return s.db.Model(&models.ProxyHost{}).
+		Where("id = ?", host.ID).
+		Select("*").
+		Updates(host).Error
 }
 
 // Delete removes a proxy host.

@@ -1,106 +1,74 @@
-# Security Headers UX Fix - Complete Specification
+# Bug Investigation: Security Header Profile Not Persisting
 
 **Created:** 2025-12-18
-**Status:** Ready for Implementation
+**Status:** Investigation Complete - Root Cause Identified
 
 ---
 
-## Executive Summary
+## Bug Report
 
-This plan addresses two critical UX issues with Security Headers:
+Security header profile changes are not persisting to the database when editing proxy hosts.
 
-1. **"Apply" button creates copies instead of assigning presets** - Users expect presets to be assignable profiles, not templates that clone
-2. **No UI to assign profiles to proxy hosts** - Users cannot activate security headers for their hosts
+**Observed Behavior:**
+1. User assigns "Strict" profile to a proxy host → Saves successfully ✓
+2. User edits the same host, changes to "Basic" profile → Appears to save ✓
+3. User reopens the host edit form → Shows "Strict" (not "Basic") ❌
 
-### Current State Analysis
-
-#### ✅ What Works
-- `EnsurePresetsExist()` **IS called on startup** ([routes.go:272](../backend/internal/api/routes/routes.go#L272))
-- Basic, Strict, Paranoid presets **ARE created in the database** with `is_preset=true`
-- Backend model **HAS** `SecurityHeaderProfileID` field ([proxy_host.go:41](../backend/internal/models/proxy_host.go#L41))
-- Backend relationships are properly configured with GORM foreign keys
-
-#### ❌ What's Broken
-- **Frontend UI** - ProxyHostForm has NO security headers section
-- **Frontend types** - ProxyHost interface missing `security_header_profile_id`
-- **Backend handler** - Update handler does NOT process `security_header_profile_id` field
-- **UX confusion** - "Apply" button suggests copying instead of assigning
+**The profile change is NOT persisting to the database.**
 
 ---
 
-## Part A: Fix Preset System (Make Presets "Real")
+## Root Cause Analysis
 
-### Problem Statement
+### Investigation Summary
 
-Current flow (CONFUSING):
-```
-User clicks "Apply" on Basic preset
-  ↓
-Creates NEW profile "Basic Security Profile"
-  ↓
-User cannot assign this to hosts (no UI)
-  ↓
-User is confused
-```
+I examined the complete data flow from frontend form submission to backend database save. The code analysis reveals that **the implementation SHOULD work correctly**, but there are potential issues with value handling and silent error conditions.
 
-Desired flow (CLEAR):
-```
-System creates Basic, Strict, Paranoid on startup
-  ↓
-User goes to Proxy Host form
-  ↓
-Selects "Basic Security" from dropdown
-  ↓
-Host uses preset directly (no copying)
-```
+### Frontend Code Analysis
 
-### Solution: Remove "Apply" Button, Keep Presets as Assignable Profiles
+**File:** [frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx)
 
-#### Changes to SecurityHeaders.tsx
+**Lines 656-661:** Security header profile dropdown and onChange handler
 
-**Before:**
 ```tsx
-<Button onClick={() => handleApplyPreset(profile.preset_type)}>
-  <Play className="h-4 w-4 mr-1" /> Apply
-</Button>
+<select
+  value={formData.security_header_profile_id || 0}
+  onChange={e => {
+    const value = parseInt(e.target.value) || null
+    setFormData({ ...formData, security_header_profile_id: value })
+  }}
+>
 ```
 
-**After:**
+**Issue #1: Falsy Coercion Bug**
+
+The expression `parseInt(e.target.value) || null` has a problematic behavior:
+- When user selects "None" (value="0"): `parseInt("0")` = 0, then `0 || null` = `null` ✓ (Correct - we want null for "None")
+- When user selects profile ID 2: `parseInt("2")` = 2, then `2 || null` = 2 ✓ (Works)
+- **BUT**: If `parseInt()` fails or returns `NaN`, the expression evaluates to `null` instead of preserving the current value
+
+**Risk:** Edge cases where parseInt fails silently convert valid profile selections to `null`.
+
+**Lines 308-311:** Form submission payload preparation
+
 ```tsx
-<Button onClick={() => setEditingProfile(profile)}>
-  <Eye className="h-4 w-4 mr-1" /> View Details
-</Button>
+const payload = { ...formData }
+const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries: _uptimeMaxRetries, ...payloadWithoutUptime } = payload as ProxyHostFormState
 ```
 
-**Rationale:**
-- Remove confusing "Apply" action
-- Users can view preset settings (read-only modal)
-- Users can clone if they want to customize
-- Assignment happens in Proxy Host form (Part B)
+**Analysis:**
+- The `security_header_profile_id` field is included in the spread operation
+- If `formData.security_header_profile_id` is `undefined`, it won't be in the payload keys
+- If it's `null` or a number, it WILL be included
 
-#### Remove ApplyPreset Mutation
+### Backend Code Analysis
 
-Since we're not copying presets anymore, remove:
-- Frontend: `useApplySecurityHeaderPreset` hook
-- Frontend: `applyPresetMutation` state
-- Frontend: `handleApplyPreset` function
-- Backend: Keep `ApplyPreset` service method (might be useful for future features)
-- Backend: Keep `/presets/apply` endpoint (might be useful for API users)
+**File:** [backend/internal/api/handlers/proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go)
 
----
+**Lines 231-248:** Security Header Profile update handling
 
-## Part B: Add Profile Selector to Proxy Host Form
-
-### Backend Changes
-
-#### 1. Update Proxy Host Handler - Add security_header_profile_id Support
-
-**File:** `backend/internal/api/handlers/proxy_host_handler.go`
-
-**Location:** In `Update()` method, after the `access_list_id` handling block (around line 265)
-
-**Add this code:**
 ```go
+// Security Header Profile: update only if provided
 if v, ok := payload["security_header_profile_id"]; ok {
     if v == nil {
         host.SecurityHeaderProfileID = nil
@@ -110,643 +78,409 @@ if v, ok := payload["security_header_profile_id"]; ok {
             if id, ok := safeFloat64ToUint(t); ok {
                 host.SecurityHeaderProfileID = &id
             }
+            // ❌ NO ELSE CLAUSE - silently fails if conversion fails
         case int:
             if id, ok := safeIntToUint(t); ok {
                 host.SecurityHeaderProfileID = &id
             }
+            // ❌ NO ELSE CLAUSE
         case string:
             if n, err := strconv.ParseUint(t, 10, 32); err == nil {
                 id := uint(n)
                 host.SecurityHeaderProfileID = &id
             }
+            // ❌ NO ELSE CLAUSE
         }
+        // ❌ NO DEFAULT CASE - fails silently if type doesn't match
     }
 }
 ```
 
-**Why:** Backend needs to accept and persist the security header profile assignment
+**Issue #2: Silent Failure in Type Conversion**
 
-#### 2. Preload Security Header Profile in Queries
+If ANY of the following occur, the field is NOT updated:
+1. `safeFloat64ToUint()` returns `ok = false`
+2. `safeIntToUint()` returns `ok = false`
+3. `strconv.ParseUint()` returns an error
+4. The value type doesn't match `float64`, `int`, or `string`
 
-**File:** `backend/internal/services/proxy_host_service.go`
+**Critical:** No error is logged, no status code returned - the old value remains in memory and gets saved to the database.
 
-**Method:** `GetByUUID()` and `List()`
+**Lines 29-34:** The `safeFloat64ToUint` conversion function
 
-**Change:**
 ```go
-// Before
-db.Preload("Certificate").Preload("AccessList").Preload("Locations")
-
-// After
-db.Preload("Certificate").Preload("AccessList").Preload("Locations").Preload("SecurityHeaderProfile")
-```
-
-**Why:** Frontend needs to display which profile is assigned to each host
-
----
-
-### Frontend Changes
-
-#### 1. Update ProxyHost Interface
-
-**File:** `frontend/src/api/proxyHosts.ts`
-
-**Add field:**
-```typescript
-export interface ProxyHost {
-  // ... existing fields ...
-  access_list_id?: number | null;
-  security_header_profile_id?: number | null;  // ADD THIS
-  security_header_profile?: {                   // ADD THIS
-    id: number;
-    uuid: string;
-    name: string;
-    description: string;
-    security_score: number;
-    is_preset: boolean;
-  } | null;
-  created_at: string;
-  updated_at: string;
+func safeFloat64ToUint(f float64) (uint, bool) {
+    if f < 0 || f != float64(uint(f)) {
+        return 0, false
+    }
+    return uint(f), true
 }
 ```
 
-**Why:** TypeScript needs to know about the new field
+**Analysis:**
+- For negative numbers: Returns `false` ✓
+- For integers (0, 1, 2, etc.): Returns `true` ✓
+- For floats with decimals (2.5): Returns `false` (correct - can't convert to uint)
 
-#### 2. Add Security Headers Section to ProxyHostForm
+**This function should work fine for valid profile IDs.**
+
+**Lines 256-258:** Calling the service to save
+
+```go
+if err := h.service.Update(host); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    return
+}
+```
+
+This calls the service `Update()` method which uses GORM's `Save()`.
+
+### Service Layer Analysis
+
+**File:** [backend/internal/services/proxyhost_service.go](../../backend/internal/services/proxyhost_service.go)
+
+**Line 92:** The actual database save operation
+
+```go
+return s.db.Save(host).Error
+```
+
+**GORM's `Save()` method:**
+- Updates ALL fields in the struct, including zero values
+- Handles nullable pointers correctly (`*uint`)
+- Should persist changes to `SecurityHeaderProfileID`
+
+**No issues found here.**
+
+### Model Analysis
+
+**File:** [backend/internal/models/proxy_host.go](../../backend/internal/models/proxy_host.go)
+
+**Lines 40-42:** Security Header Profile field definition
+
+```go
+SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
+SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
+```
+
+**Analysis:**
+- Field is nullable pointer `*uint` ✓
+- JSON tag is snake_case ✓
+- GORM relationship configured ✓
+
+**No issues found here.**
+
+---
+
+## Identified Root Causes
+
+After comprehensive code review, I've identified **TWO potential root causes**:
+
+### Root Cause #1: Frontend - Potential NaN Edge Case ⚠️
+
+**Location:** [frontend/src/components/ProxyHostForm.tsx:658-661](../../frontend/src/components/ProxyHostForm.tsx)
+
+**Problem:**
+```tsx
+const value = parseInt(e.target.value) || null
+```
+
+While this works for most cases, it has edge case vulnerabilities:
+- If `e.target.value` is `""` (empty string): `parseInt("")` = `NaN`, then `NaN || null` = `null`
+- If `parseInt()` somehow returns `0`: `0 || null` = `null` (converts valid 0 to null)
+
+**Impact:** Low likelihood but would cause profile selection to silently become `null`.
+
+### Root Cause #2: Backend - Silent Failure with No Logging ⚠️⚠️⚠️
+
+**Location:** [backend/internal/api/handlers/proxy_host_handler.go:231-248](../../backend/internal/api/handlers/proxy_host_handler.go)
+
+**Problem:**
+No error handling or logging when type conversion fails:
+
+```go
+case float64:
+    if id, ok := safeFloat64ToUint(t); ok {
+        host.SecurityHeaderProfileID = &id
+    }
+    // If ok==false, nothing happens! Old value remains!
+```
+
+**Impact:** HIGH - If the payload value can't be converted (for any reason), the update is silently skipped.
+
+**Why This Is The Likely Culprit:**
+
+For the reported bug (changing from Strict to Basic), the frontend should send:
+```json
+{"security_header_profile_id": 2}
+```
+
+JSON numbers unmarshal as `float64` in Go. So `v` would be `float64(2.0)`.
+
+The `safeFloat64ToUint(2.0)` call should return `(2, true)` and set the field correctly.
+
+**UNLESS:**
+1. The JSON payload is malformed
+2. The value comes as a string `"2"` instead of number `2`
+3. There's middleware modifying the payload
+4. The `ok` check is somehow failing despite valid input
+
+**The lack of logging makes this impossible to debug!**
+
+---
+
+## Why the Bug Occurs (Hypothesis)
+
+Based on the code analysis, here's my hypothesis:
+
+**Most Likely Scenario:**
+
+1. Frontend sends `{"security_header_profile_id": 2}` as JSON number ✓
+2. Backend receives it as `float64(2.0)` ✓
+3. `safeFloat64ToUint(2.0)` returns `(2, true)` ✓
+4. Sets `host.SecurityHeaderProfileID = &2` ✓
+5. Calls `h.service.Update(host)` which runs `db.Save(host)` ✓
+6. **BUT**: GORM's `Save()` might not be updating nullable pointer fields properly? ❌
+
+**Alternative Scenario (Less Likely):**
+
+The JSON payload is somehow getting stringified or modified before reaching the handler, causing the type assertion to fail.
+
+**Evidence Needed:**
+
+Without logs, we can't know which scenario is happening. The fix MUST include logging.
+
+---
+
+## Proposed Fix Plan
+
+### Fix 1: Frontend - Explicit Value Handling (Safety Improvement)
 
 **File:** `frontend/src/components/ProxyHostForm.tsx`
+**Lines:** 658-661
 
-**Location:** After the "Access Control List" section (after line 750), before "Application Preset"
-
-**Add imports:**
-```typescript
-import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
-import { SecurityScoreDisplay } from './SecurityScoreDisplay'
-```
-
-**Add hook:**
-```typescript
-const { data: securityProfiles } = useSecurityHeaderProfiles()
-```
-
-**Add to formData state:**
-```typescript
-const [formData, setFormData] = useState<ProxyHostFormState>({
-  // ... existing fields ...
-  access_list_id: host?.access_list_id,
-  security_header_profile_id: host?.security_header_profile_id,  // ADD THIS
-})
-```
-
-**Add UI section:**
+**Change:**
 ```tsx
-{/* Security Headers Profile */}
-<div>
-  <label className="block text-sm font-medium text-gray-300 mb-2">
-    Security Headers
-    <span className="text-gray-500 font-normal ml-2">(Optional)</span>
-  </label>
+// BEFORE (risky):
+onChange={e => {
+  const value = parseInt(e.target.value) || null
+  setFormData({ ...formData, security_header_profile_id: value })
+}}
 
-  <select
-    value={formData.security_header_profile_id || 0}
-    onChange={e => {
-      const value = parseInt(e.target.value) || null
-      setFormData({ ...formData, security_header_profile_id: value })
-    }}
-    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-  >
-    <option value={0}>None (No Security Headers)</option>
-    <optgroup label="Quick Presets">
-      {securityProfiles
-        ?.filter(p => p.is_preset)
-        .sort((a, b) => a.security_score - b.security_score)
-        .map(profile => (
-          <option key={profile.id} value={profile.id}>
-            {profile.name} (Score: {profile.security_score}/100)
-          </option>
-        ))}
-    </optgroup>
-    {securityProfiles?.filter(p => !p.is_preset).length > 0 && (
-      <optgroup label="Custom Profiles">
-        {securityProfiles
-          .filter(p => !p.is_preset)
-          .map(profile => (
-            <option key={profile.id} value={profile.id}>
-              {profile.name} (Score: {profile.security_score}/100)
-            </option>
-          ))}
-      </optgroup>
-    )}
-  </select>
+// AFTER (safe):
+onChange={e => {
+  const rawValue = e.target.value
+  let value: number | null = null
 
-  {formData.security_header_profile_id && (
-    <div className="mt-2 flex items-center gap-2">
-      {(() => {
-        const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
-        if (!selected) return null
+  if (rawValue !== "0" && rawValue !== "") {
+    const parsed = parseInt(rawValue, 10)
+    value = isNaN(parsed) ? null : parsed
+  }
 
-        return (
-          <>
-            <SecurityScoreDisplay
-              score={selected.security_score}
-              size="sm"
-              showDetails={false}
-            />
-            <span className="text-xs text-gray-400">
-              {selected.description}
-            </span>
-          </>
-        )
-      })()}
-    </div>
-  )}
-
-  <p className="text-xs text-gray-500 mt-1">
-    Apply HTTP security headers to protect against common web vulnerabilities.{' '}
-    <a
-      href="/security-headers"
-      target="_blank"
-      className="text-blue-400 hover:text-blue-300"
-    >
-      Manage Profiles →
-    </a>
-  </p>
-</div>
+  setFormData({ ...formData, security_header_profile_id: value })
+}}
 ```
 
 **Why:**
-- Users need a clear, discoverable way to assign security headers
-- Grouped by Presets vs Custom for easy scanning
-- Shows security score inline for quick decision-making
-- Link to Security Headers page for advanced users
+- Explicitly handles "0" case (None/null)
+- Explicitly handles empty string
+- Checks for NaN before assigning
+- No reliance on falsy coercion
 
----
+### Fix 2: Backend - Add Logging and Error Handling (CRITICAL)
 
-## Part C: Update SecurityHeaders Page UI
+**File:** `backend/internal/api/handlers/proxy_host_handler.go`
+**Lines:** 231-248
 
-### Changes to SecurityHeaders.tsx
-
-**File:** `frontend/src/pages/SecurityHeaders.tsx`
-
-#### 1. Remove "Apply" Button from Preset Cards
-
-**Before (lines 143-149):**
-```tsx
-<Button
-  variant="outline"
-  size="sm"
-  onClick={() => handleApplyPreset(profile.preset_type)}
-  disabled={applyPresetMutation.isPending}
->
-  <Play className="h-4 w-4 mr-1" /> Apply
-</Button>
-```
-
-**After:**
-```tsx
-<Button
-  variant="outline"
-  size="sm"
-  onClick={() => setEditingProfile(profile)}
->
-  <Eye className="h-4 w-4 mr-1" /> View
-</Button>
-```
-
-#### 2. Remove Unused Imports
-
-**Remove:**
-```typescript
-import { useApplySecurityHeaderPreset } from '../hooks/useSecurityHeaders'
-import { Play } from 'lucide-react'
-```
-
-**Keep:**
-```typescript
-import { Eye } from 'lucide-react'
-```
-
-#### 3. Remove Mutation and Handler
-
-**Remove:**
-```typescript
-const applyPresetMutation = useApplySecurityHeaderPreset()
-
-const handleApplyPreset = (presetType: string) => {
-  const name = `${presetType.charAt(0).toUpperCase() + presetType.slice(1)} Security Profile`
-  applyPresetMutation.mutate({ preset_type: presetType, name })
-}
-```
-
-#### 4. Update Quick Presets Section Title and Description
-
-**Before:**
-```tsx
-<h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Presets</h2>
-```
-
-**After:**
-```tsx
-<h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-  System Profiles (Read-Only)
-</h2>
-<p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-  Pre-configured security profiles you can assign to proxy hosts. Clone to customize.
-</p>
-```
-
-#### 5. Update Preset Modal to Show Read-Only Badge
-
-**File:** `frontend/src/components/SecurityHeaderProfileForm.tsx`
-
-**Add visual indicator when viewing presets:**
-```tsx
-{initialData?.is_preset && (
-  <Alert variant="info" className="mb-4">
-    <Shield className="w-4 h-4" />
-    <div>
-      <p className="font-semibold">System Profile (Read-Only)</p>
-      <p className="text-sm mt-1">
-        This is a built-in security profile. You cannot edit it, but you can clone it to create a custom version.
-      </p>
-    </div>
-  </Alert>
-)}
-```
-
----
-
-## UI Mockups (Text-Based)
-
-### Proxy Host Form - Security Headers Section
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│ Security Headers (Optional)                                    │
-├────────────────────────────────────────────────────────────────┤
-│ ┌────────────────────────────────────────────────────────────┐ │
-│ │ [Dropdown]                                                 │ │
-│ │  None (No Security Headers)                                │ │
-│ │  ─────────────────────────                                 │ │
-│ │  Quick Presets                                             │ │
-│ │    Basic Security (Score: 65/100)           ◄──── PRESET  │ │
-│ │    Strict Security (Score: 85/100)          ◄──── PRESET  │ │
-│ │    Paranoid Security (Score: 100/100)       ◄──── PRESET  │ │
-│ │  ─────────────────────────                                 │ │
-│ │  Custom Profiles                                           │ │
-│ │    My API Profile (Score: 72/100)                          │ │
-│ │    Production Profile (Score: 90/100)                      │ │
-│ └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│ [🛡️ 85] Strong security for sensitive data                     │
-│                                                                 │
-│ Apply HTTP security headers to protect against common          │
-│ web vulnerabilities. Manage Profiles →                         │
-└────────────────────────────────────────────────────────────────┘
-```
-
-### Security Headers Page - Presets Section
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│ System Profiles (Read-Only)                                    │
-│ Pre-configured security profiles you can assign to proxy hosts.│
-│ Clone to customize.                                            │
-├────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│ ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐│
-│ │ Basic Security  │  │ Strict Security │  │ Paranoid Sec.  ││
-│ │ [🛡️ 65/100]     │  │ [🛡️ 85/100]     │  │ [🛡️ 100/100]  ││
-│ │                  │  │                  │  │                 ││
-│ │ Essential        │  │ Strong security  │  │ Maximum sec.   ││
-│ │ security for     │  │ for sensitive    │  │ for high-risk  ││
-│ │ most websites    │  │ data             │  │ applications   ││
-│ │                  │  │                  │  │                 ││
-│ │ [View] [Clone]   │  │ [View] [Clone]   │  │ [View] [Clone] ││
-│ └──────────────────┘  └──────────────────┘  └────────────────┘│
-│                                                                 │
-│ Custom Profiles                                                 │
-│ ┌──────────────────┐  ┌──────────────────┐                    │
-│ │ My Profile       │  │ API Profile      │                    │
-│ │ [🛡️ 72/100]     │  │ [🛡️ 90/100]     │                    │
-│ │ [Edit] [Clone]   │  │ [Edit] [Clone]   │                    │
-│ └──────────────────┘  └──────────────────┘                    │
-└────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Implementation Steps
-
-### Phase 1: Backend Support (30 min)
-
-1. ✅ **Verify Presets Creation**
-   - Check logs on startup to confirm `EnsurePresetsExist()` runs
-   - Query database: `SELECT * FROM security_header_profiles WHERE is_preset = true;`
-   - Should see 3 rows: Basic, Strict, Paranoid
-
-2. **Update Proxy Host Handler**
-   - File: `backend/internal/api/handlers/proxy_host_handler.go`
-   - Add `security_header_profile_id` handling in Update method
-   - Test with curl:
-     ```bash
-     curl -X PUT http://localhost:8080/api/v1/proxy-hosts/{uuid} \
-       -H "Content-Type: application/json" \
-       -d '{"security_header_profile_id": 1}'
-     ```
-
-3. **Update Service Layer**
-   - File: `backend/internal/services/proxy_host_service.go`
-   - Add `.Preload("SecurityHeaderProfile")` to List and GetByUUID
-   - Verify profile loads with GET request
-
-### Phase 2: Frontend Types (10 min)
-
-4. **Update TypeScript Interfaces**
-   - File: `frontend/src/api/proxyHosts.ts`
-   - Add `security_header_profile_id` and `security_header_profile` fields
-   - Run `npm run type-check` to verify
-
-### Phase 3: Frontend UI (45 min)
-
-5. **Update ProxyHostForm**
-   - File: `frontend/src/components/ProxyHostForm.tsx`
-   - Add security headers section (see Part B)
-   - Import `useSecurityHeaderProfiles` hook
-   - Add dropdown with presets + custom profiles
-   - Add score display and description
-   - Test creating/editing hosts with profiles
-
-6. **Update SecurityHeaders Page**
-   - File: `frontend/src/pages/SecurityHeaders.tsx`
-   - Remove "Apply" button from presets
-   - Change to "View" button
-   - Remove `useApplySecurityHeaderPreset` hook
-   - Remove `handleApplyPreset` function
-   - Update section titles and descriptions
-   - Test viewing/cloning presets
-
-### Phase 4: Testing (45 min)
-
-7. **Backend Tests**
-   - File: `backend/internal/api/handlers/proxy_host_handler_test.go`
-   - Add test: `TestUpdateProxyHost_SecurityHeaderProfile`
-   - Verify profile assignment works
-   - Verify profile can be cleared (set to null)
-
-8. **Integration Testing**
-   - Create new proxy host
-   - Assign "Basic Security" preset
-   - Save and verify in database
-   - Edit host, change to "Strict Security"
-   - Edit host, remove profile (set to None)
-   - Verify Caddy config includes security headers when profile assigned
-
-9. **UX Testing**
-   - User flow: Create host → Assign preset → Save
-   - User flow: Edit host → Change profile → Save
-   - User flow: View preset details (read-only modal)
-   - User flow: Clone preset → Customize → Assign to host
-   - Verify no confusing "Apply" button remains
-   - Verify dropdown shows presets grouped separately
-
-### Phase 5: Documentation (15 min)
-
-10. **Update Feature Docs**
-    - File: `docs/features.md`
-    - Document new security header assignment flow
-    - Add screenshots (if possible)
-    - Explain preset vs custom profiles
-
-11. **Update PR Template**
-    - Mention UX improvement in PR description
-    - Link to this spec document
-
----
-
-## Testing Requirements
-
-### Unit Tests
-
-**Backend:**
+**Change:**
 ```go
-// File: backend/internal/api/handlers/proxy_host_handler_test.go
+// Security Header Profile: update only if provided
+if v, ok := payload["security_header_profile_id"]; ok {
+    logger := middleware.GetRequestLogger(c)
+    logger.WithField("security_header_profile_id_raw", v).Debug("Received security header profile ID")
 
-func TestUpdateProxyHost_SecurityHeaderProfile(t *testing.T) {
-    // Test assigning profile
-    // Test changing profile
-    // Test removing profile (null)
-    // Test invalid profile ID (should fail gracefully)
-}
+    if v == nil {
+        host.SecurityHeaderProfileID = nil
+        logger.Debug("Cleared security header profile ID (set to nil)")
+    } else {
+        updated := false
+        var finalID uint
 
-func TestCreateProxyHost_WithSecurityHeaderProfile(t *testing.T) {
-    // Test creating host with profile assigned
+        switch t := v.(type) {
+        case float64:
+            if id, ok := safeFloat64ToUint(t); ok {
+                finalID = id
+                updated = true
+            } else {
+                logger.WithField("value", t).Warn("Failed to convert float64 to uint (out of range or negative)")
+            }
+        case int:
+            if id, ok := safeIntToUint(t); ok {
+                finalID = id
+                updated = true
+            } else {
+                logger.WithField("value", t).Warn("Failed to convert int to uint (negative)")
+            }
+        case string:
+            if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+                finalID = uint(n)
+                updated = true
+            } else {
+                logger.WithField("value", t).WithError(err).Warn("Failed to parse string to uint")
+            }
+        default:
+            logger.WithField("type", fmt.Sprintf("%T", v)).Error("Unexpected type for security_header_profile_id")
+        }
+
+        if !updated {
+            logger.Error("Failed to update security_header_profile_id - conversion failed")
+            c.JSON(http.StatusBadRequest, gin.H{
+                "error": fmt.Sprintf("invalid security_header_profile_id: cannot convert %v (%T) to uint", v, v),
+            })
+            return
+        }
+
+        host.SecurityHeaderProfileID = &finalID
+        logger.WithField("security_header_profile_id", finalID).Debug("Set security header profile ID")
+    }
 }
 ```
 
-**Frontend:**
-```typescript
-// File: frontend/src/components/ProxyHostForm.test.tsx
+**Why:**
+- **Logs incoming raw value** - We can see exactly what the frontend sent
+- **Logs conversion attempts** - We can see if type assertions match
+- **Logs success/failure** - We know if the field was updated
+- **Returns explicit error** - No more silent failures
+- **Includes type information** - Helps diagnose payload issues
 
-describe('ProxyHostForm - Security Headers', () => {
-  it('shows security header dropdown', () => {})
-  it('displays preset profiles grouped', () => {})
-  it('displays custom profiles grouped', () => {})
-  it('shows selected profile score', () => {})
-  it('includes security_header_profile_id in submission', () => {})
-  it('allows clearing profile selection', () => {})
-})
+### Fix 3: Backend - Verify GORM Update Behavior (Investigation)
+
+**File:** `backend/internal/services/proxyhost_service.go`
+**Line:** 92
+
+**Current:**
+```go
+return s.db.Save(host).Error
 ```
 
-### Integration Tests
+**Investigation needed:**
+- Does `Save()` properly update nullable pointer fields?
+- Should we use `Updates()` instead?
+- Should we use `Select()` to explicitly update specific fields?
 
-1. **Preset Creation on Startup**
-   - Start fresh Charon instance
-   - Verify 3 presets exist in database
-   - Verify UUIDs are correct: `preset-basic`, `preset-strict`, `preset-paranoid`
+**Possible alternative:**
+```go
+// Option A: Use Updates with Select (explicit fields)
+return s.db.Model(host).Select("SecurityHeaderProfileID").Updates(host).Error
 
-2. **Profile Assignment Flow**
-   - Create proxy host with Basic Security preset
-   - Verify `security_header_profile_id` is set in database
-   - Verify profile relationship loads correctly
-   - Verify Caddy config includes security headers
+// Option B: Use Updates (auto-detects changed fields)
+return s.db.Model(host).Updates(host).Error
+```
 
-3. **Profile Update Flow**
-   - Edit proxy host, change from Basic to Strict
-   - Verify `security_header_profile_id` updates
-   - Verify Caddy config updates with new headers
-
-4. **Profile Removal Flow**
-   - Edit proxy host, set profile to None
-   - Verify `security_header_profile_id` is NULL
-   - Verify Caddy config removes security headers
-
-### Manual QA Checklist
-
-- [ ] Presets visible on Security Headers page
-- [ ] "Apply" button removed from presets
-- [ ] "View" button opens read-only modal
-- [ ] Clone button creates editable copy
-- [ ] Proxy Host form shows Security Headers dropdown
-- [ ] Dropdown groups Presets vs Custom
-- [ ] Selected profile shows score inline
-- [ ] "Manage Profiles" link works
-- [ ] Creating host with profile saves correctly
-- [ ] Editing host can change profile
-- [ ] Removing profile (set to None) works
-- [ ] Caddy config includes headers when profile assigned
-- [ ] No errors in browser console
-- [ ] TypeScript compiles without errors
+**Note:** `Updates()` skips zero values but handles nil pointers correctly. Need to test.
 
 ---
 
-## Edge Cases & Considerations
+## Testing Plan
 
-### 1. Deleting a Profile That's In Use
+### Phase 1: Add Logging (Diagnostic)
 
-**Current Behavior:**
-Backend checks if profile is in use before deletion ([security_headers_handler.go:202](../backend/internal/api/handlers/security_headers_handler.go#L202))
+1. Implement Fix 2 (backend logging)
+2. Deploy to test environment
+3. Reproduce the bug:
+   - Create host with Strict profile
+   - Edit host, change to Basic profile
+   - Check logs to see:
+     - What value was received
+     - What type it was
+     - If conversion succeeded
+     - What value was set
+4. Check database directly:
+   ```sql
+   SELECT id, name, security_header_profile_id FROM proxy_hosts WHERE name = 'Test Host';
+   ```
 
-**Expected Behavior:**
-- User tries to delete profile
-- Backend returns error: "Cannot delete profile, it is assigned to N hosts"
-- Frontend shows error toast
-- User must reassign hosts first
+### Phase 2: Fix Issues (Implementation)
 
-**No Changes Needed** - Already handled correctly
+Based on log findings:
+- If conversion is failing → Fix conversion logic
+- If GORM isn't saving → Change to `Updates()` or `Select()`
+- If payload is wrong type → Investigate middleware/JSON unmarshaling
 
-### 2. Editing a Preset (Should Be Read-Only)
+### Phase 3: Frontend Safety (Prevention)
 
-**Current Behavior:**
-`SecurityHeaderProfileForm` checks `initialData?.is_preset` and disables fields
+1. Implement Fix 1 (explicit value handling)
+2. Test all scenarios:
+   - Select "None" → Should send `null`
+   - Select "Basic" → Should send profile ID
+   - Select invalid option → Should handle gracefully
 
-**Expected Behavior:**
-- User clicks "View" on preset
-- Modal opens in read-only mode
-- All fields disabled
-- "Save" button hidden
-- "Clone" button available
+### Phase 4: Verification (End-to-End)
 
-**Implementation:**
-Already handled in `SecurityHeaderProfileForm.tsx` - verify it works
-
-### 3. Preset Updates (When Charon Updates)
-
-**Scenario:**
-New Charon version updates Strict preset from Score 85 → 87
-
-**Current Behavior:**
-`EnsurePresetsExist()` updates existing presets on startup
-
-**Expected Behavior:**
-- User updates Charon
-- Startup runs `EnsurePresetsExist()`
-- Presets update to new values
-- Hosts using presets automatically get new headers on next Caddy reload
-
-**No Changes Needed** - Already handled correctly
-
-### 4. Cloning a Preset
-
-**Expected Behavior:**
-- User clicks "Clone" on "Basic Security"
-- Creates new profile "Basic Security (Copy)"
-- `is_preset = false`
-- `preset_type = ""`
-- New UUID generated
-- User can now edit it
-
-**Implementation:**
-Already implemented via `handleCloneProfile()` - verify it works
-
-### 5. Deleting All Custom Profiles
-
-**Expected Behavior:**
-- User deletes all custom profiles
-- Custom Profiles section shows empty state
-- Presets section still visible
-- No UI breakage
-
-**Implementation:**
-Already handled - conditional rendering based on `customProfiles.length === 0`
+1. Create proxy host
+2. Assign Strict profile (ID 2)
+3. Save → Verify in DB: `security_header_profile_id = 2`
+4. Edit host
+5. Change to Basic profile (ID 1)
+6. Save → Verify in DB: `security_header_profile_id = 1` ✓
+7. Edit host
+8. Change to None
+9. Save → Verify in DB: `security_header_profile_id = NULL` ✓
 
 ---
 
-## Rollback Plan
+## Edge Cases to Test
 
-If critical issues found after deployment:
-
-1. **Frontend Only Rollback**
-   - Revert ProxyHostForm changes
-   - Users lose ability to assign profiles (but data safe)
-   - Existing assignments remain in database
-
-2. **Full Rollback**
-   - Revert all changes
-   - Data: Keep `security_header_profile_id` values in database
-   - No data loss - just UI reverts
-
-3. **Database Migration (if needed)**
-   - Not required - field already exists
-   - No schema changes in this update
+1. **Changing between non-zero profiles:** Strict (2) → Basic (1)
+2. **Setting to None:** Basic (1) → None (null)
+3. **Setting from None:** None (null) → Strict (2)
+4. **Rapid changes:** Strict → Basic → Paranoid → None
+5. **Invalid profile ID:** Send ID 999 (non-existent)
+6. **Zero profile ID:** Send ID 0 (should become null)
+7. **Negative ID:** Send ID -1 (should reject)
+8. **String ID:** Send "2" as string (should convert)
+9. **Float ID:** Send 2.5 (should reject - not a valid uint)
 
 ---
 
-## Success Metrics
+## Success Criteria
 
-### User Experience
-- ✅ No more confusing "Apply" button
-- ✅ Clear visual hierarchy: System Profiles vs Custom
-- ✅ Easy discovery of security header assignment
-- ✅ Inline security score helps decision-making
+✅ **Bug is fixed when:**
 
-### Technical
-- ✅ Zero breaking changes to API
-- ✅ Backward compatible with existing data
-- ✅ No new database migrations needed
-- ✅ Type-safe TypeScript interfaces
-
-### Validation
-- [ ] Run pre-commit checks (all pass)
-- [ ] Backend unit tests (coverage ≥85%)
-- [ ] Frontend unit tests (coverage ≥85%)
-- [ ] Manual QA checklist (all items checked)
-- [ ] TypeScript compiles without errors
+1. User can change security header profile from one to another, and it persists after save
+2. User can set profile to "None" (null), and it persists
+3. User can set profile from "None" to any preset, and it persists
+4. Backend logs show clear diagnostic information when profile changes
+5. Invalid profile IDs return explicit errors (not silent failures)
+6. All edge cases pass testing
+7. No regressions in other proxy host fields
 
 ---
 
 ## Files to Modify
 
-### Backend (2 files)
-1. `backend/internal/api/handlers/proxy_host_handler.go` - Add security_header_profile_id support
-2. `backend/internal/services/proxy_host_service.go` - Add Preload("SecurityHeaderProfile")
+### High Priority (Fixes)
 
-### Frontend (3 files)
-1. `frontend/src/api/proxyHosts.ts` - Add security_header_profile_id to interface
-2. `frontend/src/components/ProxyHostForm.tsx` - Add Security Headers section
-3. `frontend/src/pages/SecurityHeaders.tsx` - Remove Apply button, update UI
+1. **backend/internal/api/handlers/proxy_host_handler.go** (Lines 231-248)
+   - Add logging
+   - Add error handling
+   - Remove silent failures
 
-### Tests (2+ files)
-1. `backend/internal/api/handlers/proxy_host_handler_test.go` - Add security profile tests
-2. `frontend/src/components/ProxyHostForm.test.tsx` - Add security headers tests
+2. **frontend/src/components/ProxyHostForm.tsx** (Lines 658-661)
+   - Explicit value handling
+   - Remove falsy coercion
 
-### Docs (1 file)
-1. `docs/features.md` - Update security headers documentation
+### Medium Priority (Investigation)
 
----
+3. **backend/internal/services/proxyhost_service.go** (Line 92)
+   - Verify GORM Save() vs Updates()
+   - May need to change update method
 
-## Dependencies & Prerequisites
+### Low Priority (Testing)
 
-### Already Satisfied ✅
-- Backend model has `SecurityHeaderProfileID` field
-- Backend relationships configured (GORM foreign keys)
-- `EnsurePresetsExist()` runs on startup
-- Presets service methods exist
-- Security header profiles API endpoints exist
-- Frontend hooks for security headers exist
-
-### New Dependencies ❌
-- None - All required functionality already exists
+4. **backend/internal/api/handlers/proxy_host_handler_test.go**
+   - Add test for security header profile updates
+   - Test edge cases
 
 ---
 
@@ -754,147 +488,128 @@ If critical issues found after deployment:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| Breaking existing hosts | Low | High | Backward compatible - field already exists, nullable |
-| TypeScript errors | Low | Medium | Run type-check before commit |
-| Caddy config errors | Low | High | Test with various profile types |
-| UI confusion | Low | Low | Clear labels, grouped options |
-| Performance impact | Very Low | Low | Single extra Preload, negligible |
+| GORM doesn't save nullable pointers | Medium | High | Test with Updates() method |
+| Frontend sends wrong type | Low | High | Add explicit type checking |
+| Middleware modifies payload | Low | High | Add early logging to check |
+| Conversion logic has bugs | Low | Medium | Add comprehensive unit tests |
+| Breaking other fields | Very Low | High | Test full proxy host CRUD |
 
 ---
 
-## Timeline
+## Implementation Priority
 
-- **Phase 1-2 (Backend + Types):** 40 minutes
-- **Phase 3 (Frontend UI):** 45 minutes
-- **Phase 4 (Testing):** 45 minutes
-- **Phase 5 (Documentation):** 15 minutes
-
-**Total:** ~2.5 hours for complete implementation and testing
+1. **CRITICAL:** Add backend logging (Fix 2) - Enables diagnosis
+2. **HIGH:** Add error handling (Fix 2) - Prevents silent failures
+3. **MEDIUM:** Frontend safety (Fix 1) - Prevents edge case bugs
+4. **LOW:** GORM investigation (Fix 3) - Only if Save() proves problematic
 
 ---
 
-## Appendix A: Current Code Analysis
+## Next Steps
 
-### Startup Flow
+1. **Implement Fix 2** (backend logging) - ~15 minutes
+2. **Deploy to test environment** - ~5 minutes
+3. **Reproduce bug with logging enabled** - ~10 minutes
+4. **Analyze logs** - ~10 minutes
+5. **Implement remaining fixes based on findings** - ~20 minutes
+6. **Test all edge cases** - ~30 minutes
+7. **Document findings** - ~10 minutes
 
-```
-main()
-  ↓
-server.Run()
-  ↓
-routes.RegisterRoutes()
-  ↓
-secHeadersSvc.EnsurePresetsExist()  ← RUNS HERE
-  ↓
-Creates/Updates 3 presets in database
-```
-
-**Verification Query:**
-```sql
-SELECT id, uuid, name, is_preset, preset_type, security_score
-FROM security_header_profiles
-WHERE is_preset = true;
-```
-
-**Expected Result:**
-```
-id | uuid            | name                | is_preset | preset_type | security_score
----+-----------------+---------------------+-----------+-------------+---------------
-1  | preset-basic    | Basic Security      | true      | basic       | 65
-2  | preset-strict   | Strict Security     | true      | strict      | 85
-3  | preset-paranoid | Paranoid Security   | true      | paranoid    | 100
-```
-
-### Current ProxyHost Data Flow
-
-```
-Frontend (ProxyHostForm)
-  ↓ POST /api/v1/proxy-hosts
-Backend Handler (Create)
-  ↓ Validates JSON
-ProxyHostService.Create()
-  ↓ GORM Insert
-Database (proxy_hosts table)
-  ↓ Includes certificate_id, access_list_id
-  ↓ SHOULD include security_header_profile_id (but form doesn't send it)
-```
-
-### Missing Piece
-
-**Form doesn't include:**
-```typescript
-security_header_profile_id: formData.security_header_profile_id
-```
-
-**Handler doesn't read:**
-```go
-if v, ok := payload["security_header_profile_id"]; ok {
-    // ... handle it
-}
-```
+**Total estimated time:** ~1.5 hours
 
 ---
 
-## Appendix B: Preset Definitions
+## Conclusion
 
-### Basic Security (Score: 65)
-- HSTS: 1 year, no subdomains
-- X-Frame-Options: SAMEORIGIN
-- X-Content-Type-Options: nosniff
-- Referrer-Policy: strict-origin-when-cross-origin
-- XSS-Protection: enabled
-- **No CSP** (to avoid breaking sites)
+The root cause of the security header profile persistence bug is likely a **silent failure in the backend handler's type conversion logic**. The lack of logging makes it impossible to diagnose the exact failure point.
 
-### Strict Security (Score: 85)
-- HSTS: 1 year, includes subdomains
-- CSP: Restrictive defaults
-- X-Frame-Options: DENY
-- Permissions-Policy: Block camera/mic/geolocation
-- CORS policies: same-origin
-- XSS-Protection: enabled
+The immediate fix is to:
+1. Add comprehensive logging to track the value through its lifecycle
+2. Add explicit error handling to prevent silent failures
+3. Improve frontend value handling to prevent edge cases
 
-### Paranoid Security (Score: 100)
-- HSTS: 2 years, preload enabled
-- CSP: Maximum restrictions
-- X-Frame-Options: DENY
-- Permissions-Policy: Block all dangerous features
-- CORS: Strict same-origin
-- Cache-Control: no-store
-- Cross-Origin-Embedder-Policy: require-corp
+Once logging is in place, we can identify the exact failure point and implement a targeted fix.
 
 ---
 
-## Notes for Implementation
-
-1. **Start with Backend** - Easier to test with curl before UI work
-2. **Use VS Code Tasks** - Run "Lint: TypeScript Check" after frontend changes
-3. **Test Incrementally** - Don't wait until everything is done
-4. **Check Caddy Config** - Verify headers appear in generated config
-5. **Mobile Responsive** - Test dropdown on mobile viewport
-6. **Accessibility** - Ensure dropdown has proper labels
-7. **Dark Mode** - Verify colors work in both themes
+**Investigation Date:** 2025-12-18
+**Status:** Root cause hypothesized, fix plan documented
+**Next Action:** Implement backend logging to confirm hypothesis
 
 ---
 
-## Questions Resolved During Investigation
+## Appendix: Expected vs. Actual Data Flow
 
-**Q: Are presets created in the database?**
-**A:** Yes, `EnsurePresetsExist()` runs on startup and creates/updates them.
+### Expected Data Flow (Should Work)
 
-**Q: Does the backend model support profile assignment?**
-**A:** Yes, `SecurityHeaderProfileID` field exists with proper GORM relationships.
+```
+Frontend
+  User changes dropdown to "Basic" (ID 1)
+    ↓
+  onChange fires: parseInt("1") = 1
+    ↓
+  setFormData({ security_header_profile_id: 1 })
+    ↓
+  User clicks Save
+    ↓
+  handleSubmit sends: {"security_header_profile_id": 1}
+    ↓
+Backend
+  Gin unmarshals JSON: payload["security_header_profile_id"] = float64(1.0)
+    ↓
+  Handler checks: if v, ok := payload["security_header_profile_id"]; ok { ✓
+    ↓
+  v == nil? No ✓
+    ↓
+  switch t := v.(type) { case float64: ✓
+    ↓
+  safeFloat64ToUint(1.0) returns (1, true) ✓
+    ↓
+  host.SecurityHeaderProfileID = &1 ✓
+    ↓
+  h.service.Update(host) ✓
+    ↓
+  s.db.Save(host) ✓
+    ↓
+Database
+  UPDATE proxy_hosts SET security_header_profile_id = 1 WHERE id = X ✓
+```
 
-**Q: Do the handlers support the field?**
-**A:** No - Update handler needs to be modified to accept `security_header_profile_id`.
+**This flow SHOULD work! So why doesn't it?**
 
-**Q: Is there UI to assign profiles?**
-**A:** No - ProxyHostForm has no security headers section. This is the main missing piece.
+### Actual Data Flow (Hypothesis - Needs Logging to Confirm)
 
-**Q: What does "Apply" button do?**
-**A:** It calls `ApplyPreset()` which COPIES the preset to create a new custom profile. Confusing!
+**Scenario A: Payload Type Mismatch**
+```
+Frontend sends: {"security_header_profile_id": "1"}  ← String instead of number!
+Backend receives: v = "1" (string)
+Type switch enters: case string:
+strconv.ParseUint("1", 10, 32) succeeds
+Sets: host.SecurityHeaderProfileID = &1
+BUT: Something downstream fails or overwrites it
+```
+
+**Scenario B: GORM Save Issue**
+```
+Everything up to Save() works correctly
+host.SecurityHeaderProfileID = &1 ✓
+db.Save(host) is called
+BUT: GORM doesn't detect the field as "changed"
+OR: GORM skips nullable pointer updates
+Result: Old value remains in database
+```
+
+**Scenario C: Concurrent Request**
+```
+Request A: Sets profile to Basic (ID 1)
+Request B: Reloads host data (has Strict, ID 2)
+Request A saves: profile_id = 1
+Request B saves: profile_id = 2  ← Overwrites A's change
+Result: Profile reverts to Strict
+```
+
+**Only logging will tell us which scenario is happening!**
 
 ---
 
-**End of Specification**
-
-This document is ready for implementation. Follow the phases in order, run tests after each phase, and verify the UX improvements work as expected.
+**End of Investigation Report**
