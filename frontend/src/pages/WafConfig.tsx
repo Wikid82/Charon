@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -48,17 +49,21 @@ function ConfirmDialog({
   title,
   message,
   confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   isLoading,
+  deletingLabel,
 }: {
   isOpen: boolean
   title: string
   message: string
   confirmLabel: string
+  cancelLabel: string
   onConfirm: () => void
   onCancel: () => void
   isLoading?: boolean
+  deletingLabel: string
 }) {
   if (!isOpen) return null
 
@@ -76,7 +81,7 @@ function ConfirmDialog({
         <p className="text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onCancel} disabled={isLoading}>
-            Cancel
+            {cancelLabel}
           </Button>
           <Button
             variant="danger"
@@ -84,7 +89,7 @@ function ConfirmDialog({
             disabled={isLoading}
             data-testid="confirm-delete-btn"
           >
-            {isLoading ? 'Deleting...' : confirmLabel}
+            {isLoading ? deletingLabel : confirmLabel}
           </Button>
         </div>
       </div>
@@ -100,11 +105,13 @@ function RuleSetForm({
   onSubmit,
   onCancel,
   isLoading,
+  t,
 }: {
   initialData?: SecurityRuleSet
   onSubmit: (data: UpsertRuleSetPayload) => void
   onCancel: () => void
   isLoading?: boolean
+  t: (key: string) => string
 }) {
   const [name, setName] = useState(initialData?.name || '')
   const [sourceUrl, setSourceUrl] = useState(initialData?.source_url || '')
@@ -146,7 +153,7 @@ function RuleSetForm({
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-1.5">
             <Sparkles className="inline h-4 w-4 mr-1 text-yellow-400" />
-            Quick Start with Preset
+            {t('wafConfig.quickStartPreset')}
           </label>
           <select
             value={selectedPreset}
@@ -154,7 +161,7 @@ function RuleSetForm({
             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             data-testid="preset-select"
           >
-            <option value="">Choose a preset...</option>
+            <option value="">{t('wafConfig.choosePreset')}</option>
             {WAF_PRESETS.map((preset) => (
               <option key={preset.name} value={preset.name}>
                 {preset.name}
@@ -170,16 +177,16 @@ function RuleSetForm({
       )}
 
       <Input
-        label="Rule Set Name"
+        label={t('wafConfig.ruleSetName')}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="e.g., OWASP CRS"
+        placeholder={t('wafConfig.ruleSetNamePlaceholder')}
         required
         data-testid="ruleset-name-input"
       />
 
       <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">Mode</label>
+        <label className="block text-sm font-medium text-gray-300 mb-1.5">{t('wafConfig.mode')}</label>
         <div className="flex gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -191,7 +198,7 @@ function RuleSetForm({
               className="text-blue-600 focus:ring-blue-500"
               data-testid="mode-blocking"
             />
-            <span className="text-sm text-gray-300">Blocking</span>
+            <span className="text-sm text-gray-300">{t('wafConfig.blocking')}</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -203,28 +210,28 @@ function RuleSetForm({
               className="text-blue-600 focus:ring-blue-500"
               data-testid="mode-detection"
             />
-            <span className="text-sm text-gray-300">Detection Only</span>
+            <span className="text-sm text-gray-300">{t('wafConfig.detectionOnly')}</span>
           </label>
         </div>
         <p className="mt-1 text-xs text-gray-500">
           {mode === 'blocking'
-            ? 'Malicious requests will be blocked with HTTP 403'
-            : 'Malicious requests will be logged but not blocked'}
+            ? t('wafConfig.blockingDescription')
+            : t('wafConfig.detectionDescription')}
         </p>
       </div>
 
       <Input
-        label="Source URL (optional)"
+        label={t('wafConfig.sourceUrl')}
         value={sourceUrl}
         onChange={(e) => setSourceUrl(e.target.value)}
         placeholder="https://example.com/rules.conf"
-        helperText="URL to fetch rules from. Leave empty to use inline content."
+        helperText={t('wafConfig.sourceUrlHelper')}
         data-testid="ruleset-url-input"
       />
 
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-1.5">
-          Rule Content {!sourceUrl && <span className="text-red-400">*</span>}
+          {t('wafConfig.ruleContent')} {!sourceUrl && <span className="text-red-400">*</span>}
         </label>
         <textarea
           value={content}
@@ -235,16 +242,16 @@ function RuleSetForm({
           data-testid="ruleset-content-input"
         />
         <p className="mt-1 text-xs text-gray-500">
-          ModSecurity/Coraza rule syntax. Each SecRule should be on its own line.
+          {t('wafConfig.ruleContentHelper')}
         </p>
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
         <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button type="submit" disabled={!isValid || isLoading} isLoading={isLoading}>
-          {initialData ? 'Update Rule Set' : 'Create Rule Set'}
+          {initialData ? t('wafConfig.updateRuleSet') : t('wafConfig.createRuleSet')}
         </Button>
       </div>
     </form>
@@ -255,6 +262,7 @@ function RuleSetForm({
  * WAF Configuration Page - Manage Coraza rule sets
  */
 export default function WafConfig() {
+  const { t } = useTranslation()
   const { data: ruleSets, isLoading, error } = useRuleSets()
   const upsertMutation = useUpsertRuleSet()
   const deleteMutation = useDeleteRuleSet()
@@ -270,13 +278,13 @@ export default function WafConfig() {
   const getMessage = () => {
     if (upsertMutation.isPending) {
       return editingRuleSet
-        ? { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
-        : { message: 'Forging new defenses...', submessage: 'Security rules inscribing' }
+        ? { message: t('wafConfig.cerberusAwakens'), submessage: t('wafConfig.guardianStandsWatch') }
+        : { message: t('wafConfig.forgingDefenses'), submessage: t('wafConfig.rulesInscribing') }
     }
     if (deleteMutation.isPending) {
-      return { message: 'Lowering a barrier...', submessage: 'Defense layer removed' }
+      return { message: t('wafConfig.loweringBarrier'), submessage: t('wafConfig.defenseLayerRemoved') }
     }
-    return { message: 'Cerberus awakens...', submessage: 'Guardian of the gates stands watch' }
+    return { message: t('wafConfig.cerberusAwakens'), submessage: t('wafConfig.guardianStandsWatch') }
   }
 
   const { message, submessage } = getMessage()
@@ -306,7 +314,7 @@ export default function WafConfig() {
   if (isLoading) {
     return (
       <div className="p-8 text-center text-white" data-testid="waf-loading">
-        Loading WAF configuration...
+        {t('wafConfig.loadingConfiguration')}
       </div>
     )
   }
@@ -314,7 +322,7 @@ export default function WafConfig() {
   if (error) {
     return (
       <div className="p-8 text-center text-red-400" data-testid="waf-error">
-        Failed to load WAF configuration: {error instanceof Error ? error.message : 'Unknown error'}
+        {t('wafConfig.failedToLoad')}: {error instanceof Error ? error.message : t('common.unknownError')}
       </div>
     )
   }
@@ -336,10 +344,10 @@ export default function WafConfig() {
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Shield className="w-7 h-7 text-blue-400" />
-            WAF Configuration
+            {t('wafConfig.title')}
           </h1>
           <p className="text-gray-400 mt-1">
-            Manage Coraza Web Application Firewall rule sets
+            {t('wafConfig.description')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -351,11 +359,11 @@ export default function WafConfig() {
             }
           >
             <ExternalLink className="h-4 w-4 mr-2" />
-            Rule Syntax
+            {t('wafConfig.ruleSyntax')}
           </Button>
           <Button onClick={() => setShowCreateForm(true)} data-testid="create-ruleset-btn">
             <Plus className="h-4 w-4 mr-2" />
-            Add Rule Set
+            {t('wafConfig.addRuleSet')}
           </Button>
         </div>
       </div>
@@ -366,12 +374,10 @@ export default function WafConfig() {
           <FileCode2 className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
           <div>
             <h3 className="text-sm font-semibold text-blue-300 mb-1">
-              About WAF Rule Sets
+              {t('wafConfig.aboutTitle')}
             </h3>
             <p className="text-sm text-blue-200/90">
-              Rule sets define ModSecurity/Coraza rules that inspect and filter HTTP
-              requests. The WAF automatically enables <code>SecRuleEngine On</code> and{' '}
-              <code>SecRequestBodyAccess On</code> for your rules.
+              {t('wafConfig.aboutDescription')}
             </p>
           </div>
         </div>
@@ -380,11 +386,12 @@ export default function WafConfig() {
       {/* Create Form */}
       {showCreateForm && (
         <div className="bg-dark-card border border-gray-800 rounded-lg p-6">
-          <h2 className="text-xl font-bold text-white mb-4">Create Rule Set</h2>
+          <h2 className="text-xl font-bold text-white mb-4">{t('wafConfig.createRuleSet')}</h2>
           <RuleSetForm
             onSubmit={handleCreate}
             onCancel={() => setShowCreateForm(false)}
             isLoading={upsertMutation.isPending}
+            t={t}
           />
         </div>
       )}
@@ -393,14 +400,14 @@ export default function WafConfig() {
       {editingRuleSet && (
         <div className="bg-dark-card border border-gray-800 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-white">Edit Rule Set</h2>
+            <h2 className="text-xl font-bold text-white">{t('wafConfig.editRuleSet')}</h2>
             <Button
               variant="danger"
               size="sm"
               onClick={() => setDeleteConfirm(editingRuleSet)}
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Delete
+              {t('common.delete')}
             </Button>
           </div>
           <RuleSetForm
@@ -408,6 +415,7 @@ export default function WafConfig() {
             onSubmit={handleUpdate}
             onCancel={() => setEditingRuleSet(null)}
             isLoading={upsertMutation.isPending}
+            t={t}
           />
         </div>
       )}
@@ -415,9 +423,11 @@ export default function WafConfig() {
       {/* Delete Confirmation */}
       <ConfirmDialog
         isOpen={deleteConfirm !== null}
-        title="Delete Rule Set"
-        message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title={t('wafConfig.deleteRuleSet')}
+        message={t('wafConfig.deleteConfirmation', { name: deleteConfirm?.name })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        deletingLabel={t('common.deleting')}
         onConfirm={handleDelete}
         onCancel={() => setDeleteConfirm(null)}
         isLoading={deleteMutation.isPending}
@@ -430,13 +440,13 @@ export default function WafConfig() {
           data-testid="waf-empty-state"
         >
           <div className="text-gray-500 mb-4 text-4xl">🛡️</div>
-          <h3 className="text-lg font-semibold text-white mb-2">No Rule Sets</h3>
+          <h3 className="text-lg font-semibold text-white mb-2">{t('wafConfig.noRuleSets')}</h3>
           <p className="text-gray-400 mb-4">
-            Create your first WAF rule set to protect your services from web attacks
+            {t('wafConfig.noRuleSetsDescription')}
           </p>
           <Button onClick={() => setShowCreateForm(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Create Rule Set
+            {t('wafConfig.createRuleSet')}
           </Button>
         </div>
       )}
@@ -448,19 +458,19 @@ export default function WafConfig() {
             <thead className="bg-gray-900/50 border-b border-gray-800">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                  Name
+                  {t('common.name')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                  Mode
+                  {t('wafConfig.mode')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                  Source
+                  {t('wafConfig.source')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">
-                  Last Updated
+                  {t('wafConfig.lastUpdated')}
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase">
-                  Actions
+                  {t('common.actions')}
                 </th>
               </tr>
             </thead>
@@ -471,7 +481,7 @@ export default function WafConfig() {
                     <p className="font-medium text-white">{rs.name}</p>
                     {rs.content && (
                       <p className="text-xs text-gray-500 mt-1">
-                        {rs.content.split('\n').filter((l) => l.trim()).length} rule(s)
+                        {t('wafConfig.ruleCount', { count: rs.content.split('\n').filter((l) => l.trim()).length })}
                       </p>
                     )}
                   </td>
@@ -483,7 +493,7 @@ export default function WafConfig() {
                           : 'bg-yellow-900/30 text-yellow-300'
                       }`}
                     >
-                      {rs.mode === 'blocking' ? 'Blocking' : 'Detection'}
+                      {rs.mode === 'blocking' ? t('wafConfig.blocking') : t('wafConfig.detection')}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -494,11 +504,11 @@ export default function WafConfig() {
                         rel="noopener noreferrer"
                         className="text-sm text-blue-400 hover:underline flex items-center gap-1"
                       >
-                        URL
+                        {t('wafConfig.url')}
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : (
-                      <span className="text-sm text-gray-500">Inline</span>
+                      <span className="text-sm text-gray-500">{t('wafConfig.inline')}</span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-400">
@@ -511,7 +521,7 @@ export default function WafConfig() {
                       <button
                         onClick={() => setEditingRuleSet(rs)}
                         className="text-gray-400 hover:text-blue-400"
-                        title="Edit"
+                        title={t('common.edit')}
                         data-testid={`edit-ruleset-${rs.id}`}
                       >
                         <Pencil className="h-4 w-4" />
@@ -519,7 +529,7 @@ export default function WafConfig() {
                       <button
                         onClick={() => setDeleteConfirm(rs)}
                         className="text-gray-400 hover:text-red-400"
-                        title="Delete"
+                        title={t('common.delete')}
                         data-testid={`delete-ruleset-${rs.id}`}
                       >
                         <Trash2 className="h-4 w-4" />

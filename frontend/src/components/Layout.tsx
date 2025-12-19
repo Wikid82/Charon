@@ -1,6 +1,7 @@
 import { ReactNode, useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
 import { useAuth } from '../hooks/useAuth'
@@ -23,6 +24,7 @@ type NavItem = {
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const { t } = useTranslation()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebarCollapsed')
@@ -56,56 +58,56 @@ export default function Layout({ children }: LayoutProps) {
   })
 
   const navigation: NavItem[] = [
-    { name: 'Dashboard', path: '/', icon: '📊' },
-    { name: 'Proxy Hosts', path: '/proxy-hosts', icon: '🌐' },
-    { name: 'Remote Servers', path: '/remote-servers', icon: '🖥️' },
-    { name: 'Domains', path: '/domains', icon: '🌍' },
-    { name: 'Certificates', path: '/certificates', icon: '🔒' },
-    { name: 'Uptime', path: '/uptime', icon: '📈' },
-    { name: 'Cerberus', path: '/security', icon: '🛡️', children: [
-      { name: 'Dashboard', path: '/security', icon: '🛡️' },
-      { name: 'CrowdSec', path: '/security/crowdsec', icon: '🛡️' },
-      { name: 'Access Lists', path: '/security/access-lists', icon: '🔒' },
-      { name: 'Rate Limiting', path: '/security/rate-limiting', icon: '⚡' },
-      { name: 'Coraza', path: '/security/waf', icon: '🛡️' },
-      { name: 'Security Headers', path: '/security/headers', icon: '🔐' },
+    { name: t('navigation.dashboard'), path: '/', icon: '📊' },
+    { name: t('navigation.proxyHosts'), path: '/proxy-hosts', icon: '🌐' },
+    { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
+    { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
+    { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
+    { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
+    { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
+      { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
+      { name: t('navigation.crowdsec'), path: '/security/crowdsec', icon: '🛡️' },
+      { name: t('navigation.accessLists'), path: '/security/access-lists', icon: '🔒' },
+      { name: t('navigation.rateLimiting'), path: '/security/rate-limiting', icon: '⚡' },
+      { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
+      { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
     ]},
-    { name: 'Notifications', path: '/notifications', icon: '🔔' },
+    { name: t('navigation.notifications'), path: '/notifications', icon: '🔔' },
     // Import group moved under Tasks
     {
-      name: 'Settings',
+      name: t('navigation.settings'),
       path: '/settings',
       icon: '⚙️',
       children: [
-        { name: 'System', path: '/settings/system', icon: '⚙️' },
-        { name: 'Email (SMTP)', path: '/settings/smtp', icon: '📧' },
-        { name: 'Admin Account', path: '/settings/account', icon: '🛡️' },
-        { name: 'Account Management', path: '/settings/account-management', icon: '👥' },
+        { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
+        { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
+        { name: t('navigation.adminAccount'), path: '/settings/account', icon: '🛡️' },
+        { name: t('navigation.accountManagement'), path: '/settings/account-management', icon: '👥' },
       ]
     },
     {
-      name: 'Tasks',
+      name: t('navigation.tasks'),
       path: '/tasks',
       icon: '📋',
       children: [
         {
-          name: 'Import',
+          name: t('navigation.import'),
           path: '/tasks/import',
           icon: '📥',
           children: [
-            { name: 'Caddyfile', path: '/tasks/import/caddyfile', icon: '📥' },
-            { name: 'CrowdSec', path: '/tasks/import/crowdsec', icon: '🛡️' },
+            { name: t('navigation.caddyfile'), path: '/tasks/import/caddyfile', icon: '📥' },
+            { name: t('navigation.crowdsec'), path: '/tasks/import/crowdsec', icon: '🛡️' },
           ]
         },
-        { name: 'Backups', path: '/tasks/backups', icon: '💾' },
-        { name: 'Logs', path: '/tasks/logs', icon: '📝' },
+        { name: t('navigation.backups'), path: '/tasks/backups', icon: '💾' },
+        { name: t('navigation.logs'), path: '/tasks/logs', icon: '📝' },
       ]
     },
   ].filter(item => {
     // Optional Features Logic
     // Default to visible (true) if flags are loading or undefined
-    if (item.name === 'Uptime') return featureFlags?.['feature.uptime.enabled'] !== false
-    if (item.name === 'Cerberus') return featureFlags?.['feature.cerberus.enabled'] !== false
+    if (item.name === t('navigation.uptime')) return featureFlags?.['feature.uptime.enabled'] !== false
+    if (item.name === t('navigation.security')) return featureFlags?.['feature.cerberus.enabled'] !== false
     return true
   })
 
@@ -298,7 +300,7 @@ export default function Layout({ children }: LayoutProps) {
               className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors text-red-600 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900"
             >
               <span className="text-lg">🚪</span>
-              Logout
+              {t('auth.logout')}
             </button>
           </div>
 
@@ -311,7 +313,7 @@ export default function Layout({ children }: LayoutProps) {
                     logout()
                   }}
                   className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                  title="Logout"
+                  title={t('auth.logout')}
                 >
                   <span className="text-lg">🚪</span>
                 </button>
@@ -338,7 +340,7 @@ export default function Layout({ children }: LayoutProps) {
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={isCollapsed ? t('navigation.expandSidebar') : t('navigation.collapseSidebar')}
               >
                 <Menu className="w-5 h-5" />
               </button>

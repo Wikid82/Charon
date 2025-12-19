@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useDomains } from '../hooks/useDomains'
 import { Trash2, Plus, Globe, Loader2 } from 'lucide-react'
 
 export default function Domains() {
+  const { t } = useTranslation()
   const { domains, isLoading, isFetching, error, createDomain, deleteDomain } = useDomains()
   const [newDomain, setNewDomain] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -16,30 +18,30 @@ export default function Domains() {
       await createDomain(newDomain)
       setNewDomain('')
     } catch {
-      alert('Failed to create domain')
+      alert(t('domains.createFailed'))
     } finally {
       setIsSubmitting(false)
     }
   }
 
   const handleDelete = async (uuid: string) => {
-    if (confirm('Are you sure you want to delete this domain?')) {
+    if (confirm(t('domains.deleteConfirm'))) {
       try {
         await deleteDomain(uuid)
       } catch {
-        alert('Failed to delete domain')
+        alert(t('domains.deleteFailed'))
       }
     }
   }
 
-  if (isLoading) return <div className="p-8 text-white">Loading...</div>
-  if (error) return <div className="p-8 text-red-400">Error loading domains</div>
+  if (isLoading) return <div className="p-8 text-white">{t('common.loading')}</div>
+  if (error) return <div className="p-8 text-red-400">{t('domains.loadError')}</div>
 
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-white">Domains</h1>
+          <h1 className="text-3xl font-bold text-white">{t('domains.title')}</h1>
           {isFetching && !isLoading && <Loader2 className="animate-spin text-blue-400" size={24} />}
         </div>
       </div>
@@ -49,18 +51,18 @@ export default function Domains() {
         <div className="bg-dark-card border border-gray-800 rounded-lg p-6">
           <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
             <Plus size={20} />
-            Add Domain
+            {t('domains.addDomain')}
           </h3>
           <form onSubmit={handleAdd} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-400 mb-1">
-                Domain Name
+                {t('domains.domainName')}
               </label>
               <input
                 type="text"
                 value={newDomain}
                 onChange={(e) => setNewDomain(e.target.value)}
-                placeholder="example.com"
+                placeholder={t('domains.placeholder')}
                 className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -69,7 +71,7 @@ export default function Domains() {
               disabled={isSubmitting || !newDomain.trim()}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded py-2 font-medium transition-colors disabled:opacity-50"
             >
-              {isSubmitting ? 'Adding...' : 'Add Domain'}
+              {isSubmitting ? t('domains.adding') : t('domains.addDomain')}
             </button>
           </form>
         </div>
@@ -85,14 +87,14 @@ export default function Domains() {
                 <div>
                   <h3 className="text-lg font-medium text-white">{domain.name}</h3>
                   <p className="text-sm text-gray-500">
-                    Added {new Date(domain.created_at).toLocaleDateString()}
+                    {t('domains.added', { date: new Date(domain.created_at).toLocaleDateString() })}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => handleDelete(domain.uuid)}
                 className="text-gray-500 hover:text-red-400 transition-colors"
-                title="Delete Domain"
+                title={t('domains.deleteDomain')}
               >
                 <Trash2 size={20} />
               </button>

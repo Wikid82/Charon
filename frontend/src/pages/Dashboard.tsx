@@ -1,4 +1,5 @@
 import { useMemo, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useProxyHosts } from '../hooks/useProxyHosts'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useCertificates } from '../hooks/useCertificates'
@@ -26,6 +27,7 @@ function StatsCardSkeleton() {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation()
   const { hosts, loading: hostsLoading } = useProxyHosts()
   const { servers, loading: serversLoading } = useRemoteServers()
   const { data: accessLists, isLoading: accessListsLoading } = useAccessLists()
@@ -84,8 +86,8 @@ export default function Dashboard() {
 
   return (
     <PageShell
-      title="Dashboard"
-      description="Overview of your Charon reverse proxy"
+      title={t('dashboard.title')}
+      description={t('dashboard.description')}
     >
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -100,57 +102,57 @@ export default function Dashboard() {
         ) : (
           <>
             <StatsCard
-              title="Proxy Hosts"
+              title={t('dashboard.proxyHosts')}
               value={hosts.length}
               icon={<Globe className="h-6 w-6" />}
               href="/proxy-hosts"
               change={enabledHosts > 0 ? {
                 value: Math.round((enabledHosts / hosts.length) * 100) || 0,
                 trend: 'neutral',
-                label: `${enabledHosts} enabled`,
+                label: t('common.enabledCount', { count: enabledHosts }),
               } : undefined}
             />
 
             <StatsCard
-              title="Certificate Status"
+              title={t('dashboard.certificateStatus')}
               value={certificates.length}
               icon={<FileKey className="h-6 w-6" />}
               href="/certificates"
               change={validCertificates > 0 ? {
                 value: Math.round((validCertificates / certificates.length) * 100) || 0,
                 trend: 'neutral',
-                label: `${validCertificates} valid`,
+                label: t('common.validCount', { count: validCertificates }),
               } : undefined}
             />
 
 
             <StatsCard
-              title="Remote Servers"
+              title={t('dashboard.remoteServers')}
               value={servers.length}
               icon={<Server className="h-6 w-6" />}
               href="/remote-servers"
               change={enabledServers > 0 ? {
                 value: Math.round((enabledServers / servers.length) * 100) || 0,
                 trend: 'neutral',
-                label: `${enabledServers} enabled`,
+                label: t('common.enabledCount', { count: enabledServers }),
               } : undefined}
             />
 
             <StatsCard
-              title="Access Lists"
+              title={t('dashboard.accessLists')}
               value={accessLists?.length ?? 0}
               icon={<FileKey className="h-6 w-6" />}
               href="/access-lists"
               change={enabledAccessLists > 0 ? {
                 value: Math.round((enabledAccessLists / (accessLists?.length ?? 1)) * 100) || 0,
                 trend: 'neutral',
-                label: `${enabledAccessLists} active`,
+                label: t('common.activeCount', { count: enabledAccessLists }),
               } : undefined}
             />
 
             <StatsCard
-              title="System Status"
-              value={healthLoading ? '...' : health?.status === 'ok' ? 'Healthy' : 'Error'}
+              title={t('dashboard.systemStatus')}
+              value={healthLoading ? '...' : health?.status === 'ok' ? t('dashboard.healthy') : t('common.error')}
               icon={
                 healthLoading ? (
                   <Activity className="h-6 w-6 animate-pulse" />

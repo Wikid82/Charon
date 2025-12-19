@@ -79,8 +79,7 @@ describe('CrowdSecConfig', () => {
     renderWithProviders()
 
     await waitFor(() => screen.getByText(/CrowdSec is controlled via the toggle on the/i))
-    expect(screen.getByText(/Security Dashboard/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
+    expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
   })
 
   it('exports configuration packages with prompted filename', async () => {

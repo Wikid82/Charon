@@ -145,8 +145,8 @@ describe('ProxyHosts - Coverage enhancements', () => {
       const user = userEvent.setup()
       const selectAllBtn = screen.getByLabelText('Select all rows')
       await user.click(selectAllBtn)
-      // Wait for selection UI to appear - text format includes "<strong>2</strong> hosts selected (all)"
-      await waitFor(() => expect(screen.getByText(/hosts?\s*selected/)).toBeTruthy())
+      // Wait for selection UI to appear - text format includes "<strong>2</strong> host(s) selected (all)"
+      await waitFor(() => expect(screen.getByText(/host\(s\) selected/)).toBeTruthy())
       // Also check for "(all)" indicator
       expect(screen.getByText(/\(all\)/)).toBeTruthy()
       // Click again to deselect
@@ -432,8 +432,8 @@ describe('ProxyHosts - Coverage enhancements', () => {
     await waitFor(() => expect(screen.getByText('S1')).toBeTruthy())
     const headerCheckbox = screen.getByLabelText('Select all rows')
     await userEvent.click(headerCheckbox)
-    // Wait for selection bar to appear and find the delete button
-    await waitFor(() => expect(screen.getByText(/hosts?\s*selected/)).toBeTruthy())
+    // Wait for selection bar to appear and find the delete button - text format is "host(s) selected"
+    await waitFor(() => expect(screen.getByText(/host\(s\) selected/)).toBeTruthy())
     // Click the bulk Delete button (with bg-error class) - there are multiple Delete buttons, get the one in selection bar
     const deleteButtons = screen.getAllByRole('button', { name: /Delete/ })
     // The bulk delete button has bg-error class
