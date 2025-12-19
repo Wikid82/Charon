@@ -46,6 +46,13 @@ type ProxyHost struct {
 	SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
 	SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"` // JSON for custom headers
 
+	// EnableStandardHeaders controls whether standard proxy headers are added
+	// Default: true for NEW hosts, false for EXISTING hosts (via migration/seed update)
+	// When true: Adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Port
+	// When false: Old behavior (headers only with WebSocket or application-specific)
+	// X-Forwarded-For is handled natively by Caddy (not explicitly set)
+	EnableStandardHeaders *bool `json:"enable_standard_headers,omitempty" gorm:"default:true"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

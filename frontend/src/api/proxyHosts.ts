@@ -32,6 +32,7 @@ export interface ProxyHost {
   hsts_subdomains: boolean;
   block_exploits: boolean;
   websocket_support: boolean;
+  enable_standard_headers?: boolean;
   application: ApplicationPreset;
   locations: Location[];
   advanced_config?: string;

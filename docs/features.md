@@ -83,6 +83,157 @@ You can re-enable features at any time without losing anything.
 
 ---
 
+## \ud83d\udce8 Standard Proxy Headers
+
+**What it does:** Automatically adds industry-standard HTTP headers to requests forwarded to your backend applications, providing them with information about the original client connection.
+
+**Why you care:** Your backend applications need to know the real client IP address and original protocol (HTTP vs HTTPS) for proper logging, security decisions, and functionality. Without these headers, your apps only see Charon's IP address.
+
+**What you do:** Enable the checkbox when creating/editing a proxy host, or use bulk apply to enable on multiple hosts at once.
+
+### What Headers Are Added?
+
+When enabled, Charon adds these four standard headers to every proxied request:
+
+| Header | Purpose | Example Value |
+|--------|---------|---------------|
+| `X-Real-IP` | The actual client IP address (not Charon's IP) | `203.0.113.42` |
+| `X-Forwarded-Proto` | Original protocol used by the client | `https` |
+| `X-Forwarded-Host` | Original Host header from the client | `example.com` |
+| `X-Forwarded-Port` | Original port the client connected to | `443` |
+| `X-Forwarded-For` | Chain of proxy IPs (managed by Caddy) | `203.0.113.42, 10.0.0.1` |
+
+**Note:** `X-Forwarded-For` is handled natively by Caddy's reverse proxy and is not explicitly set by Charon to prevent duplication.
+
+### Why These Headers Matter
+
+**Client IP Detection:**
+- Security logs show the real attacker IP, not Charon's internal IP
+- Rate limiting works correctly per-client instead of limiting all traffic
+- GeoIP-based features work with the client's location
+- Analytics tools track real user locations
+
+**HTTPS Enforcement:**
+- Backend apps know if the original connection was secure
+- Redirect logic works correctly (e.g., "redirect to HTTPS")
+- Session cookies can be marked `Secure` appropriately
+- Mixed content warnings are prevented
+
+**Virtual Host Routing:**
+- Backend apps can route requests based on the original hostname
+- Multi-tenant applications can identify the correct tenant
+- URL generation produces correct absolute URLs
+
+**Example Use Cases:**
+
+```python
+# Python/Flask: Get real client IP
+from flask import request
+client_ip = request.headers.get('X-Real-IP', request.remote_addr)
+logger.info(f"Request from {client_ip}")
+
+# Check if original connection was HTTPS
+is_secure = request.headers.get('X-Forwarded-Proto') == 'https'
+if not is_secure:
+    return redirect(request.url.replace('http://', 'https://'))
+```
+
+```javascript
+// Node.js/Express: Get real client IP
+app.use((req, res, next) => {
+  const clientIp = req.headers['x-real-ip'] || req.ip;
+  console.log(`Request from ${clientIp}`);
+  next();
+});
+
+// Trust proxy to correctly handle X-Forwarded-* headers
+app.set('trust proxy', true);
+```
+
+```go
+// Go: Get real client IP
+clientIP := r.Header.Get("X-Real-IP")
+if clientIP == "" {
+    clientIP = r.RemoteAddr
+}
+
+// Check original protocol
+isHTTPS := r.Header.Get("X-Forwarded-Proto") == "https"
+```
+
+### Default Behavior
+
+- **New proxy hosts**: Standard headers are **enabled by default** (best practice)
+- **Existing hosts**: Standard headers are **disabled by default** (backward compatible)
+- **Migration**: Use the info banner or bulk apply to enable on existing hosts
+
+### When to Enable
+
+✅ **Enable if your backend application:**
+- Needs accurate client IP addresses for security/logging
+- Enforces HTTPS or redirects based on protocol
+- Uses IP-based rate limiting or access control
+- Serves multiple virtual hosts/tenants
+- Generates absolute URLs or redirects
+
+### When to Disable
+
+❌ **Disable if your backend application:**
+- Is a legacy app that doesn't understand proxy headers
+- Has custom IP detection logic that conflicts with standard headers
+- Explicitly doesn't trust X-Forwarded-* headers (security policy)
+- Already receives these headers from another source
+
+### Security Considerations
+
+**Trusted Proxies:**
+Charon configures Caddy with `trusted_proxies` to prevent IP spoofing. Headers are only trusted when coming from Charon itself, not from external clients.
+
+**Header Injection:**
+Caddy overwrites any existing X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-Port headers sent by clients, preventing header injection attacks.
+
+**Backend Configuration:**
+Your backend application must be configured to trust proxy headers. Most frameworks have a "trust proxy" setting:
+- Express.js: `app.set('trust proxy', true)`
+- Django: `USE_X_FORWARDED_HOST = True`
+- Flask: Use `ProxyFix` middleware
+- Laravel: Set `trusted_proxies`
+
+### How to Enable
+
+**For a single host:**
+
+1. Go to **Proxy Hosts** → Click **Edit** on the desired host
+2. Scroll to the **Standard Proxy Headers** section
+3. Check **"Enable Standard Proxy Headers"**
+4. Click **Save**
+
+**For multiple hosts (bulk apply):**
+
+1. Go to **Proxy Hosts**
+2. Select checkboxes for the hosts you want to update
+3. Click **"Bulk Apply"** at the top
+4. Toggle **"Standard Proxy Headers"** to **ON**
+5. Check **"Apply to selected hosts"** for this setting
+6. Click **"Apply Changes"**
+
+**Info Banner:**
+Existing hosts without standard headers show an info banner explaining the feature and providing a quick-enable button.
+
+### Troubleshooting
+
+**Problem:** Backend still sees Charon's IP address
+- **Solution:** Ensure the feature is enabled in the proxy host settings
+- **Check:** Verify your backend is configured to trust proxy headers
+
+**Problem:** Application breaks after enabling headers
+- **Solution:** Disable the feature and check your backend logs
+- **Common cause:** Backend has strict header validation or conflicting logic
+
+**Problem:** HTTPS redirects create loops
+- **Solution:** Update your backend to check `X-Forwarded-Proto` instead of the connection protocol
+- **Example:** Use `X-Forwarded-Proto == 'https'` for HTTPS detection
+
 ## \ud83d\udd10 SSL Certificates (The Green Lock)
 
 **What it does:** Makes browsers show a green lock next to your website address.

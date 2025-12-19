@@ -102,6 +102,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
+    enable_standard_headers: host?.enable_standard_headers ?? true,
     application: (host?.application || 'none') as ApplicationPreset,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
@@ -944,7 +945,35 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <CircleHelp size={14} />
               </div>
             </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={formData.enable_standard_headers ?? true}
+                onChange={e => setFormData({ ...formData, enable_standard_headers: e.target.checked })}
+                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-300">Enable Standard Proxy Headers</span>
+              <div title="Adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-Port headers to help backend applications detect client IPs, enforce HTTPS, and generate correct URLs. Recommended for all proxy hosts. Existing hosts: disabled by default for backward compatibility." className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
+            </label>
           </div>
+
+          {/* Legacy Headers Warning Banner */}
+          {host && (formData.enable_standard_headers === false) && (
+            <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Info className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-yellow-400">Standard Proxy Headers Disabled</p>
+                  <p className="text-yellow-300/80 mt-1">
+                    This proxy host is using the legacy behavior (headers only with WebSocket support).
+                    Enable this option to ensure backend applications receive client IP and protocol information.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Advanced Config */}
           <div>

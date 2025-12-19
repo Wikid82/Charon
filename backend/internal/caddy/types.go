@@ -123,7 +123,8 @@ type Handler map[string]interface{}
 
 // ReverseProxyHandler creates a reverse_proxy handler.
 // application: "none", "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden"
-func ReverseProxyHandler(dial string, enableWS bool, application string) Handler {
+// enableStandardHeaders: when true, adds 4 standard proxy headers (X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Port)
+func ReverseProxyHandler(dial string, enableWS bool, application string, enableStandardHeaders bool) Handler {
 	h := Handler{
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
@@ -137,23 +138,33 @@ func ReverseProxyHandler(dial string, enableWS bool, application string) Handler
 	requestHeaders := make(map[string]interface{})
 	setHeaders := make(map[string][]string)
 
-	// WebSocket support
+	// STEP 1: Standard proxy headers (if feature enabled)
+	// These 4 headers are the de-facto standard for HTTP reverse proxies (RFC 7239)
+	// X-Forwarded-For is NOT explicitly set - Caddy handles it natively via reverse_proxy directive
+	// to prevent duplication (Caddy appends to existing header automatically)
+	if enableStandardHeaders {
+		// X-Real-IP: Single IP of the immediate client (most apps check this first)
+		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		// X-Forwarded-Proto: Original protocol (http/https) - critical for HTTPS enforcement
+		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
+		// X-Forwarded-Host: Original Host header - needed for virtual host routing
+		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		// X-Forwarded-Port: Original port - important for non-standard ports
+		setHeaders["X-Forwarded-Port"] = []string{"{http.request.port}"}
+	}
+
+	// STEP 2: WebSocket support headers
+	// Only add Upgrade and Connection headers for WebSocket proxying
 	if enableWS {
 		setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
 		setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
-		// Add X-Forwarded headers for WebSocket proxy awareness
-		// Required by many apps (e.g., SignalR, FileFlows) to properly handle
-		// WebSocket connections behind a reverse proxy
-		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
-		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
-		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
 	}
 
-	// Application-specific headers for proper client IP forwarding
-	// These are critical for media servers behind tunnels/CGNAT
+	// STEP 3: Application-specific headers
+	// These do NOT duplicate standard headers (they were added above if enabled)
 	switch application {
 	case "plex":
-		// Pass-through common Plex headers for improved compatibility when proxying
+		// Pass-through Plex-specific headers for improved compatibility
 		setHeaders["X-Plex-Client-Identifier"] = []string{"{http.request.header.X-Plex-Client-Identifier}"}
 		setHeaders["X-Plex-Device"] = []string{"{http.request.header.X-Plex-Device}"}
 		setHeaders["X-Plex-Device-Name"] = []string{"{http.request.header.X-Plex-Device-Name}"}
@@ -162,15 +173,28 @@ func ReverseProxyHandler(dial string, enableWS bool, application string) Handler
 		setHeaders["X-Plex-Product"] = []string{"{http.request.header.X-Plex-Product}"}
 		setHeaders["X-Plex-Token"] = []string{"{http.request.header.X-Plex-Token}"}
 		setHeaders["X-Plex-Version"] = []string{"{http.request.header.X-Plex-Version}"}
-		// Also set X-Real-IP for accurate client IP reporting
-		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
-		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
+		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
+		if !enableStandardHeaders {
+			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		}
 	case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
-		// X-Real-IP is required by most apps to identify the real client
-		// Caddy already sets X-Forwarded-For and X-Forwarded-Proto by default
-		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
-		// Some apps also check these headers
-		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
+		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
+		if !enableStandardHeaders {
+			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		}
+	}
+
+	// STEP 4: Always configure trusted_proxies for security when headers are set
+	// This prevents IP spoofing attacks by only trusting headers from known proxy sources
+	if len(setHeaders) > 0 {
+		h["trusted_proxies"] = map[string]interface{}{
+			"source": "static",
+			"ranges": []string{"private_ranges"}, // RFC 1918 + loopback
+		}
 	}
 
 	// Only add headers config if we have headers to set

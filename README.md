@@ -52,6 +52,10 @@ Free SSL certificates that request, install, and renew themselves. Your sites ge
 
 Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
 
+### 🔗 **Smart Proxy Headers**
+
+Automatically adds standard headers (X-Real-IP, X-Forwarded-Proto, etc.) so your backend applications see real client IPs, enforce HTTPS correctly, and log accurately—with full backward compatibility for existing hosts.
+
 ### 🐳 **Instant Docker Discovery**
 
 Already running apps in Docker? Charon finds them automatically and offers one-click proxy setup. No manual configuration required.
