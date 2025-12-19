@@ -41,3 +41,45 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 		}
 	}
 }
+
+func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
+	// Test: WebSocket enabled should include X-Forwarded headers
+	h := ReverseProxyHandler("app:8080", true, "none")
+	require.Equal(t, "reverse_proxy", h["handler"])
+
+	hdrs, ok := h["headers"].(map[string]interface{})
+	require.True(t, ok, "expected headers map when enableWS=true")
+
+	req, ok := hdrs["request"].(map[string]interface{})
+	require.True(t, ok, "expected request headers")
+
+	set, ok := req["set"].(map[string][]string)
+	require.True(t, ok, "expected set headers")
+
+	// Verify WebSocket passthrough headers
+	require.Contains(t, set, "Upgrade", "Upgrade header should be set for WebSocket")
+	require.Equal(t, []string{"{http.request.header.Upgrade}"}, set["Upgrade"])
+
+	require.Contains(t, set, "Connection", "Connection header should be set for WebSocket")
+	require.Equal(t, []string{"{http.request.header.Connection}"}, set["Connection"])
+
+	// Verify X-Forwarded headers for proxy awareness
+	require.Contains(t, set, "X-Forwarded-Proto", "X-Forwarded-Proto should be set for WebSocket")
+	require.Equal(t, []string{"{http.request.scheme}"}, set["X-Forwarded-Proto"])
+
+	require.Contains(t, set, "X-Forwarded-Host", "X-Forwarded-Host should be set for WebSocket")
+	require.Equal(t, []string{"{http.request.host}"}, set["X-Forwarded-Host"])
+
+	require.Contains(t, set, "X-Real-IP", "X-Real-IP should be set for WebSocket")
+	require.Equal(t, []string{"{http.request.remote.host}"}, set["X-Real-IP"])
+}
+
+func TestReverseProxyHandler_NoWebSocketNoForwardedHeaders(t *testing.T) {
+	// Test: WebSocket disabled with no application should NOT have X-Forwarded headers
+	h := ReverseProxyHandler("app:8080", false, "none")
+	require.Equal(t, "reverse_proxy", h["handler"])
+
+	// With enableWS=false and application="none", there should be no headers config
+	_, ok := h["headers"]
+	require.False(t, ok, "expected no headers when enableWS=false and application=none")
+}
