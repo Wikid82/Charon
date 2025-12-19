@@ -365,3 +365,76 @@ func TestBuildSecurityHeadersHandler_InvalidPermissionsJSON(t *testing.T) {
 	// Since we're only testing permissions policy, handler will be nil
 	assert.Nil(t, handler)
 }
+
+func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
+	// Simulate an API-Friendly preset configuration
+	profile := &models.SecurityHeaderProfile{
+		HSTSEnabled:               true,
+		HSTSMaxAge:                31536000, // 1 year
+		HSTSIncludeSubdomains:     false,
+		HSTSPreload:               false,
+		CSPEnabled:                false, // APIs don't need CSP
+		XFrameOptions:             "",    // Allow WebViews (empty)
+		XContentTypeOptions:       true,
+		ReferrerPolicy:            "strict-origin-when-cross-origin",
+		PermissionsPolicy:         "",             // Allow all permissions
+		CrossOriginOpenerPolicy:   "",             // Allow OAuth popups
+		CrossOriginResourcePolicy: "cross-origin", // KEY: Allow cross-origin access
+		CrossOriginEmbedderPolicy: "",             // Don't require CORP
+		XSSProtection:             true,
+		CacheControlNoStore:       false,
+	}
+
+	host := &models.ProxyHost{
+		SecurityHeaderProfile: profile,
+	}
+
+	handler, err := buildSecurityHeadersHandler(host)
+	assert.NoError(t, err)
+	assert.NotNil(t, handler)
+	assert.Equal(t, "headers", handler["handler"])
+
+	response := handler["response"].(map[string]interface{})
+	headers := response["set"].(map[string][]string)
+
+	// Verify HSTS is present
+	assert.Contains(t, headers, "Strict-Transport-Security")
+	assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
+	assert.NotContains(t, headers["Strict-Transport-Security"][0], "includeSubDomains")
+	assert.NotContains(t, headers["Strict-Transport-Security"][0], "preload")
+
+	// Verify CSP is NOT present (disabled)
+	assert.NotContains(t, headers, "Content-Security-Policy")
+	assert.NotContains(t, headers, "Content-Security-Policy-Report-Only")
+
+	// Verify X-Frame-Options is NOT present (empty string = allow WebViews)
+	assert.NotContains(t, headers, "X-Frame-Options")
+
+	// Verify X-Content-Type-Options is present
+	assert.Contains(t, headers, "X-Content-Type-Options")
+	assert.Equal(t, "nosniff", headers["X-Content-Type-Options"][0])
+
+	// Verify Referrer-Policy is present
+	assert.Contains(t, headers, "Referrer-Policy")
+	assert.Equal(t, "strict-origin-when-cross-origin", headers["Referrer-Policy"][0])
+
+	// Verify CORP is "cross-origin" (KEY for API access)
+	assert.Contains(t, headers, "Cross-Origin-Resource-Policy")
+	assert.Equal(t, "cross-origin", headers["Cross-Origin-Resource-Policy"][0])
+
+	// Verify COOP is NOT present (empty = allow OAuth popups)
+	assert.NotContains(t, headers, "Cross-Origin-Opener-Policy")
+
+	// Verify COEP is NOT present (empty = don't require CORP)
+	assert.NotContains(t, headers, "Cross-Origin-Embedder-Policy")
+
+	// Verify Permissions-Policy is NOT present (empty)
+	assert.NotContains(t, headers, "Permissions-Policy")
+
+	// Verify XSS Protection is present
+	assert.Contains(t, headers, "X-XSS-Protection")
+	assert.Equal(t, "1; mode=block", headers["X-XSS-Protection"][0])
+
+	// Verify Cache-Control is NOT present (CacheControlNoStore = false)
+	assert.NotContains(t, headers, "Cache-Control")
+}

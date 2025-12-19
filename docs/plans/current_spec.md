@@ -1,615 +1,608 @@
-# Bug Investigation: Security Header Profile Not Persisting
+# Security Header Presets: Mobile App Compatibility Analysis
 
-**Created:** 2025-12-18
-**Status:** Investigation Complete - Root Cause Identified
-
----
-
-## Bug Report
-
-Security header profile changes are not persisting to the database when editing proxy hosts.
-
-**Observed Behavior:**
-1. User assigns "Strict" profile to a proxy host → Saves successfully ✓
-2. User edits the same host, changes to "Basic" profile → Appears to save ✓
-3. User reopens the host edit form → Shows "Strict" (not "Basic") ❌
-
-**The profile change is NOT persisting to the database.**
+**Created:** 2025-12-19
+**Status:** Research Complete - Implementation Ready
+**Priority:** HIGH - User-impacting UX issue
 
 ---
 
-## Root Cause Analysis
+## Executive Summary
 
-### Investigation Summary
-
-I examined the complete data flow from frontend form submission to backend database save. The code analysis reveals that **the implementation SHOULD work correctly**, but there are potential issues with value handling and silent error conditions.
-
-### Frontend Code Analysis
-
-**File:** [frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx)
-
-**Lines 656-661:** Security header profile dropdown and onChange handler
-
-```tsx
-<select
-  value={formData.security_header_profile_id || 0}
-  onChange={e => {
-    const value = parseInt(e.target.value) || null
-    setFormData({ ...formData, security_header_profile_id: value })
-  }}
->
-```
-
-**Issue #1: Falsy Coercion Bug**
-
-The expression `parseInt(e.target.value) || null` has a problematic behavior:
-- When user selects "None" (value="0"): `parseInt("0")` = 0, then `0 || null` = `null` ✓ (Correct - we want null for "None")
-- When user selects profile ID 2: `parseInt("2")` = 2, then `2 || null` = 2 ✓ (Works)
-- **BUT**: If `parseInt()` fails or returns `NaN`, the expression evaluates to `null` instead of preserving the current value
-
-**Risk:** Edge cases where parseInt fails silently convert valid profile selections to `null`.
-
-**Lines 308-311:** Form submission payload preparation
-
-```tsx
-const payload = { ...formData }
-const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries: _uptimeMaxRetries, ...payloadWithoutUptime } = payload as ProxyHostFormState
-```
-
-**Analysis:**
-- The `security_header_profile_id` field is included in the spread operation
-- If `formData.security_header_profile_id` is `undefined`, it won't be in the payload keys
-- If it's `null` or a number, it WILL be included
-
-### Backend Code Analysis
-
-**File:** [backend/internal/api/handlers/proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go)
-
-**Lines 231-248:** Security Header Profile update handling
-
-```go
-// Security Header Profile: update only if provided
-if v, ok := payload["security_header_profile_id"]; ok {
-    if v == nil {
-        host.SecurityHeaderProfileID = nil
-    } else {
-        switch t := v.(type) {
-        case float64:
-            if id, ok := safeFloat64ToUint(t); ok {
-                host.SecurityHeaderProfileID = &id
-            }
-            // ❌ NO ELSE CLAUSE - silently fails if conversion fails
-        case int:
-            if id, ok := safeIntToUint(t); ok {
-                host.SecurityHeaderProfileID = &id
-            }
-            // ❌ NO ELSE CLAUSE
-        case string:
-            if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-                id := uint(n)
-                host.SecurityHeaderProfileID = &id
-            }
-            // ❌ NO ELSE CLAUSE
-        }
-        // ❌ NO DEFAULT CASE - fails silently if type doesn't match
-    }
-}
-```
-
-**Issue #2: Silent Failure in Type Conversion**
-
-If ANY of the following occur, the field is NOT updated:
-1. `safeFloat64ToUint()` returns `ok = false`
-2. `safeIntToUint()` returns `ok = false`
-3. `strconv.ParseUint()` returns an error
-4. The value type doesn't match `float64`, `int`, or `string`
-
-**Critical:** No error is logged, no status code returned - the old value remains in memory and gets saved to the database.
-
-**Lines 29-34:** The `safeFloat64ToUint` conversion function
-
-```go
-func safeFloat64ToUint(f float64) (uint, bool) {
-    if f < 0 || f != float64(uint(f)) {
-        return 0, false
-    }
-    return uint(f), true
-}
-```
-
-**Analysis:**
-- For negative numbers: Returns `false` ✓
-- For integers (0, 1, 2, etc.): Returns `true` ✓
-- For floats with decimals (2.5): Returns `false` (correct - can't convert to uint)
-
-**This function should work fine for valid profile IDs.**
-
-**Lines 256-258:** Calling the service to save
-
-```go
-if err := h.service.Update(host); err != nil {
-    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-    return
-}
-```
-
-This calls the service `Update()` method which uses GORM's `Save()`.
-
-### Service Layer Analysis
-
-**File:** [backend/internal/services/proxyhost_service.go](../../backend/internal/services/proxyhost_service.go)
-
-**Line 92:** The actual database save operation
-
-```go
-return s.db.Save(host).Error
-```
-
-**GORM's `Save()` method:**
-- Updates ALL fields in the struct, including zero values
-- Handles nullable pointers correctly (`*uint`)
-- Should persist changes to `SecurityHeaderProfileID`
-
-**No issues found here.**
-
-### Model Analysis
-
-**File:** [backend/internal/models/proxy_host.go](../../backend/internal/models/proxy_host.go)
-
-**Lines 40-42:** Security Header Profile field definition
-
-```go
-SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
-SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
-```
-
-**Analysis:**
-- Field is nullable pointer `*uint` ✓
-- JSON tag is snake_case ✓
-- GORM relationship configured ✓
-
-**No issues found here.**
+Users report that **Strict** and **Paranoid** security header presets break mobile app connectivity (Radarr, Sonarr, Plex, Jellyfin, Home Assistant, etc.) while **Basic** (65/100 score) works. This document analyzes the root cause and proposes a solution to provide enterprise-grade security that remains compatible with mobile/API access.
 
 ---
 
-## Identified Root Causes
+## 1. Root Cause Analysis
 
-After comprehensive code review, I've identified **TWO potential root causes**:
+### 1.1 Current Preset Definitions
 
-### Root Cause #1: Frontend - Potential NaN Edge Case ⚠️
+**Source:** [backend/internal/services/security_headers_service.go](../../backend/internal/services/security_headers_service.go)
 
-**Location:** [frontend/src/components/ProxyHostForm.tsx:658-661](../../frontend/src/components/ProxyHostForm.tsx)
+| Header | Basic (65/100) | Strict (85/100) | Paranoid (100/100) |
+|--------|----------------|-----------------|---------------------|
+| **HSTS** | ✅ 1 year | ✅ 1 year + subdomains | ✅ 2 years + subdomains + preload |
+| **CSP Enabled** | ❌ | ✅ Restrictive | ✅ Very Restrictive |
+| **X-Frame-Options** | `SAMEORIGIN` | `DENY` | `DENY` |
+| **X-Content-Type-Options** | `nosniff` | `nosniff` | `nosniff` |
+| **Referrer-Policy** | `strict-origin-when-cross-origin` | `strict-origin-when-cross-origin` | `no-referrer` |
+| **COOP** (Cross-Origin-Opener) | ❌ | `same-origin` | `same-origin` |
+| **CORP** (Cross-Origin-Resource) | ❌ | `same-origin` | `same-origin` |
+| **COEP** (Cross-Origin-Embedder) | ❌ | ❌ | `require-corp` |
+| **Permissions-Policy** | ❌ | ✅ Blocks camera/mic/geo | ✅ + Blocks payment/usb |
+| **Cache-Control: no-store** | ❌ | ❌ | ✅ |
+| **CSP `connect-src`** | N/A (CSP disabled) | `'self'` | `'self'` |
+| **CSP `frame-src`** | N/A | `'none'` | `'none'` |
+| **CSP `frame-ancestors`** | N/A | Not set | `'none'` |
 
-**Problem:**
-```tsx
-const value = parseInt(e.target.value) || null
-```
+### 1.2 Headers Breaking Mobile Apps
 
-While this works for most cases, it has edge case vulnerabilities:
-- If `e.target.value` is `""` (empty string): `parseInt("")` = `NaN`, then `NaN || null` = `null`
-- If `parseInt()` somehow returns `0`: `0 || null` = `null` (converts valid 0 to null)
+#### ❌ **Content-Security-Policy (CSP)** - MAJOR ISSUE
 
-**Impact:** Low likelihood but would cause profile selection to silently become `null`.
-
-### Root Cause #2: Backend - Silent Failure with No Logging ⚠️⚠️⚠️
-
-**Location:** [backend/internal/api/handlers/proxy_host_handler.go:231-248](../../backend/internal/api/handlers/proxy_host_handler.go)
-
-**Problem:**
-No error handling or logging when type conversion fails:
-
-```go
-case float64:
-    if id, ok := safeFloat64ToUint(t); ok {
-        host.SecurityHeaderProfileID = &id
-    }
-    // If ok==false, nothing happens! Old value remains!
-```
-
-**Impact:** HIGH - If the payload value can't be converted (for any reason), the update is silently skipped.
-
-**Why This Is The Likely Culprit:**
-
-For the reported bug (changing from Strict to Basic), the frontend should send:
+**Current Strict CSP:**
 ```json
-{"security_header_profile_id": 2}
+{
+  "default-src": ["'self'"],
+  "script-src": ["'self'"],
+  "style-src": ["'self'", "'unsafe-inline'"],
+  "img-src": ["'self'", "data:", "https:"],
+  "font-src": ["'self'", "data:"],
+  "connect-src": ["'self'"],
+  "frame-src": ["'none'"],
+  "object-src": ["'none'"]
+}
 ```
 
-JSON numbers unmarshal as `float64` in Go. So `v` would be `float64(2.0)`.
+**Problem:** Mobile apps (native iOS/Android) make API calls that:
+- **`connect-src: 'self'`** - Blocks API connections from mobile apps that aren't the "same origin"
+- Mobile apps don't have an "origin" in the HTTP sense - they send requests with no Origin header or with app-specific origins
+- WebView-based apps may be blocked by frame restrictions
 
-The `safeFloat64ToUint(2.0)` call should return `(2, true)` and set the field correctly.
+**Paranoid CSP is even worse:**
+```json
+{
+  "default-src": ["'none'"],
+  "frame-ancestors": ["'none'"]
+}
+```
 
-**UNLESS:**
-1. The JSON payload is malformed
-2. The value comes as a string `"2"` instead of number `2`
-3. There's middleware modifying the payload
-4. The `ok` check is somehow failing despite valid input
+**`frame-ancestors: 'none'`** - Completely prevents embedding, breaking any app that uses WebViews.
 
-**The lack of logging makes this impossible to debug!**
+#### ❌ **Cross-Origin-Resource-Policy (CORP): `same-origin`** - MAJOR ISSUE
+
+**Problem:** When set to `same-origin`, the browser (and WebViews) refuses to load resources from cross-origin contexts.
+
+- Mobile apps accessing API endpoints are considered "cross-origin"
+- Images, fonts, API responses are blocked
+- Apps like Radarr mobile, nzb360, LunaSea rely on cross-origin API access
+
+#### ❌ **Cross-Origin-Opener-Policy (COOP): `same-origin`** - MODERATE ISSUE
+
+**Problem:** Isolates the browsing context, breaking:
+- OAuth flows that use popup windows
+- Cross-window communication (e.g., Plex authentication)
+- Some mobile apps that open authentication flows in external browsers
+
+#### ❌ **Cross-Origin-Embedder-Policy (COEP): `require-corp`** - MAJOR ISSUE (Paranoid only)
+
+**Problem:** Requires all resources to opt-in via CORP headers. When the backend service (Radarr, Plex, etc.) doesn't set CORP headers, the response is blocked entirely.
+
+- Third-party APIs (TMDb, TheTVDB) don't set CORP headers
+- Poster images, metadata requests are blocked
+- Breaks entire app functionality
+
+#### ⚠️ **X-Frame-Options: DENY** - MODERATE ISSUE
+
+**Problem:** Prevents any framing. Some mobile apps use:
+- WebView containers that technically frame the content
+- Embedded players (Plex, Jellyfin)
+- In-app browsers
+
+**`SAMEORIGIN`** (Basic preset) allows same-domain framing, which works better.
+
+#### ⚠️ **Permissions-Policy** - MINOR ISSUE
+
+**Problem:** Blocking camera/microphone can break:
+- Video calling apps (Home Assistant video doorbell)
+- Media apps that use device features
 
 ---
 
-## Why the Bug Occurs (Hypothesis)
+## 2. Mobile App Requirements Research
 
-Based on the code analysis, here's my hypothesis:
+### 2.1 Common Home Server Mobile Apps
 
-**Most Likely Scenario:**
+| App | Platform | Access Pattern | Requirements |
+|-----|----------|----------------|--------------|
+| **Radarr/Sonarr** | iOS/Android (nzb360, LunaSea) | Native API calls | CORS-like access, no restrictive CSP |
+| **Plex** | iOS/Android/Web | API + Streaming | WebSocket, flexible framing |
+| **Jellyfin** | iOS/Android | API + Streaming | WebSocket, cross-origin access |
+| **Home Assistant** | iOS/Android/Web | API + WebSocket | Companion app needs full API access |
+| **Vaultwarden** | iOS/Android (Bitwarden) | API only | Must allow mobile app API calls |
+| **Nextcloud** | iOS/Android | WebDAV + API | File sync needs unrestricted API |
 
-1. Frontend sends `{"security_header_profile_id": 2}` as JSON number ✓
-2. Backend receives it as `float64(2.0)` ✓
-3. `safeFloat64ToUint(2.0)` returns `(2, true)` ✓
-4. Sets `host.SecurityHeaderProfileID = &2` ✓
-5. Calls `h.service.Update(host)` which runs `db.Save(host)` ✓
-6. **BUT**: GORM's `Save()` might not be updating nullable pointer fields properly? ❌
+### 2.2 What Mobile Apps Need
 
-**Alternative Scenario (Less Likely):**
+1. **No restrictive CSP on API endpoints** - Mobile apps don't execute JavaScript, CSP is irrelevant
+2. **`Cross-Origin-Resource-Policy: cross-origin`** or not set at all - Allow resource loading
+3. **No `Cross-Origin-Embedder-Policy`** - Breaks third-party resource loading
+4. **`X-Frame-Options: SAMEORIGIN`** or not set - Allow in-app WebViews
+5. **`Cross-Origin-Opener-Policy: unsafe-none`** or not set - Allow OAuth/popups
 
-The JSON payload is somehow getting stringified or modified before reaching the handler, causing the type assertion to fail.
+### 2.3 Why "Basic" Works
 
-**Evidence Needed:**
-
-Without logs, we can't know which scenario is happening. The fix MUST include logging.
+The **Basic** preset works because:
+- CSP is **disabled** - No blocking of API calls
+- CORP is **not set** - Default allows cross-origin
+- COEP is **not set** - No resource isolation
+- X-Frame-Options is **SAMEORIGIN** - WebViews work
+- COOP is **not set** - OAuth flows work
 
 ---
 
-## Proposed Fix Plan
+## 3. Solution Design
 
-### Fix 1: Frontend - Explicit Value Handling (Safety Improvement)
+### 3.1 Recommendation: Create "API-Friendly" Preset
+
+**Why not just modify existing presets?**
+- Basic is intentionally minimal - users expect low security
+- Strict/Paranoid are intentionally restrictive - changing them defeats their purpose
+- A new preset clearly communicates "use this for mobile/API access"
+
+### 3.2 Proposed "API-Friendly" Preset Definition
+
+**Design Goals:**
+- Security score ~70-75/100 (between Basic and Strict)
+- Maximum compatibility with mobile apps and API clients
+- Strong transport security (HSTS)
+- Sensible protections without breaking functionality
+
+```go
+{
+    UUID:                      "preset-api-friendly",
+    Name:                      "API-Friendly",
+    PresetType:                "api-friendly",
+    IsPreset:                  true,
+    Description:               "Optimized for mobile apps and API access (Radarr, Plex, Home Assistant). Strong transport security without breaking API compatibility.",
+
+    // Transport Security - STRONG
+    HSTSEnabled:               true,
+    HSTSMaxAge:                31536000, // 1 year
+    HSTSIncludeSubdomains:     false,    // Don't break subdomains
+    HSTSPreload:               false,
+
+    // Content Security - DISABLED for API compatibility
+    CSPEnabled:                false,    // APIs don't need CSP
+
+    // Framing - PERMISSIVE for WebViews
+    XFrameOptions:             "",       // Not set - allow framing (mobile WebViews)
+
+    // MIME Sniffing - ENABLED (safe)
+    XContentTypeOptions:       true,     // nosniff is safe
+
+    // Referrer - BALANCED
+    ReferrerPolicy:            "strict-origin-when-cross-origin", // Safe default
+
+    // Permissions - NOT SET (allow all)
+    PermissionsPolicy:         "",
+
+    // Cross-Origin - PERMISSIVE
+    CrossOriginOpenerPolicy:   "",       // Not set - allow OAuth popups
+    CrossOriginResourcePolicy: "cross-origin", // Explicitly allow cross-origin
+    CrossOriginEmbedderPolicy: "",       // Not set - don't require CORP
+
+    // Legacy XSS - ENABLED
+    XSSProtection:             true,
+
+    // Caching - DEFAULT
+    CacheControlNoStore:       false,
+
+    SecurityScore:             70,
+}
+```
+
+### 3.3 Preset Comparison After Change
+
+| Header | Basic (65) | **API-Friendly (70)** | Strict (85) | Paranoid (100) |
+|--------|------------|----------------------|-------------|----------------|
+| HSTS | ✅ 1yr | ✅ 1yr | ✅ 1yr+sub | ✅ 2yr+sub+preload |
+| CSP | ❌ | ❌ | ✅ Restrictive | ✅ Very Restrictive |
+| X-Frame-Options | SAMEORIGIN | **Not Set** | DENY | DENY |
+| CORP | Not Set | **cross-origin** | same-origin | same-origin |
+| COEP | Not Set | **Not Set** | Not Set | require-corp |
+| COOP | Not Set | **Not Set** | same-origin | same-origin |
+| Permissions-Policy | Not Set | **Not Set** | Restrictive | Very Restrictive |
+
+---
+
+## 4. Tooltip Text Design
+
+### 4.1 Tooltip Content for Each Preset
+
+#### Basic Security (65/100)
+```
+Minimal security headers for maximum compatibility.
+
+✓ Best for: Testing, development, simple websites
+✓ Enables: HSTS, X-Content-Type-Options, basic XSS protection
+⚠ Note: Does not include CSP or cross-origin restrictions
+
+Compatible with: All applications and mobile apps
+```
+
+#### API-Friendly (70/100) - NEW
+```
+Optimized for mobile apps, API clients, and media servers.
+
+✓ Best for: Radarr, Sonarr, Plex, Jellyfin, Home Assistant, Vaultwarden
+✓ Enables: Strong transport security (HSTS), MIME protection
+✓ Allows: Cross-origin API access, WebView embedding, OAuth flows
+
+Recommended for services accessed by mobile apps (nzb360, LunaSea,
+Infuse, official companion apps).
+
+⚠ Note: Less restrictive than Strict - prioritizes compatibility
+```
+
+#### Strict Security (85/100)
+```
+Strong security for web applications handling sensitive data.
+
+✓ Best for: Web-only applications, admin panels, dashboards
+✓ Enables: Full CSP, cross-origin isolation, frame blocking
+✓ Blocks: Inline scripts, cross-origin embedding, external frames
+
+⚠ Warning: May break mobile apps and API clients
+⚠ Not recommended for: Radarr, Sonarr, Plex, Jellyfin, or services
+  accessed by mobile companion apps
+
+Test thoroughly before using in production.
+```
+
+#### Paranoid Security (100/100)
+```
+Maximum security for high-risk applications. Use with caution.
+
+✓ Best for: Banking, healthcare, or compliance-critical applications
+✓ Enables: Strictest CSP, COEP isolation, HSTS preload, no-referrer
+✓ Blocks: All cross-origin access, all embedding, all external resources
+
+⚠ WILL BREAK: Mobile apps, API clients, OAuth flows, media streaming
+⚠ WILL BREAK: Third-party integrations, CDN resources, analytics
+⚠ Requires extensive testing and manual CSP adjustments
+
+Only use if you understand every header and can customize exceptions.
+```
+
+---
+
+## 5. Implementation Plan
+
+### 5.1 Files to Modify
+
+#### Backend Changes
+
+1. **[backend/internal/services/security_headers_service.go](../../backend/internal/services/security_headers_service.go)**
+   - Add new "API-Friendly" preset to `GetPresets()` function
+   - Position it between Basic (65) and Strict (85) in score order
+
+2. **[backend/internal/models/security_header_profile.go](../../backend/internal/models/security_header_profile.go)**
+   - No changes needed (model supports all fields)
+
+3. **[backend/internal/caddy/config.go](../../backend/internal/caddy/config.go)**
+   - No changes needed (`buildSecurityHeadersHandler` handles all fields)
+
+#### Frontend Changes
+
+1. **[frontend/src/pages/SecurityHeaders.tsx](../../frontend/src/pages/SecurityHeaders.tsx)**
+   - Add tooltip component for preset cards
+   - Display description with warnings for Strict/Paranoid
+
+2. **[frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx)**
+   - Add tooltip to Security Headers dropdown
+   - Show compatibility warnings when Strict/Paranoid selected
+
+3. **[frontend/src/api/securityHeaders.ts](../../frontend/src/api/securityHeaders.ts)**
+   - No changes needed (types already support preset_type)
+
+4. **[frontend/src/types/securityHeaders.ts](../../frontend/src/types/securityHeaders.ts)** (if exists)
+   - Add `api-friendly` to PresetType union type
+
+### 5.2 Backend Implementation
+
+**File:** `backend/internal/services/security_headers_service.go`
+
+Add after Basic preset and before Strict preset in `GetPresets()`:
+
+```go
+{
+    UUID:                      "preset-api-friendly",
+    Name:                      "API-Friendly",
+    PresetType:                "api-friendly",
+    IsPreset:                  true,
+    Description:               "Optimized for mobile apps and API access (Radarr, Plex, Home Assistant). Strong transport security without breaking API compatibility.",
+    HSTSEnabled:               true,
+    HSTSMaxAge:                31536000,
+    HSTSIncludeSubdomains:     false,
+    HSTSPreload:               false,
+    CSPEnabled:                false,
+    XFrameOptions:             "",
+    XContentTypeOptions:       true,
+    ReferrerPolicy:            "strict-origin-when-cross-origin",
+    PermissionsPolicy:         "",
+    CrossOriginOpenerPolicy:   "",
+    CrossOriginResourcePolicy: "cross-origin",
+    CrossOriginEmbedderPolicy: "",
+    XSSProtection:             true,
+    CacheControlNoStore:       false,
+    SecurityScore:             70,
+},
+```
+
+### 5.3 Frontend Implementation
+
+**File:** `frontend/src/pages/SecurityHeaders.tsx`
+
+Add tooltip component to preset cards:
+
+```tsx
+// Add import
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/Tooltip';
+import { Info } from 'lucide-react';
+
+// In the preset card rendering:
+<Card key={profile.id} className="p-4">
+  <div className="flex items-start justify-between mb-3">
+    <div className="flex-1 flex items-center gap-2">
+      <h3 className="font-semibold text-gray-900 dark:text-white">
+        {profile.name}
+      </h3>
+      <Tooltip>
+        <TooltipTrigger>
+          <Info className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm">
+          {getPresetTooltip(profile.preset_type)}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+    {/* ... rest of card */}
+  </div>
+</Card>
+
+// Add helper function:
+function getPresetTooltip(presetType: string | undefined): React.ReactNode {
+  switch (presetType) {
+    case 'basic':
+      return (
+        <div className="space-y-1">
+          <p className="font-medium">Minimal security headers</p>
+          <p className="text-xs">✓ Best for: Testing, development</p>
+          <p className="text-xs">✓ Compatible with all apps</p>
+        </div>
+      );
+    case 'api-friendly':
+      return (
+        <div className="space-y-1">
+          <p className="font-medium">Optimized for mobile apps & APIs</p>
+          <p className="text-xs text-green-400">✓ Works with: Radarr, Plex, Jellyfin, Home Assistant</p>
+          <p className="text-xs">✓ Strong HTTPS, allows cross-origin</p>
+        </div>
+      );
+    case 'strict':
+      return (
+        <div className="space-y-1">
+          <p className="font-medium">Strong web application security</p>
+          <p className="text-xs text-yellow-400">⚠ May break mobile apps</p>
+          <p className="text-xs">✓ Best for: Web-only dashboards</p>
+        </div>
+      );
+    case 'paranoid':
+      return (
+        <div className="space-y-1">
+          <p className="font-medium">Maximum security</p>
+          <p className="text-xs text-red-400">⚠ WILL break mobile apps</p>
+          <p className="text-xs text-red-400">⚠ WILL break API clients</p>
+          <p className="text-xs">Only for high-risk applications</p>
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+```
 
 **File:** `frontend/src/components/ProxyHostForm.tsx`
-**Lines:** 658-661
 
-**Change:**
+Add warning when Strict/Paranoid is selected:
+
 ```tsx
-// BEFORE (risky):
-onChange={e => {
-  const value = parseInt(e.target.value) || null
-  setFormData({ ...formData, security_header_profile_id: value })
-}}
+{/* After the select dropdown, add warning */}
+{formData.security_header_profile_id && (() => {
+  const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id);
+  if (!selected) return null;
 
-// AFTER (safe):
-onChange={e => {
-  const rawValue = e.target.value
-  let value: number | null = null
+  const isRestrictive = selected.preset_type === 'strict' || selected.preset_type === 'paranoid';
 
-  if (rawValue !== "0" && rawValue !== "") {
-    const parsed = parseInt(rawValue, 10)
-    value = isNaN(parsed) ? null : parsed
-  }
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-2">
+        <SecurityScoreDisplay score={selected.security_score} size="sm" showDetails={false} />
+        <span className="text-xs text-gray-400">{selected.description}</span>
+      </div>
 
-  setFormData({ ...formData, security_header_profile_id: value })
-}}
+      {isRestrictive && (
+        <div className="flex items-start gap-2 mt-2 p-2 bg-yellow-900/20 border border-yellow-700 rounded text-xs">
+          <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+          <div className="text-yellow-400">
+            <p className="font-medium">Mobile App Warning</p>
+            <p>This profile may break mobile apps like Radarr, Plex, or Home Assistant companion apps. Consider using "API-Friendly" or "Basic" for services accessed by mobile clients.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+})()}
 ```
 
-**Why:**
-- Explicitly handles "0" case (None/null)
-- Explicitly handles empty string
-- Checks for NaN before assigning
-- No reliance on falsy coercion
+---
 
-### Fix 2: Backend - Add Logging and Error Handling (CRITICAL)
+## 6. Test Scenarios
 
-**File:** `backend/internal/api/handlers/proxy_host_handler.go`
-**Lines:** 231-248
+### 6.1 Unit Tests
 
-**Change:**
+**File:** `backend/internal/services/security_headers_service_test.go`
+
 ```go
-// Security Header Profile: update only if provided
-if v, ok := payload["security_header_profile_id"]; ok {
-    logger := middleware.GetRequestLogger(c)
-    logger.WithField("security_header_profile_id_raw", v).Debug("Received security header profile ID")
+func TestGetPresets_IncludesAPIFriendly(t *testing.T) {
+    service := NewSecurityHeadersService(nil) // nil DB ok for GetPresets
+    presets := service.GetPresets()
 
-    if v == nil {
-        host.SecurityHeaderProfileID = nil
-        logger.Debug("Cleared security header profile ID (set to nil)")
-    } else {
-        updated := false
-        var finalID uint
-
-        switch t := v.(type) {
-        case float64:
-            if id, ok := safeFloat64ToUint(t); ok {
-                finalID = id
-                updated = true
-            } else {
-                logger.WithField("value", t).Warn("Failed to convert float64 to uint (out of range or negative)")
-            }
-        case int:
-            if id, ok := safeIntToUint(t); ok {
-                finalID = id
-                updated = true
-            } else {
-                logger.WithField("value", t).Warn("Failed to convert int to uint (negative)")
-            }
-        case string:
-            if n, err := strconv.ParseUint(t, 10, 32); err == nil {
-                finalID = uint(n)
-                updated = true
-            } else {
-                logger.WithField("value", t).WithError(err).Warn("Failed to parse string to uint")
-            }
-        default:
-            logger.WithField("type", fmt.Sprintf("%T", v)).Error("Unexpected type for security_header_profile_id")
+    var apiFriendly *models.SecurityHeaderProfile
+    for _, p := range presets {
+        if p.PresetType == "api-friendly" {
+            apiFriendly = &p
+            break
         }
-
-        if !updated {
-            logger.Error("Failed to update security_header_profile_id - conversion failed")
-            c.JSON(http.StatusBadRequest, gin.H{
-                "error": fmt.Sprintf("invalid security_header_profile_id: cannot convert %v (%T) to uint", v, v),
-            })
-            return
-        }
-
-        host.SecurityHeaderProfileID = &finalID
-        logger.WithField("security_header_profile_id", finalID).Debug("Set security header profile ID")
     }
+
+    require.NotNil(t, apiFriendly, "API-Friendly preset should exist")
+    assert.Equal(t, "API-Friendly", apiFriendly.Name)
+    assert.Equal(t, 70, apiFriendly.SecurityScore)
+    assert.True(t, apiFriendly.HSTSEnabled)
+    assert.False(t, apiFriendly.CSPEnabled)
+    assert.Equal(t, "", apiFriendly.XFrameOptions)
+    assert.Equal(t, "cross-origin", apiFriendly.CrossOriginResourcePolicy)
+}
+
+func TestGetPresets_OrderByScore(t *testing.T) {
+    service := NewSecurityHeadersService(nil)
+    presets := service.GetPresets()
+
+    // Verify order: Basic (65) < API-Friendly (70) < Strict (85) < Paranoid (100)
+    var scores []int
+    for _, p := range presets {
+        scores = append(scores, p.SecurityScore)
+    }
+
+    assert.Equal(t, []int{65, 70, 85, 100}, scores)
 }
 ```
 
-**Why:**
-- **Logs incoming raw value** - We can see exactly what the frontend sent
-- **Logs conversion attempts** - We can see if type assertions match
-- **Logs success/failure** - We know if the field was updated
-- **Returns explicit error** - No more silent failures
-- **Includes type information** - Helps diagnose payload issues
+### 6.2 Integration Tests
 
-### Fix 3: Backend - Verify GORM Update Behavior (Investigation)
+**File:** `backend/internal/caddy/config_security_headers_test.go`
 
-**File:** `backend/internal/services/proxyhost_service.go`
-**Line:** 92
-
-**Current:**
 ```go
-return s.db.Save(host).Error
+func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
+    host := &models.ProxyHost{
+        SecurityHeaderProfile: &models.SecurityHeaderProfile{
+            HSTSEnabled:               true,
+            HSTSMaxAge:                31536000,
+            CSPEnabled:                false,
+            XFrameOptions:             "",
+            XContentTypeOptions:       true,
+            CrossOriginResourcePolicy: "cross-origin",
+        },
+    }
+
+    handler, err := buildSecurityHeadersHandler(host)
+    require.NoError(t, err)
+    require.NotNil(t, handler)
+
+    response := handler["response"].(map[string]interface{})
+    headers := response["set"].(map[string][]string)
+
+    // Should have HSTS
+    assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
+
+    // Should NOT have X-Frame-Options (empty = not set)
+    _, hasXFO := headers["X-Frame-Options"]
+    assert.False(t, hasXFO)
+
+    // Should have CORP = cross-origin
+    assert.Equal(t, []string{"cross-origin"}, headers["Cross-Origin-Resource-Policy"])
+
+    // Should NOT have CSP (disabled)
+    _, hasCSP := headers["Content-Security-Policy"]
+    assert.False(t, hasCSP)
+}
 ```
 
-**Investigation needed:**
-- Does `Save()` properly update nullable pointer fields?
-- Should we use `Updates()` instead?
-- Should we use `Select()` to explicitly update specific fields?
+### 6.3 Manual Testing Scenarios
 
-**Possible alternative:**
-```go
-// Option A: Use Updates with Select (explicit fields)
-return s.db.Model(host).Select("SecurityHeaderProfileID").Updates(host).Error
-
-// Option B: Use Updates (auto-detects changed fields)
-return s.db.Model(host).Updates(host).Error
-```
-
-**Note:** `Updates()` skips zero values but handles nil pointers correctly. Need to test.
+| Test Case | Steps | Expected Result |
+|-----------|-------|-----------------|
+| **TC-01: Radarr Mobile** | 1. Apply API-Friendly to Radarr proxy<br>2. Open nzb360/LunaSea<br>3. Test browse, search, add | All functions work |
+| **TC-02: Plex Mobile** | 1. Apply API-Friendly to Plex proxy<br>2. Open Plex iOS/Android app<br>3. Test stream, sync | Streaming works |
+| **TC-03: Home Assistant** | 1. Apply API-Friendly to HA proxy<br>2. Open HA Companion app<br>3. Test controls, notifications | Real-time updates work |
+| **TC-04: Strict Breaks Mobile** | 1. Apply Strict to Radarr proxy<br>2. Open nzb360<br>3. Test API calls | Should fail/error |
+| **TC-05: Tooltip Display** | 1. Go to Security Headers page<br>2. Hover over API-Friendly preset | Tooltip shows compatibility info |
+| **TC-06: Warning Display** | 1. Edit proxy host<br>2. Select Strict profile | Warning about mobile apps appears |
 
 ---
 
-## Testing Plan
+## 7. Migration Considerations
 
-### Phase 1: Add Logging (Diagnostic)
+### 7.1 Existing Users
 
-1. Implement Fix 2 (backend logging)
-2. Deploy to test environment
-3. Reproduce the bug:
-   - Create host with Strict profile
-   - Edit host, change to Basic profile
-   - Check logs to see:
-     - What value was received
-     - What type it was
-     - If conversion succeeded
-     - What value was set
-4. Check database directly:
-   ```sql
-   SELECT id, name, security_header_profile_id FROM proxy_hosts WHERE name = 'Test Host';
-   ```
+- **No breaking changes** - Existing presets unchanged
+- New preset appears automatically after backend update
+- Users on Basic who want mobile compatibility can stay on Basic or upgrade to API-Friendly (slightly higher score)
 
-### Phase 2: Fix Issues (Implementation)
+### 7.2 Database Migration
 
-Based on log findings:
-- If conversion is failing → Fix conversion logic
-- If GORM isn't saving → Change to `Updates()` or `Select()`
-- If payload is wrong type → Investigate middleware/JSON unmarshaling
-
-### Phase 3: Frontend Safety (Prevention)
-
-1. Implement Fix 1 (explicit value handling)
-2. Test all scenarios:
-   - Select "None" → Should send `null`
-   - Select "Basic" → Should send profile ID
-   - Select invalid option → Should handle gracefully
-
-### Phase 4: Verification (End-to-End)
-
-1. Create proxy host
-2. Assign Strict profile (ID 2)
-3. Save → Verify in DB: `security_header_profile_id = 2`
-4. Edit host
-5. Change to Basic profile (ID 1)
-6. Save → Verify in DB: `security_header_profile_id = 1` ✓
-7. Edit host
-8. Change to None
-9. Save → Verify in DB: `security_header_profile_id = NULL` ✓
+- No schema changes needed
+- `EnsurePresetsExist()` handles creating/updating presets
+- Existing user profiles are unaffected
 
 ---
 
-## Edge Cases to Test
+## 8. Future Enhancements
 
-1. **Changing between non-zero profiles:** Strict (2) → Basic (1)
-2. **Setting to None:** Basic (1) → None (null)
-3. **Setting from None:** None (null) → Strict (2)
-4. **Rapid changes:** Strict → Basic → Paranoid → None
-5. **Invalid profile ID:** Send ID 999 (non-existent)
-6. **Zero profile ID:** Send ID 0 (should become null)
-7. **Negative ID:** Send ID -1 (should reject)
-8. **String ID:** Send "2" as string (should convert)
-9. **Float ID:** Send 2.5 (should reject - not a valid uint)
+### 8.1 Per-Endpoint Security Headers (Phase 2)
 
----
+Allow different security profiles for:
+- `/api/*` endpoints - Relaxed for API access
+- `/admin/*` endpoints - Strict for admin panels
+- `/*` default - Based on user selection
 
-## Success Criteria
+### 8.2 Automatic Detection (Phase 3)
 
-✅ **Bug is fixed when:**
-
-1. User can change security header profile from one to another, and it persists after save
-2. User can set profile to "None" (null), and it persists
-3. User can set profile from "None" to any preset, and it persists
-4. Backend logs show clear diagnostic information when profile changes
-5. Invalid profile IDs return explicit errors (not silent failures)
-6. All edge cases pass testing
-7. No regressions in other proxy host fields
+Detect application type from:
+- Application preset (Plex, Radarr, etc.)
+- Auto-suggest API-Friendly for known mobile-app services
 
 ---
 
-## Files to Modify
+## 9. Summary
 
-### High Priority (Fixes)
+### Problem
+Strict/Paranoid security header presets break mobile apps due to restrictive CSP, CORP, COOP, COEP, and X-Frame-Options headers.
 
-1. **backend/internal/api/handlers/proxy_host_handler.go** (Lines 231-248)
-   - Add logging
-   - Add error handling
-   - Remove silent failures
+### Solution
+Create a new "API-Friendly" preset that:
+- Maintains strong transport security (HSTS)
+- Disables CSP (unnecessary for APIs)
+- Explicitly allows cross-origin resource access (CORP: cross-origin)
+- Removes frame restrictions for WebView compatibility
+- Achieves 70/100 security score (between Basic and Strict)
 
-2. **frontend/src/components/ProxyHostForm.tsx** (Lines 658-661)
-   - Explicit value handling
-   - Remove falsy coercion
+### Implementation
+1. Add preset to backend service (~5 lines of code)
+2. Add tooltips to frontend (~50 lines of code)
+3. Add mobile warning to ProxyHostForm (~20 lines of code)
+4. Add unit tests (~30 lines of code)
 
-### Medium Priority (Investigation)
-
-3. **backend/internal/services/proxyhost_service.go** (Line 92)
-   - Verify GORM Save() vs Updates()
-   - May need to change update method
-
-### Low Priority (Testing)
-
-4. **backend/internal/api/handlers/proxy_host_handler_test.go**
-   - Add test for security header profile updates
-   - Test edge cases
-
----
-
-## Risk Assessment
-
-| Risk | Likelihood | Impact | Mitigation |
-|------|------------|--------|------------|
-| GORM doesn't save nullable pointers | Medium | High | Test with Updates() method |
-| Frontend sends wrong type | Low | High | Add explicit type checking |
-| Middleware modifies payload | Low | High | Add early logging to check |
-| Conversion logic has bugs | Low | Medium | Add comprehensive unit tests |
-| Breaking other fields | Very Low | High | Test full proxy host CRUD |
+### Success Criteria
+- [ ] API-Friendly preset appears in UI
+- [ ] Radarr/Sonarr mobile apps work with API-Friendly
+- [ ] Plex/Jellyfin mobile apps work with API-Friendly
+- [ ] Tooltips display on all presets
+- [ ] Warning displays when Strict/Paranoid selected
+- [ ] All existing functionality unchanged
 
 ---
 
-## Implementation Priority
-
-1. **CRITICAL:** Add backend logging (Fix 2) - Enables diagnosis
-2. **HIGH:** Add error handling (Fix 2) - Prevents silent failures
-3. **MEDIUM:** Frontend safety (Fix 1) - Prevents edge case bugs
-4. **LOW:** GORM investigation (Fix 3) - Only if Save() proves problematic
-
----
-
-## Next Steps
-
-1. **Implement Fix 2** (backend logging) - ~15 minutes
-2. **Deploy to test environment** - ~5 minutes
-3. **Reproduce bug with logging enabled** - ~10 minutes
-4. **Analyze logs** - ~10 minutes
-5. **Implement remaining fixes based on findings** - ~20 minutes
-6. **Test all edge cases** - ~30 minutes
-7. **Document findings** - ~10 minutes
-
-**Total estimated time:** ~1.5 hours
-
----
-
-## Conclusion
-
-The root cause of the security header profile persistence bug is likely a **silent failure in the backend handler's type conversion logic**. The lack of logging makes it impossible to diagnose the exact failure point.
-
-The immediate fix is to:
-1. Add comprehensive logging to track the value through its lifecycle
-2. Add explicit error handling to prevent silent failures
-3. Improve frontend value handling to prevent edge cases
-
-Once logging is in place, we can identify the exact failure point and implement a targeted fix.
-
----
-
-**Investigation Date:** 2025-12-18
-**Status:** Root cause hypothesized, fix plan documented
-**Next Action:** Implement backend logging to confirm hypothesis
-
----
-
-## Appendix: Expected vs. Actual Data Flow
-
-### Expected Data Flow (Should Work)
-
-```
-Frontend
-  User changes dropdown to "Basic" (ID 1)
-    ↓
-  onChange fires: parseInt("1") = 1
-    ↓
-  setFormData({ security_header_profile_id: 1 })
-    ↓
-  User clicks Save
-    ↓
-  handleSubmit sends: {"security_header_profile_id": 1}
-    ↓
-Backend
-  Gin unmarshals JSON: payload["security_header_profile_id"] = float64(1.0)
-    ↓
-  Handler checks: if v, ok := payload["security_header_profile_id"]; ok { ✓
-    ↓
-  v == nil? No ✓
-    ↓
-  switch t := v.(type) { case float64: ✓
-    ↓
-  safeFloat64ToUint(1.0) returns (1, true) ✓
-    ↓
-  host.SecurityHeaderProfileID = &1 ✓
-    ↓
-  h.service.Update(host) ✓
-    ↓
-  s.db.Save(host) ✓
-    ↓
-Database
-  UPDATE proxy_hosts SET security_header_profile_id = 1 WHERE id = X ✓
-```
-
-**This flow SHOULD work! So why doesn't it?**
-
-### Actual Data Flow (Hypothesis - Needs Logging to Confirm)
-
-**Scenario A: Payload Type Mismatch**
-```
-Frontend sends: {"security_header_profile_id": "1"}  ← String instead of number!
-Backend receives: v = "1" (string)
-Type switch enters: case string:
-strconv.ParseUint("1", 10, 32) succeeds
-Sets: host.SecurityHeaderProfileID = &1
-BUT: Something downstream fails or overwrites it
-```
-
-**Scenario B: GORM Save Issue**
-```
-Everything up to Save() works correctly
-host.SecurityHeaderProfileID = &1 ✓
-db.Save(host) is called
-BUT: GORM doesn't detect the field as "changed"
-OR: GORM skips nullable pointer updates
-Result: Old value remains in database
-```
-
-**Scenario C: Concurrent Request**
-```
-Request A: Sets profile to Basic (ID 1)
-Request B: Reloads host data (has Strict, ID 2)
-Request A saves: profile_id = 1
-Request B saves: profile_id = 2  ← Overwrites A's change
-Result: Profile reverts to Strict
-```
-
-**Only logging will tell us which scenario is happening!**
-
----
-
-**End of Investigation Report**
+**Document Status:** Ready for Implementation
+**Estimated Effort:** 2-3 hours
+**Risk Level:** Low (additive change, no breaking modifications)

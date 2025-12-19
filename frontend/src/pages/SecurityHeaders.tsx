@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Shield, Copy, Eye } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, Copy, Eye, Info } from 'lucide-react';
 import {
   useSecurityHeaderProfiles,
   useCreateSecurityHeaderProfile,
@@ -23,6 +23,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
 } from '../components/ui';
 
 export default function SecurityHeaders() {
@@ -108,6 +112,22 @@ export default function SecurityHeaders() {
   const presetProfiles = (profiles?.filter((p: SecurityHeaderProfile) => p.is_preset) || [])
     .sort((a, b) => a.security_score - b.security_score);
 
+  // Get tooltip content for preset types
+  const getPresetTooltip = (presetType: string): string => {
+    switch (presetType) {
+      case 'basic':
+        return 'Minimal security headers for maximum compatibility.\n✓ Best for: Testing, development, simple websites.\n✓ Compatible with all applications and mobile apps.';
+      case 'api-friendly':
+        return 'Optimized for mobile apps and API clients.\n✓ Best for: Radarr, Sonarr, Plex, Jellyfin, Home Assistant, Vaultwarden.\n✓ Strong transport security, allows cross-origin access.\nRecommended for services accessed by mobile apps.';
+      case 'strict':
+        return 'Strong security for web applications.\n✓ Best for: Web-only dashboards, admin panels.\n⚠ May break mobile apps and API clients.\nNot recommended for Radarr, Plex, or services with companion apps.';
+      case 'paranoid':
+        return 'Maximum security for high-risk applications.\n✓ Best for: Banking, healthcare, compliance-critical apps.\n⚠ WILL break mobile apps, API clients, and OAuth flows.\nOnly use if you understand and can customize every header.';
+      default:
+        return '';
+    }
+  };
+
   return (
     <PageShell
       title="Security Headers"
@@ -141,11 +161,26 @@ export default function SecurityHeaders() {
             Pre-configured security profiles you can assign to proxy hosts. Clone to customize.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <TooltipProvider>
             {presetProfiles.map((profile: SecurityHeaderProfile) => (
               <Card key={profile.id} className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
+                      {profile.preset_type && getPresetTooltip(profile.preset_type) && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                              <Info className="w-4 h-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs whitespace-pre-line text-left">
+                            {getPresetTooltip(profile.preset_type)}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
                   </div>
                   <SecurityScoreDisplay
                     score={profile.security_score}
@@ -174,6 +209,7 @@ export default function SecurityHeaders() {
                 </div>
               </Card>
             ))}
+            </TooltipProvider>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info } from 'lucide-react'
+import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
@@ -660,6 +660,31 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   <span className="text-xs text-gray-400">
                     {selected.description}
                   </span>
+                </div>
+              )
+            })()}
+
+            {/* Mobile App Compatibility Warning for Strict/Paranoid profiles */}
+            {formData.security_header_profile_id && (() => {
+              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              if (!selected) return null
+
+              const isRestrictive = selected.preset_type === 'strict' || selected.preset_type === 'paranoid'
+
+              if (!isRestrictive) return null
+
+              return (
+                <div className="mt-2 p-3 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-medium text-yellow-400">Mobile App Compatibility Warning</p>
+                      <p className="text-yellow-300/80 mt-1">
+                        This security profile may break mobile apps like Radarr, Plex, Jellyfin, or Home Assistant companion apps.
+                        Consider using "API-Friendly" or "Basic" for services accessed by mobile clients.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )
             })()}
