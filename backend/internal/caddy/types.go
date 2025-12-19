@@ -141,6 +141,12 @@ func ReverseProxyHandler(dial string, enableWS bool, application string) Handler
 	if enableWS {
 		setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
 		setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
+		// Add X-Forwarded headers for WebSocket proxy awareness
+		// Required by many apps (e.g., SignalR, FileFlows) to properly handle
+		// WebSocket connections behind a reverse proxy
+		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
+		setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
 	}
 
 	// Application-specific headers for proper client IP forwarding
