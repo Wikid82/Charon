@@ -289,7 +289,7 @@ func TestGetPresets(t *testing.T) {
 	var response map[string][]models.SecurityHeaderProfile
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	assert.Len(t, response["presets"], 3)
+	assert.Len(t, response["presets"], 4)
 
 	// Verify preset types
 	presetTypes := make(map[string]bool)
@@ -297,6 +297,7 @@ func TestGetPresets(t *testing.T) {
 		presetTypes[preset.PresetType] = true
 	}
 	assert.True(t, presetTypes["basic"])
+	assert.True(t, presetTypes["api-friendly"])
 	assert.True(t, presetTypes["strict"])
 	assert.True(t, presetTypes["paranoid"])
 }

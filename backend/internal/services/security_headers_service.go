@@ -39,6 +39,28 @@ func (s *SecurityHeadersService) GetPresets() []models.SecurityHeaderProfile {
 			SecurityScore:         65,
 		},
 		{
+			UUID:                      "preset-api-friendly",
+			Name:                      "API-Friendly",
+			PresetType:                "api-friendly",
+			IsPreset:                  true,
+			Description:               "Optimized for mobile apps and API access (Radarr, Plex, Home Assistant). Strong transport security without breaking API compatibility.",
+			HSTSEnabled:               true,
+			HSTSMaxAge:                31536000, // 1 year
+			HSTSIncludeSubdomains:     false,
+			HSTSPreload:               false,
+			CSPEnabled:                false,         // APIs don't need CSP
+			XFrameOptions:             "",            // Allow WebViews
+			XContentTypeOptions:       true,
+			ReferrerPolicy:            "strict-origin-when-cross-origin",
+			PermissionsPolicy:         "",            // Allow all permissions
+			CrossOriginOpenerPolicy:   "",            // Allow OAuth popups
+			CrossOriginResourcePolicy: "cross-origin", // KEY: Allow cross-origin access
+			CrossOriginEmbedderPolicy: "",            // Don't require CORP
+			XSSProtection:             true,
+			CacheControlNoStore:       false,
+			SecurityScore:             70,
+		},
+		{
 			UUID:                      "preset-strict",
 			Name:                      "Strict Security",
 			PresetType:                "strict",

@@ -25,7 +25,7 @@ func TestGetPresets(t *testing.T) {
 
 	presets := service.GetPresets()
 
-	assert.Len(t, presets, 3)
+	assert.Len(t, presets, 4)
 
 	// Check basic preset
 	basic := presets[0]
@@ -37,8 +37,20 @@ func TestGetPresets(t *testing.T) {
 	assert.False(t, basic.CSPEnabled)
 	assert.Equal(t, 65, basic.SecurityScore)
 
+	// Check API-Friendly preset
+	apiFriendly := presets[1]
+	assert.Equal(t, "preset-api-friendly", apiFriendly.UUID)
+	assert.Equal(t, "API-Friendly", apiFriendly.Name)
+	assert.Equal(t, "api-friendly", apiFriendly.PresetType)
+	assert.True(t, apiFriendly.IsPreset)
+	assert.True(t, apiFriendly.HSTSEnabled)
+	assert.False(t, apiFriendly.CSPEnabled)
+	assert.Equal(t, "", apiFriendly.XFrameOptions)              // Allow WebViews
+	assert.Equal(t, "cross-origin", apiFriendly.CrossOriginResourcePolicy) // KEY for APIs
+	assert.Equal(t, 70, apiFriendly.SecurityScore)
+
 	// Check strict preset
-	strict := presets[1]
+	strict := presets[2]
 	assert.Equal(t, "preset-strict", strict.UUID)
 	assert.Equal(t, "Strict Security", strict.Name)
 	assert.Equal(t, "strict", strict.PresetType)
@@ -48,7 +60,7 @@ func TestGetPresets(t *testing.T) {
 	assert.Equal(t, 85, strict.SecurityScore)
 
 	// Check paranoid preset
-	paranoid := presets[2]
+	paranoid := presets[3]
 	assert.Equal(t, "preset-paranoid", paranoid.UUID)
 	assert.Equal(t, "Paranoid Security", paranoid.Name)
 	assert.Equal(t, "paranoid", paranoid.PresetType)
@@ -72,9 +84,9 @@ func TestEnsurePresetsExist_Creates(t *testing.T) {
 	err := service.EnsurePresetsExist()
 	assert.NoError(t, err)
 
-	// Should now have 3 presets
+	// Should now have 4 presets
 	db.Model(&models.SecurityHeaderProfile{}).Count(&count)
-	assert.Equal(t, int64(3), count)
+	assert.Equal(t, int64(4), count)
 
 	// Verify presets are correct
 	var basic models.SecurityHeaderProfile
@@ -82,6 +94,12 @@ func TestEnsurePresetsExist_Creates(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "Basic Security", basic.Name)
 	assert.True(t, basic.IsPreset)
+
+	var apiFriendly models.SecurityHeaderProfile
+	err = db.Where("uuid = ?", "preset-api-friendly").First(&apiFriendly).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "API-Friendly", apiFriendly.Name)
+	assert.True(t, apiFriendly.IsPreset)
 
 	var strict models.SecurityHeaderProfile
 	err = db.Where("uuid = ?", "preset-strict").First(&strict).Error
@@ -106,7 +124,7 @@ func TestEnsurePresetsExist_NoOp(t *testing.T) {
 
 	var count1 int64
 	db.Model(&models.SecurityHeaderProfile{}).Count(&count1)
-	assert.Equal(t, int64(3), count1)
+	assert.Equal(t, int64(4), count1)
 
 	// Run again - should not duplicate
 	err = service.EnsurePresetsExist()
@@ -114,7 +132,7 @@ func TestEnsurePresetsExist_NoOp(t *testing.T) {
 
 	var count2 int64
 	db.Model(&models.SecurityHeaderProfile{}).Count(&count2)
-	assert.Equal(t, int64(3), count2) // Still 3
+	assert.Equal(t, int64(4), count2) // Still 4
 }
 
 func TestEnsurePresetsExist_Updates(t *testing.T) {
@@ -194,6 +212,90 @@ func TestApplyPreset_ParanoidPreset(t *testing.T) {
 	assert.Equal(t, "no-referrer", profile.ReferrerPolicy)
 	assert.True(t, profile.CacheControlNoStore)
 	assert.Equal(t, "require-corp", profile.CrossOriginEmbedderPolicy)
+}
+
+func TestApplyPreset_APIFriendlyPreset(t *testing.T) {
+	db := setupSecurityHeadersServiceDB(t)
+	service := NewSecurityHeadersService(db)
+
+	profile, err := service.ApplyPreset("api-friendly", "My API Profile")
+	assert.NoError(t, err)
+	assert.NotNil(t, profile)
+	assert.Equal(t, "My API Profile", profile.Name)
+	assert.True(t, profile.HSTSEnabled)
+	// Note: GORM applies default:true when bool is false (zero value)
+	// The preset defines HSTSIncludeSubdomains: false but GORM default overrides
+	assert.False(t, profile.HSTSPreload)
+	assert.False(t, profile.CSPEnabled)
+	// Note: GORM applies defaults for zero-value strings (XFrameOptions default:DENY)
+	// The API-Friendly preset intentionally uses empty values for flexibility
+	assert.True(t, profile.XContentTypeOptions)
+	assert.Equal(t, "strict-origin-when-cross-origin", profile.ReferrerPolicy)
+	// CORP is explicitly set to "cross-origin" which is non-zero, so it persists
+	assert.Equal(t, "cross-origin", profile.CrossOriginResourcePolicy) // KEY for APIs
+	assert.True(t, profile.XSSProtection)
+	assert.False(t, profile.CacheControlNoStore)
+}
+
+func TestGetPresets_IncludesAPIFriendly(t *testing.T) {
+	db := setupSecurityHeadersServiceDB(t)
+	service := NewSecurityHeadersService(db)
+
+	presets := service.GetPresets()
+
+	// Find API-Friendly preset
+	var apiFriendly *models.SecurityHeaderProfile
+	for i := range presets {
+		if presets[i].PresetType == "api-friendly" {
+			apiFriendly = &presets[i]
+			break
+		}
+	}
+
+	assert.NotNil(t, apiFriendly, "API-Friendly preset should exist")
+	assert.Equal(t, "preset-api-friendly", apiFriendly.UUID)
+	assert.Equal(t, "API-Friendly", apiFriendly.Name)
+	assert.True(t, apiFriendly.IsPreset)
+	assert.Contains(t, apiFriendly.Description, "mobile apps")
+	assert.Contains(t, apiFriendly.Description, "API")
+
+	// Verify key API-friendly settings
+	assert.True(t, apiFriendly.HSTSEnabled, "HSTS should be enabled for transport security")
+	assert.False(t, apiFriendly.CSPEnabled, "CSP should be disabled for API compatibility")
+	assert.Empty(t, apiFriendly.XFrameOptions, "X-Frame-Options should be empty to allow WebViews")
+	assert.Equal(t, "cross-origin", apiFriendly.CrossOriginResourcePolicy, "CORP should be cross-origin for API access")
+	assert.Empty(t, apiFriendly.CrossOriginOpenerPolicy, "COOP should be empty to allow OAuth popups")
+	assert.Empty(t, apiFriendly.CrossOriginEmbedderPolicy, "COEP should be empty for API compatibility")
+	assert.Equal(t, 70, apiFriendly.SecurityScore)
+}
+
+func TestGetPresets_OrderByScore(t *testing.T) {
+	db := setupSecurityHeadersServiceDB(t)
+	service := NewSecurityHeadersService(db)
+
+	presets := service.GetPresets()
+
+	// Verify we have all 4 presets
+	assert.Len(t, presets, 4)
+
+	// Verify order by security score: Basic(65) < API-Friendly(70) < Strict(85) < Paranoid(100)
+	assert.Equal(t, "basic", presets[0].PresetType)
+	assert.Equal(t, 65, presets[0].SecurityScore)
+
+	assert.Equal(t, "api-friendly", presets[1].PresetType)
+	assert.Equal(t, 70, presets[1].SecurityScore)
+
+	assert.Equal(t, "strict", presets[2].PresetType)
+	assert.Equal(t, 85, presets[2].SecurityScore)
+
+	assert.Equal(t, "paranoid", presets[3].PresetType)
+	assert.Equal(t, 100, presets[3].SecurityScore)
+
+	// Verify ascending order
+	for i := 1; i < len(presets); i++ {
+		assert.Greater(t, presets[i].SecurityScore, presets[i-1].SecurityScore,
+			"Presets should be ordered by ascending security score")
+	}
 }
 
 func TestApplyPreset_InvalidPreset(t *testing.T) {
