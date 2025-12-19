@@ -1,6 +1,8 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 
 export default function Tasks() {
+  const { t } = useTranslation()
   const location = useLocation()
 
   const isActive = (path: string) => location.pathname === path
@@ -8,8 +10,8 @@ export default function Tasks() {
   return (
     <div className="">
       <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Tasks</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Manage system tasks and view logs</p>
+        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">{t('tasks.title')}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{t('tasks.description')}</p>
       </div>
 
       <div className="flex items-center gap-4 mb-6">
@@ -21,7 +23,7 @@ export default function Tasks() {
               : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
           }`}
         >
-          Backups
+          {t('navigation.backups')}
         </Link>
 
         <Link
@@ -32,7 +34,7 @@ export default function Tasks() {
               : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
           }`}
         >
-          Logs
+          {t('navigation.logs')}
         </Link>
       </div>
 

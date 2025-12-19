@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -35,6 +36,7 @@ interface UpdateInfo {
 }
 
 export default function SystemSettings() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
@@ -91,10 +93,10 @@ export default function SystemSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success('System settings saved')
+      toast.success(t('systemSettings.settingsSaved'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to save settings: ${error.message}`)
+      toast.error(t('systemSettings.settingsFailed', { error: error.message }))
     },
   })
 
@@ -108,32 +110,32 @@ export default function SystemSettings() {
     () => [
       {
         key: 'feature.cerberus.enabled',
-        label: 'Cerberus Security Suite',
-        tooltip: 'Advanced security features including WAF, Access Lists, Rate Limiting, and CrowdSec.',
+        label: t('systemSettings.features.cerberus'),
+        tooltip: t('systemSettings.features.cerberusTooltip'),
       },
       {
         key: 'feature.crowdsec.console_enrollment',
-        label: 'CrowdSec Console Enrollment',
-        tooltip: 'Allow enrolling this node with CrowdSec Console for centralized fleet management.',
+        label: t('systemSettings.features.crowdsecConsole'),
+        tooltip: t('systemSettings.features.crowdsecConsoleTooltip'),
       },
       {
         key: 'feature.uptime.enabled',
-        label: 'Uptime Monitoring',
-        tooltip: 'Monitor the availability of your proxy hosts and remote servers.',
+        label: t('systemSettings.features.uptimeMonitoring'),
+        tooltip: t('systemSettings.features.uptimeMonitoringTooltip'),
       },
     ],
-    []
+    [t]
   )
 
   const updateFlagMutation = useMutation({
     mutationFn: async (payload: Record<string, boolean>) => updateFeatureFlags(payload),
     onSuccess: () => {
       refetchFlags()
-      toast.success('Feature flag updated')
+      toast.success(t('systemSettings.featureFlagUpdated'))
     },
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Failed to update flag: ${msg}`)
+      toast.error(t('systemSettings.featureFlagFailed', { error: msg }))
     },
   })
 
@@ -141,8 +143,8 @@ export default function SystemSettings() {
 
   // Determine loading message
   const { message, submessage } = updateFlagMutation.isPending
-    ? { message: 'Updating features...', submessage: 'Applying configuration changes' }
-    : { message: 'Loading...', submessage: 'Please wait' }
+    ? { message: t('systemSettings.updatingFeatures'), submessage: t('systemSettings.applyingChanges') }
+    : { message: t('common.loading'), submessage: t('systemSettings.pleaseWait') }
 
   // Loading skeleton for settings
   const SettingsSkeleton = () => (
@@ -184,14 +186,14 @@ export default function SystemSettings() {
           <div className="p-2 bg-brand-500/10 rounded-lg">
             <Server className="h-6 w-6 text-brand-500" />
           </div>
-          <h1 className="text-2xl font-bold text-content-primary">System Settings</h1>
+          <h1 className="text-2xl font-bold text-content-primary">{t('systemSettings.title')}</h1>
         </div>
 
         {/* Features */}
         <Card>
           <CardHeader>
-            <CardTitle>Features</CardTitle>
-            <CardDescription>Enable or disable optional features for your Charon instance.</CardDescription>
+            <CardTitle>{t('systemSettings.features.title')}</CardTitle>
+            <CardDescription>{t('systemSettings.features.description')}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -235,62 +237,62 @@ export default function SystemSettings() {
         {/* General Configuration */}
         <Card>
           <CardHeader>
-            <CardTitle>General Configuration</CardTitle>
-            <CardDescription>Configure Caddy and UI preferences.</CardDescription>
+            <CardTitle>{t('systemSettings.general.title')}</CardTitle>
+            <CardDescription>{t('systemSettings.general.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="caddy-api">Caddy Admin API Endpoint</Label>
+              <Label htmlFor="caddy-api">{t('systemSettings.general.caddyAdminApi')}</Label>
               <Input
                 id="caddy-api"
                 type="text"
                 value={caddyAdminAPI}
                 onChange={(e) => setCaddyAdminAPI(e.target.value)}
                 placeholder="http://localhost:2019"
-                helperText="URL to the Caddy admin API (usually on port 2019)"
+                helperText={t('systemSettings.general.caddyAdminApiHelper')}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="ssl-provider">SSL Provider</Label>
+              <Label htmlFor="ssl-provider">{t('systemSettings.general.sslProvider')}</Label>
               <Select value={sslProvider} onValueChange={setSslProvider}>
                 <SelectTrigger id="ssl-provider">
-                  <SelectValue placeholder="Select SSL provider" />
+                  <SelectValue placeholder={t('systemSettings.general.selectSslProvider')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">Auto (Recommended)</SelectItem>
-                  <SelectItem value="letsencrypt-prod">Let's Encrypt (Prod)</SelectItem>
-                  <SelectItem value="letsencrypt-staging">Let's Encrypt (Staging)</SelectItem>
-                  <SelectItem value="zerossl">ZeroSSL</SelectItem>
+                  <SelectItem value="auto">{t('systemSettings.general.sslAuto')}</SelectItem>
+                  <SelectItem value="letsencrypt-prod">{t('systemSettings.general.sslLetsEncryptProd')}</SelectItem>
+                  <SelectItem value="letsencrypt-staging">{t('systemSettings.general.sslLetsEncryptStaging')}</SelectItem>
+                  <SelectItem value="zerossl">{t('systemSettings.general.sslZeroSSL')}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-sm text-content-muted">
-                Choose the Certificate Authority. 'Auto' uses Let's Encrypt with ZeroSSL fallback.
+                {t('systemSettings.general.sslProviderHelper')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="domain-behavior">Domain Link Behavior</Label>
+              <Label htmlFor="domain-behavior">{t('systemSettings.general.domainLinkBehavior')}</Label>
               <Select value={domainLinkBehavior} onValueChange={setDomainLinkBehavior}>
                 <SelectTrigger id="domain-behavior">
-                  <SelectValue placeholder="Select link behavior" />
+                  <SelectValue placeholder={t('systemSettings.general.selectLinkBehavior')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="same_tab">Same Tab</SelectItem>
-                  <SelectItem value="new_tab">New Tab (Default)</SelectItem>
-                  <SelectItem value="new_window">New Window</SelectItem>
+                  <SelectItem value="same_tab">{t('systemSettings.general.sameTab')}</SelectItem>
+                  <SelectItem value="new_tab">{t('systemSettings.general.newTab')}</SelectItem>
+                  <SelectItem value="new_window">{t('systemSettings.general.newWindow')}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-sm text-content-muted">
-                Control how domain links open in the Proxy Hosts list.
+                {t('systemSettings.general.domainLinkBehaviorHelper')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="language">Language</Label>
+              <Label htmlFor="language">{t('common.language')}</Label>
               <LanguageSelector />
               <p className="text-sm text-content-muted">
-                Select your preferred language. Changes take effect immediately.
+                {t('systemSettings.general.languageHelper')}
               </p>
             </div>
           </CardContent>
@@ -300,7 +302,7 @@ export default function SystemSettings() {
               isLoading={saveSettingsMutation.isPending}
             >
               <Save className="h-4 w-4 mr-2" />
-              Save Settings
+              {t('systemSettings.saveSettings')}
             </Button>
           </CardFooter>
         </Card>
@@ -310,7 +312,7 @@ export default function SystemSettings() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-success" />
-              <CardTitle>System Status</CardTitle>
+              <CardTitle>{t('systemSettings.systemStatus.title')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
@@ -326,37 +328,37 @@ export default function SystemSettings() {
             ) : health ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1">
-                  <Label variant="muted">Service</Label>
+                  <Label variant="muted">{t('systemSettings.systemStatus.service')}</Label>
                   <p className="text-lg font-medium text-content-primary">{health.service}</p>
                 </div>
                 <div className="space-y-1">
-                  <Label variant="muted">Status</Label>
+                  <Label variant="muted">{t('common.status')}</Label>
                   <div className="flex items-center gap-2">
                     <Badge variant={health.status === 'healthy' ? 'success' : 'error'}>
-                      {health.status}
+                      {health.status === 'healthy' ? t('dashboard.healthy') : t('dashboard.unhealthy')}
                     </Badge>
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label variant="muted">Version</Label>
+                  <Label variant="muted">{t('systemSettings.systemStatus.version')}</Label>
                   <p className="text-lg font-medium text-content-primary">{health.version}</p>
                 </div>
                 <div className="space-y-1">
-                  <Label variant="muted">Build Time</Label>
+                  <Label variant="muted">{t('systemSettings.systemStatus.buildTime')}</Label>
                   <p className="text-lg font-medium text-content-primary">
-                    {health.build_time || 'N/A'}
+                    {health.build_time || t('systemSettings.systemStatus.notAvailable')}
                   </p>
                 </div>
                 <div className="md:col-span-2 space-y-1">
-                  <Label variant="muted">Git Commit</Label>
+                  <Label variant="muted">{t('systemSettings.systemStatus.gitCommit')}</Label>
                   <p className="text-sm font-mono text-content-secondary bg-surface-subtle px-3 py-2 rounded-md">
-                    {health.git_commit || 'N/A'}
+                    {health.git_commit || t('systemSettings.systemStatus.notAvailable')}
                   </p>
                 </div>
               </div>
             ) : (
               <Alert variant="error">
-                Unable to fetch system status. Please check your connection.
+                {t('systemSettings.systemStatus.fetchError')}
               </Alert>
             )}
           </CardContent>
@@ -365,21 +367,21 @@ export default function SystemSettings() {
         {/* Update Check */}
         <Card>
           <CardHeader>
-            <CardTitle>Software Updates</CardTitle>
-            <CardDescription>Check for new versions of Charon.</CardDescription>
+            <CardTitle>{t('systemSettings.updates.title')}</CardTitle>
+            <CardDescription>{t('systemSettings.updates.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {updateInfo && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1">
-                    <Label variant="muted">Current Version</Label>
+                    <Label variant="muted">{t('systemSettings.updates.currentVersion')}</Label>
                     <p className="text-lg font-medium text-content-primary">
                       {updateInfo.current_version}
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <Label variant="muted">Latest Version</Label>
+                    <Label variant="muted">{t('systemSettings.updates.latestVersion')}</Label>
                     <p className="text-lg font-medium text-content-primary">
                       {updateInfo.latest_version}
                     </p>
@@ -387,8 +389,8 @@ export default function SystemSettings() {
                 </div>
 
                 {updateInfo.update_available ? (
-                  <Alert variant="info" title="Update Available">
-                    A new version of Charon is available!{' '}
+                  <Alert variant="info" title={t('systemSettings.updates.updateAvailable')}>
+                    {t('systemSettings.updates.newVersionAvailable')}{' '}
                     {updateInfo.release_url && (
                       <a
                         href={updateInfo.release_url}
@@ -396,14 +398,14 @@ export default function SystemSettings() {
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-brand-500 hover:underline font-medium"
                       >
-                        View Release Notes
+                        {t('systemSettings.updates.viewReleaseNotes')}
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
                   </Alert>
                 ) : (
-                  <Alert variant="success" title="Up to Date">
-                    You are running the latest version of Charon.
+                  <Alert variant="success" title={t('systemSettings.updates.upToDate')}>
+                    {t('systemSettings.updates.runningLatest')}
                   </Alert>
                 )}
               </>
@@ -416,7 +418,7 @@ export default function SystemSettings() {
               variant="secondary"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
-              Check for Updates
+              {t('systemSettings.updates.checkForUpdates')}
             </Button>
           </CardFooter>
         </Card>

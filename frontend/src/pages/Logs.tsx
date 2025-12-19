@@ -1,4 +1,5 @@
 import { useState, useEffect, type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { getLogs, getLogContent, downloadLog, LogFilter } from '../api/logs';
@@ -16,6 +17,7 @@ import {
 } from '../components/ui';
 
 const Logs: FC = () => {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
 
@@ -64,18 +66,18 @@ const Logs: FC = () => {
 
   return (
     <PageShell
-      title="Logs"
-      description="View system and access logs"
+      title={t('logs.title')}
+      description={t('logs.description')}
     >
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Log File List */}
         <div className="md:col-span-1 space-y-4">
           <Card className="p-4">
-            <h2 className="text-lg font-semibold mb-4 text-content-primary">Log Files</h2>
+            <h2 className="text-lg font-semibold mb-4 text-content-primary">{t('logs.logFiles')}</h2>
             {isLoadingLogs ? (
               <SkeletonList items={4} showAvatar={false} />
             ) : logs?.length === 0 ? (
-              <div className="text-sm text-content-muted text-center py-4">No log files found</div>
+              <div className="text-sm text-content-muted text-center py-4">{t('logs.noLogFiles')}</div>
             ) : (
               <div className="space-y-2">
                 {logs?.map((log) => (
@@ -153,13 +155,13 @@ const Logs: FC = () => {
                 {logData && logData.total > 0 && (
                   <div className="px-6 py-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="text-sm text-content-muted">
-                      Showing {logData.offset + 1} to {Math.min(logData.offset + limit, logData.total)} of {logData.total} entries
+                      {t('logs.showingEntries', { from: logData.offset + 1, to: Math.min(logData.offset + limit, logData.total), total: logData.total })}
                     </div>
 
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" size="sm">
-                          Page {page + 1} of {totalPages}
+                          {t('logs.pageOf', { current: page + 1, total: totalPages })}
                         </Badge>
                       </div>
 
@@ -189,8 +191,8 @@ const Logs: FC = () => {
           ) : (
             <EmptyState
               icon={<ScrollText className="h-12 w-12" />}
-              title="No Log Selected"
-              description="Select a log file from the list to view its contents"
+              title={t('logs.noLogSelected')}
+              description={t('logs.selectLogDescription')}
             />
           )}
         </div>

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Pencil, Trash2, Shield, Copy, Eye, Info } from 'lucide-react';
 import {
   useSecurityHeaderProfiles,
@@ -30,6 +31,7 @@ import {
 } from '../components/ui';
 
 export default function SecurityHeaders() {
+  const { t } = useTranslation();
   const { data: profiles, isLoading } = useSecurityHeaderProfiles();
   const createMutation = useCreateSecurityHeaderProfile();
   const updateMutation = useUpdateSecurityHeaderProfile();
@@ -59,25 +61,25 @@ export default function SecurityHeaders() {
   const handleDeleteWithBackup = async (profile: SecurityHeaderProfile) => {
     setIsDeleting(true);
     try {
-      toast.loading('Creating backup before deletion...', { id: 'backup-toast' });
+      toast.loading(t('securityHeaders.creatingBackup'), { id: 'backup-toast' });
       await createBackup();
-      toast.success('Backup created', { id: 'backup-toast' });
+      toast.success(t('securityHeaders.backupCreated'), { id: 'backup-toast' });
 
       deleteMutation.mutate(profile.id, {
         onSuccess: () => {
           setShowDeleteConfirm(null);
           setEditingProfile(null);
-          toast.success(`"${profile.name}" deleted. A backup was created before deletion.`);
+          toast.success(t('securityHeaders.deleteSuccess', { name: profile.name }));
         },
         onError: (error: Error) => {
-          toast.error(`Failed to delete: ${error.message}`);
+          toast.error(t('securityHeaders.deleteFailed', { error: error.message }));
         },
         onSettled: () => {
           setIsDeleting(false);
         },
       });
     } catch {
-      toast.error('Failed to create backup', { id: 'backup-toast' });
+      toast.error(t('securityHeaders.backupFailed'), { id: 'backup-toast' });
       setIsDeleting(false);
     }
   };
@@ -116,13 +118,13 @@ export default function SecurityHeaders() {
   const getPresetTooltip = (presetType: string): string => {
     switch (presetType) {
       case 'basic':
-        return 'Minimal security headers for maximum compatibility.\n✓ Best for: Testing, development, simple websites.\n✓ Compatible with all applications and mobile apps.';
+        return t('securityHeaders.presets.basic');
       case 'api-friendly':
-        return 'Optimized for mobile apps and API clients.\n✓ Best for: Radarr, Sonarr, Plex, Jellyfin, Home Assistant, Vaultwarden.\n✓ Strong transport security, allows cross-origin access.\nRecommended for services accessed by mobile apps.';
+        return t('securityHeaders.presets.apiFriendly');
       case 'strict':
-        return 'Strong security for web applications.\n✓ Best for: Web-only dashboards, admin panels.\n⚠ May break mobile apps and API clients.\nNot recommended for Radarr, Plex, or services with companion apps.';
+        return t('securityHeaders.presets.strict');
       case 'paranoid':
-        return 'Maximum security for high-risk applications.\n✓ Best for: Banking, healthcare, compliance-critical apps.\n⚠ WILL break mobile apps, API clients, and OAuth flows.\nOnly use if you understand and can customize every header.';
+        return t('securityHeaders.presets.paranoid');
       default:
         return '';
     }
@@ -130,12 +132,12 @@ export default function SecurityHeaders() {
 
   return (
     <PageShell
-      title="Security Headers"
-      description="Configure HTTP security headers for your proxy hosts"
+      title={t('securityHeaders.title')}
+      description={t('securityHeaders.description')}
       actions={
         <Button onClick={() => setShowCreateForm(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Create Profile
+          {t('securityHeaders.createProfile')}
         </Button>
       }
     >
@@ -143,10 +145,9 @@ export default function SecurityHeaders() {
       <Alert variant="info" className="mb-6">
         <Shield className="w-4 h-4" />
         <div>
-          <p className="font-semibold">Secure Your Applications</p>
+          <p className="font-semibold">{t('securityHeaders.alertTitle')}</p>
           <p className="text-sm mt-1">
-            Security headers protect against common web vulnerabilities. Use presets for quick setup or create custom
-            profiles for fine-grained control.
+            {t('securityHeaders.alertDescription')}
           </p>
         </div>
       </Alert>
@@ -155,10 +156,10 @@ export default function SecurityHeaders() {
       {presetProfiles.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            System Profiles (Read-Only)
+            {t('securityHeaders.systemProfiles')}
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Pre-configured security profiles you can assign to proxy hosts. Clone to customize.
+            {t('securityHeaders.systemProfilesDescription')}
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <TooltipProvider>
@@ -197,14 +198,14 @@ export default function SecurityHeaders() {
                     size="sm"
                     onClick={() => setEditingProfile(profile)}
                   >
-                    <Eye className="h-4 w-4 mr-1" /> View
+                    <Eye className="h-4 w-4 mr-1" /> {t('securityHeaders.view')}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleCloneProfile(profile)}
                   >
-                    <Copy className="h-4 w-4 mr-1" /> Clone
+                    <Copy className="h-4 w-4 mr-1" /> {t('securityHeaders.clone')}
                   </Button>
                 </div>
               </Card>
@@ -216,17 +217,17 @@ export default function SecurityHeaders() {
 
       {/* Custom Profiles Section */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Custom Profiles</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t('securityHeaders.customProfiles')}</h2>
 
         {isLoading ? (
           <SkeletonTable rows={3} />
         ) : customProfiles.length === 0 ? (
           <EmptyState
             icon={<Shield className="w-12 h-12" />}
-            title="No custom profiles yet"
-            description="Create a custom security header profile or apply a preset to get started"
+            title={t('securityHeaders.noCustomProfiles')}
+            description={t('securityHeaders.noCustomProfilesDescription')}
             action={{
-              label: 'Create Profile',
+              label: t('securityHeaders.createProfile'),
               onClick: () => setShowCreateForm(true),
             }}
           />
@@ -238,7 +239,7 @@ export default function SecurityHeaders() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-900 dark:text-white">{profile.name}</h3>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Updated {new Date(profile.updated_at).toLocaleDateString()}
+                      {t('securityHeaders.updated')} {new Date(profile.updated_at).toLocaleDateString()}
                     </p>
                   </div>
                   <SecurityScoreDisplay
@@ -258,7 +259,7 @@ export default function SecurityHeaders() {
                     className="flex-1"
                   >
                     <Pencil className="w-3 h-3 mr-1" />
-                    Edit
+                    {t('common.edit')}
                   </Button>
                   <Button
                     variant="outline"
@@ -291,7 +292,9 @@ export default function SecurityHeaders() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingProfile ? (editingProfile.is_preset ? 'View' : 'Edit') : 'Create'} Security Header Profile
+              {editingProfile
+                ? (editingProfile.is_preset ? t('securityHeaders.viewProfile') : t('securityHeaders.editProfile'))
+                : t('securityHeaders.createProfileTitle')}
             </DialogTitle>
           </DialogHeader>
           <SecurityHeaderProfileForm
@@ -312,21 +315,21 @@ export default function SecurityHeaders() {
       <Dialog open={showDeleteConfirm !== null} onOpenChange={(open: boolean) => !open && setShowDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogTitle>{t('securityHeaders.confirmDeletion')}</DialogTitle>
           </DialogHeader>
           <p className="text-gray-600 dark:text-gray-400">
-            Are you sure you want to delete "{showDeleteConfirm?.name}"? A backup will be created before deletion.
+            {t('securityHeaders.deleteConfirmMessage', { name: showDeleteConfirm?.name })}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDeleteConfirm(null)} disabled={isDeleting}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={() => showDeleteConfirm && handleDeleteWithBackup(showDeleteConfirm)}
               disabled={isDeleting}
             >
-              {isDeleting ? 'Deleting...' : 'Delete'}
+              {isDeleting ? t('securityHeaders.deleting') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

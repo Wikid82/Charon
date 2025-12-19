@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useProxyHosts } from '../hooks/useProxyHosts'
@@ -36,6 +37,7 @@ import { ConfigReloadOverlay } from '../components/LoadingStates'
 import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDialog'
 
 export default function ProxyHosts() {
+  const { t } = useTranslation()
   const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
   const { certificates } = useCertificates()
   const { data: accessLists } = useAccessLists()
@@ -78,11 +80,11 @@ export default function ProxyHosts() {
 
   // Determine contextual message based on operation
   const getMessage = () => {
-    if (isCreating) return { message: 'Ferrying new host...', submessage: 'Charon is crossing the Styx' }
-    if (isUpdating) return { message: 'Guiding changes across...', submessage: 'Configuration in transit' }
-    if (isDeleting) return { message: 'Returning to shore...', submessage: 'Host departure in progress' }
-    if (isBulkUpdating) return { message: `Ferrying ${selectedHosts.size} souls...`, submessage: 'Bulk operation crossing the river' }
-    return { message: 'Ferrying configuration...', submessage: 'Charon is crossing the Styx' }
+    if (isCreating) return { message: t('proxyHosts.ferryingNewHost'), submessage: t('proxyHosts.ferryingNewHostSub') }
+    if (isUpdating) return { message: t('proxyHosts.guidingChanges'), submessage: t('proxyHosts.guidingChangesSub') }
+    if (isDeleting) return { message: t('proxyHosts.returningToShore'), submessage: t('proxyHosts.returningToShoreSub') }
+    if (isBulkUpdating) return { message: t('proxyHosts.ferryingSouls', { count: selectedHosts.size }), submessage: t('proxyHosts.ferryingSoulsSub') }
+    return { message: t('proxyHosts.ferryingConfig'), submessage: t('proxyHosts.ferryingNewHostSub') }
   }
 
   const { message, submessage } = getMessage()
@@ -398,18 +400,18 @@ export default function ProxyHosts() {
   const columns: Column<ProxyHost>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: t('proxyHosts.columnName'),
       sortable: true,
       width: '18%',
       cell: (host) => (
         <div className="text-sm font-medium text-content-primary truncate">
-          {host.name || <span className="text-content-muted italic">Unnamed</span>}
+          {host.name || <span className="text-content-muted italic">{t('proxyHosts.unnamed')}</span>}
         </div>
       ),
     },
     {
       key: 'domain',
-      header: 'Domain',
+      header: t('proxyHosts.columnDomain'),
       sortable: true,
       width: '24%',
       cell: (host) => (
@@ -439,7 +441,7 @@ export default function ProxyHosts() {
     },
     {
       key: 'forward',
-      header: 'Forward To',
+      header: t('proxyHosts.columnForwardTo'),
       sortable: true,
       width: '18%',
       cell: (host) => (
@@ -450,7 +452,7 @@ export default function ProxyHosts() {
     },
     {
       key: 'ssl',
-      header: 'SSL',
+      header: t('proxyHosts.columnSSL'),
       width: '10%',
       cell: (host) => {
         const primaryDomain = host.domain_names.split(',')[0]?.trim().toLowerCase()
@@ -464,7 +466,7 @@ export default function ProxyHosts() {
           return (
             <Badge variant="warning" size="sm" className="gap-1">
               <AlertTriangle size={12} />
-              Staging
+              {t('proxyHosts.staging')}
             </Badge>
           )
         }
@@ -474,22 +476,22 @@ export default function ProxyHosts() {
     },
     {
       key: 'features',
-      header: 'Features',
+      header: t('proxyHosts.columnFeatures'),
       width: '12%',
       cell: (host) => (
         <div className="flex flex-wrap gap-1">
           {host.websocket_support && (
-            <Badge variant="primary" size="sm">WS</Badge>
+            <Badge variant="primary" size="sm">{t('proxyHosts.websocket')}</Badge>
           )}
           {host.access_list_id && (
-            <Badge variant="outline" size="sm">ACL</Badge>
+            <Badge variant="outline" size="sm">{t('proxyHosts.acl')}</Badge>
           )}
         </div>
       ),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('proxyHosts.columnStatus'),
       width: '8%',
       cell: (host) => (
         <Switch
@@ -500,7 +502,7 @@ export default function ProxyHosts() {
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('proxyHosts.columnActions'),
       width: '10%',
       cell: (host) => (
         <div className="flex items-center gap-2">
@@ -512,7 +514,7 @@ export default function ProxyHosts() {
               handleEdit(host)
             }}
           >
-            Edit
+            {t('common.edit')}
           </Button>
           <Button
             variant="ghost"
@@ -523,7 +525,7 @@ export default function ProxyHosts() {
               handleDelete(host.uuid)
             }}
           >
-            Delete
+            {t('common.delete')}
           </Button>
         </div>
       ),
@@ -541,12 +543,12 @@ export default function ProxyHosts() {
       )}
 
       <PageShell
-        title="Proxy Hosts"
-        description="Manage your reverse proxy configurations"
+        title={t('proxyHosts.title')}
+        description={t('proxyHosts.description')}
         actions={
           <div className="flex items-center gap-3">
             {isFetching && !loading && <Loader2 className="animate-spin text-brand-400" size={20} />}
-            <Button onClick={handleAdd}>Add Proxy Host</Button>
+            <Button onClick={handleAdd}>{t('proxyHosts.addHost')}</Button>
           </div>
         }
       >
@@ -561,8 +563,8 @@ export default function ProxyHosts() {
         {selectedHosts.size > 0 && (
           <Alert variant="info" className="flex items-center justify-between">
             <span>
-              <strong>{selectedHosts.size}</strong> host{selectedHosts.size > 1 ? 's' : ''} selected
-              {selectedHosts.size === hosts.length && ' (all)'}
+              <strong>{selectedHosts.size}</strong> {t('proxyHosts.selectedCount', { count: selectedHosts.size }).replace(`${selectedHosts.size} `, '')}
+              {selectedHosts.size === hosts.length && ` ${t('proxyHosts.selectedCountAll')}`}
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -571,7 +573,7 @@ export default function ProxyHosts() {
                 leftIcon={Settings}
                 onClick={() => setShowBulkApplyModal(true)}
               >
-                Bulk Apply
+                {t('proxyHosts.bulkApply')}
               </Button>
               <Button
                 variant="outline"
@@ -580,7 +582,7 @@ export default function ProxyHosts() {
                 disabled={isBulkUpdating}
                 isLoading={isBulkUpdating}
               >
-                Manage ACL
+                {t('proxyHosts.manageACL')}
               </Button>
               <Button
                 variant="danger"
@@ -588,7 +590,7 @@ export default function ProxyHosts() {
                 leftIcon={Trash2}
                 onClick={() => setShowBulkDeleteModal(true)}
               >
-                Delete
+                {t('common.delete')}
               </Button>
             </div>
           </Alert>
@@ -609,10 +611,10 @@ export default function ProxyHosts() {
             emptyState={
               <EmptyState
                 icon={<Globe className="h-12 w-12" />}
-                title="No proxy hosts"
-                description="Create your first proxy host to get started routing traffic to your services."
+                title={t('proxyHosts.noHosts')}
+                description={t('proxyHosts.noHostsDescription')}
                 action={{
-                  label: 'Add Proxy Host',
+                  label: t('proxyHosts.addHost'),
                   onClick: handleAdd,
                 }}
               />
@@ -636,17 +638,19 @@ export default function ProxyHosts() {
         <Dialog open={!!hostToDelete} onOpenChange={(open) => !open && setHostToDelete(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Delete Proxy Host?</DialogTitle>
+              <DialogTitle>{t('proxyHosts.deleteConfirmTitle')}</DialogTitle>
               <DialogDescription>
-                Are you sure you want to delete <strong>{hostToDelete?.name || hostToDelete?.domain_names}</strong>? This action cannot be undone.
+                {t('proxyHosts.deleteConfirmMessage', { name: hostToDelete?.name || hostToDelete?.domain_names }).split('<strong>').map((part, i) =>
+                  i === 0 ? part : <><strong key={i}>{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
+                )}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setHostToDelete(null)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button variant="danger" onClick={handleDeleteConfirm}>
-                Delete
+                {t('common.delete')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -656,9 +660,11 @@ export default function ProxyHosts() {
         <Dialog open={showBulkApplyModal} onOpenChange={setShowBulkApplyModal}>
           <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
-              <DialogTitle>Bulk Apply Settings</DialogTitle>
+              <DialogTitle>{t('proxyHosts.bulkApplyTitle')}</DialogTitle>
               <DialogDescription>
-                Applying settings to <strong className="text-brand-400">{selectedHosts.size}</strong> selected host(s)
+                {t('proxyHosts.bulkApplyDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
+                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -694,7 +700,7 @@ export default function ProxyHosts() {
                 <div className="flex items-center gap-3 mb-2">
                   <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
                   <span className="text-brand-300 font-medium">
-                    Applying settings... ({applyProgress.current}/{applyProgress.total})
+                    {t('proxyHosts.applyingACLs', { current: applyProgress.current, total: applyProgress.total })}
                   </span>
                 </div>
                 <div className="w-full bg-surface-muted rounded-full h-2">
@@ -712,7 +718,7 @@ export default function ProxyHosts() {
                 onClick={() => setShowBulkApplyModal(false)}
                 disabled={applyProgress !== null}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 onClick={async () => {
@@ -730,9 +736,9 @@ export default function ProxyHosts() {
                   })
 
                   if (result.errors > 0) {
-                    toast.error(`Applied settings with ${result.errors} error(s)`)
+                    toast.error(t('notifications.updateFailed'))
                   } else {
-                    toast.success(`Applied settings to ${hostUUIDs.length} host(s)`)
+                    toast.success(t('notifications.updateSuccess'))
                   }
 
                   setSelectedHosts(new Set())
@@ -741,7 +747,7 @@ export default function ProxyHosts() {
                 disabled={applyProgress !== null || Object.values(bulkApplySettings).every(s => !s.apply)}
                 isLoading={applyProgress !== null}
               >
-                Apply
+                {t('proxyHosts.apply')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -751,10 +757,11 @@ export default function ProxyHosts() {
         <Dialog open={showBulkACLModal} onOpenChange={setShowBulkACLModal}>
           <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
-              <DialogTitle>Apply Access List</DialogTitle>
+              <DialogTitle>{t('proxyHosts.applyACLTitle')}</DialogTitle>
               <DialogDescription>
-                Applying to <strong className="text-brand-400">{selectedHosts.size}</strong> selected host(s).
-                Each proxy host can have a single Access Control List applied.
+                {t('proxyHosts.applyACLDescription', { count: selectedHosts.size }).split('<strong>').map((part, i) =>
+                  i === 0 ? part : <><strong key={i} className="text-brand-400">{part.split('</strong>')[0]}</strong>{part.split('</strong>')[1]}</>
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -768,7 +775,7 @@ export default function ProxyHosts() {
                   setSelectedACLs(new Set())
                 }}
               >
-                Apply ACL
+                {t('proxyHosts.applyACL')}
               </Button>
               <Button
                 variant={bulkACLAction === 'remove' ? 'danger' : 'secondary'}
@@ -778,7 +785,7 @@ export default function ProxyHosts() {
                   setSelectedACLs(new Set())
                 }}
               >
-                Remove ACL
+                {t('proxyHosts.removeACL')}
               </Button>
             </div>
 
@@ -788,7 +795,7 @@ export default function ProxyHosts() {
                 {(accessLists?.filter((acl: AccessList) => acl.enabled).length ?? 0) > 0 && (
                   <div className="flex items-center justify-between p-2 border-b border-border bg-surface-subtle">
                     <span className="text-sm text-content-muted">
-                      {selectedACLs.size} of {accessLists?.filter((acl: AccessList) => acl.enabled).length ?? 0} selected
+                      {t('proxyHosts.selectedACLCount', { selected: selectedACLs.size, total: accessLists?.filter((acl: AccessList) => acl.enabled).length ?? 0 })}
                     </span>
                     <div className="flex gap-2">
                       <button
@@ -798,21 +805,21 @@ export default function ProxyHosts() {
                         }}
                         className="text-xs text-brand-400 hover:text-brand-300"
                       >
-                        Select All
+                        {t('proxyHosts.selectAll')}
                       </button>
                       <span className="text-content-muted">|</span>
                       <button
                         onClick={() => setSelectedACLs(new Set())}
                         className="text-xs text-content-muted hover:text-content-primary"
                       >
-                        Clear
+                        {t('proxyHosts.clear')}
                       </button>
                     </div>
                   </div>
                 )}
                 <div className="p-2 space-y-1">
                   {accessLists?.filter((acl: AccessList) => acl.enabled).length === 0 ? (
-                    <p className="text-content-muted text-sm p-2">No enabled access lists available</p>
+                    <p className="text-content-muted text-sm p-2">{t('proxyHosts.noEnabledACLs')}</p>
                   ) : (
                     accessLists
                       ?.filter((acl: AccessList) => acl.enabled)
@@ -858,10 +865,10 @@ export default function ProxyHosts() {
                 <div className="text-center">
                   <div className="text-4xl mb-3">🚫</div>
                   <p className="text-content-secondary">
-                    This will remove the access list from all {selectedHosts.size} selected host(s).
+                    {t('proxyHosts.removeACLWarning', { count: selectedHosts.size })}
                   </p>
                   <p className="text-content-muted text-sm mt-2">
-                    The hosts will become publicly accessible.
+                    {t('proxyHosts.publicAccessWarning')}
                   </p>
                 </div>
               </div>
@@ -873,7 +880,7 @@ export default function ProxyHosts() {
                 <div className="flex items-center gap-3 mb-2">
                   <Loader2 className="w-5 h-5 animate-spin text-brand-400" />
                   <span className="text-brand-300 font-medium">
-                    Applying ACLs... ({applyProgress.current}/{applyProgress.total})
+                    {t('proxyHosts.applyingACLs', { current: applyProgress.current, total: applyProgress.total })}
                   </span>
                 </div>
                 <div className="w-full bg-surface-muted rounded-full h-2">
@@ -896,7 +903,7 @@ export default function ProxyHosts() {
                 }}
                 disabled={isBulkUpdating || applyProgress !== null}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant={bulkACLAction === 'remove' ? 'danger' : 'primary'}
@@ -926,9 +933,9 @@ export default function ProxyHosts() {
                     setApplyProgress(null)
 
                     if (totalErrors > 0) {
-                      toast.error(`Applied ${selectedACLs.size} ACL(s) with some errors`)
+                      toast.error(t('notifications.updateFailed'))
                     } else {
-                      toast.success(`Applied ${selectedACLs.size} ACL(s) to ${selectedHosts.size} host(s)`)
+                      toast.success(t('notifications.updateSuccess'))
                     }
 
                     setSelectedHosts(new Set())
@@ -939,7 +946,7 @@ export default function ProxyHosts() {
                 disabled={isBulkUpdating || applyProgress !== null || (bulkACLAction === 'apply' && selectedACLs.size === 0)}
                 isLoading={isBulkUpdating || applyProgress !== null}
               >
-                {bulkACLAction === 'remove' ? 'Remove ACL' : `Apply ${selectedACLs.size > 0 ? `(${selectedACLs.size})` : ''}`}
+                {bulkACLAction === 'remove' ? t('proxyHosts.removeACL') : (selectedACLs.size > 0 ? t('proxyHosts.applyCount', { count: selectedACLs.size }) : t('proxyHosts.apply'))}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -954,23 +961,23 @@ export default function ProxyHosts() {
                   <AlertTriangle className="h-5 w-5 text-error" />
                 </div>
                 <div>
-                  <DialogTitle>Delete {selectedHosts.size} Proxy Host{selectedHosts.size > 1 ? 's' : ''}?</DialogTitle>
+                  <DialogTitle>{t('proxyHosts.bulkDeleteTitle', { count: selectedHosts.size })}</DialogTitle>
                   <DialogDescription>
-                    This action cannot be undone. A backup will be created automatically before deletion.
+                    {t('proxyHosts.bulkDeleteDescription')}
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
             <div className="bg-surface-subtle border border-border rounded-lg p-4 max-h-48 overflow-y-auto">
-              <p className="text-xs font-medium text-content-muted uppercase mb-2">Hosts to be deleted:</p>
+              <p className="text-xs font-medium text-content-muted uppercase mb-2">{t('proxyHosts.hostsToDelete')}</p>
               <ul className="space-y-1">
                 {Array.from(selectedHosts).map((uuid) => {
                   const host = hosts.find(h => h.uuid === uuid)
                   return (
                     <li key={uuid} className="text-sm text-content-primary flex items-center gap-2">
                       <span className="text-error">•</span>
-                      <span className="font-medium">{host?.name || 'Unnamed'}</span>
+                      <span className="font-medium">{host?.name || t('proxyHosts.unnamed')}</span>
                       <span className="text-content-muted">({host?.domain_names})</span>
                     </li>
                   )
@@ -979,7 +986,7 @@ export default function ProxyHosts() {
             </div>
 
             <Alert variant="info">
-              An automatic backup will be created before deletion. You can restore from the Backups page if needed.
+              {t('proxyHosts.backupInfo')}
             </Alert>
 
             <DialogFooter>
@@ -988,7 +995,7 @@ export default function ProxyHosts() {
                 onClick={() => setShowBulkDeleteModal(false)}
                 disabled={isCreatingBackup}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="danger"
@@ -997,7 +1004,7 @@ export default function ProxyHosts() {
                 disabled={isCreatingBackup}
                 isLoading={isCreatingBackup}
               >
-                {isCreatingBackup ? 'Creating Backup...' : 'Delete Permanently'}
+                {isCreatingBackup ? t('proxyHosts.creatingBackup') : t('proxyHosts.deletePermanently')}
               </Button>
             </DialogFooter>
           </DialogContent>

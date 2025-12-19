@@ -6,7 +6,51 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach } from 'vitest'
+import { afterEach, vi } from 'vitest'
+
+// Global mock for react-i18next to return English translations in tests
+// The import must be done inside the factory since vi.mock is hoisted
+vi.mock('react-i18next', async () => {
+  // Dynamic import inside the factory ensures translations are loaded
+  const enTranslations = await import('../locales/en/translation.json').then(m => m.default)
+
+  // Helper to get nested translation value by dot-notation key
+  function getTranslation(key: string): string {
+    const keys = key.split('.')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let result: any = enTranslations
+    for (const k of keys) {
+      if (result && typeof result === 'object' && k in result) {
+        result = result[k]
+      } else {
+        // Key not found, return the key itself
+        return key
+      }
+    }
+    return typeof result === 'string' ? result : key
+  }
+
+  return {
+    useTranslation: () => ({
+      t: (key: string, options?: Record<string, unknown>) => {
+        let result = getTranslation(key)
+        // Handle interpolation: replace {{variable}} with the value from options
+        if (options && typeof result === 'string') {
+          Object.entries(options).forEach(([k, v]) => {
+            result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
+          })
+        }
+        return result
+      },
+      i18n: {
+        changeLanguage: vi.fn(),
+        language: 'en',
+      },
+    }),
+    Trans: ({ children }: { children: React.ReactNode }) => children,
+    initReactI18next: { type: '3rdParty', init: () => {} },
+  }
+})
 
 // Cleanup after each test
 afterEach(() => {
