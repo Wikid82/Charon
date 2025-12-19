@@ -334,7 +334,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
 			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+			// Determine if standard headers should be enabled (default true if nil)
+			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -406,7 +408,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+		// Determine if standard headers should be enabled (default true if nil)
+		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
 
 		route := &Route{
 			Match: []Match{

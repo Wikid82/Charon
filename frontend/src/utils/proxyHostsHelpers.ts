@@ -14,6 +14,8 @@ export function formatSettingLabel(key: string) {
       return 'Block Exploits'
     case 'websocket_support':
       return 'Websockets Support'
+    case 'enable_standard_headers':
+      return 'Standard Proxy Headers'
     default:
       return key
   }
@@ -33,6 +35,8 @@ export function settingHelpText(key: string) {
       return 'Add common exploit-mitigation headers and rules.'
     case 'websocket_support':
       return 'Enable websocket proxying support.'
+    case 'enable_standard_headers':
+      return 'Add X-Real-IP and X-Forwarded-* headers for client IP detection.'
     default:
       return ''
   }
@@ -52,6 +56,8 @@ export function settingKeyToField(key: string) {
       return 'block_exploits'
     case 'websocket_support':
       return 'websocket_support'
+    case 'enable_standard_headers':
+      return 'enable_standard_headers'
     default:
       return key
   }

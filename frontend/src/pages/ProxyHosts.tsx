@@ -65,6 +65,7 @@ export default function ProxyHosts() {
     hsts_subdomains: { apply: false, value: true },
     block_exploits: { apply: false, value: true },
     websocket_support: { apply: false, value: true },
+    enable_standard_headers: { apply: false, value: true },
   })
   const [hostToDelete, setHostToDelete] = useState<ProxyHost | null>(null)
 
