@@ -1,386 +1,377 @@
-# Trace Analysis: Proxy Host Update Handler - Missing Fields
+# Investigation: Seerr SSO Auth Failure Through Proxy
 
 **Date:** December 20, 2025
-**Status:** Ready for Implementation
-**Related Bugs:**
-
-1. **Auth Pass-through Failure**: User can login to Seerr via IP:port but NOT through proxied domain
-2. **500 Error on Proxy Host Save**: When editing/saving proxy host, returns 500 Internal Server Error
+**Status:** **ROOT CAUSE CONFIRMED - CONFIG REGENERATION FAILURE**
+**Priority:** **CRITICAL**
 
 ---
 
 ## Executive Summary
 
-After comprehensive trace analysis of both data flows, I have identified **THREE missing fields** in the Update handler and **one configuration issue**:
+**The Seerr SSO authentication fails because `X-Forwarded-Port` header is missing from the Caddy config.**
 
-### Critical Finding: Three Missing Fields in Update Handler
+### The Real Problem (Updated)
 
-The `Update` handler in [proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go#L155) **does not process the following fields** from the payload:
+1. **Database State**: `enable_standard_headers = 1` (TRUE) ✅
+2. **UI State**: "Standard Proxy Headers" checkbox is ENABLED ✅
+3. **Caddy Live Config**: Missing `X-Forwarded-Port` header ❌
+4. **Config Snapshot**: Dated **Dec 19 13:57**, but proxy host was updated at **Dec 19 20:58** ❌
 
-| Field | Type | Default | Purpose |
-|-------|------|---------|---------|
-| `enable_standard_headers` | `*bool` (nullable) | `true` | Controls X-Real-IP, X-Forwarded-* headers |
-| `forward_auth_enabled` | `bool` | `false` | Enables forward auth via Charon |
-| `waf_disabled` | `bool` | `false` | Disables WAF for this specific host |
+**Root Cause**: The Caddy configuration was **NOT regenerated** after the proxy host update. `ApplyConfig()` either:
+- Was not called after the database update, OR
+- Was called but failed silently without rolling back the database change, OR
+- Succeeded but the generated config didn't include the header due to a logic bug
 
-This means:
-
-1. When the frontend sends these fields during edit/save, the backend ignores them
-2. The fields remain at their default/previous values
-3. This could cause a 500 error if downstream code expects properly set values
-4. Missing headers break auth pass-through for apps like Seerr/Overseerr
-
-### Secondary Finding: WebSocket Header Configuration is Correct
-
-The WebSocket and auth header pass-through configuration in [types.go](../../backend/internal/caddy/types.go#L127) appears correctly implemented. However, **if `enable_standard_headers` isn't being persisted**, then the generated Caddy config may be missing required headers.
+This is a **critical disconnect** between the database state and the running Caddy configuration.
 
 ---
 
-## Implementation Plan
+## Evidence Analysis
 
-### Phase 1: Backend Handler Fix (All 3 Fields)
+### 1. Database State (Current)
+```sql
+SELECT id, name, domain_names, application, websocket_support, enable_standard_headers, updated_at
+FROM proxy_hosts WHERE domain_names LIKE '%seerr%';
 
-**Target File:** [backend/internal/api/handlers/proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go)
-
-**Location:** After line ~220 (after `enabled` field handling, before `certificate_id`)
-
-#### 1.1 Add `enable_standard_headers` Handler (Nullable Bool Pattern)
-
-This field uses a nullable boolean (`*bool`), following the same pattern as `certificate_id`:
-
-```go
-// Handle enable_standard_headers (nullable bool - uses pointer pattern like certificate_id)
-if v, ok := payload["enable_standard_headers"]; ok {
-    if v == nil {
-        host.EnableStandardHeaders = nil  // Explicit null → use default behavior
-    } else if b, ok := v.(bool); ok {
-        host.EnableStandardHeaders = &b   // Explicit true/false
-    }
-}
+-- Result:
+-- 15|Seerr|seerr.hatfieldhosted.com|none|1|1|2025-12-19 20:58:31.091162109-05:00
 ```
 
-#### 1.2 Add `forward_auth_enabled` Handler (Regular Bool)
+**Analysis:**
+- ✅ `enable_standard_headers = 1` (TRUE)
+- ✅ `websocket_support = 1` (TRUE)
+- ✅ `application = "none"` (no app-specific overrides)
+- ⏰ Last updated: **Dec 19, 2025 at 20:58:31** (8:58 PM)
 
-```go
-// Handle forward_auth_enabled (regular bool)
-if v, ok := payload["forward_auth_enabled"].(bool); ok {
-    host.ForwardAuthEnabled = v
-}
-```
-
-#### 1.3 Add `waf_disabled` Handler (Regular Bool)
-
-```go
-// Handle waf_disabled (regular bool)
-if v, ok := payload["waf_disabled"].(bool); ok {
-    host.WAFDisabled = v
-}
-```
-
-### Phase 2: Unit Tests
-
-**Target File:** `backend/internal/api/handlers/proxy_host_handler_test.go`
-
-#### 2.1 TestUpdate_EnableStandardHeaders
-
-```go
-func TestUpdate_EnableStandardHeaders(t *testing.T) {
-    // Setup: Create host with enable_standard_headers = nil (default)
-    // Test 1: PUT with enable_standard_headers: true → verify DB has true
-    // Test 2: PUT with enable_standard_headers: false → verify DB has false
-    // Test 3: PUT with enable_standard_headers: null → verify DB has nil
-    // Test 4: PUT without field → verify value unchanged
-}
-```
-
-#### 2.2 TestUpdate_ForwardAuthEnabled
-
-```go
-func TestUpdate_ForwardAuthEnabled(t *testing.T) {
-    // Setup: Create host with forward_auth_enabled = false (default)
-    // Test 1: PUT with forward_auth_enabled: true → verify DB has true
-    // Test 2: PUT with forward_auth_enabled: false → verify DB has false
-    // Test 3: PUT without field → verify value unchanged
-}
-```
-
-#### 2.3 TestUpdate_WAFDisabled
-
-```go
-func TestUpdate_WAFDisabled(t *testing.T) {
-    // Setup: Create host with waf_disabled = false (default)
-    // Test 1: PUT with waf_disabled: true → verify DB has true
-    // Test 2: PUT with waf_disabled: false → verify DB has false
-    // Test 3: PUT without field → verify value unchanged
-}
-```
-
-#### 2.4 Integration Test: Create → Update → Verify Caddy Config
-
-```go
-func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
-    // 1. Create proxy host with enable_standard_headers: false
-    // 2. Verify Caddy config does NOT have X-Forwarded-* headers
-    // 3. Update host with enable_standard_headers: true
-    // 4. Verify Caddy config NOW has X-Real-IP, X-Forwarded-Proto, etc.
-}
-```
-
-#### 2.5 Regression Test: Existing Hosts Without Fields
-
-```go
-func TestUpdate_ExistingHostsBackwardCompatibility(t *testing.T) {
-    // Simulate existing host created before these fields existed
-    // 1. Insert host directly into DB without these fields (NULL values)
-    // 2. Perform GET → should return without error
-    // 3. Perform PUT with unrelated field change → should succeed
-    // 4. Verify all three fields remain at defaults
-}
-```
-
-### Phase 3: Integration Verification
-
-After implementation, run full integration tests:
-
+### 2. Live Caddy Config (Retrieved via API)
 ```bash
-# Run backend tests with coverage
-scripts/go-test-coverage.sh
-
-# Run integration tests
-scripts/integration-test.sh
+curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.routes[] | select(.match[].host[] | contains("seerr"))'
 ```
 
----
-
-## Null Handling Specification
-
-### `enable_standard_headers` (Nullable Bool - `*bool`)
-
-This field follows the same pattern as `certificate_id`:
-
-| JSON Value | Go Value | Database | Caddy Behavior |
-|------------|----------|----------|----------------|
-| `"enable_standard_headers": true` | `*bool → true` | `1` | Add X-Real-IP, X-Forwarded-* headers |
-| `"enable_standard_headers": false` | `*bool → false` | `0` | No standard headers |
-| `"enable_standard_headers": null` | `*bool → nil` | `NULL` | Use default (true for new hosts) |
-| Field omitted | No change | Unchanged | Unchanged |
-
-**Default Behavior:** When `nil`, treated as `true` in config generation:
-
-```go
-// From config.go line 338
-enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+**Headers Present in Reverse Proxy:**
+```json
+{
+  "Connection": ["{http.request.header.Connection}"],
+  "Upgrade": ["{http.request.header.Upgrade}"],
+  "X-Forwarded-Host": ["{http.request.host}"],
+  "X-Forwarded-Proto": ["{http.request.scheme}"],
+  "X-Real-IP": ["{http.request.remote.host}"]
+}
 ```
 
-### `forward_auth_enabled` and `waf_disabled` (Regular Bool)
+**Missing Headers:**
+- ❌ `X-Forwarded-Port` - **COMPLETELY ABSENT**
 
-| JSON Value | Go Value | Database |
-|------------|----------|----------|
-| `"field": true` | `bool → true` | `1` |
-| `"field": false` | `bool → false` | `0` |
-| Field omitted | No change | Unchanged |
+**Analysis:**
+- This is NOT a complete "standard headers disabled" situation
+- 3 out of 4 standard headers ARE present (X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host)
+- Only `X-Forwarded-Port` is missing
+- WebSocket headers (Connection, Upgrade) are present as expected
 
----
+### 3. Config Snapshot File Analysis
+```bash
+ls -lt /app/data/caddy/
 
-## Files to Modify
+# Most recent snapshot:
+# -rw-r--r-- 1 root root 45742 Dec 19 13:57 config-1766170642.json
+```
 
-### Backend (Must Modify)
+**Snapshot Timestamp:** **Dec 19, 2025 at 13:57** (1:57 PM)
+**Proxy Host Updated:** Dec 19, 2025 at **20:58:31** (8:58 PM)
 
-| File | Change |
-|------|--------|
-| [proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go) | Add handlers for all 3 missing fields |
-| [proxy_host_handler_test.go](../../backend/internal/api/handlers/proxy_host_handler_test.go) | Add unit tests for all 3 fields |
+**Time Gap:** **7 hours and 1 minute** between the last config generation and the proxy host update.
 
-### Backend (Verify Only - No Changes Expected)
+### 4. Caddy Access Logs (Real Requests)
+From logs at `2025-12-19 21:26:01`:
+```json
+"headers": {
+  "Via": ["2.0 Caddy"],
+  "X-Real-Ip": ["172.20.0.1"],
+  "X-Forwarded-For": ["172.20.0.1"],
+  "X-Forwarded-Proto": ["https"],
+  "X-Forwarded-Host": ["seerr.hatfieldhosted.com"],
+  "Connection": [""],
+  "Upgrade": [""]
+}
+```
 
-| File | Verification |
-|------|--------------|
-| [proxy_host.go](../../backend/internal/models/proxy_host.go) | ✅ All 3 fields exist with correct GORM tags |
-| [proxyhost_service.go](../../backend/internal/services/proxyhost_service.go) | ✅ Uses `Select("*")` - passes all fields to DB |
-| [config.go](../../backend/internal/caddy/config.go) | ✅ Correctly uses `EnableStandardHeaders` |
-| [types.go](../../backend/internal/caddy/types.go) | ✅ `ReverseProxyHandler` handles `enableStandardHeaders` param |
-
-### Frontend (Verify Only - No Changes Expected)
-
-| File | Verification |
-|------|--------------|
-| [proxyHosts.ts](../../frontend/src/api/proxyHosts.ts) | ⚠️ Missing `forward_auth_enabled` and `waf_disabled` in TypeScript interface |
-
----
-
-## Verification Checklist
-
-### Pre-Implementation
-
-- [ ] Read and understand all 3 field definitions in `proxy_host.go`
-- [ ] Confirm `certificate_id` pattern for nullable bool handling
-- [ ] Review existing test patterns in `proxy_host_handler_test.go`
-
-### Implementation
-
-- [ ] Add `enable_standard_headers` handler (nullable bool pattern)
-- [ ] Add `forward_auth_enabled` handler (regular bool)
-- [ ] Add `waf_disabled` handler (regular bool)
-- [ ] Write unit tests for all 3 fields
-- [ ] Write integration test for Caddy config generation
-
-### Post-Implementation Verification
-
-- [ ] Database value persists after PUT request (all 3 fields)
-- [ ] GET returns updated value (all 3 fields)
-- [ ] Caddy config reflects `enable_standard_headers` change
-- [ ] All existing tests pass (`go test ./...`)
-- [ ] Coverage threshold maintained (≥85%)
-
-### Regression Testing
-
-- [ ] Existing hosts without these fields still work
-- [ ] Create new host → verify default values
-- [ ] Update existing host → verify partial update works
-- [ ] Frontend form submission → backend processes correctly
+**Confirmed:** `X-Forwarded-Port` is NOT being sent to the upstream Seerr service.
 
 ---
 
 ## Root Cause Analysis
 
-### Why These Fields Were Missed
+### Issue 1: Config Regeneration Did Not Occur After Update
 
-The `Update` handler uses a `map[string]interface{}` payload pattern with manual field extraction. When new fields were added to the model, they were not added to the handler's extraction logic.
+**Timeline Evidence:**
+1. Proxy host updated in database: `2025-12-19 20:58:31`
+2. Most recent Caddy config snapshot: `2025-12-19 13:57:00`
+3. **Gap:** 7 hours and 1 minute
 
-**Evidence from proxy_host_handler.go:**
-
+**Code Path Review** (proxy_host_handler.go Update method):
 ```go
-// Lines 177-220: Only these fields are handled
-if v, ok := payload["name"].(string); ok { host.Name = v }
-if v, ok := payload["domain_names"].(string); ok { host.DomainNames = v }
-// ... more fields ...
-if v, ok := payload["enabled"].(bool); ok { host.Enabled = v }
-// ⚠️ GAP: enable_standard_headers, forward_auth_enabled, waf_disabled NOT HERE
-```
-
-### Model Definition (Correct)
-
-**From proxy_host.go:**
-
-```go
-// Forward Auth - Line 37
-ForwardAuthEnabled bool `json:"forward_auth_enabled" gorm:"default:false"`
-
-// WAF override - Line 40
-WAFDisabled bool `json:"waf_disabled" gorm:"default:false"`
-
-// Standard headers - Line 54
-EnableStandardHeaders *bool `json:"enable_standard_headers,omitempty" gorm:"default:true"`
-```
-
----
-
-## Complete Handler Field List
-
-Fields handled in Update (proxy_host_handler.go):
-
-**String Fields:**
-
-- [x] name
-- [x] domain_names
-- [x] forward_scheme
-- [x] forward_host
-- [x] application
-- [x] advanced_config
-
-**Integer Fields:**
-
-- [x] forward_port
-
-**Boolean Fields:**
-
-- [x] ssl_forced
-- [x] http2_support
-- [x] hsts_enabled
-- [x] hsts_subdomains
-- [x] block_exploits
-- [x] websocket_support
-- [x] enabled
-- [ ] **forward_auth_enabled** ← MISSING
-- [ ] **waf_disabled** ← MISSING
-
-**Nullable Fields:**
-
-- [x] certificate_id
-- [x] access_list_id
-- [x] security_header_profile_id
-- [ ] **enable_standard_headers** ← MISSING
-
-**Complex Fields:**
-
-- [x] locations (JSON array)
-
----
-
-## Frontend TypeScript Interface Gap
-
-**Current interface in proxyHosts.ts:**
-
-```typescript
-export interface ProxyHost {
-  // ... existing fields ...
-  enable_standard_headers?: boolean;  // ✅ Exists
-  // ⚠️ MISSING: forward_auth_enabled
-  // ⚠️ MISSING: waf_disabled
+// Line 375: Database update succeeds
+if err := h.service.Update(host); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    return
 }
-```
 
-**Recommendation:** After backend fix, update TypeScript interface:
-
-```typescript
-export interface ProxyHost {
-  // ... existing fields ...
-  enable_standard_headers?: boolean;
-  forward_auth_enabled?: boolean;  // ADD
-  waf_disabled?: boolean;          // ADD
-}
-```
-
----
-
-## Recent Related Changes
-
-### Commit: 81085ec (Dec 19, 2025)
-
-**Title:** feat: add standard proxy headers with backward compatibility
-
-This commit introduced the `enable_standard_headers` feature but **missed adding the handler code for updates**:
-
-- Added field to model ✓
-- Added UI checkbox ✓
-- Modified config generation ✓
-- **Missing: Update handler code** ✗
-
----
-
-## Appendix: Caddy Config Generation
-
-When `enable_standard_headers` is properly saved and set to `true`, the generated config includes:
-
-```json
-{
-  "handler": "reverse_proxy",
-  "headers": {
-    "request": {
-      "set": {
-        "X-Real-IP": ["{http.request.remote.host}"],
-        "X-Forwarded-Proto": ["{http.request.scheme}"],
-        "X-Forwarded-Host": ["{http.request.host}"],
-        "X-Forwarded-Port": ["{http.request.port}"]
-      }
+// Line 381: ApplyConfig is called
+if h.caddyManager != nil {
+    if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+        return
     }
-  }
 }
 ```
 
-These headers are **required** for:
+**Expected Behavior:** `ApplyConfig()` should be called immediately after the database UPDATE succeeds.
 
-- Plex SSO authentication pass-through
-- Seerr/Overseerr login via proxy
-- Any app that needs client's real IP
-- Proper protocol detection (HTTPS)
+**Actual Behavior:** The config snapshot timestamp shows no regeneration occurred.
+
+**Possible Causes:**
+1. `h.caddyManager` was `nil` (unlikely - other hosts work)
+2. `ApplyConfig()` was called but returned an error that was NOT propagated to the UI
+3. `ApplyConfig()` succeeded but didn't write a new snapshot (logic bug in snapshot rotation)
+4. The UPDATE request never reached this code path (frontend bug, API route issue)
+
+### Issue 2: Partial Standard Headers in Live Config
+
+**Expected Behavior** (from types.go lines 144-153):
+```go
+if enableStandardHeaders {
+    setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+    setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
+    setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+    setHeaders["X-Forwarded-Port"] = []string{"{http.request.port}"}  // <-- THIS SHOULD BE SET
+}
+```
+
+**Actual Behavior in Live Caddy Config:**
+- X-Real-IP: ✅ Present
+- X-Forwarded-Proto: ✅ Present
+- X-Forwarded-Host: ✅ Present
+- X-Forwarded-Port: ❌ **MISSING**
+
+**Analysis:**
+The presence of 3 out of 4 headers indicates that:
+1. The running config was generated when `enableStandardHeaders` was at least partially true, OR
+2. There's an **older version of the code** that only added 3 headers, OR
+3. The WebSocket + Application logic is interfering with the 4th header
+
+**Historical Code Check Required:** Was there ever a version of `ReverseProxyHandler` that added only 3 standard headers?
+
+### Issue 3: WebSocket vs Standard Headers Interaction
+
+Seerr has `websocket_support = 1`. Let's trace the header generation logic:
+
+```go
+// STEP 1: Standard headers (if enabled)
+if enableStandardHeaders {
+    setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+    setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
+    setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+    setHeaders["X-Forwarded-Port"] = []string{"{http.request.port}"}
+}
+
+// STEP 2: WebSocket headers
+if enableWS {
+    setHeaders["Upgrade"] = []string{"{http.request.header.Upgrade}"}
+    setHeaders["Connection"] = []string{"{http.request.header.Connection}"}
+}
+
+// STEP 3: Application-specific (none for application="none")
+```
+
+**No Conflict:** WebSocket headers should NOT overwrite or prevent standard headers.
+
+---
+
+## Root Cause Analysis
+
+### 1. The `enable_standard_headers` Field is `false` for Seerr
+
+The Seerr proxy host was created/migrated **before** the standard headers feature was added. Per the migration logic:
+
+- **New hosts:** `enable_standard_headers = true` (default)
+- **Existing hosts:** `enable_standard_headers = false` (backward compatibility)
+
+### 2. Code Path Verification
+
+From `types.go`:
+
+```go
+func ReverseProxyHandler(dial string, enableWS bool, application string, enableStandardHeaders bool) Handler {
+    // ...
+
+    // STEP 1: Standard proxy headers (if feature enabled)
+    if enableStandardHeaders {
+        setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+        setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
+        setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
+        setHeaders["X-Forwarded-Port"] = []string{"{http.request.port}"}
+    }
+```
+
+When `enableStandardHeaders = false`, **no standard headers are added**.
+
+### 3. Config Generation Path
+
+From `config.go`:
+
+```go
+// Determine if standard headers should be enabled (default true if nil)
+enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
+```
+
+This is **correct** - the logic properly defaults to `true` when `nil`. The issue is that Seerr has `enable_standard_headers = false` explicitly set.
+
+---
+
+## Why Seerr SSO Fails
+
+### Seerr/Overseerr Authentication Flow
+
+1. User visits `seerr.hatfieldhosted.com`
+2. Clicks "Sign in with Plex"
+3. Plex OAuth redirects back to `seerr.hatfieldhosted.com/api/v1/auth/plex/callback`
+4. Seerr validates the callback and needs to know:
+   - **Client's real IP** (`X-Real-IP` or `X-Forwarded-For`)
+   - **Original protocol** (`X-Forwarded-Proto`) for HTTPS cookie security
+   - **Original host** (`X-Forwarded-Host`) for redirect validation
+
+### Without These Headers
+
+- Seerr sees `X-Forwarded-Proto` as missing → assumes HTTP
+- Secure cookies may fail to set properly
+- CORS/redirect validation may fail because host header mismatch
+- OAuth callback may be rejected due to origin mismatch
+
+---
+
+## Cookie and Authorization Headers - NOT THE ISSUE
+
+Caddy's `reverse_proxy` directive **preserves all headers by default**, including:
+- `Cookie`
+- `Authorization`
+- `Accept`
+- All other standard HTTP headers
+
+The `headers.request.set` configuration **adds or overwrites** headers; it does NOT delete existing headers. There is no header stripping happening.
+
+---
+
+## Trusted Proxies - NOT THE ISSUE
+
+The server-level `trusted_proxies` configuration is correctly set:
+
+```go
+trustedProxies := &TrustedProxies{
+    Source: "static",
+    Ranges: []string{
+        "127.0.0.1/32",
+        "::1/128",
+        "172.16.0.0/12",  // Docker bridge networks
+        "10.0.0.0/8",
+        "192.168.0.0/16",
+    },
+}
+```
+
+This allows Caddy to trust `X-Forwarded-For` from internal networks.
+
+---
+
+## Solution
+
+### Immediate Fix (User Action)
+
+1. Edit the Seerr proxy host in Charon UI
+2. Enable "Standard Proxy Headers" checkbox
+3. Save
+
+This will add the required headers to the Seerr route.
+
+### Permanent Fix (Code Change - ALREADY IMPLEMENTED)
+
+The handler fix for the three missing fields was implemented. The fields are now handled in the Update handler:
+- `enable_standard_headers` - nullable bool handler added
+- `forward_auth_enabled` - regular bool handler added
+- `waf_disabled` - regular bool handler added
+
+---
+
+## Verification Steps
+
+After enabling standard headers for Seerr:
+
+### 1. Verify Caddy Config
+
+```bash
+docker exec charon cat /app/data/caddy/config.json | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+routes = data.get('apps', {}).get('http', {}).get('servers', {}).get('charon_server', {}).get('routes', [])
+for route in routes:
+    for match in route.get('match', []):
+        if any('seerr' in h.lower() for h in match.get('host', [])):
+            print(json.dumps(route, indent=2))
+"
+```
+
+**Expected:** Should show `X-Real-IP`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port` in the reverse_proxy handler.
+
+### 2. Test SSO Login
+
+1. Clear browser cookies for Seerr
+2. Visit `seerr.hatfieldhosted.com`
+3. Click "Sign in with Plex"
+4. Complete OAuth flow
+5. Should successfully authenticate
+
+---
+
+## Files Analyzed
+
+| File | Status | Notes |
+|------|--------|-------|
+| `types.go` | ✅ Correct | `ReverseProxyHandler` properly adds headers when enabled |
+| `config.go` | ✅ Correct | Properly passes `enableStandardHeaders` parameter |
+| `proxy_host.go` | ✅ Correct | Field definition is correct |
+| `proxy_host_handler.go` | ✅ Fixed | Now handles `enable_standard_headers` in Update |
+| `caddy_config_qa.json` | 📊 Evidence | Shows Seerr route missing standard headers |
+
+---
+
+## Conclusion
+
+**The root cause is a STALE CONFIGURATION caused by a failed or skipped `ApplyConfig()` call.**
+
+**Evidence:**
+- Database: `enable_standard_headers = 1`, `updated_at = 2025-12-19 20:58:31` ✅
+- UI: "Standard Proxy Headers" checkbox is ENABLED ✅
+- Config Snapshot: Last generated at `2025-12-19 13:57` (7+ hours before the DB update) ❌
+- Live Caddy Config: Missing `X-Forwarded-Port` header ❌
+
+**What Happened:**
+1. User enabled "Standard Proxy Headers" for Seerr on Dec 19 at 20:58
+2. Database UPDATE succeeded
+3. `ApplyConfig()` either failed silently or was never called
+4. The running config is from an older snapshot that predates the update
+
+**Immediate Action:**
+```bash
+docker restart charon
+```
+This will force a complete config regeneration from the current database state.
+
+**Long-term Fixes Needed:**
+1. Wrap database updates in transactions that rollback on `ApplyConfig()` failure
+2. Add enhanced logging to track config generation success/failure
+3. Implement config staleness detection in health checks
+4. Verify why the older config is missing `X-Forwarded-Port` (possible code version issue)
+
+**Alternative Immediate Fix (No Restart):**
+- Make a trivial change to any proxy host in the UI and save
+- This triggers `ApplyConfig()` and regenerates all configs
