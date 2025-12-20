@@ -105,3 +105,27 @@ export const bulkUpdateACL = async (
   });
   return data;
 };
+
+export interface BulkUpdateSecurityHeadersRequest {
+  host_uuids: string[];
+  security_header_profile_id: number | null;
+}
+
+export interface BulkUpdateSecurityHeadersResponse {
+  updated: number;
+  errors: { uuid: string; error: string }[];
+}
+
+export const bulkUpdateSecurityHeaders = async (
+  hostUUIDs: string[],
+  securityHeaderProfileId: number | null
+): Promise<BulkUpdateSecurityHeadersResponse> => {
+  const { data } = await client.put<BulkUpdateSecurityHeadersResponse>(
+    '/proxy-hosts/bulk-update-security-headers',
+    {
+      host_uuids: hostUUIDs,
+      security_header_profile_id: securityHeaderProfileId,
+    }
+  );
+  return data;
+};

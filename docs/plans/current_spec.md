@@ -1,432 +1,770 @@
-# Critical Bug Analysis: 500 Error on Proxy Host Save
+# Implementation Plan: Add HTTP Headers to Bulk Apply Feature
 
-## Summary
+## Overview
 
-**Root Cause Identified:** The 500 error is caused by an invalid Caddy configuration structure where `trusted_proxies` is set as an **object** at the **handler level** (within `reverse_proxy`), but Caddy's `http.handlers.reverse_proxy` expects it to be either:
+### Feature Description
 
-1. An **array of strings** at the handler level, OR
-2. An **object** only at the **server level**
+Extend the existing **Bulk Apply** feature on the Proxy Hosts page to allow users to assign **Security Header Profiles** to multiple proxy hosts simultaneously. This enhancement enables administrators to efficiently apply consistent security header configurations across their infrastructure without editing each host individually.
 
-The error from Caddy logs:
+### User Benefit
 
-```
-json: cannot unmarshal object into Go struct field Handler.trusted_proxies of type []string
-```
+- **Time Savings**: Apply security header profiles to 10, 50, or 100+ hosts in a single operation
+- **Consistency**: Ensure uniform security posture across all proxy hosts
+- **Compliance**: Quickly remediate security gaps by bulk-applying strict security profiles
+- **Workflow Efficiency**: Integrates seamlessly with existing Bulk Apply modal (Force SSL, HTTP/2, HSTS, etc.)
 
----
+### Scope of Changes
 
-## 1. Complete File List with Key Functions
-
-### Frontend Layer
-
-| File | Key Functions/Lines | Purpose |
-|------|---------------------|---------|
-| [frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx) | `handleSubmit()` L302-332 | Form submission, calls `onSubmit(payloadWithoutUptime)` |
-| [frontend/src/hooks/useProxyHosts.ts](../../frontend/src/hooks/useProxyHosts.ts) | `updateMutation` L25-31, `updateHost()` L50 | React Query mutation for PUT requests |
-| [frontend/src/api/proxyHosts.ts](../../frontend/src/api/proxyHosts.ts) | `updateProxyHost()` L57-60 | API client - `PUT /proxy-hosts/{uuid}` |
-
-### Backend Layer
-
-| File | Key Functions/Lines | Purpose |
-|------|---------------------|---------|
-| [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go) | L341-342 | Route registration: `router.PUT("/proxy-hosts/:uuid", h.Update)` |
-| [backend/internal/api/handlers/proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go) | `Update()` L133-262 | HTTP handler - parses payload, updates model, calls `ApplyConfig()` |
-| [backend/internal/services/proxyhost_service.go](../../backend/internal/services/proxyhost_service.go) | `Update()` L57-76 | Business logic - validates domain uniqueness, DB update |
-| [backend/internal/models/proxy_host.go](../../backend/internal/models/proxy_host.go) | `ProxyHost` struct L10-61 | Database model with all fields |
-
-### Caddy Configuration Layer
-
-| File | Key Functions/Lines | Purpose |
-|------|---------------------|---------|
-| [backend/internal/caddy/manager.go](../../backend/internal/caddy/manager.go) | `ApplyConfig()` L48-169 | Orchestrates config generation, validation, and application |
-| [backend/internal/caddy/config.go](../../backend/internal/caddy/config.go) | `GenerateConfig()` L22-310 | Builds complete Caddy JSON config from DB |
-| **[backend/internal/caddy/types.go](../../backend/internal/caddy/types.go)** | **`ReverseProxyHandler()` L130-201** | **🔴 BUG LOCATION - Creates invalid `trusted_proxies` structure** |
+| Area | Scope |
+|------|-------|
+| Frontend | Modify 4-5 files (ProxyHosts page, helpers, API, translations) |
+| Backend | Modify 2 files (handler, possibly add new endpoint) |
+| Database | No schema changes required (uses existing `security_header_profile_id` field) |
+| Tests | Add unit tests for frontend and backend |
 
 ---
 
-## 2. Data Flow Diagram
+## A. Current Implementation Analysis
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ FRONTEND                                                                             │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│  ProxyHostForm.tsx                                                                   │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ formData = {                        │                                             │
-│  │   name: "Test",                     │                                             │
-│  │   enable_standard_headers: true,    │  ← User enables this checkbox              │
-│  │   websocket_support: true,          │                                             │
-│  │   ...                               │                                             │
-│  │ }                                   │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ handleSubmit() L302-332                                         │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ onSubmit(payloadWithoutUptime)      │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ useProxyHosts.ts updateHost() L50                               │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ updateMutation.mutateAsync({        │                                             │
-│  │   uuid: "...",                      │                                             │
-│  │   data: payload                     │                                             │
-│  │ })                                  │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ proxyHosts.ts updateProxyHost() L57-60                          │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ client.put(`/proxy-hosts/${uuid}`,  │                                             │
-│  │   host)                             │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-└────────────────────│────────────────────────────────────────────────────────────────┘
-                     │
-                     │ HTTP PUT /api/v1/proxy-hosts/{uuid}
-                     │ JSON Body: { enable_standard_headers: true, ... }
-                     ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ BACKEND                                                                              │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│  routes.go L341-342                                                                  │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ router.PUT("/proxy-hosts/:uuid",    │                                             │
-│  │   h.Update)                         │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ proxy_host_handler.go Update() L133-262                         │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ 1. GetByUUID(uuidStr) → host        │                                             │
-│  │ 2. c.ShouldBindJSON(&payload)       │                                             │
-│  │ 3. Parse fields from payload        │                                             │
-│  │    - enable_standard_headers        │ ← Correctly parsed at L182-189             │
-│  │ 4. h.service.Update(host)           │                                             │
-│  │ 5. h.caddyManager.ApplyConfig()     │ ← 🔴 FAILURE POINT                          │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ proxyhost_service.go Update() L57-76                            │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ 1. ValidateUniqueDomain()           │                                             │
-│  │ 2. Normalize advanced_config        │                                             │
-│  │ 3. db.Updates(host)                 │ ✅ Database update SUCCEEDS                 │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ manager.go ApplyConfig() L48-169                                │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ 1. db.Find(&hosts)                  │                                             │
-│  │ 2. GenerateConfig(hosts, ...)       │                                             │
-│  │ 3. ValidateConfig(config)           │                                             │
-│  │ 4. m.client.Load(ctx, config)       │ ← 🔴 CADDY REJECTS CONFIG                   │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ config.go GenerateConfig() L22-310                              │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ For each enabled host:              │                                             │
-│  │   ReverseProxyHandler(dial,         │                                             │
-│  │     websocket, app,                 │                                             │
-│  │     enableStandardHeaders)          │ ← 🔴 BUG TRIGGERED HERE                     │
-│  └─────────────────────────────────────┘                                             │
-│                    │                                                                 │
-│                    ▼ types.go ReverseProxyHandler() L130-201                         │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ 🔴 BUG: Creates invalid structure   │                                             │
-│  │                                     │                                             │
-│  │ h["trusted_proxies"] = map[string]  │                                             │
-│  │   interface{}{                      │                                             │
-│  │   "source": "static",               │ ← WRONG: Object at handler level            │
-│  │   "ranges": []string{"private_..."},│                                             │
-│  │ }                                   │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                                                                                      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-                     │
-                     │ POST /load to Caddy Admin API
-                     │ (Invalid JSON structure)
-                     ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ CADDY                                                                                │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│  EXPECTED by http.handlers.reverse_proxy:                                            │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ "trusted_proxies": ["192.168.0.0/16",│ ← Array of strings                         │
-│  │   "10.0.0.0/8", ...]                │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                                                                                      │
-│  RECEIVED (invalid):                                                                 │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ "trusted_proxies": {                │ ← Object (wrong type!)                      │
-│  │   "source": "static",               │                                             │
-│  │   "ranges": ["private_ranges"]      │                                             │
-│  │ }                                   │                                             │
-│  └─────────────────────────────────────┘                                             │
-│                                                                                      │
-│  🔴 ERROR:                                                                           │
-│  "json: cannot unmarshal object into Go struct field                                 │
-│   Handler.trusted_proxies of type []string"                                          │
-│                                                                                      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-```
+### Existing Bulk Apply Architecture
+
+The Bulk Apply feature currently supports these boolean settings:
+
+- `ssl_forced` - Force SSL
+- `http2_support` - HTTP/2 Support
+- `hsts_enabled` - HSTS Enabled
+- `hsts_subdomains` - HSTS Subdomains
+- `block_exploits` - Block Exploits
+- `websocket_support` - Websockets Support
+- `enable_standard_headers` - Standard Proxy Headers
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| [frontend/src/pages/ProxyHosts.tsx](../../frontend/src/pages/ProxyHosts.tsx) | Main page with Bulk Apply modal (L60-67 defines `bulkApplySettings` state) |
+| [frontend/src/utils/proxyHostsHelpers.ts](../../frontend/src/utils/proxyHostsHelpers.ts) | Helper functions: `formatSettingLabel()`, `settingHelpText()`, `settingKeyToField()`, `applyBulkSettingsToHosts()` |
+| [frontend/src/api/proxyHosts.ts](../../frontend/src/api/proxyHosts.ts) | API client with `updateProxyHost()` for individual updates |
+| [frontend/src/hooks/useProxyHosts.ts](../../frontend/src/hooks/useProxyHosts.ts) | React Query hook with `updateHost()` mutation |
+
+### How Bulk Apply Currently Works
+
+1. User selects multiple hosts using checkboxes in the DataTable
+2. User clicks "Bulk Apply" button → opens modal
+3. Modal shows all available settings with checkboxes (apply/don't apply) and toggles (on/off)
+4. User clicks "Apply" → `applyBulkSettingsToHosts()` iterates over selected hosts
+5. For each host, it calls `updateHost(uuid, mergedData)` which triggers `PUT /api/v1/proxy-hosts/{uuid}`
+6. Backend updates the host and applies Caddy config
+
+### Existing Security Header Profile Implementation
+
+**Frontend:**
+
+| File | Purpose |
+|------|---------|
+| [frontend/src/api/securityHeaders.ts](../../frontend/src/api/securityHeaders.ts) | API client for security header profiles |
+| [frontend/src/hooks/useSecurityHeaders.ts](../../frontend/src/hooks/useSecurityHeaders.ts) | React Query hooks including `useSecurityHeaderProfiles()` |
+| [frontend/src/components/ProxyHostForm.tsx](../../frontend/src/components/ProxyHostForm.tsx) | Individual host form with Security Header Profile dropdown (L550-620) |
+
+**Backend:**
+
+| File | Purpose |
+|------|---------|
+| [backend/internal/models/proxy_host.go](../../backend/internal/models/proxy_host.go) | `SecurityHeaderProfileID *uint` field (L38) |
+| [backend/internal/api/handlers/proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go) | `Update()` handler parses `security_header_profile_id` (L253-286) |
+| [backend/internal/models/security_header_profile.go](../../backend/internal/models/security_header_profile.go) | Profile model with all header configurations |
 
 ---
 
-## 3. JSON Payload Comparison
+## B. Frontend Changes
 
-### What Frontend Sends (Correct)
+### B.1. Modify ProxyHosts.tsx
 
-```json
-{
-  "name": "Test Service",
-  "domain_names": "test.example.com",
-  "forward_scheme": "http",
-  "forward_host": "192.168.1.100",
-  "forward_port": 8080,
-  "ssl_forced": true,
-  "http2_support": true,
-  "hsts_enabled": true,
-  "hsts_subdomains": true,
-  "block_exploits": true,
-  "websocket_support": true,
-  "enable_standard_headers": true,
-  "application": "none",
-  "enabled": true,
-  "certificate_id": null,
-  "access_list_id": null,
-  "security_header_profile_id": null
+**File:** `frontend/src/pages/ProxyHosts.tsx`
+
+#### B.1.1. Add Security Header Profile Selection State
+
+**Location:** After `bulkApplySettings` state definition (around L67)
+
+```typescript
+// Existing state (L60-67)
+const [bulkApplySettings, setBulkApplySettings] = useState<Record<string, { apply: boolean; value: boolean }>>({
+  ssl_forced: { apply: false, value: true },
+  http2_support: { apply: false, value: true },
+  hsts_enabled: { apply: false, value: true },
+  hsts_subdomains: { apply: false, value: true },
+  block_exploits: { apply: false, value: true },
+  websocket_support: { apply: false, value: true },
+  enable_standard_headers: { apply: false, value: true },
+})
+
+// NEW: Add security header profile selection state
+const [bulkSecurityHeaderProfile, setBulkSecurityHeaderProfile] = useState<{
+  apply: boolean;
+  profileId: number | null;
+}>({ apply: false, profileId: null })
+```
+
+#### B.1.2. Import Security Header Profiles Hook
+
+**Location:** At top of file with other imports
+
+```typescript
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+```
+
+#### B.1.3. Add Hook Usage
+
+**Location:** After other hook calls (around L43)
+
+```typescript
+const { data: securityProfiles } = useSecurityHeaderProfiles()
+```
+
+#### B.1.4. Modify Bulk Apply Modal UI
+
+**Location:** Inside the Bulk Apply Dialog content (around L645-690)
+
+Add a new section after the existing toggle settings but before the progress indicator:
+
+```tsx
+{/* Security Header Profile Section - NEW */}
+<div className="border-t border-border pt-3 mt-3">
+  <div className="flex items-center justify-between gap-3 p-3 bg-surface-subtle rounded-lg">
+    <div className="flex items-center gap-3">
+      <Checkbox
+        checked={bulkSecurityHeaderProfile.apply}
+        onCheckedChange={(checked) => setBulkSecurityHeaderProfile(prev => ({
+          ...prev,
+          apply: !!checked
+        }))}
+      />
+      <div>
+        <div className="text-sm font-medium text-content-primary">
+          {t('proxyHosts.bulkApplySecurityHeaders')}
+        </div>
+        <div className="text-xs text-content-muted">
+          {t('proxyHosts.bulkApplySecurityHeadersHelp')}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {bulkSecurityHeaderProfile.apply && (
+    <div className="mt-3 p-3 bg-surface-subtle rounded-lg">
+      <select
+        value={bulkSecurityHeaderProfile.profileId ?? 0}
+        onChange={(e) => setBulkSecurityHeaderProfile(prev => ({
+          ...prev,
+          profileId: e.target.value === "0" ? null : parseInt(e.target.value)
+        }))}
+        className="w-full bg-surface-muted border border-border rounded-lg px-4 py-2 text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500"
+      >
+        <option value={0}>{t('proxyHosts.noSecurityProfile')}</option>
+        <optgroup label={t('securityHeaders.systemProfiles')}>
+          {securityProfiles
+            ?.filter(p => p.is_preset)
+            .sort((a, b) => a.security_score - b.security_score)
+            .map(profile => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name} ({t('common.score')}: {profile.security_score}/100)
+              </option>
+            ))}
+        </optgroup>
+        {(securityProfiles?.filter(p => !p.is_preset) || []).length > 0 && (
+          <optgroup label={t('securityHeaders.customProfiles')}>
+            {securityProfiles
+              ?.filter(p => !p.is_preset)
+              .map(profile => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} ({t('common.score')}: {profile.security_score}/100)
+                </option>
+              ))}
+          </optgroup>
+        )}
+      </select>
+
+      {bulkSecurityHeaderProfile.profileId && (() => {
+        const selected = securityProfiles?.find(p => p.id === bulkSecurityHeaderProfile.profileId)
+        if (!selected) return null
+        return (
+          <div className="mt-2 text-xs text-content-muted">
+            {selected.description}
+          </div>
+        )
+      })()}
+    </div>
+  )}
+</div>
+```
+
+#### B.1.5. Update Apply Button Logic
+
+**Location:** In the DialogFooter onClick handler (around L700-720)
+
+Modify the apply handler to include security header profile:
+
+```typescript
+onClick={async () => {
+  const keysToApply = Object.keys(bulkApplySettings).filter(k => bulkApplySettings[k].apply)
+  const hostUUIDs = Array.from(selectedHosts)
+
+  // Apply boolean settings
+  if (keysToApply.length > 0) {
+    const result = await applyBulkSettingsToHosts({
+      hosts,
+      hostUUIDs,
+      keysToApply,
+      bulkApplySettings,
+      updateHost,
+      setApplyProgress
+    })
+
+    if (result.errors > 0) {
+      toast.error(t('notifications.updateFailed'))
+    }
+  }
+
+  // Apply security header profile if selected
+  if (bulkSecurityHeaderProfile.apply) {
+    let profileErrors = 0
+    for (const uuid of hostUUIDs) {
+      try {
+        await updateHost(uuid, {
+          security_header_profile_id: bulkSecurityHeaderProfile.profileId
+        })
+      } catch {
+        profileErrors++
+      }
+    }
+
+    if (profileErrors > 0) {
+      toast.error(t('notifications.updateFailed'))
+    }
+  }
+
+  // Only show success if at least something was applied
+  if (keysToApply.length > 0 || bulkSecurityHeaderProfile.apply) {
+    toast.success(t('notifications.updateSuccess'))
+  }
+
+  setSelectedHosts(new Set())
+  setShowBulkApplyModal(false)
+  setBulkSecurityHeaderProfile({ apply: false, profileId: null })
+}}
+```
+
+#### B.1.6. Update Apply Button Disabled State
+
+**Location:** Same DialogFooter Button (around L725)
+
+```typescript
+disabled={
+  applyProgress !== null ||
+  (Object.values(bulkApplySettings).every(s => !s.apply) && !bulkSecurityHeaderProfile.apply)
 }
 ```
 
-### What Backend Generates for Caddy (INVALID)
+---
+
+### B.2. Update Translation Files
+
+**Files to Update:**
+
+1. `frontend/src/locales/en/translation.json`
+2. `frontend/src/locales/de/translation.json`
+3. `frontend/src/locales/es/translation.json`
+4. `frontend/src/locales/fr/translation.json`
+5. `frontend/src/locales/zh/translation.json`
+
+#### New Translation Keys (add to `proxyHosts` section)
+
+**English (`en/translation.json`):**
 
 ```json
 {
-  "handler": "reverse_proxy",
-  "upstreams": [{ "dial": "192.168.1.100:8080" }],
-  "flush_interval": -1,
-  "headers": {
-    "request": {
-      "set": {
-        "X-Real-IP": ["{http.request.remote.host}"],
-        "X-Forwarded-Proto": ["{http.request.scheme}"],
-        "X-Forwarded-Host": ["{http.request.host}"],
-        "X-Forwarded-Port": ["{http.request.port}"]
-      }
-    }
-  },
-  "trusted_proxies": {
-    "source": "static",
-    "ranges": ["private_ranges"]
+  "proxyHosts": {
+    "bulkApplySecurityHeaders": "Security Header Profile",
+    "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
+    "noSecurityProfile": "None (Remove Profile)"
   }
 }
 ```
 
-### What Caddy EXPECTS (Correct Structure)
-
-According to Caddy's documentation, at the **handler level**, `trusted_proxies` must be an **array of CIDR strings**:
+**Also add to `common` section:**
 
 ```json
 {
-  "handler": "reverse_proxy",
-  "upstreams": [{ "dial": "192.168.1.100:8080" }],
-  "flush_interval": -1,
-  "headers": {
-    "request": {
-      "set": {
-        "X-Real-IP": ["{http.request.remote.host}"],
-        "X-Forwarded-Proto": ["{http.request.scheme}"],
-        "X-Forwarded-Host": ["{http.request.host}"],
-        "X-Forwarded-Port": ["{http.request.port}"]
-      }
-    }
-  },
-  "trusted_proxies": [
-    "192.168.0.0/16",
-    "10.0.0.0/8",
-    "172.16.0.0/12",
-    "127.0.0.1/32",
-    "::1/128"
-  ]
+  "common": {
+    "score": "Score"
+  }
 }
 ```
 
-**Note:** The object structure with `source` and `ranges` is valid at the **server level** (in `Server.TrustedProxies`), not at the handler level.
+---
+
+### B.3. Optional: Optimize with Bulk API Endpoint
+
+For better performance with large numbers of hosts, consider adding a dedicated bulk update endpoint. This would reduce N API calls to 1.
+
+**New API Function in `frontend/src/api/proxyHosts.ts`:**
+
+```typescript
+export interface BulkUpdateSecurityHeadersRequest {
+  host_uuids: string[];
+  security_header_profile_id: number | null;
+}
+
+export interface BulkUpdateSecurityHeadersResponse {
+  updated: number;
+  errors: { uuid: string; error: string }[];
+}
+
+export const bulkUpdateSecurityHeaders = async (
+  hostUUIDs: string[],
+  securityHeaderProfileId: number | null
+): Promise<BulkUpdateSecurityHeadersResponse> => {
+  const { data } = await client.put<BulkUpdateSecurityHeadersResponse>(
+    '/proxy-hosts/bulk-update-security-headers',
+    {
+      host_uuids: hostUUIDs,
+      security_header_profile_id: securityHeaderProfileId,
+    }
+  );
+  return data;
+};
+```
 
 ---
 
-## 4. Root Cause Analysis
+## C. Backend Changes
 
-### The Bug Location
+### C.1. Current Update Handler Analysis
 
-**File:** `backend/internal/caddy/types.go`
-**Function:** `ReverseProxyHandler()`
-**Lines:** 186-189
+The existing `Update()` handler in [proxy_host_handler.go](../../backend/internal/api/handlers/proxy_host_handler.go) already handles `security_header_profile_id` updates (L253-286). The frontend can use individual `updateHost()` calls for each selected host.
+
+However, for optimal performance, adding a dedicated bulk endpoint is recommended.
+
+### C.2. Add Bulk Update Security Headers Endpoint (Recommended)
+
+**File:** `backend/internal/api/handlers/proxy_host_handler.go`
+
+#### C.2.1. Register New Route
+
+**Location:** In `RegisterRoutes()` function (around L62)
 
 ```go
-// STEP 4: Always configure trusted_proxies for security when headers are set
-// This prevents IP spoofing attacks by only trusting headers from known proxy sources
-if len(setHeaders) > 0 {
-    h["trusted_proxies"] = map[string]interface{}{      // 🔴 BUG: Object structure
-        "source": "static",
-        "ranges": []string{"private_ranges"},           // 🔴 "private_ranges" is also invalid
-    }
-}
+router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
 ```
 
-### Problems
+#### C.2.2. Add Handler Function
 
-1. **Wrong Type:** `trusted_proxies` at handler level must be `[]string`, not `map[string]interface{}`
-2. **Invalid Value:** `"private_ranges"` is not a valid CIDR - Caddy doesn't expand this magic string at the handler level
-3. **Server vs Handler Confusion:** The object structure `{source, ranges}` is only valid in `apps.http.servers.*.trusted_proxies`, not in route handlers
-
-### Why This Wasn't Caught Before
-
-1. **Unit tests pass** because they only check the Go structure, not Caddy's actual validation
-2. **Integration tests** may have been run with a different Caddy version or config
-3. **Recent addition:** The `trusted_proxies` at handler level was added as part of the standard headers feature
-
----
-
-## 5. Proposed Fix
-
-### Option A: Remove Handler-Level trusted_proxies (Recommended)
-
-The server-level `trusted_proxies` in `config.go` is already correctly configured and applies to ALL routes. The handler-level setting is redundant and incorrect.
-
-**File:** `backend/internal/caddy/types.go`
-**Change:** Remove lines 184-189
+**Location:** After `BulkUpdateACL()` function (around L540)
 
 ```go
-// REMOVE THIS ENTIRE BLOCK (lines 184-189):
-// STEP 4: Always configure trusted_proxies for security when headers are set
-// This prevents IP spoofing attacks by only trusting headers from known proxy sources
-if len(setHeaders) > 0 {
-    h["trusted_proxies"] = map[string]interface{}{
-        "source": "static",
-        "ranges": []string{"private_ranges"},
+// BulkUpdateSecurityHeadersRequest represents the request body for bulk security header updates
+type BulkUpdateSecurityHeadersRequest struct {
+    HostUUIDs               []string `json:"host_uuids" binding:"required"`
+    SecurityHeaderProfileID *uint    `json:"security_header_profile_id"` // nil means remove profile
+}
+
+// BulkUpdateSecurityHeaders applies or removes a security header profile to multiple proxy hosts.
+func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
+    var req BulkUpdateSecurityHeadersRequest
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
     }
+
+    if len(req.HostUUIDs) == 0 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+        return
+    }
+
+    // Validate profile exists if provided
+    if req.SecurityHeaderProfileID != nil {
+        var profile models.SecurityHeaderProfile
+        if err := h.service.DB().First(&profile, *req.SecurityHeaderProfileID).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "security header profile not found"})
+                return
+            }
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+    }
+
+    updated := 0
+    errors := []map[string]string{}
+
+    for _, hostUUID := range req.HostUUIDs {
+        host, err := h.service.GetByUUID(hostUUID)
+        if err != nil {
+            errors = append(errors, map[string]string{
+                "uuid":  hostUUID,
+                "error": "proxy host not found",
+            })
+            continue
+        }
+
+        host.SecurityHeaderProfileID = req.SecurityHeaderProfileID
+        if err := h.service.Update(host); err != nil {
+            errors = append(errors, map[string]string{
+                "uuid":  hostUUID,
+                "error": err.Error(),
+            })
+            continue
+        }
+
+        updated++
+    }
+
+    // Apply Caddy config once for all updates
+    if updated > 0 && h.caddyManager != nil {
+        if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "error":   "Failed to apply configuration: " + err.Error(),
+                "updated": updated,
+                "errors":  errors,
+            })
+            return
+        }
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "updated": updated,
+        "errors":  errors,
+    })
 }
 ```
 
-**Rationale:** The server already has trusted_proxies configured at config.go L295-306:
+#### C.2.3. Update ProxyHostService (if needed)
+
+**File:** `backend/internal/services/proxyhost_service.go`
+
+If `h.service.DB()` is not exposed, add a getter:
 
 ```go
-// Configure trusted proxies for proper client IP detection from X-Forwarded-For headers
-trustedProxies := &TrustedProxies{
-    Source: "static",
-    Ranges: []string{
-        "127.0.0.1/32",   // Localhost
-        "::1/128",        // IPv6 localhost
-        "172.16.0.0/12",  // Docker bridge networks
-        "10.0.0.0/8",     // Private network
-        "192.168.0.0/16", // Private network
-    },
-}
-
-config.Apps.HTTP.Servers["charon_server"] = &Server{
-    ...
-    TrustedProxies: trustedProxies,  // ← This is correct and sufficient
-    ...
+func (s *ProxyHostService) DB() *gorm.DB {
+    return s.db
 }
 ```
 
-### Option B: Fix Handler-Level Structure (If Per-Route Control Needed)
+---
 
-If per-route trusted_proxies control is needed in the future, fix the structure:
+## D. Testing Requirements
+
+### D.1. Frontend Unit Tests
+
+**File to Create:** `frontend/src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx`
+
+```typescript
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+// ... test setup
+
+describe('ProxyHosts Bulk Apply Security Headers', () => {
+  it('should show security header profile option in bulk apply modal', async () => {
+    // Render component with selected hosts
+    // Open bulk apply modal
+    // Verify security header section is visible
+  })
+
+  it('should enable profile selection when checkbox is checked', async () => {
+    // Check the "Security Header Profile" checkbox
+    // Verify dropdown becomes visible
+  })
+
+  it('should list all available profiles in dropdown', async () => {
+    // Mock security profiles data
+    // Verify preset and custom profiles are grouped
+  })
+
+  it('should apply security header profile to selected hosts', async () => {
+    // Select hosts
+    // Open modal
+    // Enable security header option
+    // Select a profile
+    // Click Apply
+    // Verify API calls made for each host
+  })
+
+  it('should remove security header profile when "None" selected', async () => {
+    // Select hosts with existing profiles
+    // Select "None" option
+    // Verify null is sent to API
+  })
+
+  it('should disable Apply button when no options selected', async () => {
+    // Ensure all checkboxes are unchecked
+    // Verify Apply button is disabled
+  })
+})
+```
+
+### D.2. Backend Unit Tests
+
+**File to Create:** `backend/internal/api/handlers/proxy_host_handler_security_headers_test.go`
 
 ```go
-// STEP 4: Always configure trusted_proxies for security when headers are set
-if len(setHeaders) > 0 {
-    h["trusted_proxies"] = []string{   // ← ARRAY of CIDRs
-        "192.168.0.0/16",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "127.0.0.1/32",
-        "::1/128",
-    }
+package handlers
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+)
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_Success(t *testing.T) {
+    // Setup test database with hosts and profiles
+    // Create request with valid host UUIDs and profile ID
+    // Assert 200 response
+    // Assert all hosts updated
+    // Assert Caddy config applied
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_RemoveProfile(t *testing.T) {
+    // Create hosts with existing profiles
+    // Send null security_header_profile_id
+    // Assert profiles removed
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_InvalidProfile(t *testing.T) {
+    // Send non-existent profile ID
+    // Assert 400 error
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_EmptyUUIDs(t *testing.T) {
+    // Send empty host_uuids array
+    // Assert 400 error
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_PartialFailure(t *testing.T) {
+    // Include some invalid UUIDs
+    // Assert partial success response
+    // Assert error details for failed hosts
 }
 ```
 
-### Tests to Update
+### D.3. Integration Test Scenarios
 
-**File:** `backend/internal/caddy/types_extra_test.go`
+**File:** `scripts/integration/bulk_security_headers_test.sh`
 
-Update tests that expect the object structure:
+```bash
+#!/bin/bash
+# Test bulk apply security headers feature
 
-- L87-93: `TestReverseProxyHandler_StandardHeadersEnabled`
-- L133-139: `TestReverseProxyHandler_WebSocketWithApplication`
-- L256-279: `TestReverseProxyHandler_TrustedProxiesConfiguration`
-
----
-
-## 6. Verification Steps
-
-After applying the fix:
-
-1. **Rebuild container:**
-
-   ```bash
-   docker build --no-cache -t charon:local .
-   docker compose -f docker-compose.override.yml up -d
-   ```
-
-2. **Check logs for successful config application:**
-
-   ```bash
-   docker logs charon 2>&1 | grep -i "caddy config"
-   # Should see: "Successfully applied initial Caddy config"
-   ```
-
-3. **Test proxy host save:**
-   - Edit any proxy host in UI
-   - Toggle "Enable Standard Proxy Headers"
-   - Click Save
-   - Should succeed (200 response, no 500 error)
-
-4. **Verify Caddy config:**
-
-   ```bash
-   curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.trusted_proxies'
-   # Should show server-level trusted_proxies (not in individual routes)
-   ```
+# 1. Create 3 test proxy hosts
+# 2. Create a security header profile
+# 3. Bulk apply profile to all hosts
+# 4. Verify all hosts have profile assigned
+# 5. Bulk remove profile (set to null)
+# 6. Verify all hosts have no profile
+# 7. Cleanup test data
+```
 
 ---
 
-## 7. Timeline of Events
+## E. Implementation Phases
 
-1. **Standard Proxy Headers Feature Added** - Added `enable_standard_headers` field
-2. **trusted_proxies Added to Handler** - Someone added trusted_proxies at the handler level for security
-3. **Wrong Structure Used** - Used the server-level object format instead of handler-level array format
-4. **Tests Pass** - Go unit tests check structure, not Caddy validation
-5. **Container Deployed** - Bug deployed to production
-6. **User Saves Proxy Host** - Triggers config regeneration with invalid structure
-7. **Caddy Rejects Config** - Returns 400 error
-8. **Handler Returns 500** - `ApplyConfig` failure triggers 500 response to user
+### Phase 1: Core UI Changes (Frontend Only)
 
----
+**Duration:** 2-3 hours
 
-## 8. Files Changed Summary
+**Tasks:**
 
-| File | Line(s) | Change Required |
-|------|---------|-----------------|
-| `backend/internal/caddy/types.go` | 184-189 | **DELETE** the handler-level trusted_proxies block |
-| `backend/internal/caddy/types_extra_test.go` | 87-93, 133-139, 256-279 | **UPDATE** tests to not expect handler-level trusted_proxies |
+1. [ ] Add `bulkSecurityHeaderProfile` state to ProxyHosts.tsx
+2. [ ] Import and use `useSecurityHeaderProfiles` hook
+3. [ ] Add Security Header Profile section to Bulk Apply modal UI
+4. [ ] Update Apply button handler to include profile updates
+5. [ ] Update Apply button disabled state logic
+
+**Dependencies:** None
+
+**Deliverable:** Working bulk apply with security headers using individual API calls
 
 ---
 
-## 9. Risk Assessment
+### Phase 2: Translation Updates
 
-| Risk | Level | Mitigation |
-|------|-------|------------|
-| Breaking existing configs | Low | Server-level trusted_proxies already provides same protection |
-| Security regression | None | Server-level config is equivalent protection |
-| Test failures | Medium | Need to update 3 test functions |
-| Rollback needed | Low | Simple code deletion, easy to revert |
+**Duration:** 30 minutes
+
+**Tasks:**
+
+1. [ ] Add translation keys to `en/translation.json`
+2. [ ] Add translation keys to `de/translation.json`
+3. [ ] Add translation keys to `es/translation.json`
+4. [ ] Add translation keys to `fr/translation.json`
+5. [ ] Add translation keys to `zh/translation.json`
+
+**Dependencies:** Phase 1
+
+**Deliverable:** Localized UI strings
 
 ---
 
-## Conclusion
+### Phase 3: Backend Bulk Endpoint (Optional Optimization)
 
-The 500 error is caused by **incorrect JSON structure** for `trusted_proxies` at the reverse_proxy handler level. The fix is to **remove the handler-level trusted_proxies** since the server-level configuration already provides the same security protection.
+**Duration:** 1-2 hours
 
-**Recommended Action:** Delete lines 184-189 in `types.go` and update the corresponding tests.
+**Tasks:**
+
+1. [ ] Add `BulkUpdateSecurityHeaders` handler function
+2. [ ] Register new route in `RegisterRoutes()`
+3. [ ] Add `DB()` getter to ProxyHostService if needed
+4. [ ] Update frontend to use new bulk endpoint
+
+**Dependencies:** Phase 1
+
+**Deliverable:** Optimized bulk update with single API call
+
+---
+
+### Phase 4: Testing
+
+**Duration:** 2-3 hours
+
+**Tasks:**
+
+1. [ ] Write frontend unit tests
+2. [ ] Write backend unit tests
+3. [ ] Create integration test script
+4. [ ] Manual QA testing
+
+**Dependencies:** Phases 1-3
+
+**Deliverable:** Full test coverage
+
+---
+
+### Phase 5: Documentation
+
+**Duration:** 30 minutes
+
+**Tasks:**
+
+1. [ ] Update CHANGELOG.md
+2. [ ] Update docs/features.md if needed
+3. [ ] Add release notes
+
+**Dependencies:** Phases 1-4
+
+**Deliverable:** Updated documentation
+
+---
+
+## F. Configuration Files Review
+
+### F.1. .gitignore
+
+**Status:** ✅ No changes needed
+
+Current `.gitignore` already covers all relevant patterns for new test files and build artifacts.
+
+### F.2. codecov.yml
+
+**Status:** ⚠️ File not found in repository
+
+If code coverage tracking is needed, create `codecov.yml` with:
+
+```yaml
+coverage:
+  status:
+    project:
+      default:
+        target: 85%
+    patch:
+      default:
+        target: 80%
+```
+
+### F.3. .dockerignore
+
+**Status:** ✅ No changes needed
+
+Current `.dockerignore` already excludes test files, coverage artifacts, and documentation.
+
+### F.4. Dockerfile
+
+**Status:** ✅ No changes needed
+
+No changes to build process required for this feature.
+
+---
+
+## G. Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Performance with many hosts | Medium | Low | Phase 3 adds bulk endpoint |
+| State desync after partial failure | Low | Medium | Show clear error messages per host |
+| Mobile app compatibility warnings | Low | Low | Reuse existing warning component from ProxyHostForm |
+| Translation missing | Medium | Low | Fallback to English |
+
+---
+
+## H. Success Criteria
+
+1. ✅ User can select Security Header Profile in Bulk Apply modal
+2. ✅ Profile can be applied to multiple hosts in single operation
+3. ✅ Profile can be removed (set to None) via bulk apply
+4. ✅ UI shows preset and custom profiles grouped separately
+5. ✅ Progress indicator shows during bulk operation
+6. ✅ Error handling for partial failures
+7. ✅ All translations in place
+8. ✅ Unit test coverage ≥80%
+9. ✅ Integration tests pass
+
+---
+
+## I. Files Summary
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `frontend/src/pages/ProxyHosts.tsx` | Add state, hook, modal UI, apply logic |
+| `frontend/src/locales/en/translation.json` | Add 3 new keys |
+| `frontend/src/locales/de/translation.json` | Add 3 new keys |
+| `frontend/src/locales/es/translation.json` | Add 3 new keys |
+| `frontend/src/locales/fr/translation.json` | Add 3 new keys |
+| `frontend/src/locales/zh/translation.json` | Add 3 new keys |
+| `backend/internal/api/handlers/proxy_host_handler.go` | Add bulk endpoint (optional) |
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx` | Frontend tests |
+| `backend/internal/api/handlers/proxy_host_handler_security_headers_test.go` | Backend tests |
+| `scripts/integration/bulk_security_headers_test.sh` | Integration tests |
+
+### Files Unchanged (No Action Needed)
+
+| File | Reason |
+|------|--------|
+| `.gitignore` | Already covers new file patterns |
+| `.dockerignore` | Already excludes test/docs files |
+| `Dockerfile` | No build changes needed |
+| `frontend/src/api/proxyHosts.ts` | Uses existing `updateProxyHost()` |
+| `frontend/src/hooks/useProxyHosts.ts` | Uses existing `updateHost()` |
+| `frontend/src/utils/proxyHostsHelpers.ts` | No changes needed |
+
+---
+
+## J. Conclusion
+
+This implementation plan provides a complete roadmap for adding HTTP Security Headers to the Bulk Apply feature. The phased approach allows for incremental delivery:
+
+1. **Phase 1** delivers a working feature using existing API infrastructure
+2. **Phase 2** completes localization
+3. **Phase 3** optimizes performance for large-scale operations
+4. **Phases 4-5** ensure quality and documentation
+
+The feature integrates naturally with the existing Bulk Apply modal pattern and reuses the Security Header Profile infrastructure already built for individual host editing.

@@ -60,6 +60,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 	router.POST("/proxy-hosts/test", h.TestConnection)
 	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
 }
 
 // List retrieves all proxy hosts.
@@ -508,6 +509,107 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		}
 
 		updated++
+	}
+
+	// Apply Caddy config once for all updates
+	if updated > 0 && h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to apply configuration: " + err.Error(),
+				"updated": updated,
+				"errors":  errors,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": updated,
+		"errors":  errors,
+	})
+}
+
+// BulkUpdateSecurityHeadersRequest represents the request body for bulk security header updates.
+type BulkUpdateSecurityHeadersRequest struct {
+	HostUUIDs               []string `json:"host_uuids" binding:"required"`
+	SecurityHeaderProfileID *uint    `json:"security_header_profile_id"` // nil means remove profile
+}
+
+// BulkUpdateSecurityHeaders applies or removes a security header profile to multiple proxy hosts.
+func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
+	var req BulkUpdateSecurityHeadersRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.HostUUIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+		return
+	}
+
+	// Validate profile exists if provided
+	if req.SecurityHeaderProfileID != nil {
+		var profile models.SecurityHeaderProfile
+		if err := h.service.DB().First(&profile, *req.SecurityHeaderProfileID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "security header profile not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	// Start transaction for atomic updates
+	tx := h.service.DB().Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	updated := 0
+	errors := []map[string]string{}
+
+	for _, hostUUID := range req.HostUUIDs {
+		var host models.ProxyHost
+		if err := tx.Where("uuid = ?", hostUUID).First(&host).Error; err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": "proxy host not found",
+			})
+			continue
+		}
+
+		// Update security header profile ID
+		host.SecurityHeaderProfileID = req.SecurityHeaderProfileID
+		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID").Updates(&host).Error; err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		updated++
+	}
+
+	// Commit transaction only if all updates succeeded
+	if len(errors) > 0 && updated == 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "All updates failed",
+			"updated": updated,
+			"errors":  errors,
+		})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction: " + err.Error()})
+		return
 	}
 
 	// Apply Caddy config once for all updates

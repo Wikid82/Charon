@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bulk Apply Security Header Profiles**: Apply or remove security header profiles from multiple proxy hosts simultaneously via the Bulk Apply modal
 - **Standard Proxy Headers**: Charon now adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and
   X-Forwarded-Port headers to all proxy hosts by default. This enables proper client IP detection,
   HTTPS enforcement, and logging in backend applications.
