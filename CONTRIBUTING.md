@@ -263,6 +263,277 @@ See [QA Coverage Report](docs/reports/qa_crowdsec_frontend_coverage_report.md) f
 - Bug fixes should include regression tests
 - CrowdSec modules maintain 100% frontend coverage
 
+## Adding New Skills
+
+Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable development tasks. Skills are standardized, self-documenting task definitions that can be executed by humans and AI assistants.
+
+### What is a Skill?
+
+A skill is a combination of:
+- **YAML Frontmatter**: Metadata following the [agentskills.io specification](https://agentskills.io/specification)
+- **Markdown Documentation**: Usage instructions, examples, and troubleshooting
+- **Execution Script**: Shell script that performs the actual task
+
+### When to Create a Skill
+
+Create a new skill when you have a:
+- **Repeatable task** that developers run frequently
+- **Complex workflow** that benefits from documentation
+- **CI/CD operation** that should be AI-discoverable
+- **Development tool** that needs consistent execution
+
+**Examples**: Running tests, building artifacts, security scans, database operations, deployment tasks
+
+### Skill Creation Process
+
+#### 1. Plan Your Skill
+
+Before creating, define:
+- **Name**: Use `{category}-{feature}-{variant}` format (e.g., `test-backend-coverage`)
+- **Category**: test, integration-test, security, qa, build, utility, docker
+- **Purpose**: One clear sentence describing what it does
+- **Requirements**: Tools, environment variables, permissions needed
+- **Output**: What the skill produces (exit codes, files, reports)
+
+#### 2. Create Directory Structure
+
+```bash
+# Create skill directory
+mkdir -p .github/skills/{skill-name}-scripts
+
+# Skill files will be:
+# .github/skills/{skill-name}.SKILL.md         # Documentation
+# .github/skills/{skill-name}-scripts/run.sh    # Execution script
+```
+
+#### 3. Write the SKILL.md File
+
+Use the template structure:
+
+```markdown
+---
+# agentskills.io specification v1.0
+name: "skill-name"
+version: "1.0.0"
+description: "Brief description (max 120 chars)"
+author: "Charon Project"
+license: "MIT"
+tags:
+  - "tag1"
+  - "tag2"
+compatibility:
+  os:
+    - "linux"
+    - "darwin"
+  shells:
+    - "bash"
+requirements:
+  - name: "tool"
+    version: ">=1.0"
+    optional: false
+metadata:
+  category: "category-name"
+  execution_time: "short|medium|long"
+  risk_level: "low|medium|high"
+  ci_cd_safe: true|false
+---
+
+# Skill Name
+
+## Overview
+
+Brief description of what this skill does.
+
+## Prerequisites
+
+- List required tools
+- List required permissions
+- List environment setup
+
+## Usage
+
+```bash
+.github/skills/scripts/skill-runner.sh skill-name
+```
+
+## Examples
+
+### Example 1: Basic Usage
+
+```bash
+# Description
+command example
+```
+
+## Error Handling
+
+- Common errors and solutions
+- Exit codes and meanings
+
+## Related Skills
+
+- [related-skill](./related-skill.SKILL.md)
+
+---
+
+**Last Updated**: YYYY-MM-DD
+**Maintained by**: Charon Project
+**Source**: Original implementation or script path
+```
+
+#### 4. Create the Execution Script
+
+Create `.github/skills/{skill-name}-scripts/run.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Source helper scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILLS_SCRIPTS_DIR="$(cd "${SCRIPT_DIR}/../scripts" && pwd)"
+
+source "${SKILLS_SCRIPTS_DIR}/_logging_helpers.sh"
+source "${SKILLS_SCRIPTS_DIR}/_error_handling_helpers.sh"
+source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
+
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Validate environment
+log_step "ENVIRONMENT" "Validating prerequisites"
+check_command_exists "required-tool" "Please install required-tool"
+
+# Execute skill logic
+log_step "EXECUTION" "Running skill"
+cd "${PROJECT_ROOT}"
+
+# Your skill implementation here
+if ! your-command; then
+    error_exit "Skill execution failed"
+fi
+
+log_success "Skill completed successfully"
+```
+
+Make it executable:
+
+```bash
+chmod +x .github/skills/{skill-name}-scripts/run.sh
+```
+
+#### 5. Validate the Skill
+
+Run the validation tool:
+
+```bash
+# Validate single skill
+python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill-name}.SKILL.md
+
+# Validate all skills
+python3 .github/skills/scripts/validate-skills.py
+```
+
+Fix any validation errors before proceeding.
+
+#### 6. Test the Skill
+
+Test execution:
+
+```bash
+# Direct execution
+.github/skills/scripts/skill-runner.sh {skill-name}
+
+# Verify output
+# Check exit codes
+# Confirm expected behavior
+```
+
+#### 7. Add VS Code Task (Optional)
+
+If the skill should be available in VS Code's task menu, add to `.vscode/tasks.json`:
+
+```json
+{
+    "label": "Category: Skill Name",
+    "type": "shell",
+    "command": ".github/skills/scripts/skill-runner.sh skill-name",
+    "group": "test"
+}
+```
+
+#### 8. Update Documentation
+
+Add your skill to `.github/skills/README.md`:
+
+```markdown
+| [skill-name](./skill-name.SKILL.md) | category | Description | ✅ Active |
+```
+
+### Validation Requirements
+
+All skills must pass validation:
+
+- ✅ **Required fields**: name, version, description, author, license, tags
+- ✅ **Name format**: kebab-case (lowercase, hyphens)
+- ✅ **Version format**: Semantic versioning (x.y.z)
+- ✅ **Description**: Max 120 characters
+- ✅ **Tags**: Minimum 2, maximum 5
+- ✅ **Executable script**: Must exist and be executable
+
+### Best Practices
+
+**Documentation:**
+- Keep SKILL.md under 500 lines
+- Include real-world examples
+- Document all prerequisites clearly
+- Add troubleshooting section for common issues
+
+**Scripts:**
+- Always use helper functions for logging and error handling
+- Validate environment before execution
+- Make scripts idempotent when possible
+- Clean up resources on exit (use trap)
+
+**Testing:**
+- Test skill in clean environment
+- Verify all exit codes
+- Check output format consistency
+- Test error scenarios
+
+**Metadata:**
+- Set accurate `execution_time` (short < 1min, medium 1-5min, long > 5min)
+- Use `ci_cd_safe: false` for interactive or risky operations
+- Mark `idempotent: true` only if truly safe to run repeatedly
+- Include all dependencies in `requirements`
+
+### Helper Scripts Reference
+
+Charon provides helper scripts for common operations:
+
+**Logging** (`_logging_helpers.sh`):
+- `log_info`, `log_success`, `log_warning`, `log_error`, `log_debug`
+- `log_step` for section headers
+- `log_command` to log before executing
+
+**Error Handling** (`_error_handling_helpers.sh`):
+- `error_exit` to print error and exit
+- `check_command_exists`, `check_file_exists`, `check_dir_exists`
+- `run_with_retry` for network operations
+- `trap_error` for automatic error trapping
+
+**Environment** (`_environment_helpers.sh`):
+- `validate_go_environment`, `validate_python_environment`, `validate_node_environment`
+- `validate_docker_environment`
+- `set_default_env` for environment variables
+- `get_project_root` to find repository root
+
+### Resources
+
+- **[Agent Skills README](.github/skills/README.md)** — Complete skills documentation
+- **[agentskills.io Specification](https://agentskills.io/specification)** — Standard format
+- **[Existing Skills](.github/skills/)** — Reference implementations
+- **[Migration Guide](docs/AGENT_SKILLS_MIGRATION.md)** — Background and benefits
+
 ## Pull Request Process
 
 ### Before Submitting
