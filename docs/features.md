@@ -108,18 +108,21 @@ When enabled, Charon adds these four standard headers to every proxied request:
 ### Why These Headers Matter
 
 **Client IP Detection:**
+
 - Security logs show the real attacker IP, not Charon's internal IP
 - Rate limiting works correctly per-client instead of limiting all traffic
 - GeoIP-based features work with the client's location
 - Analytics tools track real user locations
 
 **HTTPS Enforcement:**
+
 - Backend apps know if the original connection was secure
 - Redirect logic works correctly (e.g., "redirect to HTTPS")
 - Session cookies can be marked `Secure` appropriately
 - Mixed content warnings are prevented
 
 **Virtual Host Routing:**
+
 - Backend apps can route requests based on the original hostname
 - Multi-tenant applications can identify the correct tenant
 - URL generation produces correct absolute URLs
@@ -170,6 +173,7 @@ isHTTPS := r.Header.Get("X-Forwarded-Proto") == "https"
 ### When to Enable
 
 ✅ **Enable if your backend application:**
+
 - Needs accurate client IP addresses for security/logging
 - Enforces HTTPS or redirects based on protocol
 - Uses IP-based rate limiting or access control
@@ -179,6 +183,7 @@ isHTTPS := r.Header.Get("X-Forwarded-Proto") == "https"
 ### When to Disable
 
 ❌ **Disable if your backend application:**
+
 - Is a legacy app that doesn't understand proxy headers
 - Has custom IP detection logic that conflicts with standard headers
 - Explicitly doesn't trust X-Forwarded-* headers (security policy)
@@ -194,6 +199,7 @@ Caddy overwrites any existing X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, an
 
 **Backend Configuration:**
 Your backend application must be configured to trust proxy headers. Most frameworks have a "trust proxy" setting:
+
 - Express.js: `app.set('trust proxy', true)`
 - Django: `USE_X_FORWARDED_HOST = True`
 - Flask: Use `ProxyFix` middleware
@@ -223,14 +229,17 @@ Existing hosts without standard headers show an info banner explaining the featu
 ### Troubleshooting
 
 **Problem:** Backend still sees Charon's IP address
+
 - **Solution:** Ensure the feature is enabled in the proxy host settings
 - **Check:** Verify your backend is configured to trust proxy headers
 
 **Problem:** Application breaks after enabling headers
+
 - **Solution:** Disable the feature and check your backend logs
 - **Common cause:** Backend has strict header validation or conflicting logic
 
 **Problem:** HTTPS redirects create loops
+
 - **Solution:** Update your backend to check `X-Forwarded-Proto` instead of the connection protocol
 - **Example:** Use `X-Forwarded-Proto == 'https'` for HTTPS detection
 
@@ -640,6 +649,7 @@ Your uptime history will be preserved.
 **What you do:** Click "Logs" in the sidebar.
 
 ---
+
 ## 🗄️ Database Maintenance
 
 **What it does:** Keeps your configuration database healthy and recoverable.
@@ -686,6 +696,7 @@ The script will:
 **Learn more:** See the [Database Maintenance Guide](database-maintenance.md) for detailed documentation.
 
 ---
+
 ## 🔴 Live Security Logs & Notifications
 
 **What it does:** Stream security events in real-time and get notified about critical threats.
@@ -1193,7 +1204,7 @@ X-Content-Type-Options: nosniff
 
 - `no-referrer` — Never send referrer (maximum privacy)
 - `no-referrer-when-downgrade` — Only send on HTTPS → HTTPS
-- `origin` — Only send origin (https://example.com), not full URL
+- `origin` — Only send origin (<https://example.com>), not full URL
 - `origin-when-cross-origin` — Full URL for same-origin, origin for cross-origin
 - `same-origin` — Only send referrer for same-origin requests
 - `strict-origin` — Send origin unless downgrading HTTPS → HTTP
@@ -1416,13 +1427,14 @@ Cache-Control: no-cache, no-store, must-revalidate, private
 **SGo to **Proxy Hosts**, edit your API host
 2. Select **"Paranoid (Maximum Security)"** from the **"Security Headers"** dropdown
 3. Review the configuration preview:
-   - HSTS with preload
-   - Strict CSP (`default-src 'none'`)
-   - All cross-origin headers set to `same-origin`
-   - No unsafe directives
-4. Save
-5. Test API endpoints (should work—APIs don't need CSP for HTML)
-6. Assign to API proxy host
+
+- HSTS with preload
+- Strict CSP (`default-src 'none'`)
+- All cross-origin headers set to `same-origin`
+- No unsafe directives
+1. Save
+2. Test API endpoints (should work—APIs don't need CSP for HTML)
+3. Assign to API proxy host
 4. Test API endpoints (should work—APIs don't need CSP for HTML)
 5. Verify security score (90+)
 

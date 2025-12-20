@@ -12,6 +12,7 @@
 The CrowdSec startup integration test (`scripts/crowdsec_startup_test.sh`) is **failing by design**, not due to a bug. The test expects CrowdSec LAPI to be available on port 8085, but CrowdSec is intentionally **not auto-started** in the current architecture. The system uses **GUI-controlled lifecycle management** instead of environment variable-based auto-start.
 
 **Test Failure:**
+
 ```
 ✗ FAIL: LAPI health check failed (port 8085 not responding)
 ```
@@ -34,6 +35,7 @@ The CrowdSec startup integration test (`scripts/crowdsec_startup_test.sh`) is **
 ```
 
 **Design Decision:**
+
 - ✅ **Configuration is initialized** during startup
 - ❌ **Process is NOT started** until GUI toggle is used
 - 🎯 **Rationale:** Consistent UX with other security features
@@ -48,6 +50,7 @@ Entrypoint checks: `SECURITY_CROWDSEC_MODE`
 ### 3. Reconciliation Function Does Not Auto-Start for Fresh Containers
 
 For a **fresh container** (empty database):
+
 - ❌ No `SecurityConfig` record exists
 - ❌ No `Settings` record exists
 - 🎯 **Result:** Reconciliation creates default config with `CrowdSecMode = "disabled"`
@@ -61,6 +64,7 @@ For a **fresh container** (empty database):
 **Priority: P0 (Blocks CI/CD)**
 
 1. **Update Test Environment Variable** (`scripts/crowdsec_startup_test.sh:124`)
+
    ```bash
    # Change from:
    -e CERBERUS_SECURITY_CROWDSEC_MODE=local \
@@ -69,6 +73,7 @@ For a **fresh container** (empty database):
    ```
 
 2. **Add Database Seeding to Test** (after container start, before checks)
+
    ```bash
    # Pre-seed database to trigger reconciliation
    docker exec ${CONTAINER_NAME} sqlite3 /app/data/charon.db \
@@ -80,6 +85,7 @@ For a **fresh container** (empty database):
    ```
 
 3. **Fix Bash Integer Comparisons** (lines 152, 221, 247)
+
    ```bash
    FATAL_ERROR_COUNT=${FATAL_ERROR_COUNT:-0}
    if [ "$FATAL_ERROR_COUNT" -ge 1 ] 2>/dev/null; then

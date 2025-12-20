@@ -33,6 +33,8 @@ export interface ProxyHost {
   block_exploits: boolean;
   websocket_support: boolean;
   enable_standard_headers?: boolean;
+  forward_auth_enabled?: boolean;
+  waf_disabled?: boolean;
   application: ApplicationPreset;
   locations: Location[];
   advanced_config?: string;

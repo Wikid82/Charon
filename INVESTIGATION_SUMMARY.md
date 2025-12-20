@@ -9,24 +9,30 @@
 ## 🎯 Quick Summary
 
 ### Issue 1: Re-enrollment with NEW key didn't work
+
 **Status:** ✅ NO BUG - User error (invalid key)
+
 - Frontend correctly sends `force: true`
 - Backend correctly adds `--overwrite` flag
 - CrowdSec API rejected the new key as invalid
 - Same key worked because it was still valid in CrowdSec's system
 
 **User Action Required:**
+
 - Generate fresh enrollment key from app.crowdsec.net
 - Copy key completely (no spaces/newlines)
 - Try re-enrollment again
 
 ### Issue 2: Live Log Viewer shows "Disconnected"
+
 **Status:** ⚠️ LIKELY AUTH ISSUE - Needs fixing
+
 - WebSocket connections NOT reaching backend (no logs)
 - Most likely cause: WebSocket auth headers missing
 - Frontend defaults to wrong mode (`application` vs `security`)
 
 **Fixes Required:**
+
 1. Add auth token to WebSocket URL query params
 2. Change default mode to `security`
 3. Add error display to show auth failures
@@ -40,6 +46,7 @@
 #### Evidence from Code Review
 
 **Frontend (`CrowdSecConfig.tsx`):**
+
 ```typescript
 // ✅ CORRECT: Passes force=true when re-enrolling
 onClick={() => submitConsoleEnrollment(true)}
@@ -52,6 +59,7 @@ await enrollConsoleMutation.mutateAsync({
 ```
 
 **Backend (`console_enroll.go`):**
+
 ```go
 // ✅ CORRECT: Adds --overwrite flag when force=true
 if req.Force {
@@ -60,6 +68,7 @@ if req.Force {
 ```
 
 **Docker Logs Evidence:**
+
 ```json
 {
   "force": true,  // ← Force flag WAS sent
@@ -71,17 +80,20 @@ if req.Force {
 Error: cscli console enroll: could not enroll instance:
 API error: the attachment key provided is not valid
 ```
+
 ↑ **This proves the NEW key was REJECTED by CrowdSec API**
 
 #### Root Cause
 
 The user's new enrollment key was **invalid** according to CrowdSec's validation. Possible reasons:
+
 1. Key was copied incorrectly (extra spaces/newlines)
 2. Key was already used or revoked
 3. Key was generated for different organization
 4. Key expired (though CrowdSec keys typically don't expire)
 
 The **original key worked** because:
+
 - It was still valid in CrowdSec's system
 - The `--overwrite` flag allowed re-enrolling to same account
 
@@ -107,6 +119,7 @@ Frontend Component (LiveLogViewer.tsx)
 #### Evidence
 
 **✅ Access log has data:**
+
 ```bash
 $ docker exec charon tail -20 /app/data/logs/access.log
 # Shows 20+ lines of JSON-formatted Caddy access logs
@@ -114,6 +127,7 @@ $ docker exec charon tail -20 /app/data/logs/access.log
 ```
 
 **❌ No WebSocket connection logs:**
+
 ```bash
 $ docker logs charon 2>&1 | grep -i "websocket"
 # Shows route registration but NO connection attempts
@@ -122,6 +136,7 @@ $ docker logs charon 2>&1 | grep -i "websocket"
 ```
 
 **Expected logs when connection succeeds:**
+
 ```
 Cerberus logs WebSocket connection attempt
 Cerberus logs WebSocket connected
@@ -231,6 +246,7 @@ Add automatic reconnection with exponential backoff for transient failures.
 ## ✅ Testing Checklist
 
 ### Re-Enrollment Testing
+
 - [ ] Generate new enrollment key from app.crowdsec.net
 - [ ] Copy key to clipboard (verify no extra whitespace)
 - [ ] Paste into Charon enrollment form
@@ -239,6 +255,7 @@ Add automatic reconnection with exponential backoff for transient failures.
 - [ ] If error, verify exact error message from CrowdSec API
 
 ### Live Log Viewer Testing
+
 - [ ] Open browser DevTools → Network tab
 - [ ] Open Live Log Viewer
 - [ ] Check for WebSocket connection to `/api/v1/cerberus/logs/ws`
@@ -253,12 +270,14 @@ Add automatic reconnection with exponential backoff for transient failures.
 ## 📚 Key Files Reference
 
 ### Re-Enrollment
+
 - `frontend/src/pages/CrowdSecConfig.tsx` (re-enroll UI)
 - `frontend/src/api/consoleEnrollment.ts` (API client)
 - `backend/internal/crowdsec/console_enroll.go` (enrollment logic)
 - `backend/internal/api/handlers/crowdsec_handler.go` (HTTP handler)
 
 ### Live Log Viewer
+
 - `frontend/src/components/LiveLogViewer.tsx` (component)
 - `frontend/src/api/logs.ts` (WebSocket client)
 - `backend/internal/api/handlers/cerberus_logs_ws.go` (WebSocket handler)
@@ -291,6 +310,7 @@ Add automatic reconnection with exponential backoff for transient failures.
 ## 📞 Next Steps
 
 ### For User
+
 1. **Re-enrollment:**
    - Get fresh key from app.crowdsec.net
    - Try re-enrollment with new key
@@ -301,6 +321,7 @@ Add automatic reconnection with exponential backoff for transient failures.
    - Or manually add `?token=<your-token>` to WebSocket URL as temporary workaround
 
 ### For Development
+
 1. Deploy auth token fix for WebSocket (Fix 1)
 2. Change default mode to security (Fix 2)
 3. Add error display (Fix 3)

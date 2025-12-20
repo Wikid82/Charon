@@ -27,6 +27,7 @@ Status: Coverage requirement MET
 ```
 
 **Details:**
+
 - All backend tests passed
 - Coverage breakdown:
   - `internal/services`: 84.9%
@@ -37,6 +38,7 @@ Status: Coverage requirement MET
 - All ReverseProxyHandler tests pass successfully
 
 **Tests Executed:**
+
 - ✅ `TestReverseProxyHandler_StandardProxyHeadersAlwaysSet`
 - ✅ `TestReverseProxyHandler_WebSocketHeaders`
 - ✅ `TestReverseProxyHandler_FeatureFlagDisabled`
@@ -61,6 +63,7 @@ Tests: 1129 passed | 2 skipped (1131)
 ```
 
 **Details:**
+
 - All frontend tests passed
 - Coverage exceeds minimum requirement by 2.7%
 - No test failures
@@ -71,12 +74,14 @@ Tests: 1129 passed | 2 skipped (1131)
   - ✅ Helper functions handle new setting
 
 **Coverage by Module:**
+
 - `src/components`: High coverage maintained
 - `src/pages`: 87%+ coverage
 - `src/api`: 100% coverage
 - `src/utils`: 97.2% coverage
 
 **Note:** While there are no specific unit tests for the `enable_standard_headers` checkbox in isolation, the feature is covered by:
+
 1. Integration tests via ProxyHostForm rendering
 2. Bulk apply tests that iterate over all settings
 3. Mock data tests that verify field presence
@@ -100,6 +105,7 @@ Warnings: 40 (acceptable - all related to @typescript-eslint/no-explicit-any)
 ```
 
 **Details:**
+
 - Zero TypeScript compilation errors
 - All warnings are pre-existing `any` type usage (not related to this feature)
 - No new type safety issues introduced
@@ -116,6 +122,7 @@ Warnings: 40 (acceptable - all related to @typescript-eslint/no-explicit-any)
 **Result:** ✅ **PASS**
 
 **Hooks Executed:**
+
 - ✅ fix end of files
 - ✅ trim trailing whitespace (auto-fixed)
 - ✅ check yaml
@@ -130,6 +137,7 @@ Warnings: 40 (acceptable - all related to @typescript-eslint/no-explicit-any)
 - ✅ Frontend Lint (Fix)
 
 **Details:**
+
 - All hooks passed after auto-fixes
 - Minor trailing whitespace fixed in docs/plans/current_spec.md
 - No other issues found
@@ -145,12 +153,14 @@ Warnings: 40 (acceptable - all related to @typescript-eslint/no-explicit-any)
 **Result:** ✅ **PASS** (with notes)
 
 **Trivy Scan Summary:**
+
 - ✅ No new Critical vulnerabilities introduced
 - ✅ No new High vulnerabilities introduced
 - ⚠️ Some errors parsing non-Dockerfile files (expected - these are syntax highlighting files)
 - ⚠️ Test private keys detected (expected - these are for testing only, stored in non-production paths)
 
 **Details:**
+
 - Scan completed successfully
 - False positives expected and documented:
   1. Dockerfile syntax files in `.cache/go/pkg/mod/github.com/docker/docker` (not actual Dockerfiles)
@@ -158,6 +168,7 @@ Warnings: 40 (acceptable - all related to @typescript-eslint/no-explicit-any)
 - No actual security vulnerabilities related to this implementation
 
 **CodeQL Results:**
+
 - No new security issues detected
 - Previous CodeQL scans available:
   - `codeql-results-go.sarif` - No critical issues
@@ -191,6 +202,7 @@ Warnings: 40 (pre-existing, not related to this feature)
 ```
 
 **Details:**
+
 - Zero linting errors in both backend and frontend
 - All warnings are pre-existing `any` type usage
 - No new code quality issues introduced
@@ -240,6 +252,7 @@ Output: dist/ directory generated successfully
 **Result:** ✅ **PASS**
 
 **Verified:**
+
 - WebSocket headers (`Upgrade`, `Connection`) still added when `enableWS=true`
 - Standard proxy headers now added in addition to WebSocket headers
 - No duplication or conflicts
@@ -252,6 +265,7 @@ Output: dist/ directory generated successfully
 **Result:** ✅ **PASS**
 
 **Verified:**
+
 - Plex-specific headers still work
 - Jellyfin-specific headers still work
 - No duplication of `X-Real-IP` (set once in standard headers)
@@ -264,6 +278,7 @@ Output: dist/ directory generated successfully
 **Result:** ✅ **PASS**
 
 **Verified:**
+
 - When `EnableStandardHeaders=false`, old behavior preserved
 - No standard headers added when feature disabled
 - WebSocket-only headers still work as before
@@ -276,6 +291,7 @@ Output: dist/ directory generated successfully
 **Result:** ✅ **PASS**
 
 **Verified:**
+
 - `X-Forwarded-For` NOT explicitly set in code
 - Caddy's native handling used (prevents duplication)
 - Only 4 headers explicitly set by our code
@@ -288,6 +304,7 @@ Output: dist/ directory generated successfully
 **Result:** ✅ **PASS**
 
 **Verified:**
+
 - `trusted_proxies` configuration present when standard headers enabled
 - Default value: `private_ranges` (secure by default)
 - Prevents IP spoofing attacks
@@ -302,6 +319,7 @@ Output: dist/ directory generated successfully
 **Status:** ⚠️ **PARTIAL** (manual testing deferred)
 
 **Reason:** Docker local environment build completed successfully (from context), but full manual integration testing not performed in this QA session due to:
+
 1. Time constraints
 2. All automated tests passing
 3. No code changes that would affect existing integrations
@@ -309,6 +327,7 @@ Output: dist/ directory generated successfully
 **Recommended Manual Testing (before production deployment):**
 
 ### Test 1: Create New Proxy Host
+
 ```bash
 # Via UI:
 1. Navigate to Proxy Hosts page
@@ -320,6 +339,7 @@ Output: dist/ directory generated successfully
 ```
 
 ### Test 2: Edit Existing Host (Legacy)
+
 ```bash
 # Via UI:
 1. Edit an existing proxy host (created before this feature)
@@ -331,6 +351,7 @@ Output: dist/ directory generated successfully
 ```
 
 ### Test 3: Bulk Apply
+
 ```bash
 # Via UI:
 1. Select 5+ proxy hosts
@@ -342,6 +363,7 @@ Output: dist/ directory generated successfully
 ```
 
 ### Test 4: Verify X-Forwarded-For from Caddy
+
 ```bash
 # Via curl:
 curl -H "X-Forwarded-For: 203.0.113.1" http://test.local
@@ -350,6 +372,7 @@ curl -H "X-Forwarded-For: 203.0.113.1" http://test.local
 ```
 
 ### Test 5: CrowdSec Integration
+
 ```bash
 # Run integration test:
 scripts/crowdsec_integration.sh
@@ -367,6 +390,7 @@ scripts/crowdsec_integration.sh
 ### Implementation Quality ✅
 
 **Backend (`types.go`):**
+
 - ✅ Clear, well-documented code
 - ✅ Feature flag logic correct
 - ✅ Layered approach (standard → WebSocket → application) implemented correctly
@@ -374,6 +398,7 @@ scripts/crowdsec_integration.sh
 - ✅ Trusted proxies configuration included
 
 **Frontend (`ProxyHostForm.tsx`, `ProxyHosts.tsx`):**
+
 - ✅ Checkbox properly integrated into form
 - ✅ Bulk apply integration complete
 - ✅ Helper functions updated
@@ -383,12 +408,14 @@ scripts/crowdsec_integration.sh
 ### Model & Migration ✅
 
 **Backend (`proxy_host.go`):**
+
 - ✅ `EnableStandardHeaders *bool` field added
 - ✅ GORM default: `true` (correct for new hosts)
 - ✅ Nullable pointer type allows differentiation between explicit false and not set
 - ✅ JSON tag: `enable_standard_headers,omitempty`
 
 **Migration:**
+
 - ✅ GORM `AutoMigrate` handles schema changes automatically
 - ✅ Default value `true` ensures new hosts get feature enabled
 - ✅ Existing hosts will have `NULL` → treated as `false` for backward compatibility
@@ -437,6 +464,7 @@ None.
 **Issue #1: Limited Frontend Unit Test Coverage for New Feature**
 
 **Description:** While the `enable_standard_headers` field is functionally tested through integration tests, bulk apply tests, and helper function tests, there are no dedicated unit tests specifically for:
+
 1. Checkbox rendering in ProxyHostForm (new host)
 2. Checkbox unchecked state (legacy host)
 3. Info banner visibility when feature disabled
@@ -444,6 +472,7 @@ None.
 **Impact:** Low - Feature is well-tested functionally, just lacks isolated unit tests.
 
 **Recommendation:** Add dedicated unit tests in `ProxyHostForm.test.tsx`:
+
 ```typescript
 it('renders enable_standard_headers checkbox for new hosts', () => { ... })
 it('renders enable_standard_headers unchecked for legacy hosts', () => { ... })
@@ -473,6 +502,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 ## Performance Impact
 
 **Analysis:**
+
 - Memory: ~160 bytes per request (4 headers × 40 bytes avg) - negligible
 - CPU: ~1-10 microseconds per request (feature flag check + 4 string copies) - negligible
 - Network: ~120 bytes per request (4 headers × 30 bytes avg) - 0.0012% increase
@@ -483,6 +513,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 ## Security Impact
 
 **Improvements:**
+
 1. ✅ Better IP-based rate limiting (X-Real-IP available)
 2. ✅ More accurate security logs (client IP not proxy IP)
 3. ✅ IP-based ACLs work correctly
@@ -490,6 +521,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 5. ✅ Trusted proxies configuration prevents IP spoofing
 
 **Risks Mitigated:**
+
 1. ✅ IP spoofing attack prevented by `trusted_proxies` configuration
 2. ✅ X-Forwarded-For duplication prevented (security logs accuracy)
 3. ✅ Backward compatibility prevents unintended behavior changes
@@ -503,6 +535,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 ## Definition of Done Verification
 
 ### Backend Code Changes ✅
+
 - [x] `proxy_host.go`: Added `EnableStandardHeaders *bool` field
 - [x] Migration: GORM AutoMigrate handles schema changes
 - [x] `types.go`: Modified `ReverseProxyHandler` to check feature flag
@@ -513,6 +546,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 - [x] `types.go`: Added comprehensive comments
 
 ### Frontend Code Changes ✅
+
 - [x] `proxyHosts.ts`: Added `enable_standard_headers?: boolean` to ProxyHost interface
 - [x] `ProxyHostForm.tsx`: Added checkbox for "Enable Standard Proxy Headers"
 - [x] `ProxyHostForm.tsx`: Added info banner when feature disabled on existing host
@@ -523,6 +557,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 - [x] `createMockProxyHost.ts`: Updated mock to include `enable_standard_headers: true`
 
 ### Backend Test Changes ✅
+
 - [x] Renamed test to `TestReverseProxyHandler_StandardProxyHeadersAlwaysSet`
 - [x] Updated test to expect 4 headers (NOT 5, X-Forwarded-For excluded)
 - [x] Updated `TestReverseProxyHandler_WebSocketHeaders` to verify 6 headers
@@ -532,6 +567,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 - [x] Added `TestReverseProxyHandler_ApplicationHeadersDoNotDuplicate`
 
 ### Backend Testing ✅
+
 - [x] All unit tests pass (8 ReverseProxyHandler tests)
 - [x] Test coverage ≥85% (actual: 85.6%)
 - [x] Migration applies successfully (AutoMigrate)
@@ -544,6 +580,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 - [ ] Manual test: CrowdSec integration still works (deferred)
 
 ### Frontend Testing ✅
+
 - [x] All frontend unit tests pass
 - [ ] Manual test: New host form shows checkbox checked by default (deferred)
 - [ ] Manual test: Existing host edit shows checkbox unchecked if legacy (deferred)
@@ -553,12 +590,14 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 - [ ] Manual test: API payload includes `enable_standard_headers` field (deferred)
 
 ### Integration Testing ⚠️
+
 - [ ] Create new proxy host via UI → Verify headers in backend request (deferred)
 - [ ] Edit existing host, enable checkbox → Verify backend adds headers (deferred)
 - [ ] Bulk update 5+ hosts → Verify all configurations updated (deferred)
 - [x] Verify no console errors or React warnings (no errors in test output)
 
 ### Documentation ⚠️
+
 - [ ] `CHANGELOG.md` updated (not found in this review)
 - [ ] `docs/API.md` updated (not verified)
 - [x] Code comments explain X-Forwarded-For exclusion rationale
@@ -575,6 +614,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 ### ✅ **PASS** - Ready for Production Deployment (with recommendations)
 
 **Rationale:**
+
 1. ✅ All automated tests pass (backend: 85.6% coverage, frontend: 87.7% coverage)
 2. ✅ Zero linting errors, zero TypeScript errors
 3. ✅ Both builds successful
@@ -585,6 +625,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 8. ✅ Backward compatibility maintained via feature flag
 
 **Minor Issues (Non-blocking):**
+
 1. ⚠️ Limited frontend unit test coverage for new feature (Medium priority)
    - **Mitigation:** Feature is functionally tested, just lacks isolated unit tests
    - **Action:** Add dedicated unit tests in next iteration
@@ -593,6 +634,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
    - **Action:** Perform manual testing before production deployment
 
 **Recommendations Before Production Deployment:**
+
 1. Perform manual integration testing (Section 9 test scenarios)
 2. Update CHANGELOG.md with feature description
 3. Verify docs/API.md includes new field documentation
@@ -607,6 +649,7 @@ it('shows info banner when standard headers disabled on edit', () => { ... })
 ## Appendix: Test Execution Evidence
 
 ### Backend Test Output (Excerpt)
+
 ```
 === RUN   TestReverseProxyHandler_StandardProxyHeadersAlwaysSet
 === RUN   TestReverseProxyHandler_WebSocketHeaders
@@ -619,6 +662,7 @@ Coverage: 85.6% of statements
 ```
 
 ### Frontend Test Output (Excerpt)
+
 ```
 Test Files  106 passed (106)
       Tests  1129 passed | 2 skipped (1131)
@@ -629,6 +673,7 @@ Frontend coverage requirement met
 ```
 
 ### Linting Output (Excerpt)
+
 ```
 # Backend
 cd backend && go vet ./...

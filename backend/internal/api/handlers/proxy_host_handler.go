@@ -219,6 +219,25 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		host.Enabled = v
 	}
 
+	// Handle enable_standard_headers (nullable bool - uses pointer pattern like certificate_id)
+	if v, ok := payload["enable_standard_headers"]; ok {
+		if v == nil {
+			host.EnableStandardHeaders = nil // Explicit null → use default behavior
+		} else if b, ok := v.(bool); ok {
+			host.EnableStandardHeaders = &b // Explicit true/false
+		}
+	}
+
+	// Handle forward_auth_enabled (regular bool)
+	if v, ok := payload["forward_auth_enabled"].(bool); ok {
+		host.ForwardAuthEnabled = v
+	}
+
+	// Handle waf_disabled (regular bool)
+	if v, ok := payload["waf_disabled"].(bool); ok {
+		host.WAFDisabled = v
+	}
+
 	// Nullable foreign keys
 	if v, ok := payload["certificate_id"]; ok {
 		if v == nil {

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Backend Applications**: Applications behind Charon proxies will now receive client IP and protocol information via standard headers when the feature is enabled
 
+### Fixed
+
+- Fixed proxy host save failure (500 error) when updating enable_standard_headers, forward_auth_enabled, or waf_disabled fields
+- Fixed auth pass-through failure for Seerr/Overseerr caused by missing standard proxy headers
+
 ### Security
 
 - **Trusted Proxies**: Caddy configuration now always includes `trusted_proxies` directive when proxy headers are enabled, preventing IP spoofing attacks by ensuring headers are only trusted from Charon itself

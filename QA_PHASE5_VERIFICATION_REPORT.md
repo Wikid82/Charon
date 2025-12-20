@@ -43,6 +43,7 @@ Frontend Lint (Fix)......................................................Passed
 **Command:** `cd backend && go test ./...`
 
 **Results:**
+
 - **Overall Status:** FAIL
 - **Coverage:** 83.7% (below required 85%)
 - **Failing Test Suites:** 2
@@ -75,6 +76,7 @@ Computed coverage: 83.7% (minimum required 85%)
 **Command:** `cd frontend && npm run test -- --coverage --run`
 
 **Results:**
+
 - **Test Files:** 101 passed (101)
 - **Tests:** 1100 passed | 2 skipped (1102)
 - **Overall Coverage:** 87.19%
@@ -121,6 +123,7 @@ Computed coverage: 83.7% (minimum required 85%)
 **Lines:** 267-285
 
 **Verified:**
+
 ```go
 // Security Header Profile: update only if provided
 if v, ok := payload["security_header_profile_id"]; ok {
@@ -156,6 +159,7 @@ if v, ok := payload["security_header_profile_id"]; ok {
 **Lines:** 112, 121
 
 **Verified:**
+
 ```go
 // Line 112 - GetByUUID
 db.Preload("Locations").Preload("Certificate").Preload("SecurityHeaderProfile")
@@ -174,6 +178,7 @@ db.Preload("Locations").Preload("Certificate").Preload("SecurityHeaderProfile")
 **Lines:** 43-51
 
 **Verified:**
+
 ```typescript
 export interface ProxyHost {
   // ... existing fields ...
@@ -203,6 +208,7 @@ export interface ProxyHost {
 **Verified Components:**
 
 1. **State Management** (Line 110):
+
    ```typescript
    security_header_profile_id: host?.security_header_profile_id,
    ```
@@ -219,6 +225,7 @@ export interface ProxyHost {
    - ✅ Conditional rendering when profile selected
 
 4. **"Manage Profiles" Link** (Line 673):
+
    ```tsx
    <a href="/security-headers" target="_blank">
      Manage Profiles →
@@ -236,12 +243,14 @@ export interface ProxyHost {
 **Verified Changes:**
 
 1. **Section Title Updated** (Lines 137-141):
+
    ```tsx
    <h2>System Profiles (Read-Only)</h2>
    <p>Pre-configured security profiles you can assign to proxy hosts. Clone to customize.</p>
    ```
 
 2. **Apply Button Replaced with View** (Lines 161-166):
+
    ```tsx
    <Button variant="outline" size="sm" onClick={() => setEditingProfile(profile)}>
      <Eye className="h-4 w-4 mr-1" /> View
@@ -260,6 +269,7 @@ export interface ProxyHost {
 **File:** `frontend/src/components/ProxyHostForm.tsx` (Lines 629-649)
 
 **Verified:**
+
 - ✅ Presets grouped under "Quick Presets" optgroup
 - ✅ Custom profiles grouped under "Custom Profiles" optgroup
 - ✅ Conditional rendering: Custom group only shown if custom profiles exist
@@ -303,12 +313,12 @@ export interface ProxyHost {
 
 ### 🟡 Medium Priority Issues
 
-3. **Frontend API Coverage Low**
+1. **Frontend API Coverage Low**
    - **File:** `frontend/src/api/securityHeaders.ts`
    - **Coverage:** 10%
    - **Action:** Add unit tests for API methods (lines 87-158)
 
-4. **Console.log Statements Not Removed**
+2. **Console.log Statements Not Removed**
    - **Impact:** Medium - Debugging code left in production
    - **Locations:**
      - `frontend/src/api/logs.ts` (multiple locations)
@@ -318,7 +328,7 @@ export interface ProxyHost {
 
 ### 🟢 Low Priority Issues
 
-5. **Form Component Coverage**
+1. **Form Component Coverage**
    - **File:** `frontend/src/components/SecurityHeaderProfileForm.tsx`
    - **Coverage:** 60%
    - **Action:** Add tests for edge cases and validation
@@ -346,11 +356,13 @@ export interface ProxyHost {
 ### Immediate Actions Required (Blocking)
 
 1. **Fix Backend Test Failures**
+
    ```bash
    cd backend
    go test -v ./internal/caddy -run TestBuildSecurityHeadersHandler_InvalidCSPJSON
    go test -v ./internal/database -run TestConnect_InvalidDSN
    ```
+
    - Debug nil pointer panic in CSP JSON handling
    - Fix invalid DSN test assertion
 
@@ -367,11 +379,11 @@ export interface ProxyHost {
 
 ### Nice-to-Have (Non-Blocking)
 
-4. **Increase Frontend API Test Coverage**
+1. **Increase Frontend API Test Coverage**
    - Add tests for `api/securityHeaders.ts` (currently 10%)
    - Focus on error handling paths
 
-5. **Enhance Form Component Tests**
+2. **Enhance Form Component Tests**
    - Add tests for `SecurityHeaderProfileForm.tsx` validation logic
    - Test preset vs custom profile rendering
 
@@ -398,6 +410,7 @@ export interface ProxyHost {
 ## Test Execution Evidence
 
 ### Backend Tests Output
+
 ```
 FAIL    github.com/Wikid82/charon/backend/internal/caddy        0.026s
 FAIL    github.com/Wikid82/charon/backend/internal/database     0.044s
@@ -406,6 +419,7 @@ Computed coverage: 83.7% (minimum required 85%)
 ```
 
 ### Frontend Tests Output
+
 ```
 Test Files  101 passed (101)
 Tests       1100 passed | 2 skipped (1102)
@@ -420,11 +434,13 @@ Duration    83.91s
 ### ❌ REJECTED
 
 **Rationale:**
+
 - Critical test failures in backend must be resolved
 - Coverage below required threshold (83.7% < 85%)
 - Console logging statements should be cleaned up
 
 **Next Steps:**
+
 1. Fix 2 failing backend test suites
 2. Add tests to reach 85% backend coverage
 3. Remove/guard console.log statements

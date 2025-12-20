@@ -11,6 +11,7 @@
 The repository root level currently contains **60+ items**, making it difficult to navigate and maintain. This plan proposes moving files into logical directories to achieve a cleaner, more organized structure with only **~15 essential items** at the root level.
 
 **Key Benefits**:
+
 - Easier navigation for contributors
 - Clearer separation of concerns
 - Reduced cognitive load when browsing repository
@@ -103,6 +104,7 @@ The repository root level currently contains **60+ items**, making it difficult 
 ```
 
 **Why `.docker/` with a dot?**
+
 - Keeps it close to root-level Dockerfile (co-location)
 - Hidden by default in file browsers (reduces clutter)
 - Common pattern in monorepos (`.github/`, `.vscode/`)
@@ -262,6 +264,7 @@ docs/
 ```
 
 **Specific Files**:
+
 - `.github/workflows/docker-lint.yml` - References Dockerfile (no change needed)
 - `.github/workflows/docker-build.yml` - May reference docker-compose
 - `.github/workflows/docker-publish.yml` - May reference docker-compose
@@ -286,6 +289,7 @@ docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-c
 ```
 
 **Specific Files**:
+
 - `scripts/coraza_integration.sh` - Uses docker-compose.local.yml
 - `scripts/crowdsec_integration.sh` - Uses docker-compose files
 - `scripts/crowdsec_startup_test.sh` - Uses docker-compose files
@@ -308,6 +312,7 @@ docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-c
 ```
 
 **Affected Tasks**:
+
 - "Build & Run: Local Docker Image"
 - "Build & Run: Local Docker Image No-Cache"
 - "Docker: Start Dev Environment"
@@ -352,6 +357,7 @@ COPY .docker/docker-entrypoint.sh /usr/local/bin/
 #### 6. Documentation Files
 
 **Files to Update**:
+
 - `README.md` - May reference docker-compose files or DOCKER.md
 - `CONTRIBUTING.md` - May reference docker-compose files
 - `docs/getting-started.md` - Likely references docker-compose
@@ -359,6 +365,7 @@ COPY .docker/docker-entrypoint.sh /usr/local/bin/
 - Any docs referencing implementation files moved to `docs/implementation/`
 
 **Search Pattern**:
+
 - `grep -r "docker-compose" docs/`
 - `grep -r "DOCKER.md" docs/`
 - `grep -r "BULK_ACL_FEATURE\|IMPLEMENTATION_SUMMARY" docs/`
@@ -395,6 +402,7 @@ docs/implementation/
 ### Phase 1: Preparation (No Breaking Changes)
 
 1. **Create new directories**:
+
    ```bash
    mkdir -p .docker/compose
    mkdir -p docs/implementation
@@ -406,6 +414,7 @@ docs/implementation/
    - `docs/implementation/README.md` (index of implementation docs)
 
 3. **Update .gitignore** (add SARIF exclusions):
+
    ```bash
    # Add to .gitignore:
    /*.sarif
@@ -414,6 +423,7 @@ docs/implementation/
    ```
 
 4. **Commit preparation**:
+
    ```bash
    git add .docker/ docs/implementation/ .gitignore
    git commit -m "chore: prepare directory structure for reorganization"
@@ -424,6 +434,7 @@ docs/implementation/
 **⚠️ WARNING**: This phase will break existing workflows until all references are updated.
 
 1. **Move Docker Compose files**:
+
    ```bash
    git mv docker-compose.yml .docker/compose/
    git mv docker-compose.dev.yml .docker/compose/
@@ -433,12 +444,14 @@ docs/implementation/
    ```
 
 2. **Move Docker support files**:
+
    ```bash
    git mv docker-entrypoint.sh .docker/
    git mv DOCKER.md .docker/README.md
    ```
 
 3. **Move implementation docs**:
+
    ```bash
    git mv BULK_ACL_FEATURE.md docs/implementation/
    git mv IMPLEMENTATION_SUMMARY.md docs/implementation/
@@ -451,6 +464,7 @@ docs/implementation/
    ```
 
 4. **Delete SARIF files**:
+
    ```bash
    git rm codeql-go.sarif
    git rm codeql-js.sarif
@@ -461,6 +475,7 @@ docs/implementation/
    ```
 
 5. **Commit file moves**:
+
    ```bash
    git commit -m "chore: reorganize repository structure
 
@@ -511,6 +526,7 @@ docs/implementation/
    - Update any docs referencing moved files
 
 8. **Commit all reference updates**:
+
    ```bash
    git add -A
    git commit -m "chore: update all references to reorganized files
@@ -528,12 +544,14 @@ docs/implementation/
 ### Phase 4: Verification
 
 1. **Local build test**:
+
    ```bash
    docker build -t charon:test .
    docker compose -f .docker/compose/docker-compose.yml build
    ```
 
 2. **Local run test**:
+
    ```bash
    docker compose -f .docker/compose/docker-compose.local.yml up -d
    # Verify Charon starts correctly
@@ -541,21 +559,25 @@ docs/implementation/
    ```
 
 3. **Backend tests**:
+
    ```bash
    cd backend && go test ./...
    ```
 
 4. **Frontend tests**:
+
    ```bash
    cd frontend && npm run test
    ```
 
 5. **Integration tests**:
+
    ```bash
    scripts/integration-test.sh
    ```
 
 6. **Pre-commit checks**:
+
    ```bash
    pre-commit run --all-files
    ```
@@ -567,6 +589,7 @@ docs/implementation/
 ### Phase 5: CI/CD Monitoring
 
 1. **Push to feature branch**:
+
    ```bash
    git checkout -b chore/reorganize-structure
    git push origin chore/reorganize-structure
@@ -631,6 +654,7 @@ If critical issues arise after merge:
 ## Success Criteria
 
 ✅ **Before Merge**:
+
 - [ ] All file moves completed
 - [ ] All references updated
 - [ ] Local Docker build succeeds
@@ -644,6 +668,7 @@ If critical issues arise after merge:
 - [ ] PR reviewed by maintainers
 
 ✅ **After Merge**:
+
 - [ ] All CI/CD workflows pass
 - [ ] Docker images build successfully
 - [ ] No broken links in documentation

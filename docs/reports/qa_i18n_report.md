@@ -25,6 +25,7 @@ All 5 locale files are valid JSON with complete translation coverage:
 | Chinese (zh) | `frontend/src/locales/zh/translation.json` | ✅ Valid JSON |
 
 **Key Translation Namespaces:**
+
 - `common` - Shared UI elements
 - `navigation` - Sidebar and menu items
 - `dashboard` - Dashboard components
@@ -76,6 +77,7 @@ All pre-commit hooks pass after auto-fixes:
 | Frontend Lint (Fix) | ✅ Passed |
 
 **Note:** Auto-fixes were applied to:
+
 - `docs/plans/current_spec.md` (trailing whitespace, end of file)
 - `frontend/src/pages/SecurityHeaders.tsx` (trailing whitespace)
 
@@ -91,6 +93,7 @@ Result: PASS
 ```
 
 **Warning Categories (40 total):**
+
 - `@typescript-eslint/no-explicit-any` - 35 warnings (in test files)
 - `react-hooks/exhaustive-deps` - 2 warnings
 - `react-refresh/only-export-components` - 2 warnings
@@ -146,11 +149,13 @@ The test failures are primarily due to **i18n string matching issues**. The test
 2. Update tests to use translation keys
 3. Configure the test environment with the English locale
 
-### Affected Test Files:
+### Affected Test Files
+
 - `WafConfig.spec.tsx` - 19 failures
 - Multiple other test files with similar i18n-related failures
 
-### Example Failure:
+### Example Failure
+
 ```tsx
 // Test expects:
 expect(screen.getByText('Choose a preset...')).toBeInTheDocument()
@@ -174,6 +179,7 @@ expect(screen.getByText('Choose a preset...')).toBeInTheDocument()
    - Add i18n mock to `frontend/src/test/setup.ts`
    - Configure test environment to use English translations
    - Example fix:
+
    ```typescript
    import i18n from '../i18n'
 

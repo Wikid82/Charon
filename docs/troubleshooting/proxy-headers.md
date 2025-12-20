@@ -36,6 +36,7 @@ Your application logs show Charon's internal IP (e.g., `172.17.0.1`) instead of 
 Your backend application must be configured to read these headers. Here's how:
 
 **Express.js/Node.js:**
+
 ```javascript
 // Enable trust proxy
 app.set('trust proxy', true);
@@ -47,6 +48,7 @@ app.get('/', (req, res) => {
 ```
 
 **Django:**
+
 ```python
 # settings.py
 USE_X_FORWARDED_HOST = True
@@ -59,6 +61,7 @@ client_ip, is_routable = get_client_ip(request)
 ```
 
 **Flask:**
+
 ```python
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -79,6 +82,7 @@ def index():
 ```
 
 **Go (net/http):**
+
 ```go
 func handler(w http.ResponseWriter, r *http.Request) {
     // Read X-Real-IP header
@@ -97,6 +101,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 ```
 
 **NGINX (as backend):**
+
 ```nginx
 # In your server block
 real_ip_header X-Real-IP;
@@ -105,6 +110,7 @@ real_ip_recursive on;
 ```
 
 **Apache (as backend):**
+
 ```apache
 # Enable mod_remoteip
 <IfModule mod_remoteip.c>
@@ -123,6 +129,7 @@ curl -H "Host: yourdomain.com" http://your-backend:8080 -v 2>&1 | grep -i "x-"
 ```
 
 Look for:
+
 ```
 > X-Real-IP: 203.0.113.42
 > X-Forwarded-Proto: https
@@ -147,6 +154,7 @@ Your backend application is checking the connection protocol instead of the `X-F
 **Update your redirect logic:**
 
 **Express.js:**
+
 ```javascript
 // BAD: Checks the direct connection (always http from Charon)
 if (req.protocol !== 'https') {
@@ -166,6 +174,7 @@ if (req.protocol !== 'https') {
 ```
 
 **Django:**
+
 ```python
 # settings.py
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -176,6 +185,7 @@ if not request.is_secure():
 ```
 
 **Laravel:**
+
 ```php
 // app/Http/Middleware/TrustProxies.php
 protected $proxies = '*';  // Trust all proxies (or specify Charon's IP)
@@ -203,6 +213,7 @@ protected $headers = Request::HEADER_X_FORWARDED_ALL;
 **1. Check application logs**
 
 Look for errors mentioning:
+
 - X-Real-IP
 - X-Forwarded-*
 - Proxy headers
@@ -219,6 +230,7 @@ Look for errors mentioning:
 Some security frameworks block proxy headers by default:
 
 **Helmet.js (Express):**
+
 ```javascript
 // Allow proxy headers
 app.use(helmet({
@@ -228,6 +240,7 @@ app.set('trust proxy', true);
 ```
 
 **Django Security Middleware:**
+
 ```python
 # settings.py
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -259,6 +272,7 @@ Rate limiting middleware is checking the connection IP instead of proxy headers.
 ### Solutions
 
 **Express-rate-limit:**
+
 ```javascript
 import rateLimit from 'express-rate-limit';
 
@@ -278,6 +292,7 @@ app.use(limiter);
 ```
 
 **Custom middleware:**
+
 ```javascript
 function getRealIP(req) {
   return req.headers['x-real-ip'] ||
@@ -303,6 +318,7 @@ GeoIP lookup is using Charon's IP instead of the client IP.
 **Ensure proxy headers are enabled** in Charon, then:
 
 **MaxMind GeoIP2 (Node.js):**
+
 ```javascript
 import maxmind from 'maxmind';
 
@@ -315,6 +331,7 @@ function getLocation(req) {
 ```
 
 **Python geoip2:**
+
 ```python
 import geoip2.database
 
@@ -401,12 +418,14 @@ curl -H "Host: yourdomain.com" https://yourdomain.com/test
 Charon configures Caddy with `trusted_proxies` to prevent clients from spoofing headers.
 
 **What this means:**
+
 - Clients CANNOT inject fake X-Real-IP headers
 - Caddy overwrites any client-provided proxy headers
 - Only Charon's headers are trusted
 
 **Backend security:**
 Your backend should still:
+
 1. Only trust proxy headers from Charon's IP
 2. Validate IP addresses before using them for access control
 3. Use a proper IP parsing library (not regex)
