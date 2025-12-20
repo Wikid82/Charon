@@ -10,6 +10,7 @@
 Security header profile changes are not persisting to the database when editing proxy hosts.
 
 **Observed Behavior:**
+
 1. User assigns "Strict" profile to a proxy host → Saves successfully ✓
 2. User edits the same host, changes to "Basic" profile → Appears to save ✓
 3. User reopens the host edit form → Shows "Strict" (not "Basic") ❌
@@ -43,6 +44,7 @@ I examined the complete data flow from frontend form submission to backend datab
 **Issue #1: Falsy Coercion Bug**
 
 The expression `parseInt(e.target.value) || null` has a problematic behavior:
+
 - When user selects "None" (value="0"): `parseInt("0")` = 0, then `0 || null` = `null` ✓ (Correct - we want null for "None")
 - When user selects profile ID 2: `parseInt("2")` = 2, then `2 || null` = 2 ✓ (Works)
 - **BUT**: If `parseInt()` fails or returns `NaN`, the expression evaluates to `null` instead of preserving the current value
@@ -57,6 +59,7 @@ const { addUptime: _addUptime, uptimeInterval: _uptimeInterval, uptimeMaxRetries
 ```
 
 **Analysis:**
+
 - The `security_header_profile_id` field is included in the spread operation
 - If `formData.security_header_profile_id` is `undefined`, it won't be in the payload keys
 - If it's `null` or a number, it WILL be included
@@ -99,6 +102,7 @@ if v, ok := payload["security_header_profile_id"]; ok {
 **Issue #2: Silent Failure in Type Conversion**
 
 If ANY of the following occur, the field is NOT updated:
+
 1. `safeFloat64ToUint()` returns `ok = false`
 2. `safeIntToUint()` returns `ok = false`
 3. `strconv.ParseUint()` returns an error
@@ -118,6 +122,7 @@ func safeFloat64ToUint(f float64) (uint, bool) {
 ```
 
 **Analysis:**
+
 - For negative numbers: Returns `false` ✓
 - For integers (0, 1, 2, etc.): Returns `true` ✓
 - For floats with decimals (2.5): Returns `false` (correct - can't convert to uint)
@@ -146,6 +151,7 @@ return s.db.Save(host).Error
 ```
 
 **GORM's `Save()` method:**
+
 - Updates ALL fields in the struct, including zero values
 - Handles nullable pointers correctly (`*uint`)
 - Should persist changes to `SecurityHeaderProfileID`
@@ -164,6 +170,7 @@ SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" g
 ```
 
 **Analysis:**
+
 - Field is nullable pointer `*uint` ✓
 - JSON tag is snake_case ✓
 - GORM relationship configured ✓
@@ -181,11 +188,13 @@ After comprehensive code review, I've identified **TWO potential root causes**:
 **Location:** [frontend/src/components/ProxyHostForm.tsx:658-661](../../frontend/src/components/ProxyHostForm.tsx)
 
 **Problem:**
+
 ```tsx
 const value = parseInt(e.target.value) || null
 ```
 
 While this works for most cases, it has edge case vulnerabilities:
+
 - If `e.target.value` is `""` (empty string): `parseInt("")` = `NaN`, then `NaN || null` = `null`
 - If `parseInt()` somehow returns `0`: `0 || null` = `null` (converts valid 0 to null)
 
@@ -211,6 +220,7 @@ case float64:
 **Why This Is The Likely Culprit:**
 
 For the reported bug (changing from Strict to Basic), the frontend should send:
+
 ```json
 {"security_header_profile_id": 2}
 ```
@@ -220,6 +230,7 @@ JSON numbers unmarshal as `float64` in Go. So `v` would be `float64(2.0)`.
 The `safeFloat64ToUint(2.0)` call should return `(2, true)` and set the field correctly.
 
 **UNLESS:**
+
 1. The JSON payload is malformed
 2. The value comes as a string `"2"` instead of number `2`
 3. There's middleware modifying the payload
@@ -260,6 +271,7 @@ Without logs, we can't know which scenario is happening. The fix MUST include lo
 **Lines:** 658-661
 
 **Change:**
+
 ```tsx
 // BEFORE (risky):
 onChange={e => {
@@ -282,6 +294,7 @@ onChange={e => {
 ```
 
 **Why:**
+
 - Explicitly handles "0" case (None/null)
 - Explicitly handles empty string
 - Checks for NaN before assigning
@@ -293,6 +306,7 @@ onChange={e => {
 **Lines:** 231-248
 
 **Change:**
+
 ```go
 // Security Header Profile: update only if provided
 if v, ok := payload["security_header_profile_id"]; ok {
@@ -347,6 +361,7 @@ if v, ok := payload["security_header_profile_id"]; ok {
 ```
 
 **Why:**
+
 - **Logs incoming raw value** - We can see exactly what the frontend sent
 - **Logs conversion attempts** - We can see if type assertions match
 - **Logs success/failure** - We know if the field was updated
@@ -359,16 +374,19 @@ if v, ok := payload["security_header_profile_id"]; ok {
 **Line:** 92
 
 **Current:**
+
 ```go
 return s.db.Save(host).Error
 ```
 
 **Investigation needed:**
+
 - Does `Save()` properly update nullable pointer fields?
 - Should we use `Updates()` instead?
 - Should we use `Select()` to explicitly update specific fields?
 
 **Possible alternative:**
+
 ```go
 // Option A: Use Updates with Select (explicit fields)
 return s.db.Model(host).Select("SecurityHeaderProfileID").Updates(host).Error
@@ -396,6 +414,7 @@ return s.db.Model(host).Updates(host).Error
      - If conversion succeeded
      - What value was set
 4. Check database directly:
+
    ```sql
    SELECT id, name, security_header_profile_id FROM proxy_hosts WHERE name = 'Test Host';
    ```
@@ -403,6 +422,7 @@ return s.db.Model(host).Updates(host).Error
 ### Phase 2: Fix Issues (Implementation)
 
 Based on log findings:
+
 - If conversion is failing → Fix conversion logic
 - If GORM isn't saving → Change to `Updates()` or `Select()`
 - If payload is wrong type → Investigate middleware/JSON unmarshaling
@@ -472,13 +492,13 @@ Based on log findings:
 
 ### Medium Priority (Investigation)
 
-3. **backend/internal/services/proxyhost_service.go** (Line 92)
+1. **backend/internal/services/proxyhost_service.go** (Line 92)
    - Verify GORM Save() vs Updates()
    - May need to change update method
 
 ### Low Priority (Testing)
 
-4. **backend/internal/api/handlers/proxy_host_handler_test.go**
+1. **backend/internal/api/handlers/proxy_host_handler_test.go**
    - Add test for security header profile updates
    - Test edge cases
 
@@ -524,6 +544,7 @@ Based on log findings:
 The root cause of the security header profile persistence bug is likely a **silent failure in the backend handler's type conversion logic**. The lack of logging makes it impossible to diagnose the exact failure point.
 
 The immediate fix is to:
+
 1. Add comprehensive logging to track the value through its lifecycle
 2. Add explicit error handling to prevent silent failures
 3. Improve frontend value handling to prevent edge cases
@@ -580,6 +601,7 @@ Database
 ### Actual Data Flow (Hypothesis - Needs Logging to Confirm)
 
 **Scenario A: Payload Type Mismatch**
+
 ```
 Frontend sends: {"security_header_profile_id": "1"}  ← String instead of number!
 Backend receives: v = "1" (string)
@@ -590,6 +612,7 @@ BUT: Something downstream fails or overwrites it
 ```
 
 **Scenario B: GORM Save Issue**
+
 ```
 Everything up to Save() works correctly
 host.SecurityHeaderProfileID = &1 ✓
@@ -600,6 +623,7 @@ Result: Old value remains in database
 ```
 
 **Scenario C: Concurrent Request**
+
 ```
 Request A: Sets profile to Basic (ID 1)
 Request B: Reloads host data (has Strict, ID 2)

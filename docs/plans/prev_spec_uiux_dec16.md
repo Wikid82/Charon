@@ -24,6 +24,7 @@ The current Charon UI is functional but lacks design consistency, visual polish,
 ### 1.1 Tailwind Configuration (tailwind.config.js)
 
 **Current:**
+
 ```javascript
 colors: {
   'light-bg': '#f0f4f8',
@@ -36,6 +37,7 @@ colors: {
 ```
 
 **Problems:**
+
 - ❌ Only 6 ad-hoc color tokens
 - ❌ No semantic naming (surface, border, text layers)
 - ❌ No state colors (success, warning, error, info)
@@ -46,6 +48,7 @@ colors: {
 ### 1.2 CSS Variables (index.css)
 
 **Current:**
+
 ```css
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -55,6 +58,7 @@ colors: {
 ```
 
 **Problems:**
+
 - ❌ Hardcoded colors, not CSS variables
 - ❌ No dark/light mode toggle system
 - ❌ No type scale
@@ -70,6 +74,7 @@ colors: {
 | `Switch.tsx` | ⚠️ Functional | Hard-coded colors, no size variants |
 
 **Missing Components:**
+
 - Badge/Tag
 - Alert/Callout
 - Dialog/Modal (exists ad-hoc in pages)
@@ -1123,19 +1128,23 @@ export function DataTable<T>({
 ### Phase 1: Design Tokens Foundation (Week 1)
 
 **Files to Modify:**
+
 - [frontend/src/index.css](frontend/src/index.css) - Add CSS variables
 - [frontend/tailwind.config.js](frontend/tailwind.config.js) - Add semantic color mapping
 
 **Files to Create:**
+
 - None (modify existing)
 
 **Tasks:**
+
 1. Add CSS custom properties to `:root` and `.dark` in index.css
 2. Update tailwind.config.js with new color tokens
 3. Test light/dark mode switching
 4. Verify no visual regressions
 
 **Testing:**
+
 - Visual regression test for Dashboard, Security, ProxyHosts
 - Dark/light mode toggle verification
 - Build succeeds without errors
@@ -1145,6 +1154,7 @@ export function DataTable<T>({
 ### Phase 2: Core Component Library (Weeks 2-3)
 
 **Files to Create:**
+
 - [frontend/src/components/ui/Badge.tsx](frontend/src/components/ui/Badge.tsx)
 - [frontend/src/components/ui/Alert.tsx](frontend/src/components/ui/Alert.tsx)
 - [frontend/src/components/ui/Dialog.tsx](frontend/src/components/ui/Dialog.tsx)
@@ -1159,17 +1169,20 @@ export function DataTable<T>({
 - [frontend/src/components/ui/index.ts](frontend/src/components/ui/index.ts) - Barrel exports
 
 **Files to Modify:**
+
 - [frontend/src/components/ui/Button.tsx](frontend/src/components/ui/Button.tsx) - Enhance with variants
 - [frontend/src/components/ui/Card.tsx](frontend/src/components/ui/Card.tsx) - Add hover, variants
 - [frontend/src/components/ui/Input.tsx](frontend/src/components/ui/Input.tsx) - Enhance styling
 - [frontend/src/components/ui/Switch.tsx](frontend/src/components/ui/Switch.tsx) - Use tokens
 
 **Dependencies to Add:**
+
 ```bash
 npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tooltip @radix-ui/react-tabs @radix-ui/react-select @radix-ui/react-checkbox @radix-ui/react-progress
 ```
 
 **Testing:**
+
 - Unit tests for each new component
 - Storybook-style visual verification (manual)
 - Accessibility audit (keyboard nav, screen reader)
@@ -1179,15 +1192,18 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 ### Phase 3: Layout Components (Week 4)
 
 **Files to Create:**
+
 - [frontend/src/components/layout/PageShell.tsx](frontend/src/components/layout/PageShell.tsx)
 - [frontend/src/components/ui/StatsCard.tsx](frontend/src/components/ui/StatsCard.tsx)
 - [frontend/src/components/ui/EmptyState.tsx](frontend/src/components/ui/EmptyState.tsx) (enhance existing)
 - [frontend/src/components/ui/DataTable.tsx](frontend/src/components/ui/DataTable.tsx)
 
 **Files to Modify:**
+
 - [frontend/src/components/Layout.tsx](frontend/src/components/Layout.tsx) - Apply token system
 
 **Testing:**
+
 - Responsive layout tests
 - Mobile sidebar behavior
 - Table scrolling with sticky headers
@@ -1199,9 +1215,11 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.1 Dashboard (Week 5)
 
 **Files to Modify:**
+
 - [frontend/src/pages/Dashboard.tsx](frontend/src/pages/Dashboard.tsx)
 
 **Changes:**
+
 - Replace link cards with `StatsCard` component
 - Add trend indicators
 - Improve UptimeWidget styling
@@ -1211,10 +1229,12 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.2 ProxyHosts (Week 5)
 
 **Files to Modify:**
+
 - [frontend/src/pages/ProxyHosts.tsx](frontend/src/pages/ProxyHosts.tsx)
 - [frontend/src/components/ProxyHostForm.tsx](frontend/src/components/ProxyHostForm.tsx)
 
 **Changes:**
+
 - Replace inline table with `DataTable` component
 - Replace inline modals with `Dialog` component
 - Use `Badge` for SSL/WS/ACL indicators
@@ -1224,9 +1244,11 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.3 Security Dashboard (Week 6)
 
 **Files to Modify:**
+
 - [frontend/src/pages/Security.tsx](frontend/src/pages/Security.tsx)
 
 **Changes:**
+
 - Use enhanced `Card` with hover states
 - Use `Badge` for status indicators
 - Improve layer card spacing
@@ -1235,12 +1257,14 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.4 Settings (Week 6)
 
 **Files to Modify:**
+
 - [frontend/src/pages/Settings.tsx](frontend/src/pages/Settings.tsx)
 - [frontend/src/pages/SystemSettings.tsx](frontend/src/pages/SystemSettings.tsx)
 - [frontend/src/pages/SMTPSettings.tsx](frontend/src/pages/SMTPSettings.tsx)
 - [frontend/src/pages/Account.tsx](frontend/src/pages/Account.tsx)
 
 **Changes:**
+
 - Replace tab links with `Tabs` component
 - Improve form field styling with `Label`
 - Use `Alert` for validation errors
@@ -1249,10 +1273,12 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.5 AccessLists (Week 7)
 
 **Files to Modify:**
+
 - [frontend/src/pages/AccessLists.tsx](frontend/src/pages/AccessLists.tsx)
 - [frontend/src/components/AccessListForm.tsx](frontend/src/components/AccessListForm.tsx)
 
 **Changes:**
+
 - Replace inline table with `DataTable`
 - Replace confirm dialogs with `Dialog`
 - Use `Alert` for CGNAT warning
@@ -1261,12 +1287,14 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 #### 4.6 Other Pages (Week 7)
 
 **Files to Review/Modify:**
+
 - [frontend/src/pages/Certificates.tsx](frontend/src/pages/Certificates.tsx)
 - [frontend/src/pages/RemoteServers.tsx](frontend/src/pages/RemoteServers.tsx)
 - [frontend/src/pages/Logs.tsx](frontend/src/pages/Logs.tsx)
 - [frontend/src/pages/Backups.tsx](frontend/src/pages/Backups.tsx)
 
 **Changes:**
+
 - Apply consistent `PageShell` wrapper
 - Use new component library throughout
 - Add loading skeletons
@@ -1277,6 +1305,7 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 ## 6. Page-by-Page Improvement Checklist
 
 ### Dashboard
+
 - [ ] Replace link cards with `StatsCard`
 - [ ] Add trend indicators (up/down arrows)
 - [ ] Skeleton loading states
@@ -1284,6 +1313,7 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 - [ ] Improve CertificateStatusCard styling
 
 ### ProxyHosts
+
 - [ ] `DataTable` with sticky header
 - [ ] `Dialog` for add/edit forms
 - [ ] `Badge` for SSL/WS/ACL status
@@ -1292,6 +1322,7 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 - [ ] Loading skeleton
 
 ### Security
+
 - [ ] Improved layer cards with consistent padding
 - [ ] `Badge` for status indicators
 - [ ] Better disabled state styling
@@ -1299,12 +1330,14 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 - [ ] Consistent button variants
 
 ### Settings
+
 - [ ] `Tabs` component for navigation
 - [ ] Form field consistency
 - [ ] `Alert` for validation
 - [ ] Success toast styling
 
 ### AccessLists
+
 - [ ] `DataTable` with selection
 - [ ] `Dialog` for confirmations
 - [ ] `Alert` for CGNAT warning
@@ -1312,18 +1345,21 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 - [ ] `EmptyState` when none exist
 
 ### Certificates
+
 - [ ] `DataTable` for certificate list
 - [ ] `Badge` for status (valid/expiring/expired)
 - [ ] `Dialog` for upload form
 - [ ] Improved certificate details view
 
 ### Logs
+
 - [ ] Improved filter styling
 - [ ] `Badge` for log levels
 - [ ] Better table density
 - [ ] Skeleton during load
 
 ### Backups
+
 - [ ] `DataTable` for backup list
 - [ ] `Dialog` for restore confirmation
 - [ ] `Badge` for backup type
@@ -1334,19 +1370,23 @@ npm install class-variance-authority @radix-ui/react-dialog @radix-ui/react-tool
 ## 7. Testing Requirements
 
 ### Unit Tests
+
 Each new component needs:
+
 - Render test (renders without crashing)
 - Variant tests (all variants render correctly)
 - Interaction tests (onClick, onChange work)
 - Accessibility tests (aria labels, keyboard nav)
 
 ### Integration Tests
+
 - Dark/light mode toggle persists
 - Page navigation maintains theme
 - Forms submit correctly with new components
 - Modals open/close properly
 
 ### Visual Regression
+
 - Screenshot comparison for:
   - Dashboard (light + dark)
   - ProxyHosts table (empty + populated)
@@ -1354,6 +1394,7 @@ Each new component needs:
   - Settings tabs
 
 ### Accessibility
+
 - WCAG 2.1 AA compliance
 - Keyboard navigation throughout
 - Focus visible on all interactive elements
@@ -1364,12 +1405,14 @@ Each new component needs:
 ## 8. Migration Strategy
 
 ### Backward Compatibility
+
 1. Keep legacy color tokens (`dark-bg`, `dark-card`, etc.) during transition
 2. Gradually replace hardcoded colors with semantic tokens
 3. Use `cn()` utility for all className merging
 4. Create new components alongside existing, migrate pages incrementally
 
 ### Rollout Order
+
 1. **Token system** - No visual change, foundation only
 2. **New components** - Available but not used
 3. **Dashboard** - High visibility, validates approach
@@ -1377,7 +1420,9 @@ Each new component needs:
 5. **Remaining pages** - Systematic cleanup
 
 ### Deprecation Path
+
 After all pages migrated:
+
 1. Remove legacy color tokens from tailwind.config.js
 2. Remove inline modal patterns
 3. Remove ad-hoc button styling
@@ -1412,6 +1457,7 @@ After all pages migrated:
 ## Appendix A: File Change Summary
 
 ### New Files (23)
+
 ```
 frontend/src/components/ui/Badge.tsx
 frontend/src/components/ui/Alert.tsx
@@ -1439,6 +1485,7 @@ frontend/src/components/ui/__tests__/StatsCard.test.tsx
 ```
 
 ### Modified Files (20+)
+
 ```
 frontend/src/index.css
 frontend/tailwind.config.js

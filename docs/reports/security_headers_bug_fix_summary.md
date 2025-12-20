@@ -10,6 +10,7 @@
 ## Problem
 
 The SecurityHeaders page loaded but displayed "No custom profiles yet" even when profiles existed in the database. The issue affected all Security Headers functionality including:
+
 - Listing profiles
 - Creating profiles
 - Applying presets
@@ -22,6 +23,7 @@ The SecurityHeaders page loaded but displayed "No custom profiles yet" even when
 **Backend-Frontend API contract mismatch.**
 
 The backend wraps all responses in objects with descriptive keys:
+
 ```json
 {
   "profiles": [...]
@@ -29,6 +31,7 @@ The backend wraps all responses in objects with descriptive keys:
 ```
 
 The frontend API client expected direct arrays and returned `response.data` without unwrapping:
+
 ```typescript
 // Before (incorrect)
 return response.data; // Returns { profiles: [...] }
@@ -51,6 +54,7 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ```
 
 **Functions fixed:**
+
 1. `listProfiles()` - unwraps `.profiles`
 2. `getProfile()` - unwraps `.profile`
 3. `createProfile()` - unwraps `.profile`
@@ -79,12 +83,14 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ## Impact
 
 **Before Fix:**
+
 - ❌ Security Headers page showed empty state
 - ❌ Users could not view existing profiles
 - ❌ Presets appeared unavailable
 - ❌ Feature was completely unusable
 
 **After Fix:**
+
 - ✅ Security Headers page displays all profiles correctly
 - ✅ Custom and preset profiles are properly categorized
 - ✅ Profile creation, editing, and deletion work as expected
@@ -96,14 +102,17 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ## Technical Details
 
 ### Files Changed
+
 - [frontend/src/api/securityHeaders.ts](../../frontend/src/api/securityHeaders.ts) - Updated 7 functions
 
 ### Related Documentation
+
 - **Root Cause Analysis:** [security_headers_trace.md](security_headers_trace.md)
 - **QA Verification:** [qa_security_headers_fix_2025-12-18.md](qa_security_headers_fix_2025-12-18.md)
 - **Feature Documentation:** [features.md](../features.md#http-security-headers)
 
 ### Backend Reference
+
 - **Handler:** [security_headers_handler.go](../../backend/internal/api/handlers/security_headers_handler.go)
 - **API Routes:** All endpoints at `/api/v1/security/headers/*`
 
@@ -112,11 +121,13 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ## Lessons Learned
 
 ### What Went Wrong
+
 1. **Silent Failure:** React Query didn't throw errors on type mismatches, masking the bug
 2. **Type Safety Gap:** TypeScript's type assertion (`as`) allowed runtime mismatch
 3. **Testing Gap:** API client lacked integration tests to catch response format issues
 
 ### Prevention Strategies
+
 1. **Runtime Validation:** Consider adding Zod schema validation for API responses
 2. **Integration Tests:** Add tests that exercise full API client → hook → component flow
 3. **Documentation:** Backend response formats should be documented in API docs
@@ -131,6 +142,7 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 **Workaround:** None (feature was broken)
 
 **Timeline:**
+
 - **Issue Introduced:** When Security Headers feature was initially implemented
 - **Issue Detected:** December 18, 2025
 - **Fix Applied:** December 18, 2025 (same day)
@@ -141,16 +153,19 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ## Follow-Up Actions
 
 **Immediate:**
+
 - [x] Fix applied and tested
 - [x] Documentation updated
 - [x] QA verification completed
 
 **Short-term:**
+
 - [ ] Add integration tests for SecurityHeaders API client
 - [ ] Audit other API clients for similar issues
 - [ ] Update API documentation with response format examples
 
 **Long-term:**
+
 - [ ] Implement runtime schema validation (Zod)
 - [ ] Add API contract testing to CI/CD
 - [ ] Review TypeScript strict mode settings

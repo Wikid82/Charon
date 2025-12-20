@@ -80,6 +80,7 @@ Run the migration command if:
 - ✅ CrowdSec features aren't working after upgrade
 
 **Skip this step if:**
+
 - ❌ This is a fresh installation (migrations run automatically)
 - ❌ You're not using persistent storage
 

@@ -26,6 +26,7 @@ The mismatch occurs because:
 1. **Database Setting vs Process State**: The UI toggle updates the setting `security.crowdsec.enabled` in the database, but **does not actually start the CrowdSec process**.
 
 2. **Process Lifecycle Design**: Per [docker-entrypoint.sh](../../docker-entrypoint.sh) (line 56-65), CrowdSec is explicitly **NOT auto-started** in the container entrypoint:
+
    ```bash
    # CrowdSec Lifecycle Management:
    # CrowdSec agent is NOT auto-started in the entrypoint.
@@ -45,6 +46,7 @@ The mismatch occurs because:
 ### Why It Appears Broken
 
 After Docker rebuild:
+
 - Fresh container has `security.crowdsec.enabled` potentially still `true` in DB (persisted volume)
 - But PID file is gone (container restart)
 - CrowdSec process not running
@@ -134,6 +136,7 @@ func (e *DefaultCrowdsecExecutor) Stop(ctx context.Context, configDir string) er
 ```
 
 **The Problem:**
+
 1. PID file at `/app/data/crowdsec/crowdsec.pid` doesn't exist
 2. This happens when:
    - CrowdSec was never started via the handlers
@@ -209,6 +212,7 @@ The Cerberus Security Logs WebSocket ([cerberus_logs_ws.go](../../backend/intern
 **The Problem:**
 
 In [log_watcher.go#L102-L117](../../backend/internal/services/log_watcher.go):
+
 ```go
 func (w *LogWatcher) tailFile() {
     for {
@@ -224,6 +228,7 @@ func (w *LogWatcher) tailFile() {
 ```
 
 After Docker rebuild:
+
 1. Caddy may not have written any logs yet
 2. `/var/log/caddy/access.log` doesn't exist
 3. `LogWatcher` enters infinite "waiting" loop
@@ -233,6 +238,7 @@ After Docker rebuild:
 ### Why "Disconnected" Appears
 
 From [cerberus_logs_ws.go#L79-L83](../../backend/internal/api/handlers/cerberus_logs_ws.go):
+
 ```go
 case <-ticker.C:
     // Send ping to keep connection alive
@@ -496,6 +502,7 @@ All three issues stem from **state synchronization problems** after container re
 3. **Live Logs**: Log file may not exist, causing LogWatcher to wait indefinitely
 
 The fixes are defensive programming patterns:
+
 - Handle missing PID file gracefully
 - Create log files if they don't exist
 - Add reconciliation hints in status responses

@@ -17,19 +17,23 @@
 ## Rebuild Process
 
 ### 1. Environment Cleanup
+
 ```bash
 docker compose -f docker-compose.override.yml down
 docker rmi charon:local
 docker builder prune -f
 ```
+
 - Removed old container image
 - Pruned 20.96GB of build cache
 - Ensured clean build state
 
 ### 2. Fresh Build
+
 ```bash
 docker build --no-cache -t charon:local .
 ```
+
 - Build completed in 285.4 seconds
 - All stages rebuilt from scratch:
   - Frontend (Node 24.12.0): 34.5s build time
@@ -38,9 +42,11 @@ docker build --no-cache -t charon:local .
   - CrowdSec binary: 239.3s build time
 
 ### 3. Deployment
+
 ```bash
 docker compose -f docker-compose.override.yml up -d
 ```
+
 - Container started successfully
 - Initialization completed within 45 seconds
 
@@ -51,6 +57,7 @@ docker compose -f docker-compose.override.yml up -d
 ### Caddy Configuration Structure
 
 **BEFORE (Old Code - Handler-level config):**
+
 ```json
 {
   "routes": [{
@@ -64,6 +71,7 @@ docker compose -f docker-compose.override.yml up -d
 ```
 
 **AFTER (New Code - App-level config):**
+
 ```json
 {
   "apps": {
@@ -80,16 +88,18 @@ docker compose -f docker-compose.override.yml up -d
 ### Source Code Confirmation
 
 **File**: `backend/internal/caddy/types.go`
+
 ```go
 type CrowdSecApp struct {
-	APIUrl          string `json:"api_url"`          // ✅ Correct field name
-	APIKey          string `json:"api_key"`
-	TickerInterval  string `json:"ticker_interval"`
-	EnableStreaming *bool  `json:"enable_streaming"`
+ APIUrl          string `json:"api_url"`          // ✅ Correct field name
+ APIKey          string `json:"api_key"`
+ TickerInterval  string `json:"ticker_interval"`
+ EnableStreaming *bool  `json:"enable_streaming"`
 }
 ```
 
 **File**: `backend/internal/caddy/config.go`
+
 ```go
 config.Apps.CrowdSec = &CrowdSecApp{
     APIUrl:         crowdSecAPIURL,  // ✅ App-level config
@@ -98,7 +108,9 @@ config.Apps.CrowdSec = &CrowdSecApp{
 ```
 
 ### Test Coverage
+
 All tests verify the app-level configuration:
+
 - `config_crowdsec_test.go:125`: `assert.Equal(t, "http://localhost:8085", config.Apps.CrowdSec.APIUrl)`
 - `config_crowdsec_test.go:77`: `assert.NotContains(t, s, "lapi_url")`
 - No `lapi_url` references in handler-level config
@@ -108,15 +120,18 @@ All tests verify the app-level configuration:
 ## Deployment Status
 
 ### Caddy Web Server
+
 ```bash
 $ curl -I http://localhost/
 HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
 Alt-Svc: h3=":443"; ma=2592000
 ```
+
 ✅ **Status**: Running and serving production traffic
 
 ### Caddy Modules
+
 ```bash
 $ docker exec charon caddy list-modules | grep crowdsec
 admin.api.crowdsec
@@ -124,23 +139,29 @@ crowdsec
 http.handlers.crowdsec
 layer4.matchers.crowdsec
 ```
+
 ✅ **Status**: CrowdSec module compiled and available
 
 ### CrowdSec Process
+
 ```bash
 $ docker exec charon ps aux | grep crowdsec
 67 root  0:01 /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
+
 ✅ **Status**: Running (PID 67)
 
 ### CrowdSec LAPI
+
 ```bash
 $ docker exec charon curl -s http://127.0.0.1:8085/v1/decisions
 {"message":"access forbidden"}  # Expected - requires API key
 ```
+
 ✅ **Status**: Responding correctly
 
 ### Container Logs - Key Events
+
 ```
 2025-12-15T12:50:45  CrowdSec reconciliation: starting (mode=local)
 2025-12-15T12:50:45  CrowdSec reconciliation: starting CrowdSec
@@ -149,11 +170,13 @@ $ docker exec charon curl -s http://127.0.0.1:8085/v1/decisions
 ```
 
 ### Ongoing Activity
+
 ```
 2025-12-15T12:50:58  GET /v1/decisions/stream?startup=true (200)
 2025-12-15T12:51:16  GET /v1/decisions/stream?startup=true (200)
 2025-12-15T12:51:35  GET /v1/decisions/stream?startup=true (200)
 ```
+
 - Caddy's CrowdSec module is attempting to connect
 - Requests return 200 OK (bouncer authentication pending)
 - Streaming mode initialized
@@ -167,6 +190,7 @@ $ docker exec charon curl -s http://127.0.0.1:8085/v1/decisions
 The system shows: **"Agent lifecycle is GUI-controlled"**
 
 This is the **correct behavior** for Charon:
+
 1. CrowdSec process starts automatically
 2. Bouncer registration requires admin action via GUI
 3. Once registered, `apps.crowdsec` config becomes active
@@ -182,6 +206,7 @@ null
 **Reason**: No bouncer API key exists yet. This is expected for fresh deployments.
 
 **Resolution Path** (requires GUI access):
+
 1. Admin logs into Charon GUI
 2. Navigates to Security → CrowdSec
 3. Clicks "Register Bouncer"
@@ -196,11 +221,13 @@ null
 The container is actively serving **real production traffic**:
 
 ### Active Services
+
 - Radarr (`radarr.hatfieldhosted.com`) - Movie management
 - Sonarr (`sonarr.hatfieldhosted.com`) - TV management
 - Bazarr (`bazarr.hatfieldhosted.com`) - Subtitle management
 
 ### Traffic Sample (Last 5 minutes)
+
 ```
 12:50:47  radarr.hatfieldhosted.com  200 OK  (1127 bytes)
 12:50:47  sonarr.hatfieldhosted.com  200 OK  (9554 bytes)
@@ -217,6 +244,7 @@ The container is actively serving **real production traffic**:
 ## Field Name Migration - Complete
 
 ### Handler-Level Config (Old - Removed)
+
 ```json
 {
   "handler": "crowdsec",
@@ -225,6 +253,7 @@ The container is actively serving **real production traffic**:
 ```
 
 ### App-Level Config (New - Implemented)
+
 ```json
 {
   "apps": {
@@ -236,6 +265,7 @@ The container is actively serving **real production traffic**:
 ```
 
 ### Test Evidence
+
 ```bash
 # All tests pass with app-level config
 $ cd backend && go test ./internal/caddy/...
@@ -273,6 +303,7 @@ ok   github.com/Wikid82/charon/backend/internal/caddy  0.123s
 **Current State**: CrowdSec module awaits API key from bouncer registration
 
 **This is correct behavior** - Charon uses GUI-controlled CrowdSec lifecycle:
+
 - Automatic startup: ✅ Working
 - Manual bouncer registration: ⏳ Awaiting admin
 - Traffic blocking: ⏳ Activates after registration
@@ -284,6 +315,7 @@ ok   github.com/Wikid82/charon/backend/internal/caddy  0.123s
 **Root Cause**: Container built from cached layers containing old code
 
 **Resolution**: No-cache rebuild deployed latest code with:
+
 - Correct `api_url` field name ✅
 - App-level CrowdSec config ✅
 - Updated Caddy module integration ✅
@@ -295,6 +327,7 @@ ok   github.com/Wikid82/charon/backend/internal/caddy  0.123s
 To enable CrowdSec traffic blocking:
 
 1. **Access Charon GUI**
+
    ```
    http://localhost:8080
    ```
@@ -309,6 +342,7 @@ To enable CrowdSec traffic blocking:
    - Caddy config reloads with bouncer integration
 
 4. **Verify Blocking** (Optional Test)
+
    ```bash
    # Add test ban
    docker exec charon cscli decisions add --ip 192.168.254.254 --duration 10m
@@ -326,6 +360,7 @@ To enable CrowdSec traffic blocking:
 ## Technical Notes
 
 ### Container Architecture
+
 - **Base**: Alpine 3.23
 - **Go**: 1.25-alpine
 - **Node**: 24.12.0-alpine
@@ -333,12 +368,14 @@ To enable CrowdSec traffic blocking:
 - **CrowdSec**: v1.7.4 (built from source)
 
 ### Build Optimization
+
 - Multi-stage Dockerfile reduces final image size
 - Cache mounts speed up dependency downloads
 - Frontend build: 34.5s (includes TypeScript compilation)
 - Backend build: 117.7s (includes Go compilation)
 
 ### Security Features Active
+
 - HSTS headers (max-age=31536000)
 - Alt-Svc HTTP/3 support
 - TLS 1.3 (cipher_suite 4865)
@@ -375,6 +412,7 @@ To enable CrowdSec traffic blocking:
 ### Issue: Missing FEATURE_CERBERUS_ENABLED Environment Variable
 
 **Root Cause**:
+
 - Code checks `FEATURE_CERBERUS_ENABLED` to determine if security features are enabled
 - Variable was named `CERBERUS_SECURITY_CERBERUS_ENABLED` in docker-compose.override.yml (incorrect)
 - Missing entirely from docker-compose.local.yml and docker-compose.dev.yml
@@ -382,11 +420,13 @@ To enable CrowdSec traffic blocking:
 - This overrode database settings for CrowdSec
 
 **Files Modified**:
+
 1. `docker-compose.override.yml` - Fixed variable name
 2. `docker-compose.local.yml` - Added missing variable
 3. `docker-compose.dev.yml` - Added missing variable
 
 **Changes Applied**:
+
 ```yaml
 # BEFORE (docker-compose.override.yml)
 - CERBERUS_SECURITY_CERBERUS_ENABLED=true  # ❌ Wrong name
@@ -398,13 +438,16 @@ To enable CrowdSec traffic blocking:
 ### Verification Results
 
 #### 1. Environment Variable Loaded
+
 ```bash
 $ docker exec charon env | grep -i cerberus
 FEATURE_CERBERUS_ENABLED=true
 ```
+
 ✅ **Status**: Feature flag correctly set
 
 #### 2. CrowdSec App in Caddy Config
+
 ```bash
 $ docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.crowdsec'
 {
@@ -414,9 +457,11 @@ $ docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.crowdsec'
   "ticker_interval": "60s"
 }
 ```
+
 ✅ **Status**: CrowdSec app configuration is now present (was null before)
 
 #### 3. Routes Have CrowdSec Handler
+
 ```bash
 $ docker exec charon curl -s http://localhost:2019/config/ | \
   jq '.apps.http.servers.charon_server.routes[0].handle[0]'
@@ -424,9 +469,11 @@ $ docker exec charon curl -s http://localhost:2019/config/ | \
   "handler": "crowdsec"
 }
 ```
+
 ✅ **Status**: All 14 routes have CrowdSec as first handler in chain
 
 Sample routes with CrowdSec:
+
 - plex.hatfieldhosted.com ✅
 - sonarr.hatfieldhosted.com ✅
 - radarr.hatfieldhosted.com ✅
@@ -434,9 +481,11 @@ Sample routes with CrowdSec:
 - (+ 10 more services)
 
 #### 4. Caddy Bouncer Connected to LAPI
+
 ```
 2025-12-15T15:27:41  GET /v1/decisions/stream?startup=true (200 OK)
 ```
+
 ✅ **Status**: Bouncer successfully authenticating and streaming decisions
 
 ### Architecture Clarification
@@ -444,12 +493,14 @@ Sample routes with CrowdSec:
 **Why LAPI Not Directly Accessible:**
 
 The system uses an **embedded LAPI proxy** architecture:
+
 1. CrowdSec LAPI runs as separate process (not exposed externally)
 2. Charon backend proxies LAPI requests internally
 3. Caddy bouncer connects through internal Docker network (172.20.0.1)
 4. `cscli` commands fail because shell isn't in the proxied environment
 
 This is **by design** for security:
+
 - LAPI not exposed to host machine
 - All CrowdSec management goes through Charon GUI
 - Database-driven configuration
@@ -459,6 +510,7 @@ This is **by design** for security:
 **Current State**: ⚠️ Passthrough Mode (No Local Decisions)
 
 **Why blocking test would fail**:
+
 1. Local LAPI process not running (by design)
 2. `cscli decisions add` commands fail (LAPI unreachable from shell)
 3. However, CrowdSec bouncer IS configured and active
@@ -468,6 +520,7 @@ This is **by design** for security:
    - Scenario-triggered bans
 
 **To Test Blocking**:
+
 1. Use Charon GUI: Security → CrowdSec → Ban IP
 2. Or enroll in CrowdSec Console for community blocklists
 3. Shell-based `cscli` testing not supported in this architecture
@@ -495,6 +548,7 @@ The missing `FEATURE_CERBERUS_ENABLED` variable has been added to all docker-com
 5. ✅ System ready to block threats (via GUI or Console)
 
 **Blocking Capability**: The system **can** block IPs, but requires:
+
 - GUI-based ban actions, OR
 - CrowdSec Console enrollment for community blocklists, OR
 - Automated scenario-based bans

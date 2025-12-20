@@ -11,11 +11,13 @@
 **ROOT CAUSE IDENTIFIED:** Backend-Frontend API Response Format Mismatch
 
 The backend returns security header profiles wrapped in an object with a `profiles` key:
+
 ```json
 { "profiles": [...] }
 ```
 
 But the frontend expects a raw array:
+
 ```typescript
 Promise<SecurityHeaderProfile[]>
 ```
@@ -33,12 +35,14 @@ This causes the frontend React Query hook to fail silently, preventing the page 
 **Role:** Main page component that displays security header profiles
 
 **Key Operations:**
+
 - Uses `useSecurityHeaderProfiles()` hook to fetch profiles
 - Expects `data: SecurityHeaderProfile[] | undefined`
 - Filters profiles into `customProfiles` and `presetProfiles`
 - Renders cards for each profile
 
 **Critical Line:**
+
 ```typescript
 const { data: profiles, isLoading } = useSecurityHeaderProfiles();
 // Expects profiles to be SecurityHeaderProfile[] or undefined
@@ -53,6 +57,7 @@ const { data: profiles, isLoading } = useSecurityHeaderProfiles();
 **Role:** React Query wrapper for security headers API
 
 **Key Operations:**
+
 ```typescript
 export function useSecurityHeaderProfiles() {
   return useQuery({
@@ -73,6 +78,7 @@ export function useSecurityHeaderProfiles() {
 **Role:** Type-safe API client for security headers endpoints
 
 **Key Operations:**
+
 ```typescript
 async listProfiles(): Promise<SecurityHeaderProfile[]> {
   const response = await client.get<SecurityHeaderProfile[]>('/security/headers/profiles');
@@ -93,6 +99,7 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 **Role:** Axios instance with base configuration
 
 **Configuration:**
+
 - Base URL: `/api/v1`
 - With credentials: `true` (for cookies)
 - Timeout: 30 seconds
@@ -109,6 +116,7 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 **Role:** Registers all API routes including security headers
 
 **Lines 421-423:**
+
 ```go
 // Security Headers
 securityHeadersHandler := handlers.NewSecurityHeadersHandler(db, caddyManager)
@@ -116,6 +124,7 @@ securityHeadersHandler.RegisterRoutes(protected)
 ```
 
 **Routes Registered:**
+
 - `GET /api/v1/security/headers/profiles` → `ListProfiles`
 - `GET /api/v1/security/headers/profiles/:id` → `GetProfile`
 - `POST /api/v1/security/headers/profiles` → `CreateProfile`
@@ -138,18 +147,20 @@ securityHeadersHandler.RegisterRoutes(protected)
 **Role:** HTTP handlers for security headers endpoints
 
 **ListProfiles Handler (Lines 54-62):**
+
 ```go
 func (h *SecurityHeadersHandler) ListProfiles(c *gin.Context) {
-	var profiles []models.SecurityHeaderProfile
-	if err := h.db.Order("is_preset DESC, name ASC").Find(&profiles).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"profiles": profiles})  // ← WRAPPED IN OBJECT!
+ var profiles []models.SecurityHeaderProfile
+ if err := h.db.Order("is_preset DESC, name ASC").Find(&profiles).Error; err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+  return
+ }
+ c.JSON(http.StatusOK, gin.H{"profiles": profiles})  // ← WRAPPED IN OBJECT!
 }
 ```
 
 **ACTUAL Response Format:**
+
 ```json
 {
   "profiles": [
@@ -160,14 +171,16 @@ func (h *SecurityHeadersHandler) ListProfiles(c *gin.Context) {
 ```
 
 **GetPresets Handler (Lines 233-236):**
+
 ```go
 func (h *SecurityHeadersHandler) GetPresets(c *gin.Context) {
-	presets := h.service.GetPresets()
-	c.JSON(http.StatusOK, gin.H{"presets": presets})  // ← ALSO WRAPPED!
+ presets := h.service.GetPresets()
+ c.JSON(http.StatusOK, gin.H{"presets": presets})  // ← ALSO WRAPPED!
 }
 ```
 
 **Other Handlers:**
+
 - `GetProfile` returns: `gin.H{"profile": profile}` (wrapped)
 - `CreateProfile` returns: `gin.H{"profile": req}` (wrapped)
 - `UpdateProfile` returns: `gin.H{"profile": updates}` (wrapped)
@@ -184,22 +197,23 @@ func (h *SecurityHeadersHandler) GetPresets(c *gin.Context) {
 **Role:** GORM database model for security header profiles
 
 **Struct Definition:**
+
 ```go
 type SecurityHeaderProfile struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
-	UUID string `json:"uuid" gorm:"uniqueIndex;not null"`
-	Name string `json:"name" gorm:"index;not null"`
+ ID   uint   `json:"id" gorm:"primaryKey"`
+ UUID string `json:"uuid" gorm:"uniqueIndex;not null"`
+ Name string `json:"name" gorm:"index;not null"`
 
-	// HSTS Configuration
-	HSTSEnabled           bool `json:"hsts_enabled" gorm:"default:true"`
-	HSTSMaxAge            int  `json:"hsts_max_age" gorm:"default:31536000"`
-	HSTSIncludeSubdomains bool `json:"hsts_include_subdomains" gorm:"default:true"`
-	HSTSPreload           bool `json:"hsts_preload" gorm:"default:false"`
+ // HSTS Configuration
+ HSTSEnabled           bool `json:"hsts_enabled" gorm:"default:true"`
+ HSTSMaxAge            int  `json:"hsts_max_age" gorm:"default:31536000"`
+ HSTSIncludeSubdomains bool `json:"hsts_include_subdomains" gorm:"default:true"`
+ HSTSPreload           bool `json:"hsts_preload" gorm:"default:false"`
 
-	// ... (25+ more fields)
+ // ... (25+ more fields)
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+ CreatedAt time.Time `json:"created_at"`
+ UpdatedAt time.Time `json:"updated_at"`
 }
 ```
 
@@ -285,6 +299,7 @@ type SecurityHeaderProfile struct {
 **Location:** Backend handlers vs Frontend API layer
 
 **Backend Returns:**
+
 ```json
 {
   "profiles": [...]
@@ -292,17 +307,20 @@ type SecurityHeaderProfile struct {
 ```
 
 **Frontend Expects:**
+
 ```json
 [...]
 ```
 
 **Impact:**
+
 - React Query receives an object when it expects an array
 - `response.data` in `securityHeadersApi.listProfiles()` contains `{ profiles: [...] }`, not `[...]`
 - This causes the component to receive `undefined` instead of an array
 - Page cannot render profile data
 
 **Affected Endpoints:**
+
 1. `GET /security/headers/profiles` → Returns `gin.H{"profiles": profiles}`
 2. `GET /security/headers/presets` → Returns `gin.H{"presets": presets}`
 3. `GET /security/headers/profiles/:id` → Returns `gin.H{"profile": profile}`
@@ -319,6 +337,7 @@ type SecurityHeaderProfile struct {
 **Evidence from other handlers:**
 
 Looking at the test file `security_headers_handler_test.go` line 58-62:
+
 ```go
 var response map[string][]models.SecurityHeaderProfile
 err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -331,12 +350,14 @@ The backend tests are **written for the wrapped format**, which means this was i
 **Comparison with other endpoints:**
 
 Most endpoints in Charon follow this pattern in handlers, but the **frontend API layer typically unwraps them**. For example, if we look at other API calls, they might do:
+
 ```typescript
 const response = await client.get<{profiles: SecurityHeaderProfile[]}>('/endpoint');
 return response.data.profiles;  // ← Unwrap the data
 ```
 
 But `securityHeaders.ts` doesn't unwrap:
+
 ```typescript
 const response = await client.get<SecurityHeaderProfile[]>('/security/headers/profiles');
 return response.data;  // ← Missing unwrap!
@@ -349,12 +370,14 @@ return response.data;  // ← Missing unwrap!
 **Issue:** Silent failure in React Query
 
 **Current Behavior:**
+
 - When the type mismatch occurs, React Query doesn't throw a visible error
 - The component receives `data: undefined`
 - `isLoading` becomes `false`
 - Page shows "No custom profiles yet" empty state even if profiles exist
 
 **Expected Behavior:**
+
 - Should show an error message
 - Should log the type mismatch to console
 - Should prevent silent failures
@@ -364,6 +387,7 @@ return response.data;  // ← Missing unwrap!
 ## Field Name Mapping Analysis
 
 ### Frontend Type Definition (`securityHeaders.ts`)
+
 ```typescript
 export interface SecurityHeaderProfile {
   id: number;
@@ -376,14 +400,15 @@ export interface SecurityHeaderProfile {
 ```
 
 ### Backend Model (`security_header_profile.go`)
+
 ```go
 type SecurityHeaderProfile struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
-	UUID string `json:"uuid" gorm:"uniqueIndex;not null"`
-	Name string `json:"name" gorm:"index;not null"`
-	HSTSEnabled           bool `json:"hsts_enabled" gorm:"default:true"`
-	HSTSMaxAge            int  `json:"hsts_max_age" gorm:"default:31536000"`
-	// ... (all have json:"snake_case" tags)
+ ID   uint   `json:"id" gorm:"primaryKey"`
+ UUID string `json:"uuid" gorm:"uniqueIndex;not null"`
+ Name string `json:"name" gorm:"index;not null"`
+ HSTSEnabled           bool `json:"hsts_enabled" gorm:"default:true"`
+ HSTSMaxAge            int  `json:"hsts_max_age" gorm:"default:31536000"`
+ // ... (all have json:"snake_case" tags)
 }
 ```
 
@@ -400,11 +425,13 @@ type SecurityHeaderProfile struct {
 The SecurityHeaders feature fails to render because:
 
 1. **Backend Design Decision:** All handlers return responses wrapped in objects with descriptive keys:
+
    ```go
    c.JSON(http.StatusOK, gin.H{"profiles": profiles})
    ```
 
 2. **Frontend Assumption:** The API layer assumes direct array responses:
+
    ```typescript
    async listProfiles(): Promise<SecurityHeaderProfile[]> {
      const response = await client.get<SecurityHeaderProfile[]>('/security/headers/profiles');
@@ -423,7 +450,7 @@ The SecurityHeaders feature fails to render because:
    - React Query doesn't validate response shape
    - Component defensively handles `undefined` with empty state
 
-### Secondary Contributing Factors:
+### Secondary Contributing Factors
 
 - **No runtime type validation:** No schema validation (e.g., Zod) to catch mismatches
 - **Inconsistent patterns:** Other parts of the codebase may handle this differently
@@ -434,32 +461,38 @@ The SecurityHeaders feature fails to render because:
 ## Verification Steps Performed
 
 ### ✓ Checked Component Implementation
+
 - SecurityHeaders.tsx exists and imports correct hooks
 - Component structure is sound
 - No syntax errors
 
 ### ✓ Checked Hooks Layer
+
 - useSecurityHeaders.ts properly uses React Query
 - Query keys are correct
 - Mutation handlers are properly structured
 
 ### ✓ Checked API Layer
+
 - securityHeaders.ts exists with all required functions
 - Endpoints match backend routes
 - **ISSUE FOUND:** Response type expectations don't match backend
 
 ### ✓ Checked Backend Handlers
+
 - security_headers_handler.go exists with all required handlers
 - Routes are properly registered in routes.go
 - **ISSUE FOUND:** All responses are wrapped in objects
 
 ### ✓ Checked Database Models
+
 - SecurityHeaderProfile model is complete
 - All fields have proper JSON tags
 - GORM configuration is correct
 - Model is included in AutoMigrate
 
 ### ✓ Checked Route Registration
+
 - Handler is instantiated in routes.go
 - RegisterRoutes is called on the protected route group
 - All security header routes are mounted correctly
@@ -473,6 +506,7 @@ The SecurityHeaders feature fails to render because:
 **Change:** Unwrap responses in `frontend/src/api/securityHeaders.ts`
 
 **Before:**
+
 ```typescript
 async listProfiles(): Promise<SecurityHeaderProfile[]> {
   const response = await client.get<SecurityHeaderProfile[]>('/security/headers/profiles');
@@ -481,6 +515,7 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ```
 
 **After:**
+
 ```typescript
 async listProfiles(): Promise<SecurityHeaderProfile[]> {
   const response = await client.get<{profiles: SecurityHeaderProfile[]}>('/security/headers/profiles');
@@ -489,12 +524,14 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ```
 
 **Pros:**
+
 - Minimal changes (only update API layer)
 - Maintains backend consistency
 - No breaking changes for other consumers
 - Tests remain valid
 
 **Cons:**
+
 - Frontend needs to know about backend wrapper keys
 
 ---
@@ -504,20 +541,24 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 **Change:** Return direct arrays from handlers
 
 **Before:**
+
 ```go
 c.JSON(http.StatusOK, gin.H{"profiles": profiles})
 ```
 
 **After:**
+
 ```go
 c.JSON(http.StatusOK, profiles)
 ```
 
 **Pros:**
+
 - Simpler response format
 - Matches frontend expectations
 
 **Cons:**
+
 - Breaking change for any existing API consumers
 - Breaks all existing backend tests
 - Inconsistent with other endpoints
@@ -551,12 +592,14 @@ async listProfiles(): Promise<SecurityHeaderProfile[]> {
 ```
 
 **Pros:**
+
 - Catches mismatches at runtime
 - Provides clear error messages
 - Documents expected shapes
 - Prevents silent failures
 
 **Cons:**
+
 - Adds dependency
 - Increases bundle size
 - Requires maintenance of schemas

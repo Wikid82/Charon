@@ -522,6 +522,7 @@ Charon version 2.0 moved CrowdSec configuration from environment variables to th
 Future upgrades will run migrations automatically on startup. For now, manual migration is required for existing installations.
 
 **Related Documentation:**
+
 - [Getting Started - Database Migrations](../getting-started.md#step-15-database-migrations-if-upgrading)
 - [Migration Guide - CrowdSec Control](../migration-guide.md)
 

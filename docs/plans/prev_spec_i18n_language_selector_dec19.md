@@ -278,6 +278,7 @@ The following keys need to be added to all translation files (en, es, fr, de, zh
 ### 2. Translation Files (✅ Complete but Unused)
 
 All translation files contain **132+ keys** organized into sections:
+
 - \`common\`: 29 keys (save, cancel, delete, edit, etc.)
 - \`navigation\`: 15 keys (dashboard, proxyHosts, security, etc.)
 - \`dashboard\`: 13 keys (title, description, stats, etc.)
@@ -286,6 +287,7 @@ All translation files contain **132+ keys** organized into sections:
 - \`security\`: 30+ keys
 
 Files:
+
 - \`frontend/src/locales/en/translation.json\` ✅
 - \`frontend/src/locales/es/translation.json\` ✅
 - \`frontend/src/locales/fr/translation.json\` ✅
@@ -294,7 +296,8 @@ Files:
 
 ### 3. Application Layer (❌ Not Using Translations)
 
-#### Pages - ALL use hardcoded English text:
+#### Pages - ALL use hardcoded English text
+
 - \`Dashboard.tsx\` (177 lines)
 - \`ProxyHosts.tsx\` (1023 lines) **LARGEST**
 - \`SystemSettings.tsx\` (430 lines)
@@ -320,7 +323,8 @@ Files:
 - \`Account.tsx\` (~300 lines)
 - \`SMTPSettings.tsx\` (~400 lines)
 
-#### Layout & Navigation:
+#### Layout & Navigation
+
 - \`Layout.tsx\` (367 lines) - ALL navigation items hardcoded
 
 ---
@@ -386,6 +390,7 @@ Files:
 ## Root Cause Summary
 
 ### What Works ✅
+
 1. Language selection UI (LanguageSelector)
 2. State management (LanguageContext)
 3. localStorage persistence
@@ -394,6 +399,7 @@ Files:
 6. React Context provider hierarchy
 
 ### What's Broken ❌
+
 1. **ZERO components import \`useTranslation\` from react-i18next**
    - Only found in: LanguageContext.tsx (infrastructure) and test files
    - Not found in: Any page, layout, or UI component
@@ -453,6 +459,7 @@ Use ICU MessageFormat for plurals:
 ```
 
 **Usage:**
+
 ```tsx
 t('proxyHosts.count', { count: 1 })  // "1 proxy host"
 t('proxyHosts.count', { count: 5 })  // "5 proxy hosts"
@@ -473,6 +480,7 @@ Use `{{variableName}}` for dynamic content:
 ```
 
 **Usage:**
+
 ```tsx
 t('dashboard.welcomeUser', { userName: 'Alice' })  // "Welcome back, Alice!"
 ```
@@ -494,6 +502,7 @@ For gender or context-specific translations:
 ```
 
 **Usage:**
+
 ```tsx
 t('common.delete', { context: 'male' })  // Uses delete_male
 t('common.save', { context: 'short' })   // Uses save_short
@@ -519,6 +528,7 @@ Maximum 3 levels deep for maintainability:
 ```
 
 **Usage:**
+
 ```tsx
 t('security.headers.csp')  // "Content Security Policy"
 ```
@@ -607,24 +617,28 @@ Use consistent naming for on/off states:
 ### Anti-Patterns to Avoid
 
 ❌ **Don't repeat category in key:**
+
 ```json
 { "proxyHosts": { "proxyHostsTitle": "..." } }  // Wrong
 { "proxyHosts": { "title": "..." } }             // Correct
 ```
 
 ❌ **Don't embed markup:**
+
 ```json
 { "common": { "warning": "<strong>Warning:</strong> ..." } }  // Wrong
 { "common": { "warning": "Warning: ..." } }                   // Correct
 ```
 
 ❌ **Don't hardcode units:**
+
 ```json
 { "uptime": { "responseTime": "Response Time (ms)" } }  // Wrong
 { "uptime": { "responseTime": "Response Time", "unitMs": "ms" } }  // Correct
 ```
 
 ❌ **Don't use generic keys for specific content:**
+
 ```json
 { "common": { "text1": "...", "text2": "..." } }  // Wrong
 { "proxyHosts": { "helpText": "...", "warningText": "..." } }  // Correct
@@ -641,17 +655,21 @@ Use consistent naming for on/off states:
 **Description:** Adding `useTranslation()` hook to every component may cause unnecessary re-renders when language changes, especially in large components like ProxyHosts.tsx (1023 lines).
 
 **Impact:**
+
 - Language changes trigger re-render of all components using `useTranslation()`
 - Potential UI lag or frozen state during language switch
 - Memory pressure from simultaneous component updates
 
 **Mitigation Strategies:**
+
 1. **Use React.memo for expensive components:**
+
    ```tsx
    export default React.memo(ProxyHosts)
    ```
 
 2. **Memoize translation calls in render-heavy components:**
+
    ```tsx
    const columns = useMemo(() => [
      { header: t('proxyHosts.domain'), ... },
@@ -660,12 +678,14 @@ Use consistent naming for on/off states:
    ```
 
 3. **Split large components into smaller, memoized subcomponents:**
+
    ```tsx
    const ProxyHostTable = React.memo(({ data }) => { ... })
    const ProxyHostForm = React.memo(({ onSave }) => { ... })
    ```
 
 4. **Add performance monitoring:**
+
    ```tsx
    useEffect(() => {
      const start = performance.now()
@@ -677,6 +697,7 @@ Use consistent naming for on/off states:
    ```
 
 **Acceptance Criteria:**
+
 - Language switch completes in < 500ms on Desktop
 - Language switch completes in < 1000ms on Mobile
 - No visible UI freezing during switch
@@ -691,6 +712,7 @@ Use consistent naming for on/off states:
 **Description:** Some third-party UI components (DataTable, Dialog, DatePicker, etc.) may not properly support dynamic language changes or may have their own i18n systems.
 
 **Affected Components:**
+
 - DataTable (pagination, sorting labels)
 - Date/Time Pickers (month names, day names)
 - Form validation libraries (error messages)
@@ -698,12 +720,15 @@ Use consistent naming for on/off states:
 - File upload components
 
 **Mitigation Strategies:**
+
 1. **Audit all third-party components** (Pre-Phase 1):
+
    ```bash
    grep -r "import.*from" frontend/src/components | grep -E "(table|date|form|picker|editor)"
    ```
 
 2. **Wrapper pattern for incompatible components:**
+
    ```tsx
    // Wrap DatePicker with localized props
    const LocalizedDatePicker = ({ ...props }) => {
@@ -724,6 +749,7 @@ Use consistent naming for on/off states:
    - Test thoroughly
 
 4. **Configure third-party i18n integrations:**
+
    ```tsx
    // For libraries like react-datepicker
    import { registerLocale, setDefaultLocale } from "react-datepicker";
@@ -732,6 +758,7 @@ Use consistent naming for on/off states:
    ```
 
 **Action Items:**
+
 - Create compatibility matrix (see below)
 - Test each component with all 5 languages
 - Document workarounds in component README
@@ -745,13 +772,16 @@ Use consistent naming for on/off states:
 **Description:** Dates, times, numbers, and currencies need locale-aware formatting. Hardcoded formats (MM/DD/YYYY) will not adapt to user locale.
 
 **Examples:**
+
 - Dates: US (12/31/2025) vs EU (31/12/2025)
 - Times: 12-hour (3:00 PM) vs 24-hour (15:00)
 - Numbers: 1,234.56 (US) vs 1.234,56 (EU)
 - Currencies: $1,234.56 vs 1 234,56 €
 
 **Mitigation Strategies:**
+
 1. **Use Intl API for formatting:**
+
    ```tsx
    // Date formatting
    const formatDate = (date: Date, locale: string) => {
@@ -777,6 +807,7 @@ Use consistent naming for on/off states:
    ```
 
 2. **Create formatting utilities:**
+
    ```tsx
    // frontend/src/utils/formatting.ts
    import { useTranslation } from 'react-i18next'
@@ -794,6 +825,7 @@ Use consistent naming for on/off states:
    ```
 
 3. **Use date-fns with locale support:**
+
    ```tsx
    import { format } from 'date-fns'
    import { es, fr, de, zhCN } from 'date-fns/locale'
@@ -804,6 +836,7 @@ Use consistent naming for on/off states:
    ```
 
 **Acceptance Criteria:**
+
 - All dates use `Intl.DateTimeFormat` or `date-fns` with locale
 - All numbers use `Intl.NumberFormat`
 - No hardcoded date/number formats in components
@@ -820,7 +853,9 @@ Use consistent naming for on/off states:
 **Future Consideration:** Arabic (ar), Hebrew (he)
 
 **Mitigation Strategies:**
+
 1. **Use logical CSS properties now:**
+
    ```css
    /* ❌ Avoid */
    margin-left: 16px;
@@ -832,6 +867,7 @@ Use consistent naming for on/off states:
    ```
 
 2. **Avoid absolute positioning where possible:**
+
    ```css
    /* ❌ Problematic for RTL */
    position: absolute;
@@ -843,6 +879,7 @@ Use consistent naming for on/off states:
    ```
 
 3. **Add `dir` attribute support to root:**
+
    ```tsx
    // main.tsx or App.tsx
    useEffect(() => {
@@ -856,6 +893,7 @@ Use consistent naming for on/off states:
    - Check icon alignment
 
 **Acceptance Criteria:**
+
 - All CSS uses logical properties (inline-start/end)
 - No hardcoded left/right positioning
 - `dir` attribute infrastructure in place
@@ -870,14 +908,17 @@ Use consistent naming for on/off states:
 **Description:** Over time, translation files can become out of sync as developers add keys to English but forget to update other languages, leading to missing translations and fallback to English.
 
 **Impact:**
+
 - Inconsistent user experience across languages
 - Some text remains in English in non-English locales
 - Hard to track which keys are missing
 
 **Mitigation Strategies:**
+
 1. **Automated sync checking (CI/CD - see Maintenance Strategy section)**
 
 2. **Translation key generation script:**
+
    ```bash
    # scripts/sync-translations.sh
    #!/bin/bash
@@ -912,6 +953,7 @@ Use consistent naming for on/off states:
    - Automated comment if keys don't match
 
 4. **Fallback chain with warnings:**
+
    ```tsx
    // i18n.ts
    i18n.init({
@@ -925,6 +967,7 @@ Use consistent naming for on/off states:
    ```
 
 **Acceptance Criteria:**
+
 - CI fails if translation keys don't match
 - Missing keys logged to console in development
 - PR template includes translation checklist
@@ -950,13 +993,16 @@ Use consistent naming for on/off states:
 ---
 
 ### Phase 1: Layout & Navigation (Days 1-3)
+
 **Objective:** Establish pattern with most visible user-facing component. Validates infrastructure and approach.
 
 **Files:**
+
 - `frontend/src/components/Layout.tsx` (367 lines)
 - `frontend/src/components/LanguageSelector.tsx` (already uses translations)
 
 **Tasks:**
+
 - [ ] Day 1: Add missing translation keys (48 new keys) to all 5 language files
 - [ ] Day 1: Update navigation array to use `t('navigation.*')` keys
 - [ ] Day 1: Update logout/profile buttons
@@ -967,6 +1013,7 @@ Use consistent naming for on/off states:
 - [ ] Day 3: Fix bugs, performance profiling, merge PR
 
 **Success Criteria:**
+
 - Navigation menu switches languages instantly
 - No console warnings for missing keys
 - All 5 languages render correctly
@@ -974,6 +1021,7 @@ Use consistent naming for on/off states:
 - Code review approved
 
 **Example Changes:**
+
 ```tsx
 // Before
 const navigation: NavItem[] = [
@@ -992,13 +1040,16 @@ const navigation: NavItem[] = [
 ---
 
 ### Phase 2: ProxyHosts (Days 4-7)
+
 **Objective:** Validate pattern on largest, most complex component. Proves approach scales to complex forms and tables.
 
 **Files:**
+
 - `frontend/src/pages/ProxyHosts.tsx` (1023 lines) **HIGHEST COMPLEXITY**
 - `frontend/src/components/ProxyHostForm.tsx` (if exists)
 
 **Tasks:**
+
 - [ ] Day 4: Update PageShell title/description
 - [ ] Day 4: Update all button text (Create, Edit, Delete, Bulk Apply)
 - [ ] Day 5: Update DataTable column headers
@@ -1011,6 +1062,7 @@ const navigation: NavItem[] = [
 - [ ] Day 7: Code review, bug fixes, performance check, merge PR
 
 **Success Criteria:**
+
 - All UI text translates correctly
 - Form validation messages localized
 - Toast notifications in selected language
@@ -1019,6 +1071,7 @@ const navigation: NavItem[] = [
 - Code review approved
 
 **Example Changes:**
+
 ```tsx
 // Before
 <DataTable columns={[
@@ -1037,9 +1090,11 @@ const { t } = useTranslation()
 ---
 
 ### Phase 3: Core Pages (Days 8-12)
+
 **Objective:** Apply validated pattern to remaining core pages. Parallelizable work.
 
 **Files (in priority order):**
+
 1. `SystemSettings.tsx` (430 lines) - Already imports LanguageSelector
 2. `Security.tsx` (500 lines)
 3. `AccessLists.tsx` (700 lines)
@@ -1048,6 +1103,7 @@ const { t } = useTranslation()
 6. `Domains.tsx` (400 lines)
 
 **Tasks:**
+
 - [ ] Day 8: SystemSettings, Security (2 files)
 - [ ] Day 9: AccessLists, Certificates (2 files)
 - [ ] Day 10: RemoteServers, Domains (2 files)
@@ -1056,6 +1112,7 @@ const { t } = useTranslation()
 - [ ] Day 12: Code review, bug fixes, merge PRs
 
 **Success Criteria:**
+
 - All pages follow established pattern
 - Tests pass for all components
 - No regressions in functionality
@@ -1064,9 +1121,11 @@ const { t } = useTranslation()
 ---
 
 ### Phase 4: Dashboard & Supporting Pages (Days 13-15)
+
 **Objective:** Complete main application pages and validate integration across full workflow.
 
 **Files:**
+
 - `Dashboard.tsx` (177 lines) - **Integration validation**
 - `CrowdSecConfig.tsx` (600 lines)
 - `WafConfig.tsx` (400 lines)
@@ -1077,6 +1136,7 @@ const { t } = useTranslation()
 - `SecurityHeaders.tsx` (800 lines)
 
 **Tasks:**
+
 - [ ] Day 13: Dashboard, CrowdSecConfig, WafConfig
 - [ ] Day 14: RateLimiting, Uptime, Notifications, UsersPage
 - [ ] Day 14: SecurityHeaders
@@ -1084,6 +1144,7 @@ const { t } = useTranslation()
 - [ ] Day 15: Code review, bug fixes, merge PRs
 
 **Success Criteria:**
+
 - Dashboard correctly aggregates translated content
 - All stats and widgets display localized text
 - Full workflow (create proxy → configure SSL → test) works in all languages
@@ -1092,14 +1153,17 @@ const { t } = useTranslation()
 ---
 
 ### Phase 5: Auth & Setup Pages (Days 16-17)
+
 **Objective:** Critical user onboarding experience. Must be perfect.
 
 **Files:**
+
 - `Login.tsx` (200 lines)
 - `Setup.tsx` (300 lines)
 - `Account.tsx` (300 lines)
 
 **Tasks:**
+
 - [ ] Day 16: Login, Setup pages
 - [ ] Day 16: Account page
 - [ ] Day 16: Test authentication flows in all languages
@@ -1107,6 +1171,7 @@ const { t } = useTranslation()
 - [ ] Day 17: Code review, bug fixes, merge PR
 
 **Success Criteria:**
+
 - First-time users see setup in their browser's default language
 - Login errors display in correct language
 - Form validation messages localized
@@ -1116,9 +1181,11 @@ const { t } = useTranslation()
 ---
 
 ### Phase 6: Utility Pages & Final Integration (Days 18-19)
+
 **Objective:** Complete remaining pages and ensure consistency.
 
 **Files:**
+
 - `Backups.tsx` (400 lines)
 - `Tasks.tsx` (300 lines)
 - `Logs.tsx` (400 lines)
@@ -1127,6 +1194,7 @@ const { t } = useTranslation()
 - `SMTPSettings.tsx` (400 lines)
 
 **Tasks:**
+
 - [ ] Day 18: All utility pages
 - [ ] Day 18: Import pages
 - [ ] Day 18: SMTP settings
@@ -1134,6 +1202,7 @@ const { t } = useTranslation()
 - [ ] Day 19: Code reviews, bug fixes, merge PRs
 
 **Success Criteria:**
+
 - All pages translated
 - Import workflows work in all languages
 - No missing translation keys
@@ -1142,11 +1211,13 @@ const { t } = useTranslation()
 ---
 
 ### Phase 7: Comprehensive QA & Polish (Days 20-23)
+
 **Objective:** Thorough testing, bug fixes, performance optimization, and production readiness.
 
 **Tasks:**
 
 #### Day 20: Automated Testing
+
 - [ ] Run full test suite in all 5 languages
 - [ ] Translation coverage tests (100% key coverage)
 - [ ] Bundle size analysis (ensure no significant increase)
@@ -1154,6 +1225,7 @@ const { t } = useTranslation()
 - [ ] Accessibility testing (screen reader compatibility)
 
 #### Day 21: Manual QA - Core Workflows
+
 - [ ] Test full user workflows in all 5 languages:
   - [ ] First-time setup
   - [ ] Login/logout
@@ -1167,6 +1239,7 @@ const { t } = useTranslation()
 - [ ] Test browser back/forward with language changes
 
 #### Day 22: Edge Cases & Error Handling
+
 - [ ] Backend API errors in all languages
 - [ ] Network errors with WebSocket (logs page)
 - [ ] Mid-edit language switches (forms preserve data)
@@ -1175,6 +1248,7 @@ const { t } = useTranslation()
 - [ ] LocalStorage corruption/missing (graceful fallback)
 
 #### Day 23: Final Polish & Documentation
+
 - [ ] Fix all bugs found in QA
 - [ ] Update user documentation with language switching instructions
 - [ ] Create developer guide for adding new translations
@@ -1182,6 +1256,7 @@ const { t } = useTranslation()
 - [ ] Prepare release notes
 
 **Success Criteria:**
+
 - All automated tests pass
 - All manual QA workflows complete successfully
 - No P0/P1 bugs remaining
@@ -1204,6 +1279,7 @@ const { t } = useTranslation()
 | **Fri 5** | Phase 2 | ProxyHosts forms, tables | ProxyHosts UI complete |
 
 **Week 1 Milestones:**
+
 - ✅ Navigation fully translated (most visible change)
 - ✅ ProxyHosts 80% complete (validates complex component approach)
 - ✅ Pattern established and documented
@@ -1221,6 +1297,7 @@ const { t } = useTranslation()
 | **Fri 11-12** | Phase 3 | Tests, QA, code reviews, bug fixes | ✅ 6 core pages complete |
 
 **Week 2 Milestones:**
+
 - ✅ ProxyHosts complete (largest component done)
 - ✅ 6 additional core pages translated
 - ✅ All security-related pages functional
@@ -1238,6 +1315,7 @@ const { t } = useTranslation()
 | **Fri 17** | Phase 5 | Auth QA, bug fixes | ✅ Critical auth complete |
 
 **Week 3 Milestones:**
+
 - ✅ Dashboard integrated (validates cross-page consistency)
 - ✅ All security and monitoring pages complete
 - ✅ Auth and setup flows fully translated
@@ -1256,6 +1334,7 @@ const { t } = useTranslation()
 | **Mon 23** | Phase 7 | Final polish, documentation | ✅ Production ready |
 
 **Week 4 Milestones:**
+
 - ✅ 100% of pages translated
 - ✅ All automated tests passing
 - ✅ All manual QA complete
@@ -1281,20 +1360,24 @@ const { t } = useTranslation()
 ### Daily Stand-up Template
 
 **What was completed yesterday:**
+
 - [Specific pages/components translated]
 - [Tests added]
 - [Bugs fixed]
 
 **What will be done today:**
+
 - [Specific pages to translate]
 - [Tests to add]
 - [Code reviews to complete]
 
 **Blockers:**
+
 - [Any issues blocking progress]
 - [Missing information or dependencies]
 
 **QA Status:**
+
 - [Pages ready for QA]
 - [Bugs found]
 - [Bugs fixed]
@@ -1322,11 +1405,13 @@ Use this checklist for EVERY pull request containing translation changes.
 ### Code Quality
 
 - [ ] **Import statement correct:**
+
   ```tsx
   import { useTranslation } from 'react-i18next'
   ```
 
 - [ ] **Hook placement correct (inside component):**
+
   ```tsx
   export default function MyComponent() {
     const { t } = useTranslation()  // ✅ Correct
@@ -1335,18 +1420,21 @@ Use this checklist for EVERY pull request containing translation changes.
   ```
 
 - [ ] **Translation keys valid (no typos, exist in files):**
+
   ```tsx
   t('proxyHosts.title')  // ✅ Key exists
   t('proxyhosts.titel')  // ❌ Typo, wrong key
   ```
 
 - [ ] **Interpolation syntax correct:**
+
   ```tsx
   t('dashboard.activeHosts', { count: 5 })  // ✅ Correct
   t('dashboard.activeHosts', { num: 5 })    // ❌ Variable name mismatch
   ```
 
 - [ ] **No string concatenation:**
+
   ```tsx
   // ❌ Wrong
   <p>{t('common.total')}: {count}</p>
@@ -1362,6 +1450,7 @@ Use this checklist for EVERY pull request containing translation changes.
 - [ ] **No duplicate keys**
 - [ ] **No missing commas or JSON syntax errors**
 - [ ] **Interpolation placeholders match:**
+
   ```json
   // en
   "activeHosts": "{{count}} active"
@@ -1370,6 +1459,7 @@ Use this checklist for EVERY pull request containing translation changes.
   ```
 
 - [ ] **Pluralization implemented if needed:**
+
   ```json
   "count": "{{count}} item",
   "count_plural": "{{count}} items"
@@ -1378,11 +1468,13 @@ Use this checklist for EVERY pull request containing translation changes.
 ### Performance
 
 - [ ] **Large components use React.memo:**
+
   ```tsx
   export default React.memo(ProxyHosts)
   ```
 
 - [ ] **Expensive translation calls memoized:**
+
   ```tsx
   const columns = useMemo(() => [
     { header: t('common.name'), ... }
@@ -1395,6 +1487,7 @@ Use this checklist for EVERY pull request containing translation changes.
 ### Testing
 
 - [ ] **Unit tests added/updated:**
+
   ```tsx
   it('renders in Spanish', () => {
     i18n.changeLanguage('es')
@@ -1404,6 +1497,7 @@ Use this checklist for EVERY pull request containing translation changes.
   ```
 
 - [ ] **Translation key existence test:**
+
   ```tsx
   it('all keys exist in all languages', () => {
     const enKeys = Object.keys(en)
@@ -1414,6 +1508,7 @@ Use this checklist for EVERY pull request containing translation changes.
   ```
 
 - [ ] **Language switching test:**
+
   ```tsx
   it('updates when language changes', () => {
     const { rerender } = render(<Component />)
@@ -1428,17 +1523,20 @@ Use this checklist for EVERY pull request containing translation changes.
 ### Accessibility
 
 - [ ] **ARIA labels translated:**
+
   ```tsx
   <button aria-label={t('common.close')}>×</button>
   ```
 
 - [ ] **Form labels associated correctly:**
+
   ```tsx
   <label htmlFor="email">{t('auth.email')}</label>
   <input id="email" name="email" />
   ```
 
 - [ ] **Error messages accessible:**
+
   ```tsx
   <span role="alert">{t('errors.required')}</span>
   ```
@@ -1456,11 +1554,13 @@ Use this checklist for EVERY pull request containing translation changes.
 ### Edge Cases
 
 - [ ] **Empty states translated:**
+
   ```tsx
   {items.length === 0 && <p>{t('common.noData')}</p>}
   ```
 
 - [ ] **Error messages translated:**
+
   ```tsx
   catch (error) {
     toast.error(t('errors.saveFailed'))
@@ -1468,11 +1568,13 @@ Use this checklist for EVERY pull request containing translation changes.
   ```
 
 - [ ] **Loading states translated:**
+
   ```tsx
   {loading && <Spinner>{t('common.loading')}</Spinner>}
   ```
 
 - [ ] **Confirmation dialogs translated:**
+
   ```tsx
   const confirmed = window.confirm(t('proxyHosts.confirmDelete', { domain }))
   ```
@@ -1682,11 +1784,13 @@ For each component/page:
 #### Language-Specific Testing
 
 **German Testing (Longest Strings):**
+
 - Focus on buttons and labels that may overflow
 - Check table headers don't wrap awkwardly
 - Verify no horizontal scrolling triggered
 
 **Chinese Testing (Character Width):**
+
 - Ensure proper font rendering
 - Check spacing between characters
 - Verify no character clipping
@@ -1720,6 +1824,7 @@ it('preserves form data when language changes', async () => {
 ```
 
 **Expected Behavior:**
+
 - Form data preserved
 - Labels update to new language
 - Validation messages in new language
@@ -1757,6 +1862,7 @@ it('displays backend errors in current language', async () => {
 ```
 
 **Expected Behavior:**
+
 - API errors trigger translated error messages
 - Toast notifications in current language
 - Console logging in English (for debugging)
@@ -1792,6 +1898,7 @@ it('handles WebSocket reconnection with translations', async () => {
 ```
 
 **Expected Behavior:**
+
 - Connection status messages translated
 - Log messages display correctly after reconnect
 - No data loss during reconnection
@@ -1822,6 +1929,7 @@ it('handles rapid language switching without errors', async () => {
 ```
 
 **Expected Behavior:**
+
 - No race conditions
 - UI updates cleanly each time
 - No console errors or warnings
@@ -1834,11 +1942,13 @@ it('handles rapid language switching without errors', async () => {
 #### Screen Reader Compatibility
 
 **Manual Test Steps:**
+
 1. Enable screen reader (NVDA on Windows, VoiceOver on Mac)
 2. Navigate application using keyboard only
 3. Verify announcements in selected language
 
 **Test Checklist:**
+
 - [ ] Page titles announced in correct language
 - [ ] Button labels read correctly
 - [ ] Form labels associated properly
@@ -1847,6 +1957,7 @@ it('handles rapid language switching without errors', async () => {
 - [ ] Live regions update with translations
 
 **Example Test:**
+
 ```typescript
 it('has accessible labels in all languages', async () => {
   await i18n.changeLanguage('es')
@@ -1876,6 +1987,7 @@ ls -lh dist/assets/*.js
 ```
 
 **Acceptance Criteria:**
+
 - Bundle size increase < 50KB (compressed)
 - Translation files lazy-loaded per language
 - Only active language loaded initially
@@ -1891,6 +2003,7 @@ npm run build -- --analyze
 #### Language Switch Performance
 
 **Test Script:**
+
 ```typescript
 // frontend/src/__tests__/performance.test.ts
 it('switches language in under 500ms', async () => {
@@ -1905,6 +2018,7 @@ it('switches language in under 500ms', async () => {
 ```
 
 **Manual Test:**
+
 1. Open DevTools → Performance
 2. Start recording
 3. Click language selector
@@ -1913,6 +2027,7 @@ it('switches language in under 500ms', async () => {
 6. Analyze flame graph
 
 **Acceptance Criteria:**
+
 - Desktop: < 500ms total switch time
 - Mobile: < 1000ms total switch time
 - No visible UI freezing
@@ -1923,6 +2038,7 @@ it('switches language in under 500ms', async () => {
 #### Memory Profiling
 
 **Test Procedure:**
+
 1. Open DevTools → Memory
 2. Take heap snapshot (baseline)
 3. Switch languages 10 times
@@ -1930,6 +2046,7 @@ it('switches language in under 500ms', async () => {
 5. Compare memory usage
 
 **Acceptance Criteria:**
+
 - Memory increase < 10% after 10 switches
 - No detached DOM nodes
 - No event listener leaks
@@ -1969,6 +2086,7 @@ it('falls back to English for missing keys', async () => {
 ```
 
 **Expected Behavior:**
+
 - Falls back to English gracefully
 - Console warning in development
 - Error reported to monitoring in production
@@ -2010,6 +2128,7 @@ it('handles missing localStorage', () => {
 ```
 
 **Expected Behavior:**
+
 - Graceful fallback to browser default
 - No application crashes
 - Language can still be changed manually
@@ -2021,6 +2140,7 @@ it('handles missing localStorage', () => {
 #### Existing Functionality
 
 **Test Checklist:**
+
 - [ ] All existing unit tests still pass
 - [ ] All existing integration tests still pass
 - [ ] No broken API calls
@@ -2031,6 +2151,7 @@ it('handles missing localStorage', () => {
 - [ ] Authorization checks still work
 
 **Automated Regression Suite:**
+
 ```bash
 npm run test:unit
 npm run test:integration
@@ -2042,6 +2163,7 @@ npm run test:e2e
 ### 8. Cross-Browser Testing
 
 **Browsers to Test:**
+
 - Chrome (latest)
 - Firefox (latest)
 - Safari (latest)
@@ -2050,6 +2172,7 @@ npm run test:e2e
 - Mobile Chrome (Android)
 
 **Per-Browser Checklist:**
+
 - [ ] Language selector works
 - [ ] Translations render correctly
 - [ ] localStorage persistence works
@@ -2124,12 +2247,14 @@ if (violations.length > 0) {
 ```
 
 **Acceptance Criteria:**
+
 - ✅ 100% of components use `useTranslation` hook
 - ✅ 0 hardcoded display strings (script finds none)
 - ✅ All 132+ translation keys exist in all 5 languages
 - ✅ No missing key warnings in console
 
 **Verification:**
+
 ```bash
 npm run check:translations
 ```
@@ -2141,6 +2266,7 @@ npm run check:translations
 **Measurement Method:** Manual QA + automated tests
 
 #### Language Switching Test
+
 ```typescript
 // Automated test
 it('language selection persists across sessions', () => {
@@ -2160,6 +2286,7 @@ it('language selection persists across sessions', () => {
 ```
 
 **Manual Verification:**
+
 - [ ] Open app in incognito mode
 - [ ] Select Spanish from language selector
 - [ ] Verify UI switches to Spanish
@@ -2168,6 +2295,7 @@ it('language selection persists across sessions', () => {
 - [ ] Verify still in Spanish
 
 **Acceptance Criteria:**
+
 - ✅ Language selector immediately updates UI (< 500ms)
 - ✅ Selection persists in localStorage
 - ✅ Persists across browser restarts
@@ -2207,6 +2335,7 @@ languages.forEach(lang => {
 ```
 
 **Acceptance Criteria:**
+
 - ✅ No layout breaks in any language
 - ✅ No text overflow (especially German)
 - ✅ No horizontal scrollbars introduced
@@ -2253,6 +2382,7 @@ it('language switch completes under 500ms', async () => {
 ```
 
 **Manual Measurement:**
+
 1. Open DevTools → Performance
 2. Start recording
 3. Click language selector → Select Spanish
@@ -2260,6 +2390,7 @@ it('language switch completes under 500ms', async () => {
 5. Measure time from click to UI update complete
 
 **Acceptance Criteria:**
+
 - ✅ Average switch time < 500ms (desktop)
 - ✅ Average switch time < 1000ms (mobile)
 - ✅ 95th percentile < 800ms (desktop)
@@ -2282,6 +2413,7 @@ du -sh dist/assets/*.js
 ```
 
 **Measurement:**
+
 ```bash
 # Get bundle size report
 npm run build -- --analyze
@@ -2292,12 +2424,14 @@ ls -lh dist/assets/translation-*.js
 ```
 
 **Acceptance Criteria:**
+
 - ✅ Main bundle increase < 20KB (gzipped)
 - ✅ Translation files lazy-loaded per language
 - ✅ Only active language loaded on page load
 - ✅ Total bundle size < 500KB (gzipped)
 
 **Target:**
+
 - Main bundle increase: < 15KB
 - Per-language file: < 5KB each
 - Total increase: < 40KB (all languages)
@@ -2327,6 +2461,7 @@ it('has no accessibility violations in all languages', async () => {
 ```
 
 **Manual Verification (Screen Reader):**
+
 - [ ] Navigate with keyboard only (Tab, Enter, Space)
 - [ ] Enable screen reader (NVDA/VoiceOver)
 - [ ] Verify announcements in selected language
@@ -2335,6 +2470,7 @@ it('has no accessibility violations in all languages', async () => {
 - [ ] Test error announcements
 
 **Acceptance Criteria:**
+
 - ✅ 0 critical accessibility violations
 - ✅ All ARIA labels translated
 - ✅ Screen reader announces in correct language
@@ -2370,12 +2506,14 @@ i18n.init({
 ```
 
 **Monitoring Dashboard:**
+
 - Missing translation key count (by language)
 - Translation load failures
 - Language switch errors
 - LocalStorage read/write errors
 
 **Acceptance Criteria:**
+
 - ✅ 0 missing translation keys in production
 - ✅ < 0.1% translation load failure rate
 - ✅ 0 language switch errors
@@ -2390,9 +2528,11 @@ i18n.init({
 **Measurement Method:** User testing + analytics
 
 #### Task Completion Rate
+
 **Test:** Ask 5 users to complete key workflows in their non-native language
 
 **Tasks:**
+
 1. Change language to Spanish
 2. Create a proxy host
 3. Configure SSL
@@ -2400,12 +2540,14 @@ i18n.init({
 5. View logs
 
 **Measurement:**
+
 - Task completion rate (% of users who succeed)
 - Time to complete each task
 - Number of errors/retries
 - User satisfaction score (1-5)
 
 **Acceptance Criteria:**
+
 - ✅ Task completion rate > 90%
 - ✅ Time to complete similar to English (±20%)
 - ✅ User satisfaction score ≥ 4/5
@@ -2428,6 +2570,7 @@ echo "Exit code: $?"
 ```
 
 **Acceptance Criteria:**
+
 - ✅ 100% of existing unit tests pass
 - ✅ 100% of existing integration tests pass
 - ✅ 100% of existing e2e tests pass
@@ -2530,6 +2673,7 @@ echo "✅ Translation checks passed"
 **Step-by-Step Process:**
 
 1. **Add key to English first:**
+
    ```json
    // frontend/src/locales/en/translation.json
    {
@@ -2540,10 +2684,13 @@ echo "✅ Translation checks passed"
    ```
 
 2. **Run sync script:**
+
    ```bash
    npm run i18n:sync
    ```
+
    This automatically adds the key to all other language files with `[TODO]` marker:
+
    ```json
    // frontend/src/locales/es/translation.json
    {
@@ -2554,6 +2701,7 @@ echo "✅ Translation checks passed"
    ```
 
 3. **Use in component:**
+
    ```tsx
    <Button>{t('proxyHosts.newFeature')}</Button>
    ```
@@ -2673,6 +2821,7 @@ console.log('\n✅ All translation files in sync!')
 ```
 
 **NPM Scripts:**
+
 ```json
 {
   "scripts": {
@@ -2713,6 +2862,7 @@ console.log('\n✅ All translation files in sync!')
 | Approve PR | Lead developer | Tech lead |
 
 **Escalation Path:**
+
 1. Developer adds English key in feature PR
 2. CI flags missing translations
 3. PR merged with `[TODO]` markers
@@ -2741,6 +2891,7 @@ console.log('\n✅ All translation files in sync!')
    - Must pass all CI checks
 
 3. **Documentation:**
+
    ```markdown
    ## Contributing Translations
 
@@ -2916,6 +3067,7 @@ VITE_ENABLE_I18N=true
 **Strategy:** Gradual rollout with monitoring at each stage
 
 #### Stage 1: Internal Testing (Week 1)
+
 - **Target:** Development team + QA team
 - **Flag:** Enabled in development environment only
 - **Monitoring:**
@@ -2925,12 +3077,14 @@ VITE_ENABLE_I18N=true
   - User feedback from team
 
 **Go/No-Go Criteria:**
+
 - ✅ No critical bugs
 - ✅ All translation keys work
 - ✅ Performance acceptable
 - ✅ Team approves UX
 
 **Rollback Trigger:**
+
 - Critical bug that blocks usage
 - Performance degradation > 30%
 - > 5% missing translation keys
@@ -2938,6 +3092,7 @@ VITE_ENABLE_I18N=true
 ---
 
 #### Stage 2: Beta Users (Week 2-3)
+
 - **Target:** 10% of production users (opt-in beta program)
 - **Flag:** Enabled via URL parameter or localStorage override
 - **Monitoring:**
@@ -2947,6 +3102,7 @@ VITE_ENABLE_I18N=true
   - User feedback surveys
 
 **Enable Method:**
+
 ```typescript
 // Allow beta users to enable via URL
 const urlParams = new URLSearchParams(window.location.search)
@@ -2962,12 +3118,14 @@ export const featureFlags = {
 ```
 
 **Go/No-Go Criteria:**
+
 - ✅ Error rate < 1%
 - ✅ > 80% positive user feedback
 - ✅ No P0/P1 bugs
 - ✅ Performance within targets
 
 **Rollback Trigger:**
+
 - Error rate > 5%
 - < 60% positive feedback
 - Critical bug discovered
@@ -2976,6 +3134,7 @@ export const featureFlags = {
 ---
 
 #### Stage 3: Gradual Rollout (Week 3-4)
+
 - **Target:** Gradual increase to 100% of users
 - **Flag:** Percentage-based rollout (10% → 25% → 50% → 100%)
 - **Monitoring:**
@@ -2985,6 +3144,7 @@ export const featureFlags = {
   - Social media/reviews
 
 **Rollout Schedule:**
+
 | Day | Percentage | Monitoring Period |
 |-----|-----------|-------------------|
 | 1 | 10% | 24 hours |
@@ -2993,6 +3153,7 @@ export const featureFlags = {
 | 7 | 100% | Ongoing |
 
 **Implementation:**
+
 ```typescript
 // Server-side or edge function
 function getUserRolloutPercentage(userId: string): boolean {
@@ -3011,12 +3172,14 @@ export const featureFlags = {
 ```
 
 **Go/No-Go Criteria (Each Stage):**
+
 - ✅ Error rate stable or decreasing
 - ✅ No increase in support tickets
 - ✅ Performance stable
 - ✅ No critical bugs
 
 **Rollback Trigger:**
+
 - Error rate spike > 10%
 - Critical bug affecting > 1% users
 - Support ticket surge
@@ -3050,6 +3213,7 @@ watch -n 5 'curl -s https://api.example.com/metrics/errors'
 ```
 
 **Expected Result:**
+
 - All users revert to hardcoded English strings
 - Translation infrastructure remains in place
 - No data loss or state corruption
@@ -3175,11 +3339,13 @@ alerts:
 #### Pre-Rollout Communication
 
 **To Users:**
+
 - Feature announcement on blog/social media
 - In-app banner: "New: Multi-language support coming soon!"
 - Email to beta testers with opt-in link
 
 **To Team:**
+
 - Slack announcement with rollout schedule
 - On-call rotation briefing
 - Runbook shared with ops team
@@ -3187,11 +3353,13 @@ alerts:
 #### During Rollout
 
 **Status Updates:**
+
 - Hourly updates in Slack #i18n-rollout channel
 - Dashboard showing live metrics
 - Go/no-go decision points documented
 
 **Example Update:**
+
 ```
 🚀 i18n Rollout Update - 2pm EST
 Stage: 25% rollout (Day 2)
@@ -3208,6 +3376,7 @@ Next checkpoint: 5pm EST (50% rollout decision)
 #### Rollback Communication
 
 **If rollback needed:**
+
 ```
 ⚠️ i18n Rollback Initiated - 3pm EST
 Reason: Critical bug in language switching (P0)
@@ -3222,6 +3391,7 @@ Incident Report: [link]
 ## Code Patterns
 
 ### ❌ Anti-Pattern (Current)
+
 ```tsx
 export default function ProxyHosts() {
   return (
@@ -3233,6 +3403,7 @@ export default function ProxyHosts() {
 ```
 
 ### ✅ Correct Pattern (After Fix)
+
 ```tsx
 import { useTranslation } from 'react-i18next'
 
@@ -3247,6 +3418,7 @@ export default function ProxyHosts() {
 ```
 
 ### ✅ With Feature Flag (Transition)
+
 ```tsx
 import { useTranslation } from 'react-i18next'
 import { useFeatureFlags } from '../context/FeatureFlagContext'
@@ -3267,6 +3439,7 @@ export default function ProxyHosts() {
 ```
 
 ### Dynamic Content Pattern
+
 ```tsx
 // ❌ Wrong
 <p>You have {count} proxy hosts</p>
@@ -3279,6 +3452,7 @@ export default function ProxyHosts() {
 ```
 
 ### Error Handling Pattern
+
 ```tsx
 // ✅ Correct
 try {
@@ -3291,6 +3465,7 @@ try {
 ```
 
 ### Form Validation Pattern
+
 ```tsx
 // ✅ Correct
 const schema = z.object({
@@ -3307,6 +3482,7 @@ const schema = z.object({
 ```
 
 ### Memoization Pattern (Performance)
+
 ```tsx
 // ✅ For expensive computed values
 const columns = useMemo(() => [
@@ -3316,6 +3492,7 @@ const columns = useMemo(() => [
 ```
 
 ### Conditional Translation Pattern
+
 ```tsx
 // ✅ Correct - different keys for different states
 <Badge>
@@ -3338,6 +3515,7 @@ The language selector bug is a complete disconnect between infrastructure and im
 **Fix**: Systematically update every component to use `useTranslation` and replace hardcoded strings with translation keys.
 
 **Implementation Timeline:** 3-4 weeks (15-20 business days)
+
 - Week 1: Layout + ProxyHosts (pattern validation)
 - Week 2: Core pages (6-8 pages)
 - Week 3: Dashboard + Auth (critical paths)
@@ -3345,18 +3523,21 @@ The language selector bug is a complete disconnect between infrastructure and im
 - Buffer: Week 5 (if needed)
 
 **Risk Level:** Low-Medium
+
 - Infrastructure proven working
 - Changes are display-only (no logic changes)
 - Feature flag enables safe rollback
 - Phased rollout reduces blast radius
 
 **User Impact:** High (positive)
+
 - Enables full multilingual support for 5 languages
 - Improves accessibility for non-English users
 - Professional appearance and localization
 - Competitive advantage for international users
 
 **Success Metrics:**
+
 - 100% translation coverage (0 hardcoded strings)
 - < 500ms language switch time
 - 0% missing translation keys
@@ -3364,6 +3545,7 @@ The language selector bug is a complete disconnect between infrastructure and im
 - 0 critical bugs in production
 
 **Rollback Plan:**
+
 - Feature flag for immediate disable
 - Phased rollout with monitoring
 - Clear rollback procedures
@@ -3372,6 +3554,7 @@ The language selector bug is a complete disconnect between infrastructure and im
 Once complete, the translation infrastructure will finally be utilized, and users will see the UI in their selected language. The phased approach with feature flags ensures we can roll back instantly if issues arise, while the comprehensive testing strategy ensures quality before wide release.
 
 **Next Steps:**
+
 1. ✅ Approve this plan
 2. Add missing 48 translation keys to all 5 language files
 3. Begin Phase 1: Layout & Navigation (Day 1)

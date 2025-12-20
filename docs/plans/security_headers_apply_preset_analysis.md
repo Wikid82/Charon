@@ -83,23 +83,23 @@ export function useApplySecurityHeaderPreset() {
 
 ```go
 func (h *SecurityHeadersHandler) ApplyPreset(c *gin.Context) {
-	var req struct {
-		PresetType string `json:"preset_type" binding:"required"`
-		Name       string `json:"name" binding:"required"`
-	}
+ var req struct {
+  PresetType string `json:"preset_type" binding:"required"`
+  Name       string `json:"name" binding:"required"`
+ }
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+ if err := c.ShouldBindJSON(&req); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+  return
+ }
 
-	profile, err := h.service.ApplyPreset(req.PresetType, req.Name)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+ profile, err := h.service.ApplyPreset(req.PresetType, req.Name)
+ if err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+  return
+ }
 
-	c.JSON(http.StatusCreated, gin.H{"profile": profile})
+ c.JSON(http.StatusCreated, gin.H{"profile": profile})
 }
 ```
 
@@ -116,33 +116,33 @@ func (h *SecurityHeadersHandler) ApplyPreset(c *gin.Context) {
 
 ```go
 func (s *SecurityHeadersService) ApplyPreset(presetType, name string) (*models.SecurityHeaderProfile, error) {
-	presets := s.GetPresets()
+ presets := s.GetPresets()
 
-	var selectedPreset *models.SecurityHeaderProfile
-	for i := range presets {
-		if presets[i].PresetType == presetType {
-			selectedPreset = &presets[i]
-			break
-		}
-	}
+ var selectedPreset *models.SecurityHeaderProfile
+ for i := range presets {
+  if presets[i].PresetType == presetType {
+   selectedPreset = &presets[i]
+   break
+  }
+ }
 
-	if selectedPreset == nil {
-		return nil, fmt.Errorf("preset type %s not found", presetType)
-	}
+ if selectedPreset == nil {
+  return nil, fmt.Errorf("preset type %s not found", presetType)
+ }
 
-	// Create a copy with custom name and UUID
-	newProfile := *selectedPreset
-	newProfile.ID = 0 // Clear ID so GORM creates a new record
-	newProfile.UUID = uuid.New().String()
-	newProfile.Name = name
-	newProfile.IsPreset = false // User-created profiles are not presets
-	newProfile.PresetType = ""  // Clear preset type for custom profiles
+ // Create a copy with custom name and UUID
+ newProfile := *selectedPreset
+ newProfile.ID = 0 // Clear ID so GORM creates a new record
+ newProfile.UUID = uuid.New().String()
+ newProfile.Name = name
+ newProfile.IsPreset = false // User-created profiles are not presets
+ newProfile.PresetType = ""  // Clear preset type for custom profiles
 
-	if err := s.db.Create(&newProfile).Error; err != nil {
-		return nil, fmt.Errorf("failed to create profile from preset: %w", err)
-	}
+ if err := s.db.Create(&newProfile).Error; err != nil {
+  return nil, fmt.Errorf("failed to create profile from preset: %w", err)
+ }
 
-	return &newProfile, nil
+ return &newProfile, nil
 }
 ```
 
@@ -177,13 +177,13 @@ Security headers in Charon are **PER-HOST**, not global:
 ```go
 // ProxyHost model
 type ProxyHost struct {
-	// ...
-	SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
-	SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
+ // ...
+ SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
+ SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
 
-	SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
-	SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"`
-	// ...
+ SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
+ SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"`
+ // ...
 }
 ```
 
@@ -200,22 +200,22 @@ type ProxyHost struct {
 
 ```go
 func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
-	if host == nil {
-		return nil, nil
-	}
+ if host == nil {
+  return nil, nil
+ }
 
-	// Use profile if configured
-	var cfg *models.SecurityHeaderProfile
-	if host.SecurityHeaderProfile != nil {
-		cfg = host.SecurityHeaderProfile  // ✅ Profile assigned to host
-	} else if !host.SecurityHeadersEnabled {
-		// No profile and headers disabled - skip
-		return nil, nil
-	} else {
-		// Use default secure headers
-		cfg = getDefaultSecurityHeaderProfile()  // ⚠️ Fallback defaults
-	}
-	// ... builds headers from cfg ...
+ // Use profile if configured
+ var cfg *models.SecurityHeaderProfile
+ if host.SecurityHeaderProfile != nil {
+  cfg = host.SecurityHeaderProfile  // ✅ Profile assigned to host
+ } else if !host.SecurityHeadersEnabled {
+  // No profile and headers disabled - skip
+  return nil, nil
+ } else {
+  // Use default secure headers
+  cfg = getDefaultSecurityHeaderProfile()  // ⚠️ Fallback defaults
+ }
+ // ... builds headers from cfg ...
 }
 ```
 

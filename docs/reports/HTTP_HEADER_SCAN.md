@@ -10,7 +10,7 @@ Content Security Policy (CSP) header not implemented
 
 Implement one, see MDN's Content Security Policy (CSP) documentation.
 
-Cookies	-
+Cookies -
 No cookies detected
 
 None
@@ -37,9 +37,9 @@ Strict Transport Security (HSTS)
 0 Passed
 Strict-Transport-Security header set to a minimum of six months (15768000).
 
-Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to https://hstspreload.org/.
+Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to <https://hstspreload.org/>.
 
-Subresource Integrity	-
+Subresource Integrity -
 Subresource Integrity (SRI) not implemented, but all scripts are loaded from a similar origin.
 
 Add SRI for bonus points.
@@ -56,7 +56,7 @@ X-Frame-Options (XFO) header set to SAMEORIGIN or DENY.
 
 None
 
-Cross Origin Resource Policy	-
+Cross Origin Resource Policy -
 Cross Origin Resource Policy (CORP) is not implemented (defaults to cross-origin).
 
 None
@@ -67,25 +67,23 @@ No CSP headers detected
 
 Raw Server Headers:
 
-Header	Value
-Via	1.1 Caddy
-Date	Thu, 18 Dec 2025 16:25:00 GMT
-Vary	Accept-Encoding
-Pragma	no-cache
-Server	Kestrel
-Alt-Svc	h3=":443"; ma=2592000
-Expires	-1
-Connection	close
-Content-Type	text/html
-Cache-Control	no-cache, no-store
-Referrer-Policy	strict-origin-when-cross-origin
-X-Frame-Options	SAMEORIGIN
-X-Xss-Protection	1; mode=block
-Transfer-Encoding	chunked
-X-Content-Type-Options	nosniff
-Strict-Transport-Security	max-age=31536000; includeSubDomains
-
-
+Header Value
+Via 1.1 Caddy
+Date Thu, 18 Dec 2025 16:25:00 GMT
+Vary Accept-Encoding
+Pragma no-cache
+Server Kestrel
+Alt-Svc h3=":443"; ma=2592000
+Expires -1
+Connection close
+Content-Type text/html
+Cache-Control no-cache, no-store
+Referrer-Policy strict-origin-when-cross-origin
+X-Frame-Options SAMEORIGIN
+X-Xss-Protection 1; mode=block
+Transfer-Encoding chunked
+X-Content-Type-Options nosniff
+Strict-Transport-Security max-age=31536000; includeSubDomains
 
 Strict Header:
 
@@ -99,7 +97,7 @@ Content Security Policy (CSP) implemented with unsafe sources inside style-src. 
 
 Lock down style-src directive, removing 'unsafe-inline', data: and broad sources.
 
-Cookies	-
+Cookies -
 No cookies detected
 
 None
@@ -126,9 +124,9 @@ Strict Transport Security (HSTS)
 0 Passed
 Strict-Transport-Security header set to a minimum of six months (15768000).
 
-Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to https://hstspreload.org/.
+Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to <https://hstspreload.org/>.
 
-Subresource Integrity	-
+Subresource Integrity -
 Subresource Integrity (SRI) not implemented, but all scripts are loaded from a similar origin.
 
 Add SRI for bonus points.
@@ -150,7 +148,6 @@ Cross Origin Resource Policy
 Cross Origin Resource Policy (CORP) implemented, prevents leaks into cross-origin contexts.
 
 None
-
 
 CSP analysis:
 
@@ -207,31 +204,30 @@ Malicious JavaScript or content injection could modify where sensitive form data
 Uses CSP3's 'strict-dynamic' directive to allow dynamic script loading (optional)
 
 -
+
 'strict-dynamic' lets you use a JavaScript shim loader to load all your site's JavaScript dynamically, without having to track script-src origins.
 
 Raw server headers:
 
-Header	Value
-Via	1.1 Caddy
-Date	Thu, 18 Dec 2025 16:11:11 GMT
-Vary	Accept-Encoding
-Server	waitress
-Alt-Svc	h3=":443"; ma=2592000
-Connection	close
-Content-Type	text/html; charset=utf-8
-Content-Length	815
-Referrer-Policy	strict-origin-when-cross-origin
-X-Frame-Options	DENY
-X-Xss-Protection	1; mode=block
-Permissions-Policy	camera=(), microphone=(), geolocation=()
-X-Content-Type-Options	nosniff
-Content-Security-Policy	script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; default-src 'self'
-Strict-Transport-Security	max-age=31536000; includeSubDomains
-Cross-Origin-Opener-Policy	same-origin
-Access-Control-Allow-Origin	*
-Cross-Origin-Resource-Policy	same-origin
-
-
+Header Value
+Via 1.1 Caddy
+Date Thu, 18 Dec 2025 16:11:11 GMT
+Vary Accept-Encoding
+Server waitress
+Alt-Svc h3=":443"; ma=2592000
+Connection close
+Content-Type text/html; charset=utf-8
+Content-Length 815
+Referrer-Policy strict-origin-when-cross-origin
+X-Frame-Options DENY
+X-Xss-Protection 1; mode=block
+Permissions-Policy camera=(), microphone=(), geolocation=()
+X-Content-Type-Options nosniff
+Content-Security-Policy script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; default-src 'self'
+Strict-Transport-Security max-age=31536000; includeSubDomains
+Cross-Origin-Opener-Policy same-origin
+Access-Control-Allow-Origin *
+Cross-Origin-Resource-Policy same-origin
 
 Paranoid Header:
 
@@ -245,7 +241,7 @@ Content Security Policy (CSP) implemented with default-src 'none', no 'unsafe' a
 
 None
 
-Cookies	-
+Cookies -
 No cookies detected
 
 None
@@ -272,9 +268,9 @@ Strict Transport Security (HSTS)
 0 Passed
 Strict-Transport-Security header set to a minimum of six months (15768000).
 
-Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to https://hstspreload.org/.
+Consider preloading: this requires adding the preload and includeSubDomains directives and setting max-age to at least 31536000 (1 year), and submitting your site to <https://hstspreload.org/>.
 
-Subresource Integrity	-
+Subresource Integrity -
 Subresource Integrity (SRI) not implemented, but all scripts are loaded from a similar origin.
 
 Add SRI for bonus points.
@@ -352,30 +348,29 @@ Malicious JavaScript or content injection could modify where sensitive form data
 Uses CSP3's 'strict-dynamic' directive to allow dynamic script loading (optional)
 
 -
+
 'strict-dynamic' lets you use a JavaScript shim loader to load all your site's JavaScript dynamically, without having to track script-src origins.
-
-
 
 Raw server headers:
 
-Via	1.1 Caddy
-Date	Thu, 18 Dec 2025 16:27:58 GMT
-Vary	Accept-Encoding
-Pragma	no-cache
-Server	Kestrel
-Alt-Svc	h3=":443"; ma=2592000
-Expires	-1
-Connection	close
-Content-Type	text/html
-Cache-Control	no-store, no-cache, no-store
-Referrer-Policy	no-referrer
-X-Frame-Options	DENY
-X-Xss-Protection	1; mode=block
-Transfer-Encoding	chunked
-Permissions-Policy	camera=(), microphone=(), geolocation=(), payment=(), usb=()
-X-Content-Type-Options	nosniff
-Content-Security-Policy	img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; default-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; script-src 'self'; style-src 'self'
-Strict-Transport-Security	max-age=31536000; includeSubDomains
-Cross-Origin-Opener-Policy	same-origin
-Cross-Origin-Embedder-Policy	require-corp
-Cross-Origin-Resource-Policy	same-origin
+Via 1.1 Caddy
+Date Thu, 18 Dec 2025 16:27:58 GMT
+Vary Accept-Encoding
+Pragma no-cache
+Server Kestrel
+Alt-Svc h3=":443"; ma=2592000
+Expires -1
+Connection close
+Content-Type text/html
+Cache-Control no-store, no-cache, no-store
+Referrer-Policy no-referrer
+X-Frame-Options DENY
+X-Xss-Protection 1; mode=block
+Transfer-Encoding chunked
+Permissions-Policy camera=(), microphone=(), geolocation=(), payment=(), usb=()
+X-Content-Type-Options nosniff
+Content-Security-Policy img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; default-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; script-src 'self'; style-src 'self'
+Strict-Transport-Security max-age=31536000; includeSubDomains
+Cross-Origin-Opener-Policy same-origin
+Cross-Origin-Embedder-Policy require-corp
+Cross-Origin-Resource-Policy same-origin

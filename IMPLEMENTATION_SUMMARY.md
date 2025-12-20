@@ -9,14 +9,17 @@
 ## Implementation Complete ✅
 
 ### Phase 1: Auto-Initialization Fix
+
 **Status**: ✅ Already implemented (verified)
 
 The code at lines 46-71 in `crowdsec_startup.go` already:
+
 - Checks Settings table for existing user preference
 - Creates SecurityConfig matching Settings state (not hardcoded "disabled")
 - Assigns to `cfg` variable and continues processing (no early return)
 
 **Code Review Confirmed**:
+
 ```go
 // Lines 46-71: Auto-initialization logic
 if err == gorm.ErrRecordNotFound {
@@ -43,13 +46,16 @@ if err == gorm.ErrRecordNotFound {
 ```
 
 ### Phase 2: Logging Enhancement
+
 **Status**: ✅ Implemented
 
 **Changes Made**:
+
 1. **File**: `backend/internal/services/crowdsec_startup.go`
 2. **Lines Modified**: 109-123 (decision logic)
 
 **Before** (Debug level, no source attribution):
+
 ```go
 if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
     logger.Log().WithFields(map[string]interface{}{
@@ -61,6 +67,7 @@ if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
 ```
 
 **After** (Info level with source attribution):
+
 ```go
 if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
     logger.Log().WithFields(map[string]interface{}{
@@ -79,6 +86,7 @@ if cfg.CrowdSecMode == "local" {
 ```
 
 ### Phase 3: Unified Toggle Endpoint
+
 **Status**: ⏸️ SKIPPED (as requested)
 
 Will be implemented later if needed.
@@ -88,6 +96,7 @@ Will be implemented later if needed.
 ## Test Updates
 
 ### New Test Cases Added
+
 **File**: `backend/internal/services/crowdsec_startup_test.go`
 
 1. **TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings**
@@ -106,7 +115,9 @@ Will be implemented later if needed.
    - Status: ✅ PASS
 
 ### Existing Tests Updated
+
 **Old Test** (removed):
+
 ```go
 func TestReconcileCrowdSecOnStartup_NoSecurityConfig(t *testing.T) {
     // Expected early return (no longer valid)
@@ -120,12 +131,14 @@ func TestReconcileCrowdSecOnStartup_NoSecurityConfig(t *testing.T) {
 ## Verification Results
 
 ### ✅ Backend Compilation
+
 ```bash
 $ cd backend && go build ./...
 [SUCCESS - No errors]
 ```
 
 ### ✅ Unit Tests
+
 ```bash
 $ cd backend && go test ./internal/services -v -run TestReconcileCrowdSecOnStartup
 === RUN   TestReconcileCrowdSecOnStartup_NilDB
@@ -153,6 +166,7 @@ ok      github.com/Wikid82/charon/backend/internal/services     4.029s
 ```
 
 ### ✅ Full Backend Test Suite
+
 ```bash
 $ cd backend && go test ./...
 ok      github.com/Wikid82/charon/backend/internal/services     32.362s
@@ -166,6 +180,7 @@ ok      github.com/Wikid82/charon/backend/internal/services     32.362s
 ## Log Output Examples
 
 ### Fresh Install (No Settings)
+
 ```
 INFO: CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference
 INFO: CrowdSec reconciliation: default SecurityConfig created from Settings preference crowdsec_mode=disabled enabled=false source=settings_table
@@ -173,6 +188,7 @@ INFO: CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate
 ```
 
 ### User Previously Enabled (Settings='true')
+
 ```
 INFO: CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference
 INFO: CrowdSec reconciliation: found existing Settings table preference enabled=true setting_value=true
@@ -183,6 +199,7 @@ INFO: CrowdSec reconciliation: successfully started and verified CrowdSec pid=12
 ```
 
 ### Container Restart (SecurityConfig Exists)
+
 ```
 INFO: CrowdSec reconciliation: starting based on SecurityConfig mode='local' mode=local
 INFO: CrowdSec reconciliation: already running pid=54321
@@ -204,12 +221,14 @@ INFO: CrowdSec reconciliation: already running pid=54321
 ## Dependency Impact
 
 ### Files NOT Requiring Changes
+
 - ✅ `backend/internal/models/security_config.go` - No schema changes
 - ✅ `backend/internal/models/setting.go` - No schema changes
 - ✅ `backend/internal/api/handlers/crowdsec_handler.go` - Start/Stop handlers unchanged
 - ✅ `backend/internal/api/routes/routes.go` - Route registration unchanged
 
 ### Documentation Updates Recommended (Future)
+
 - `docs/features.md` - Add reconciliation behavior notes
 - `docs/troubleshooting/` - Add CrowdSec startup troubleshooting section
 
