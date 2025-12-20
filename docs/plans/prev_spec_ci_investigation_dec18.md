@@ -64,9 +64,9 @@ Compose a focused, minimum-touch investigation to locate why the referenced GitH
 ### Phase 4 — Fix design (1 request)
 
 - Add deterministic timeouts per risky step:
- 	- `docker/build-push-action` already inherits the job timeout (30m); consider adding `build-args`-side timeouts via `--progress=plain` plus `BUILDKIT_STEP_LOG_MAX_SIZE` to avoid log-buffer stalls.
- 	- For `Verify Caddy Security Patches`, add an explicit `timeout-minutes: 5` or wrap commands with `timeout 300s` to prevent indefinite waits when registry pulls are slow.
- 	- For `trivy-pr-app-only`, pin the action version and add `timeout 300s` around `docker build` to surface network hangs.
+  - `docker/build-push-action` already inherits the job timeout (30m); consider adding `build-args`-side timeouts via `--progress=plain` plus `BUILDKIT_STEP_LOG_MAX_SIZE` to avoid log-buffer stalls.
+  - For `Verify Caddy Security Patches`, add an explicit `timeout-minutes: 5` or wrap commands with `timeout 300s` to prevent indefinite waits when registry pulls are slow.
+  - For `trivy-pr-app-only`, pin the action version and add `timeout 300s` around `docker build` to surface network hangs.
 - If the log shows tests hanging, instrument `scripts/go-test-coverage.sh` and `scripts/frontend-test-coverage.sh` with `set -x`, `CI=1`, and `timeout` wrappers around `go test` / `npm run test -- --runInBand --maxWorkers=2` to avoid runner saturation.
 
 ### Phase 5 — Hardening and guardrails (1–2 requests)

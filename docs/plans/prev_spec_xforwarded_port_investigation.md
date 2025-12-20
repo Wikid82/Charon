@@ -18,6 +18,7 @@
 4. **Config Snapshot**: Dated **Dec 19 13:57**, but proxy host was updated at **Dec 19 20:58** ❌
 
 **Root Cause**: The Caddy configuration was **NOT regenerated** after the proxy host update. `ApplyConfig()` either:
+
 - Was not called after the database update, OR
 - Was called but failed silently without rolling back the database change, OR
 - Succeeded but the generated config didn't include the header due to a logic bug
@@ -29,6 +30,7 @@ This is a **critical disconnect** between the database state and the running Cad
 ## Evidence Analysis
 
 ### 1. Database State (Current)
+
 ```sql
 SELECT id, name, domain_names, application, websocket_support, enable_standard_headers, updated_at
 FROM proxy_hosts WHERE domain_names LIKE '%seerr%';
@@ -38,17 +40,20 @@ FROM proxy_hosts WHERE domain_names LIKE '%seerr%';
 ```
 
 **Analysis:**
+
 - ✅ `enable_standard_headers = 1` (TRUE)
 - ✅ `websocket_support = 1` (TRUE)
 - ✅ `application = "none"` (no app-specific overrides)
 - ⏰ Last updated: **Dec 19, 2025 at 20:58:31** (8:58 PM)
 
 ### 2. Live Caddy Config (Retrieved via API)
+
 ```bash
 curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.routes[] | select(.match[].host[] | contains("seerr"))'
 ```
 
 **Headers Present in Reverse Proxy:**
+
 ```json
 {
   "Connection": ["{http.request.header.Connection}"],
@@ -60,15 +65,18 @@ curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.rou
 ```
 
 **Missing Headers:**
+
 - ❌ `X-Forwarded-Port` - **COMPLETELY ABSENT**
 
 **Analysis:**
+
 - This is NOT a complete "standard headers disabled" situation
 - 3 out of 4 standard headers ARE present (X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host)
 - Only `X-Forwarded-Port` is missing
 - WebSocket headers (Connection, Upgrade) are present as expected
 
 ### 3. Config Snapshot File Analysis
+
 ```bash
 ls -lt /app/data/caddy/
 
@@ -82,7 +90,9 @@ ls -lt /app/data/caddy/
 **Time Gap:** **7 hours and 1 minute** between the last config generation and the proxy host update.
 
 ### 4. Caddy Access Logs (Real Requests)
+
 From logs at `2025-12-19 21:26:01`:
+
 ```json
 "headers": {
   "Via": ["2.0 Caddy"],
@@ -104,11 +114,13 @@ From logs at `2025-12-19 21:26:01`:
 ### Issue 1: Config Regeneration Did Not Occur After Update
 
 **Timeline Evidence:**
+
 1. Proxy host updated in database: `2025-12-19 20:58:31`
 2. Most recent Caddy config snapshot: `2025-12-19 13:57:00`
 3. **Gap:** 7 hours and 1 minute
 
 **Code Path Review** (proxy_host_handler.go Update method):
+
 ```go
 // Line 375: Database update succeeds
 if err := h.service.Update(host); err != nil {
@@ -130,6 +142,7 @@ if h.caddyManager != nil {
 **Actual Behavior:** The config snapshot timestamp shows no regeneration occurred.
 
 **Possible Causes:**
+
 1. `h.caddyManager` was `nil` (unlikely - other hosts work)
 2. `ApplyConfig()` was called but returned an error that was NOT propagated to the UI
 3. `ApplyConfig()` succeeded but didn't write a new snapshot (logic bug in snapshot rotation)
@@ -138,6 +151,7 @@ if h.caddyManager != nil {
 ### Issue 2: Partial Standard Headers in Live Config
 
 **Expected Behavior** (from types.go lines 144-153):
+
 ```go
 if enableStandardHeaders {
     setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
@@ -148,6 +162,7 @@ if enableStandardHeaders {
 ```
 
 **Actual Behavior in Live Caddy Config:**
+
 - X-Real-IP: ✅ Present
 - X-Forwarded-Proto: ✅ Present
 - X-Forwarded-Host: ✅ Present
@@ -155,6 +170,7 @@ if enableStandardHeaders {
 
 **Analysis:**
 The presence of 3 out of 4 headers indicates that:
+
 1. The running config was generated when `enableStandardHeaders` was at least partially true, OR
 2. There's an **older version of the code** that only added 3 headers, OR
 3. The WebSocket + Application logic is interfering with the 4th header
@@ -253,6 +269,7 @@ This is **correct** - the logic properly defaults to `true` when `nil`. The issu
 ## Cookie and Authorization Headers - NOT THE ISSUE
 
 Caddy's `reverse_proxy` directive **preserves all headers by default**, including:
+
 - `Cookie`
 - `Authorization`
 - `Accept`
@@ -296,6 +313,7 @@ This will add the required headers to the Seerr route.
 ### Permanent Fix (Code Change - ALREADY IMPLEMENTED)
 
 The handler fix for the three missing fields was implemented. The fields are now handled in the Update handler:
+
 - `enable_standard_headers` - nullable bool handler added
 - `forward_auth_enabled` - regular bool handler added
 - `waf_disabled` - regular bool handler added
@@ -349,29 +367,35 @@ for route in routes:
 **The root cause is a STALE CONFIGURATION caused by a failed or skipped `ApplyConfig()` call.**
 
 **Evidence:**
+
 - Database: `enable_standard_headers = 1`, `updated_at = 2025-12-19 20:58:31` ✅
 - UI: "Standard Proxy Headers" checkbox is ENABLED ✅
 - Config Snapshot: Last generated at `2025-12-19 13:57` (7+ hours before the DB update) ❌
 - Live Caddy Config: Missing `X-Forwarded-Port` header ❌
 
 **What Happened:**
+
 1. User enabled "Standard Proxy Headers" for Seerr on Dec 19 at 20:58
 2. Database UPDATE succeeded
 3. `ApplyConfig()` either failed silently or was never called
 4. The running config is from an older snapshot that predates the update
 
 **Immediate Action:**
+
 ```bash
 docker restart charon
 ```
+
 This will force a complete config regeneration from the current database state.
 
 **Long-term Fixes Needed:**
+
 1. Wrap database updates in transactions that rollback on `ApplyConfig()` failure
 2. Add enhanced logging to track config generation success/failure
 3. Implement config staleness detection in health checks
 4. Verify why the older config is missing `X-Forwarded-Port` (possible code version issue)
 
 **Alternative Immediate Fix (No Restart):**
+
 - Make a trivial change to any proxy host in the UI and save
 - This triggers `ApplyConfig()` and regenerates all configs

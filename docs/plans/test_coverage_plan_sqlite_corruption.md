@@ -653,7 +653,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 
 ### Phase 2: Error Path Coverage (Target: +8% coverage)
 
-5. **Test 7**: GetLastBackupTime_ListBackupsError
+1. **Test 7**: GetLastBackupTime_ListBackupsError
 2. **Test 20**: DBHealthHandler_Check_BackupServiceError
 3. **Test 14**: Connect_PRAGMAJournalModeError
 4. **Test 15**: Connect_IntegrityCheckError
@@ -662,7 +662,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 
 ### Phase 3: Edge Cases (Target: +5% coverage)
 
-9. **Test 5**: RunScheduledBackup_CleanupDeletesZero
+1. **Test 5**: RunScheduledBackup_CleanupDeletesZero
 2. **Test 21**: DBHealthHandler_Check_BackupTimeZero
 3. **Test 6**: CleanupOldBackups_PartialFailure
 4. **Test 8**: CreateBackup_CaddyDirMissing
@@ -671,7 +671,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 
 ### Phase 4: Constructor & Initialization (Target: +2% coverage)
 
-13. **Test 1**: NewBackupService_BackupDirCreationError
+1. **Test 1**: NewBackupService_BackupDirCreationError
 2. **Test 2**: NewBackupService_CronScheduleError
 3. **Test 17**: Connect_PRAGMAVerification
 
@@ -679,7 +679,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 
 ### Phase 5: Deep Coverage (Final +3%)
 
-16. **Test 10**: addToZip_FileNotFound
+1. **Test 10**: addToZip_FileNotFound
 2. **Test 11**: addToZip_FileOpenError
 3. **Test 9**: CreateBackup_CaddyDirUnreadable
 4. **Test 22**: LogCorruptionError_EmptyContext

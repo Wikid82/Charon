@@ -84,11 +84,7 @@ func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 	// Verify X-Forwarded-For is NOT explicitly set (Caddy handles it natively)
 	require.NotContains(t, set, "X-Forwarded-For", "X-Forwarded-For should NOT be explicitly set (Caddy handles natively)")
 
-	// Verify trusted_proxies is configured
-	trustedProxies, ok := h["trusted_proxies"].(map[string]interface{})
-	require.True(t, ok, "expected trusted_proxies configuration")
-	require.Equal(t, "static", trustedProxies["source"])
-	require.Equal(t, []string{"private_ranges"}, trustedProxies["ranges"])
+	// Note: trusted_proxies is configured at server level in config.go, not at handler level
 
 	// Total: 6 headers (4 standard + 2 WebSocket, X-Forwarded-For handled by Caddy)
 	require.Equal(t, 6, len(set), "expected exactly 6 headers (4 standard + 2 WebSocket)")
@@ -130,10 +126,7 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 	require.NotContains(t, set, "Upgrade")
 	require.NotContains(t, set, "Connection")
 
-	// Verify trusted_proxies configuration present
-	trustedProxies, ok := h["trusted_proxies"].(map[string]interface{})
-	require.True(t, ok, "expected trusted_proxies configuration")
-	require.Equal(t, "static", trustedProxies["source"])
+	// Note: trusted_proxies is configured at server level in config.go, not at handler level
 
 	// Total: 4 standard headers
 	require.Equal(t, 4, len(set), "expected exactly 4 standard proxy headers")
@@ -253,30 +246,27 @@ func TestReverseProxyHandler_XForwardedForNotDuplicated(t *testing.T) {
 	require.NotContains(t, set3, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set even with Plex")
 }
 
-// TestReverseProxyHandler_TrustedProxiesConfiguration tests trusted_proxies security configuration
+// TestReverseProxyHandler_TrustedProxiesConfiguration tests that trusted_proxies is NOT set at handler level
+// Note: trusted_proxies is configured at server level in config.go (lines 295-306) which provides
+// the same security protection globally. Handler-level trusted_proxies caused Caddy config errors.
 func TestReverseProxyHandler_TrustedProxiesConfiguration(t *testing.T) {
-	// Test: trusted_proxies present when standard headers enabled
+	// Test: trusted_proxies should NOT be present at handler level (configured at server level instead)
 	h := ReverseProxyHandler("app:8080", false, "none", true)
-	trustedProxies, ok := h["trusted_proxies"].(map[string]interface{})
-	require.True(t, ok, "expected trusted_proxies when standard headers enabled")
+	_, ok := h["trusted_proxies"]
+	require.False(t, ok, "trusted_proxies should NOT be set at handler level (server-level config provides protection)")
 
-	require.Equal(t, "static", trustedProxies["source"])
-	require.Equal(t, []string{"private_ranges"}, trustedProxies["ranges"])
-
-	// Test: trusted_proxies present with WebSocket
+	// Test: trusted_proxies NOT present with WebSocket
 	h2 := ReverseProxyHandler("app:8080", true, "none", true)
-	trustedProxies2, ok := h2["trusted_proxies"].(map[string]interface{})
-	require.True(t, ok, "expected trusted_proxies with WebSocket")
-	require.Equal(t, "static", trustedProxies2["source"])
+	_, ok = h2["trusted_proxies"]
+	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 
-	// Test: trusted_proxies present with application
+	// Test: trusted_proxies NOT present with application
 	h3 := ReverseProxyHandler("app:32400", false, "plex", true)
-	trustedProxies3, ok := h3["trusted_proxies"].(map[string]interface{})
-	require.True(t, ok, "expected trusted_proxies with Plex")
-	require.Equal(t, "static", trustedProxies3["source"])
+	_, ok = h3["trusted_proxies"]
+	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 
-	// Test: NO trusted_proxies when standard headers disabled and no WebSocket/application
+	// Test: trusted_proxies NOT present when standard headers disabled
 	h4 := ReverseProxyHandler("app:8080", false, "none", false)
 	_, ok = h4["trusted_proxies"]
-	require.False(t, ok, "expected no trusted_proxies when no headers are set")
+	require.False(t, ok, "trusted_proxies should NOT be set at handler level")
 }
