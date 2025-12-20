@@ -223,6 +223,11 @@ Your backend application must be configured to trust proxy headers. Most framewo
 5. Check **"Apply to selected hosts"** for this setting
 6. Click **"Apply Changes"**
 
+**Bulk Apply also supports:**
+- Applying or removing security header profiles across multiple hosts
+- Enabling/disabling Forward Auth, WAF, or Access Lists in bulk
+- Updating SSL certificate assignments for multiple hosts at once
+
 **Info Banner:**
 Existing hosts without standard headers show an info banner explaining the feature and providing a quick-enable button.
 
@@ -1071,13 +1076,22 @@ Without these headers, browsers operate in "permissive mode" that prioritizes co
 3. Select a preset (Basic, Strict, or Paranoid)
 4. Save the host — Caddy applies the headers immediately
 
-**Option 2: Clone and customize**
+**Option 2: Bulk apply to multiple hosts**
+
+1. Go to **Proxy Hosts**
+2. Select checkboxes for the hosts you want to update
+3. Click **"Bulk Apply"** at the top
+4. In the **"Security Headers"** section, select a profile
+5. Check **"Apply to selected hosts"** for this setting
+6. Click **"Apply Changes"** — all selected hosts receive the profile
+
+**Option 3: Clone and customize**
 
 1. Go to **Security → HTTP Headers**
 2. Find the preset you want (e.g., "Strict")
 3. Click **"Clone"**
 4. Customize the copied profile
-5. Assign your custom profile to proxy hosts
+5. Assign your custom profile to proxy hosts (individually or via bulk apply)
 
 ### Reusable Header Profiles
 

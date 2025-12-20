@@ -42,7 +42,8 @@
     "validCount": "{{count}} 个有效",
     "activeCount": "{{count}} 个活动",
     "noHistoryAvailable": "无可用历史",
-    "autoRefreshing": "每 {{seconds}} 秒自动刷新"
+    "autoRefreshing": "每 {{seconds}} 秒自动刷新",
+    "score": "评分"
   },
   "navigation": {
     "dashboard": "仪表板",
@@ -165,7 +166,11 @@
     "blockExploits": "阻止漏洞利用",
     "websocketSupport": "WebSocket支持",
     "apply": "应用",
-    "applyCount": "应用 ({{count}})"
+    "applyCount": "应用 ({{count}})",
+    "bulkApplySecurityHeaders": "安全标头配置文件",
+    "bulkApplySecurityHeadersHelp": "将安全标头配置文件应用于所有选定的主机",
+    "noSecurityProfile": "无（移除配置文件）",
+    "removeSecurityHeadersWarning": "这将从所有选定的主机中移除安全标头配置文件，可能降低其安全态势。"
   },
   "certificates": {
     "title": "SSL证书",
@@ -222,7 +227,8 @@
     "saveFailed": "保存更改失败",
     "deleteFailed": "删除失败",
     "createFailed": "创建失败",
-    "updateFailed": "更新失败"
+    "updateFailed": "更新失败",
+    "partialFailed": "完成，有 {{count}} 个错误"
   },
   "security": {
     "title": "安全",

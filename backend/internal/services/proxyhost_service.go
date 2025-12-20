@@ -148,3 +148,8 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 
 	return nil
 }
+
+// DB returns the underlying database instance for advanced operations.
+func (s *ProxyHostService) DB() *gorm.DB {
+	return s.db
+}

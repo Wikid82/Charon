@@ -42,7 +42,8 @@
     "validCount": "{{count}} gültig",
     "activeCount": "{{count}} aktiv",
     "noHistoryAvailable": "Kein Verlauf verfügbar",
-    "autoRefreshing": "Automatische Aktualisierung alle {{seconds}}s"
+    "autoRefreshing": "Automatische Aktualisierung alle {{seconds}}s",
+    "score": "Bewertung"
   },
   "navigation": {
     "dashboard": "Dashboard",
@@ -165,7 +166,11 @@
     "blockExploits": "Exploits blockieren",
     "websocketSupport": "WebSocket-Unterstützung",
     "apply": "Anwenden",
-    "applyCount": "Anwenden ({{count}})"
+    "applyCount": "Anwenden ({{count}})",
+    "bulkApplySecurityHeaders": "Sicherheitsheader-Profil",
+    "bulkApplySecurityHeadersHelp": "Ein Sicherheitsheader-Profil auf alle ausgewählten Hosts anwenden",
+    "noSecurityProfile": "Keine (Profil entfernen)",
+    "removeSecurityHeadersWarning": "Dies entfernt das Sicherheitsheader-Profil von allen ausgewählten Hosts und kann deren Sicherheitslage verringern."
   },
   "certificates": {
     "title": "SSL-Zertifikate",
@@ -222,7 +227,8 @@
     "saveFailed": "Fehler beim Speichern der Änderungen",
     "deleteFailed": "Fehler beim Löschen",
     "createFailed": "Fehler beim Erstellen",
-    "updateFailed": "Fehler beim Aktualisieren"
+    "updateFailed": "Fehler beim Aktualisieren",
+    "partialFailed": "Abgeschlossen mit {{count}} Fehler(n)"
   },
   "security": {
     "title": "Sicherheit",

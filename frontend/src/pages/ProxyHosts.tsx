@@ -6,6 +6,7 @@ import { useProxyHosts } from '../hooks/useProxyHosts'
 import { getMonitors, type UptimeMonitor } from '../api/uptime'
 import { useCertificates } from '../hooks/useCertificates'
 import { useAccessLists } from '../hooks/useAccessLists'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { getSettings } from '../api/settings'
 import { createBackup } from '../api/backups'
 import { deleteCertificate } from '../api/certificates'
@@ -38,9 +39,10 @@ import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDi
 
 export default function ProxyHosts() {
   const { t } = useTranslation()
-  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
+  const { hosts, loading, isFetching, error, createHost, updateHost, deleteHost, bulkUpdateACL, bulkUpdateSecurityHeaders, isBulkUpdating, isCreating, isUpdating, isDeleting } = useProxyHosts()
   const { certificates } = useCertificates()
   const { data: accessLists } = useAccessLists()
+  const { data: securityProfiles } = useSecurityHeaderProfiles()
   const [showForm, setShowForm] = useState(false)
   const [editingHost, setEditingHost] = useState<ProxyHost | undefined>()
   const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set())
@@ -67,6 +69,10 @@ export default function ProxyHosts() {
     websocket_support: { apply: false, value: true },
     enable_standard_headers: { apply: false, value: true },
   })
+  const [bulkSecurityHeaderProfile, setBulkSecurityHeaderProfile] = useState<{
+    apply: boolean;
+    profileId: number | null;
+  }>({ apply: false, profileId: null })
   const [hostToDelete, setHostToDelete] = useState<ProxyHost | null>(null)
 
   const { data: settings } = useQuery({
@@ -658,7 +664,13 @@ export default function ProxyHosts() {
         </Dialog>
 
         {/* Bulk Apply Settings Dialog */}
-        <Dialog open={showBulkApplyModal} onOpenChange={setShowBulkApplyModal}>
+        <Dialog open={showBulkApplyModal} onOpenChange={(open) => {
+          setShowBulkApplyModal(open)
+          if (!open) {
+            setBulkSecurityHeaderProfile({ apply: false, profileId: null })
+            setApplyProgress(null)
+          }
+        }}>
           <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>{t('proxyHosts.bulkApplyTitle')}</DialogTitle>
@@ -694,6 +706,83 @@ export default function ProxyHosts() {
                   />
                 </div>
               ))}
+
+              {/* Security Header Profile Section */}
+              <div className="border-t border-border pt-3 mt-3">
+                <div className="flex items-center justify-between gap-3 p-3 bg-surface-subtle rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={bulkSecurityHeaderProfile.apply}
+                      onCheckedChange={(checked) => setBulkSecurityHeaderProfile(prev => ({
+                        ...prev,
+                        apply: !!checked
+                      }))}
+                    />
+                    <div>
+                      <div className="text-sm font-medium text-content-primary">
+                        {t('proxyHosts.bulkApplySecurityHeaders')}
+                      </div>
+                      <div className="text-xs text-content-muted">
+                        {t('proxyHosts.bulkApplySecurityHeadersHelp')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {bulkSecurityHeaderProfile.apply && (
+                  <div className="mt-3 p-3 bg-surface-subtle rounded-lg space-y-3">
+                    <select
+                      value={bulkSecurityHeaderProfile.profileId ?? 0}
+                      onChange={(e) => setBulkSecurityHeaderProfile(prev => ({
+                        ...prev,
+                        profileId: e.target.value === "0" ? null : parseInt(e.target.value)
+                      }))}
+                      className="w-full bg-surface-muted border border-border rounded-lg px-4 py-2 text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                      <option value={0}>{t('proxyHosts.noSecurityProfile')}</option>
+                      {securityProfiles && securityProfiles.filter(p => p.is_preset).length > 0 && (
+                        <optgroup label={t('securityHeaders.systemProfiles')}>
+                          {securityProfiles
+                            .filter(p => p.is_preset)
+                            .sort((a, b) => a.security_score - b.security_score)
+                            .map(profile => (
+                              <option key={profile.id} value={profile.id}>
+                                {profile.name} ({t('common.score')}: {profile.security_score}/100)
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {securityProfiles && securityProfiles.filter(p => !p.is_preset).length > 0 && (
+                        <optgroup label={t('securityHeaders.customProfiles')}>
+                          {securityProfiles
+                            .filter(p => !p.is_preset)
+                            .map(profile => (
+                              <option key={profile.id} value={profile.id}>
+                                {profile.name} ({t('common.score')}: {profile.security_score}/100)
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </select>
+
+                    {bulkSecurityHeaderProfile.profileId === null && (
+                      <Alert variant="warning">
+                        {t('proxyHosts.removeSecurityHeadersWarning')}
+                      </Alert>
+                    )}
+
+                    {bulkSecurityHeaderProfile.profileId && (() => {
+                      const selected = securityProfiles?.find(p => p.id === bulkSecurityHeaderProfile.profileId)
+                      if (!selected) return null
+                      return (
+                        <div className="text-xs text-content-muted">
+                          {selected.description}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
 
             {applyProgress && (
@@ -716,7 +805,11 @@ export default function ProxyHosts() {
             <DialogFooter>
               <Button
                 variant="ghost"
-                onClick={() => setShowBulkApplyModal(false)}
+                onClick={() => {
+                  setShowBulkApplyModal(false)
+                  setBulkSecurityHeaderProfile({ apply: false, profileId: null })
+                  setApplyProgress(null)
+                }}
                 disabled={applyProgress !== null}
               >
                 {t('common.cancel')}
@@ -724,28 +817,54 @@ export default function ProxyHosts() {
               <Button
                 onClick={async () => {
                   const keysToApply = Object.keys(bulkApplySettings).filter(k => bulkApplySettings[k].apply)
-                  if (keysToApply.length === 0) return
-
                   const hostUUIDs = Array.from(selectedHosts)
-                  const result = await applyBulkSettingsToHosts({
-                    hosts,
-                    hostUUIDs,
-                    keysToApply,
-                    bulkApplySettings,
-                    updateHost,
-                    setApplyProgress
-                  })
+                  let totalErrors = 0
 
-                  if (result.errors > 0) {
+                  // Apply boolean settings
+                  if (keysToApply.length > 0) {
+                    const result = await applyBulkSettingsToHosts({
+                      hosts,
+                      hostUUIDs,
+                      keysToApply,
+                      bulkApplySettings,
+                      updateHost,
+                      setApplyProgress
+                    })
+                    totalErrors += result.errors
+                  }
+
+                  // Apply security header profile if selected
+                  if (bulkSecurityHeaderProfile.apply) {
+                    try {
+                      const result = await bulkUpdateSecurityHeaders(
+                        hostUUIDs,
+                        bulkSecurityHeaderProfile.profileId
+                      )
+                      totalErrors += result.errors.length
+                    } catch {
+                      totalErrors += hostUUIDs.length
+                    }
+                  }
+
+                  setApplyProgress(null)
+
+                  // Show appropriate toast based on results
+                  if (totalErrors > 0 && totalErrors < hostUUIDs.length) {
+                    toast.error(t('notifications.partialFailed', { count: totalErrors }))
+                  } else if (totalErrors >= hostUUIDs.length) {
                     toast.error(t('notifications.updateFailed'))
-                  } else {
+                  } else if (keysToApply.length > 0 || bulkSecurityHeaderProfile.apply) {
                     toast.success(t('notifications.updateSuccess'))
                   }
 
                   setSelectedHosts(new Set())
                   setShowBulkApplyModal(false)
+                  setBulkSecurityHeaderProfile({ apply: false, profileId: null })
                 }}
-                disabled={applyProgress !== null || Object.values(bulkApplySettings).every(s => !s.apply)}
+                disabled={
+                  applyProgress !== null ||
+                  (Object.values(bulkApplySettings).every(s => !s.apply) && !bulkSecurityHeaderProfile.apply)
+                }
                 isLoading={applyProgress !== null}
               >
                 {t('proxyHosts.apply')}

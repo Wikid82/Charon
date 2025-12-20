@@ -42,7 +42,8 @@
     "validCount": "{{count}} valide",
     "activeCount": "{{count}} actif",
     "noHistoryAvailable": "Aucun historique disponible",
-    "autoRefreshing": "Actualisation automatique toutes les {{seconds}}s"
+    "autoRefreshing": "Actualisation automatique toutes les {{seconds}}s",
+    "score": "Score"
   },
   "navigation": {
     "dashboard": "Tableau de bord",
@@ -165,7 +166,11 @@
     "blockExploits": "Bloquer Exploits",
     "websocketSupport": "Support WebSocket",
     "apply": "Appliquer",
-    "applyCount": "Appliquer ({{count}})"
+    "applyCount": "Appliquer ({{count}})",
+    "bulkApplySecurityHeaders": "Profil d'En-têtes de Sécurité",
+    "bulkApplySecurityHeadersHelp": "Appliquer un profil d'en-têtes de sécurité à tous les hôtes sélectionnés",
+    "noSecurityProfile": "Aucun (Supprimer le Profil)",
+    "removeSecurityHeadersWarning": "Cela supprimera le profil d'en-têtes de sécurité de tous les hôtes sélectionnés, ce qui pourrait réduire leur posture de sécurité."
   },
   "certificates": {
     "title": "Certificats SSL",
@@ -222,7 +227,8 @@
     "saveFailed": "Échec de l'enregistrement des modifications",
     "deleteFailed": "Échec de la suppression",
     "createFailed": "Échec de la création",
-    "updateFailed": "Échec de la mise à jour"
+    "updateFailed": "Échec de la mise à jour",
+    "partialFailed": "Terminé avec {{count}} erreur(s)"
   },
   "security": {
     "title": "Sécurité",
