@@ -11,7 +11,7 @@
 
 #### Components
 
-3. **frontend/src/components/SecurityScoreDisplay.tsx** - Visual security score with breakdown
+1. **frontend/src/components/SecurityScoreDisplay.tsx** - Visual security score with breakdown
 2. **frontend/src/components/CSPBuilder.tsx** - Interactive CSP directive builder
 3. **frontend/src/components/PermissionsPolicyBuilder.tsx** - Permissions policy builder (23 features)
 4. **frontend/src/components/SecurityHeaderProfileForm.tsx** - Complete form for profile CRUD
@@ -19,11 +19,11 @@
 
 #### Pages
 
-8. **frontend/src/pages/SecurityHeaders.tsx** - Main page with presets, profiles, CRUD operations
+1. **frontend/src/pages/SecurityHeaders.tsx** - Main page with presets, profiles, CRUD operations
 
 #### Tests
 
-9. **frontend/src/hooks/**tests**/useSecurityHeaders.test.tsx** - ✅ 15/15 passing
+1. **frontend/src/hooks/**tests**/useSecurityHeaders.test.tsx** - ✅ 15/15 passing
 2. **frontend/src/components/**tests**/SecurityScoreDisplay.test.tsx** - ✅ All passing
 3. **frontend/src/components/**tests**/CSPBuilder.test.tsx** - ⚠️  6 failures (selector issues)
 4. **frontend/src/components/**tests**/SecurityHeaderProfileForm.test.tsx** - ⚠️  3 failures

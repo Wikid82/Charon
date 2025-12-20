@@ -29,7 +29,7 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 #### Local Hooks - Active (run on every commit)
 
-5. **dockerfile-check** - Fast (only on Dockerfile changes)
+1. **dockerfile-check** - Fast (only on Dockerfile changes)
 2. **go-test-coverage** - **⚠️ CULPRIT - HANGS INDEFINITELY**
 3. **go-vet** - Moderate (~1-2 seconds)
 4. **check-version-match** - Fast (only on .version changes)
@@ -41,7 +41,7 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 #### Local Hooks - Manual Stage (only run explicitly)
 
-14. **go-test-race** - Manual only
+1. **go-test-race** - Manual only
 2. **golangci-lint** - Manual only
 3. **hadolint** - Manual only
 4. **frontend-test-coverage** - Manual only
@@ -49,7 +49,7 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 #### Third-party Hooks - Manual Stage
 
-19. **markdownlint** - Manual only
+1. **markdownlint** - Manual only
 
 ---
 

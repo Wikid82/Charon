@@ -1432,6 +1432,7 @@ Cache-Control: no-cache, no-store, must-revalidate, private
 - Strict CSP (`default-src 'none'`)
 - All cross-origin headers set to `same-origin`
 - No unsafe directives
+
 1. Save
 2. Test API endpoints (should work—APIs don't need CSP for HTML)
 3. Assign to API proxy host

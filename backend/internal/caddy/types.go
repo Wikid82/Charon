@@ -188,15 +188,6 @@ func ReverseProxyHandler(dial string, enableWS bool, application string, enableS
 		}
 	}
 
-	// STEP 4: Always configure trusted_proxies for security when headers are set
-	// This prevents IP spoofing attacks by only trusting headers from known proxy sources
-	if len(setHeaders) > 0 {
-		h["trusted_proxies"] = map[string]interface{}{
-			"source": "static",
-			"ranges": []string{"private_ranges"}, // RFC 1918 + loopback
-		}
-	}
-
 	// Only add headers config if we have headers to set
 	if len(setHeaders) > 0 {
 		requestHeaders["set"] = setHeaders

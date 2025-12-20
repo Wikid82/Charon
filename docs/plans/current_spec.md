@@ -3,10 +3,12 @@
 ## Summary
 
 **Root Cause Identified:** The 500 error is caused by an invalid Caddy configuration structure where `trusted_proxies` is set as an **object** at the **handler level** (within `reverse_proxy`), but Caddy's `http.handlers.reverse_proxy` expects it to be either:
+
 1. An **array of strings** at the handler level, OR
 2. An **object** only at the **server level**
 
 The error from Caddy logs:
+
 ```
 json: cannot unmarshal object into Go struct field Handler.trusted_proxies of type []string
 ```
@@ -350,6 +352,7 @@ if len(setHeaders) > 0 {
 **File:** `backend/internal/caddy/types_extra_test.go`
 
 Update tests that expect the object structure:
+
 - L87-93: `TestReverseProxyHandler_StandardHeadersEnabled`
 - L133-139: `TestReverseProxyHandler_WebSocketWithApplication`
 - L256-279: `TestReverseProxyHandler_TrustedProxiesConfiguration`
@@ -361,12 +364,14 @@ Update tests that expect the object structure:
 After applying the fix:
 
 1. **Rebuild container:**
+
    ```bash
    docker build --no-cache -t charon:local .
    docker compose -f docker-compose.override.yml up -d
    ```
 
 2. **Check logs for successful config application:**
+
    ```bash
    docker logs charon 2>&1 | grep -i "caddy config"
    # Should see: "Successfully applied initial Caddy config"
@@ -379,6 +384,7 @@ After applying the fix:
    - Should succeed (200 response, no 500 error)
 
 4. **Verify Caddy config:**
+
    ```bash
    curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.trusted_proxies'
    # Should show server-level trusted_proxies (not in individual routes)

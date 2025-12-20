@@ -65,11 +65,13 @@ if err := m.saveSnapshot(generatedConfig); err != nil {
 ### Snapshot Files for Rollback
 
 Charon DOES save configuration snapshots in `/app/data/caddy/`, but these are:
+
 - **For rollback purposes only** (disaster recovery)
 - **Named with timestamps:** `config-<unix-timestamp>.json`
 - **NOT used as the active config source**
 
 **Current snapshots on disk:**
+
 ```bash
 -rw-r--r-- 1 root root 40.4K Dec 18 12:38 config-1766079503.json
 -rw-r--r-- 1 root root 40.4K Dec 18 18:52 config-1766101930.json
@@ -92,16 +94,19 @@ Charon DOES save configuration snapshots in `/app/data/caddy/`, but these are:
 ### Method 1: Query Caddy Admin API
 
 **Retrieve full configuration:**
+
 ```bash
 curl -s http://localhost:2019/config/ | jq '.'
 ```
 
 **Check specific routes:**
+
 ```bash
 curl -s http://localhost:2019/config/apps/http/servers/srv0/routes | jq '.'
 ```
 
 **Verify Caddy is responding:**
+
 ```bash
 curl -s http://localhost:2019/config/ -w "\nHTTP Status: %{http_code}\n"
 ```
@@ -109,11 +114,13 @@ curl -s http://localhost:2019/config/ -w "\nHTTP Status: %{http_code}\n"
 ### Method 2: Check Container Logs
 
 **View recent Caddy activity:**
+
 ```bash
 docker logs charon --tail 100 2>&1 | grep -i caddy
 ```
 
 **Monitor real-time logs:**
+
 ```bash
 docker logs -f charon
 ```
@@ -121,11 +128,13 @@ docker logs -f charon
 ### Method 3: Inspect Latest Snapshot
 
 **View most recent config snapshot:**
+
 ```bash
 docker exec charon cat /app/data/caddy/config-1766170642.json | jq '.'
 ```
 
 **List all snapshots:**
+
 ```bash
 docker exec charon ls -lh /app/data/caddy/config-*.json
 ```
@@ -137,6 +146,7 @@ docker exec charon ls -lh /app/data/caddy/config-*.json
 ### Container Logs Analysis (Last 100 Lines)
 
 **Command:**
+
 ```bash
 docker logs charon --tail 100 2>&1
 ```
@@ -145,6 +155,7 @@ docker logs charon --tail 100 2>&1
 ✅ **Caddy is operational and proxying traffic successfully**
 
 **Log Evidence:**
+
 - **Proxy Traffic:** Successfully handling requests to nzbget, sonarr, radarr, seerr
 - **Health Check:** `GET /api/v1/health` returning 200 OK
 - **HTTP/2 & HTTP/3:** Properly negotiating protocols
@@ -152,9 +163,11 @@ docker logs charon --tail 100 2>&1
 - **No Config Errors:** Zero errors related to configuration application or Caddy startup
 
 **Secondary Issue Detected (Non-Blocking):**
+
 ```
 {"level":"error","msg":"failed to connect to LAPI, retrying in 10s: API error: access forbidden"}
 ```
+
 - **Component:** CrowdSec bouncer integration
 - **Impact:** Does NOT affect Caddy functionality or proxy operations
 - **Action:** Check CrowdSec API key configuration if CrowdSec integration is required
@@ -177,11 +190,13 @@ docker logs charon --tail 100 2>&1
 If you need a static reference file for debugging or documentation:
 
 **Option 1: Export current config from Admin API**
+
 ```bash
 curl -s http://localhost:2019/config/ | jq '.' > /tmp/caddy-current-config.json
 ```
 
 **Option 2: Copy latest snapshot**
+
 ```bash
 docker exec charon cat /app/data/caddy/config-1766170642.json > /tmp/caddy-snapshot.json
 ```

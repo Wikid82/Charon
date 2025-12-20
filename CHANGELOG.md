@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Standard Proxy Headers**: Charon now adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-Port headers to all proxy hosts by default. This enables proper client IP detection, HTTPS enforcement, and logging in backend applications.
+- **Standard Proxy Headers**: Charon now adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and
+  X-Forwarded-Port headers to all proxy hosts by default. This enables proper client IP detection,
+  HTTPS enforcement, and logging in backend applications.
   - New feature flag: `enable_standard_headers` (default: true for new hosts, false for existing)
   - UI: Checkbox in proxy host form with info banner explaining backward compatibility
   - Bulk operations: Toggle available in bulk apply modal for enabling/disabling across multiple hosts
@@ -18,22 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Backend Applications**: Applications behind Charon proxies will now receive client IP and protocol information via standard headers when the feature is enabled
+- **Backend Applications**: Applications behind Charon proxies will now receive client IP and protocol
+  information via standard headers when the feature is enabled
 
 ### Fixed
 
-- Fixed proxy host save failure (500 error) when updating enable_standard_headers, forward_auth_enabled, or waf_disabled fields
+- Fixed 500 error when saving proxy hosts caused by invalid `trusted_proxies` structure in Caddy configuration
+- Removed redundant handler-level `trusted_proxies` (server-level configuration already provides global
+  IP spoofing protection)
+- Fixed proxy host save failure (500 error) when updating enable_standard_headers, forward_auth_enabled,
+  or waf_disabled fields
 - Fixed auth pass-through failure for Seerr/Overseerr caused by missing standard proxy headers
 
 ### Security
 
-- **Trusted Proxies**: Caddy configuration now always includes `trusted_proxies` directive when proxy headers are enabled, preventing IP spoofing attacks by ensuring headers are only trusted from Charon itself
+- **Trusted Proxies**: Caddy configuration now always includes `trusted_proxies` directive when proxy
+  headers are enabled, preventing IP spoofing attacks by ensuring headers are only trusted from Charon
+  itself
 
 ### Migration Guide for Existing Users
 
-Existing proxy hosts will have standard headers **disabled by default** to maintain backward compatibility with applications that may not expect or handle these headers correctly. To enable standard headers on existing hosts:
+Existing proxy hosts will have standard headers **disabled by default** to maintain backward compatibility
+with applications that may not expect or handle these headers correctly. To enable standard headers on
+existing hosts:
 
-**Option 1: Enable on individual hosts**
+#### Option 1: Enable on individual hosts
 
 1. Navigate to **Proxy Hosts**
 2. Click **Edit** on the desired host
@@ -41,7 +52,7 @@ Existing proxy hosts will have standard headers **disabled by default** to maint
 4. Check the **"Enable Standard Proxy Headers"** checkbox
 5. Click **Save**
 
-**Option 2: Bulk enable on multiple hosts**
+#### Option 2: Bulk enable on multiple hosts
 
 1. Navigate to **Proxy Hosts**
 2. Select the checkboxes for hosts you want to update
@@ -61,7 +72,8 @@ Existing proxy hosts will have standard headers **disabled by default** to maint
 
 **Why the default changed:**
 
-Most modern web applications expect these headers for proper logging, security, and functionality. New proxy hosts will have this enabled by default to follow industry best practices.
+Most modern web applications expect these headers for proper logging, security, and functionality. New
+proxy hosts will have this enabled by default to follow industry best practices.
 
 **When to keep headers disabled:**
 
