@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Brief: Focused integration test for CrowdSec startup in Charon container
 # This test verifies that CrowdSec can start successfully without the fatal
 # "no datasource enabled" error, which indicates a missing or empty acquis.yaml.

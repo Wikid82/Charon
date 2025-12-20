@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh integration-test-coraza
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh integration-test-coraza" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Brief: Integration test for Coraza WAF using Docker Compose and built image
 # Steps:
 # 1. Build the local image: docker build -t charon:local .

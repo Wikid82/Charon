@@ -8,6 +8,15 @@
 
 set -e
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh utility-bump-beta
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh utility-bump-beta" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

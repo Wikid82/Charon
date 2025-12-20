@@ -168,6 +168,60 @@ This ensures security features (especially CrowdSec) work correctly.
 
 ---
 
+## Agent Skills
+
+Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable, executable development tasks. Skills are self-documenting task definitions that can be executed by both humans and AI assistants like GitHub Copilot.
+
+### What are Agent Skills?
+
+Agent Skills combine YAML metadata with Markdown documentation to create standardized, AI-discoverable task definitions. Each skill represents a specific development task (testing, building, security scanning, etc.) that can be:
+
+- ✅ **Executed directly** via command line
+- ✅ **Discovered by AI** assistants (GitHub Copilot, etc.)
+- ✅ **Run from VS Code** tasks menu
+- ✅ **Integrated in CI/CD** pipelines
+
+### Available Skills
+
+Charon provides 19 operational skills across multiple categories:
+
+- **Testing** (4 skills): Backend/frontend unit tests and coverage analysis
+- **Integration** (5 skills): CrowdSec, Coraza, and full integration test suites
+- **Security** (2 skills): Trivy vulnerability scanning and Go security checks
+- **QA** (1 skill): Pre-commit hooks and code quality checks
+- **Utility** (4 skills): Version management, cache clearing, database recovery
+- **Docker** (3 skills): Development environment management
+
+### Using Skills
+
+**Command Line:**
+```bash
+# Run backend tests with coverage
+.github/skills/scripts/skill-runner.sh test-backend-coverage
+
+# Run security scan
+.github/skills/scripts/skill-runner.sh security-scan-trivy
+```
+
+**VS Code Tasks:**
+1. Open Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
+2. Select `Tasks: Run Task`
+3. Choose your skill (e.g., `Test: Backend with Coverage`)
+
+**GitHub Copilot:**
+Simply ask Copilot to run tasks naturally:
+- "Run backend tests with coverage"
+- "Start the development environment"
+- "Run security scans"
+
+### Learning More
+
+- **[Agent Skills Documentation](.github/skills/README.md)** — Complete skill reference
+- **[agentskills.io Specification](https://agentskills.io/specification)** — Standard format details
+- **[Migration Guide](docs/AGENT_SKILLS_MIGRATION.md)** — Transition from legacy scripts
+
+---
+
 ## Contributing
 
 Want to help make Charon better? Check out [CONTRIBUTING.md](CONTRIBUTING.md)
