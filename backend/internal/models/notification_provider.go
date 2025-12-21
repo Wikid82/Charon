@@ -10,12 +10,12 @@ import (
 
 type NotificationProvider struct {
 	ID       string `gorm:"primaryKey" json:"id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`                            // discord, slack, gotify, telegram, generic, webhook
+	Name     string `json:"name" gorm:"index"`
+	Type     string `json:"type" gorm:"index"`               // discord, slack, gotify, telegram, generic, webhook
 	URL      string `json:"url"`                             // The shoutrrr URL or webhook URL
 	Config   string `json:"config"`                          // JSON payload template for custom webhooks
 	Template string `json:"template" gorm:"default:minimal"` // minimal|detailed|custom
-	Enabled  bool   `json:"enabled"`
+	Enabled  bool   `json:"enabled" gorm:"index"`
 
 	// Notification Preferences
 	NotifyProxyHosts    bool `json:"notify_proxy_hosts" gorm:"default:true"`

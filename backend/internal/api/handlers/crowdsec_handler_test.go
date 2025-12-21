@@ -52,6 +52,7 @@ func setupCrowdDB(t *testing.T) *gorm.DB {
 }
 
 func TestCrowdsecEndpoints(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -89,6 +90,7 @@ func TestCrowdsecEndpoints(t *testing.T) {
 }
 
 func TestImportConfig(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -121,6 +123,7 @@ func TestImportConfig(t *testing.T) {
 }
 
 func TestImportCreatesBackup(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -176,6 +179,7 @@ func TestImportCreatesBackup(t *testing.T) {
 }
 
 func TestExportConfig(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -207,6 +211,7 @@ func TestExportConfig(t *testing.T) {
 }
 
 func TestListAndReadFile(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -238,6 +243,7 @@ func TestListAndReadFile(t *testing.T) {
 }
 
 func TestExportConfigStreamsArchive(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	dataDir := t.TempDir()
@@ -278,6 +284,7 @@ func TestExportConfigStreamsArchive(t *testing.T) {
 }
 
 func TestWriteFileCreatesBackup(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupCrowdDB(t)
 	tmpDir := t.TempDir()
@@ -335,6 +342,7 @@ func TestListPresetsCerberusDisabled(t *testing.T) {
 }
 
 func TestReadFileInvalidPath(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -351,6 +359,7 @@ func TestReadFileInvalidPath(t *testing.T) {
 }
 
 func TestWriteFileInvalidPath(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -369,6 +378,7 @@ func TestWriteFileInvalidPath(t *testing.T) {
 }
 
 func TestWriteFileMissingPath(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -385,6 +395,7 @@ func TestWriteFileMissingPath(t *testing.T) {
 }
 
 func TestWriteFileInvalidPayload(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -400,6 +411,7 @@ func TestWriteFileInvalidPayload(t *testing.T) {
 }
 
 func TestImportConfigRequiresFile(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -416,6 +428,7 @@ func TestImportConfigRequiresFile(t *testing.T) {
 }
 
 func TestImportConfigRejectsEmptyUpload(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -438,6 +451,7 @@ func TestImportConfigRejectsEmptyUpload(t *testing.T) {
 }
 
 func TestListFilesMissingDir(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	missingDir := filepath.Join(t.TempDir(), "does-not-exist")
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", missingDir)
@@ -456,6 +470,7 @@ func TestListFilesMissingDir(t *testing.T) {
 }
 
 func TestListFilesReturnsEntries(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	dataDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "root.txt"), []byte("root"), 0o644))
@@ -485,6 +500,7 @@ func TestListFilesReturnsEntries(t *testing.T) {
 }
 
 func TestIsCerberusEnabledFromDB(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
@@ -648,7 +664,7 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// Enrollment request sent, but user must accept on crowdsec.net
 	require.Equal(t, "pending_acceptance", resp["status"])
@@ -725,7 +741,7 @@ func TestConsoleStatusSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "not_enrolled", resp["status"])
 }
@@ -754,7 +770,7 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w2.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
 	// Enrollment request sent, but user must accept on crowdsec.net
 	require.Equal(t, "pending_acceptance", resp["status"])
@@ -766,6 +782,7 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 // ============================================
 
 func TestIsConsoleEnrollmentEnabledFromDB(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
@@ -776,6 +793,7 @@ func TestIsConsoleEnrollmentEnabledFromDB(t *testing.T) {
 }
 
 func TestIsConsoleEnrollmentDisabledFromDB(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.Setting{}))
@@ -868,6 +886,7 @@ func (m *mockCmdExecutor) Execute(ctx context.Context, name string, args ...stri
 }
 
 func TestRegisterBouncerScriptNotFound(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -884,6 +903,7 @@ func TestRegisterBouncerScriptNotFound(t *testing.T) {
 }
 
 func TestRegisterBouncerSuccess(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	// Create a temp script that mimics successful bouncer registration
@@ -921,6 +941,7 @@ func TestRegisterBouncerSuccess(t *testing.T) {
 }
 
 func TestRegisterBouncerExecutionError(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	// Create a mock command executor that simulates execution error
@@ -950,6 +971,7 @@ func TestRegisterBouncerExecutionError(t *testing.T) {
 // ============================================
 
 func TestGetAcquisitionConfigNotFound(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
 	r := gin.New()
@@ -969,7 +991,7 @@ func TestGetAcquisitionConfigNotFound(t *testing.T) {
 	if w.Code == http.StatusNotFound {
 		require.Contains(t, w.Body.String(), "not found")
 	} else {
-		var resp map[string]interface{}
+		var resp map[string]any
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		require.Contains(t, resp, "content")
 		require.Equal(t, "/etc/crowdsec/acquis.yaml", resp["path"])
@@ -977,6 +999,7 @@ func TestGetAcquisitionConfigNotFound(t *testing.T) {
 }
 
 func TestGetAcquisitionConfigSuccess(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	// Create a temp acquis.yaml to test with
@@ -1134,7 +1157,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w2, req2)
 	require.Equal(t, http.StatusOK, w2.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
 	require.Equal(t, "pending_acceptance", resp["status"])
 	require.Equal(t, "test-agent-1", resp["agent_name"])
@@ -1150,7 +1173,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req4 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w4, req4)
 	require.Equal(t, http.StatusOK, w4.Code)
-	var resp2 map[string]interface{}
+	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(w4.Body.Bytes(), &resp2))
 	require.Equal(t, "not_enrolled", resp2["status"])
 
@@ -1167,7 +1190,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req6 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w6, req6)
 	require.Equal(t, http.StatusOK, w6.Code)
-	var resp3 map[string]interface{}
+	var resp3 map[string]any
 	require.NoError(t, json.Unmarshal(w6.Body.Bytes(), &resp3))
 	require.Equal(t, "pending_acceptance", resp3["status"])
 	require.Equal(t, "test-agent-2", resp3["agent_name"])
@@ -1179,6 +1202,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 
 // Start Handler - LAPI Readiness Polling Tests
 func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	// Mock executor that returns error for lapi status checks
@@ -1200,7 +1224,7 @@ func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "started", resp["status"])
 	require.False(t, resp["lapi_ready"].(bool))

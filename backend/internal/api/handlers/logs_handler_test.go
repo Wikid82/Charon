@@ -100,7 +100,7 @@ func TestLogsLifecycle(t *testing.T) {
 
 	var content struct {
 		Filename string        `json:"filename"`
-		Logs     []interface{} `json:"logs"`
+		Logs     []any `json:"logs"`
 		Total    int           `json:"total"`
 	}
 	err = json.Unmarshal(resp.Body.Bytes(), &content)

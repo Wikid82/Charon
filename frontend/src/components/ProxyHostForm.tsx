@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info } from 'lucide-react'
+import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
 import { testProxyHostConnection } from '../api/proxyHosts'
@@ -9,6 +9,8 @@ import { useDomains } from '../hooks/useDomains'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDocker } from '../hooks/useDocker'
 import AccessListSelector from './AccessListSelector'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
+import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
 
 // Application preset configurations
@@ -100,11 +102,13 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     hsts_subdomains: host?.hsts_subdomains ?? true,
     block_exploits: host?.block_exploits ?? true,
     websocket_support: host?.websocket_support ?? true,
+    enable_standard_headers: host?.enable_standard_headers ?? true,
     application: (host?.application || 'none') as ApplicationPreset,
     advanced_config: host?.advanced_config || '',
     enabled: host?.enabled ?? true,
     certificate_id: host?.certificate_id,
     access_list_id: host?.access_list_id,
+    security_header_profile_id: host?.security_header_profile_id,
   })
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
@@ -141,7 +145,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       setCopiedField(field)
       setTimeout(() => setCopiedField(null), 2000)
     } catch {
-      console.error('Failed to copy to clipboard')
+      // Silently fail if clipboard access is denied
     }
   }
 
@@ -155,6 +159,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { servers: remoteServers } = useRemoteServers()
   const { domains, createDomain } = useDomains()
   const { certificates } = useCertificates()
+  const { data: securityProfiles } = useSecurityHeaderProfiles()
 
   const [connectionSource, setConnectionSource] = useState<'local' | 'custom' | string>('custom')
 
@@ -239,9 +244,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     try {
       await createDomain(pendingDomain)
       setShowDomainPrompt(false)
-    } catch (err) {
-      console.error("Failed to save domain", err)
-      // Optionally show error
+    } catch {
+      // Failed to save domain - user can retry
     }
   }
 
@@ -261,8 +265,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       setTestStatus('success')
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
-    } catch (err) {
-      console.error("Test connection failed", err)
+    } catch {
       setTestStatus('error')
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
@@ -348,7 +351,6 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           } else {
             // If no public port is mapped, we can't reach it from outside
             // But we'll leave the internal port as a fallback, though it likely won't work
-            console.warn('No public port mapped for container on remote server')
           }
         }
       }
@@ -606,6 +608,100 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             onChange={id => setFormData({ ...formData, access_list_id: id })}
           />
 
+          {/* Security Headers Profile */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Security Headers
+              <span className="text-gray-500 font-normal ml-2">(Optional)</span>
+            </label>
+
+            <select
+              value={formData.security_header_profile_id || 0}
+              onChange={e => {
+                const value = e.target.value === "0" ? null : parseInt(e.target.value) || null
+                setFormData({ ...formData, security_header_profile_id: value })
+              }}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>None (No Security Headers)</option>
+              <optgroup label="Quick Presets">
+                {securityProfiles
+                  ?.filter(p => p.is_preset)
+                  .sort((a, b) => a.security_score - b.security_score)
+                  .map(profile => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name} (Score: {profile.security_score}/100)
+                    </option>
+                  ))}
+              </optgroup>
+              {(securityProfiles?.filter(p => !p.is_preset) || []).length > 0 && (
+                <optgroup label="Custom Profiles">
+                  {(securityProfiles || [])
+                    .filter(p => !p.is_preset)
+                    .map(profile => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} (Score: {profile.security_score}/100)
+                      </option>
+                    ))}
+                </optgroup>
+              )}
+            </select>
+
+            {formData.security_header_profile_id && (() => {
+              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              if (!selected) return null
+
+              return (
+                <div className="mt-2 flex items-center gap-2">
+                  <SecurityScoreDisplay
+                    score={selected.security_score}
+                    size="sm"
+                    showDetails={false}
+                  />
+                  <span className="text-xs text-gray-400">
+                    {selected.description}
+                  </span>
+                </div>
+              )
+            })()}
+
+            {/* Mobile App Compatibility Warning for Strict/Paranoid profiles */}
+            {formData.security_header_profile_id && (() => {
+              const selected = securityProfiles?.find(p => p.id === formData.security_header_profile_id)
+              if (!selected) return null
+
+              const isRestrictive = selected.preset_type === 'strict' || selected.preset_type === 'paranoid'
+
+              if (!isRestrictive) return null
+
+              return (
+                <div className="mt-2 p-3 bg-yellow-900/30 border border-yellow-600 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-medium text-yellow-400">Mobile App Compatibility Warning</p>
+                      <p className="text-yellow-300/80 mt-1">
+                        This security profile may break mobile apps like Radarr, Plex, Jellyfin, or Home Assistant companion apps.
+                        Consider using "API-Friendly" or "Basic" for services accessed by mobile clients.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            <p className="text-xs text-gray-500 mt-1">
+              Apply HTTP security headers to protect against common web vulnerabilities.{' '}
+              <a
+                href="/security-headers"
+                target="_blank"
+                className="text-blue-400 hover:text-blue-300"
+              >
+                Manage Profiles →
+              </a>
+            </p>
+          </div>
+
           {/* Application Preset */}
           <div>
             <label htmlFor="application-preset" className="block text-sm font-medium text-gray-300 mb-2">
@@ -849,7 +945,35 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 <CircleHelp size={14} />
               </div>
             </label>
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={formData.enable_standard_headers ?? true}
+                onChange={e => setFormData({ ...formData, enable_standard_headers: e.target.checked })}
+                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-300">Enable Standard Proxy Headers</span>
+              <div title="Adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-Port headers to help backend applications detect client IPs, enforce HTTPS, and generate correct URLs. Recommended for all proxy hosts. Existing hosts: disabled by default for backward compatibility." className="text-gray-500 hover:text-gray-300 cursor-help">
+                <CircleHelp size={14} />
+              </div>
+            </label>
           </div>
+
+          {/* Legacy Headers Warning Banner */}
+          {host && (formData.enable_standard_headers === false) && (
+            <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Info className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-yellow-400">Standard Proxy Headers Disabled</p>
+                  <p className="text-yellow-300/80 mt-1">
+                    This proxy host is using the legacy behavior (headers only with WebSocket support).
+                    Enable this option to ensure backend applications receive client IP and protocol information.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Advanced Config */}
           <div>

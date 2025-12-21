@@ -1,8 +1,13 @@
-# Database Schema Documentation
+---
+title: Database Schema Documentation
+description: Technical documentation of Charon's SQLite database schema. Entity relationships and table definitions for developers.
+---
 
- Charon uses SQLite with GORM ORM for data persistence. This document describes the database schema and relationships.
+## Database Schema Documentation
 
-## Overview
+Charon uses SQLite with GORM ORM for data persistence. This document describes the database schema and relationships.
+
+### Overview
 
 The database consists of 8 main tables:
 

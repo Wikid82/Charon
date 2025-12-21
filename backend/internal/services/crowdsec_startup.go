@@ -24,7 +24,7 @@ type CrowdsecProcessManager interface {
 // and starts it if necessary. This handles container restart scenarios where the
 // user's preference was to have CrowdSec enabled.
 func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string) {
-	logger.Log().WithFields(map[string]interface{}{
+	logger.Log().WithFields(map[string]any{
 		"bin_path": binPath,
 		"data_dir": dataDir,
 	}).Info("CrowdSec reconciliation: starting startup check")
@@ -51,7 +51,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 			crowdSecEnabledInSettings := false
 			if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
 				crowdSecEnabledInSettings = strings.EqualFold(settingOverride.Value, "true")
-				logger.Log().WithFields(map[string]interface{}{
+				logger.Log().WithFields(map[string]any{
 					"setting_value": settingOverride.Value,
 					"enabled":       crowdSecEnabledInSettings,
 				}).Info("CrowdSec reconciliation: found existing Settings table preference")
@@ -81,7 +81,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 				return
 			}
 
-			logger.Log().WithFields(map[string]interface{}{
+			logger.Log().WithFields(map[string]any{
 				"crowdsec_mode": defaultCfg.CrowdSecMode,
 				"enabled":       defaultCfg.Enabled,
 				"source":        "settings_table",
@@ -100,7 +100,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	crowdSecEnabled := false
 	if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; err == nil && settingOverride.Value != "" {
 		crowdSecEnabled = strings.EqualFold(settingOverride.Value, "true")
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"setting_value":    settingOverride.Value,
 			"crowdsec_enabled": crowdSecEnabled,
 		}).Debug("CrowdSec reconciliation: found runtime setting override")
@@ -108,7 +108,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 
 	// Only auto-start if CrowdSecMode is "local" OR runtime setting is enabled
 	if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"db_mode":         cfg.CrowdSecMode,
 			"setting_enabled": crowdSecEnabled,
 		}).Info("CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled")
@@ -151,7 +151,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	}
 
 	// CrowdSec should be running but isn't - start it
-	logger.Log().WithFields(map[string]interface{}{
+	logger.Log().WithFields(map[string]any{
 		"bin_path": binPath,
 		"data_dir": dataDir,
 	}).Info("CrowdSec reconciliation: starting CrowdSec (mode=local, not currently running)")
@@ -161,7 +161,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 
 	newPid, err := executor.Start(startCtx, binPath, dataDir)
 	if err != nil {
-		logger.Log().WithError(err).WithFields(map[string]interface{}{
+		logger.Log().WithError(err).WithFields(map[string]any{
 			"bin_path": binPath,
 			"data_dir": dataDir,
 		}).Error("CrowdSec reconciliation: FAILED to start CrowdSec - check binary and config")
@@ -181,7 +181,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	}
 
 	if !verifyRunning {
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"expected_pid": newPid,
 			"actual_pid":   verifyPid,
 			"running":      verifyRunning,
@@ -189,7 +189,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		return
 	}
 
-	logger.Log().WithFields(map[string]interface{}{
+	logger.Log().WithFields(map[string]any{
 		"pid":      newPid,
 		"verified": true,
 	}).Info("CrowdSec reconciliation: successfully started and verified CrowdSec")

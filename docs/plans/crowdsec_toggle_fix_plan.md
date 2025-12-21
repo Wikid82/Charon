@@ -23,18 +23,21 @@ The CrowdSec toggle shows "ON" but the process is NOT running. The reconciliatio
 ### Evidence Trail
 
 **Container Logs Show Silent Exit**:
+
 ```
 {"bin_path":"crowdsec","data_dir":"/app/data/crowdsec","level":"info","msg":"CrowdSec reconciliation: starting startup check","time":"2025-12-14T23:32:33-05:00"}
 [NO FURTHER LOGS - Function exited here]
 ```
 
 **Database State on Fresh Start**:
+
 ```
 SELECT * FROM security_configs → record not found
 {"level":"info","msg":"CrowdSec reconciliation: no SecurityConfig found, creating default config"}
 ```
 
 **Process Check**:
+
 ```bash
 $ docker exec charon ps aux | grep -i crowdsec
 [NO RESULTS - Process not running]
@@ -45,6 +48,7 @@ $ docker exec charon ps aux | grep -i crowdsec
 **FILE**: `backend/internal/services/crowdsec_startup.go`
 
 **Execution Flow**:
+
 ```
 1. User clicks toggle ON in Security.tsx
 2. Frontend calls updateSetting('security.crowdsec.enabled', 'true')
@@ -66,6 +70,7 @@ $ docker exec charon ps aux | grep -i crowdsec
 ```
 
 **THE BUG (Lines 46-71)**:
+
 ```go
 if err == gorm.ErrRecordNotFound {
     // AUTO-INITIALIZE: Create default SecurityConfig on first startup
@@ -125,6 +130,7 @@ if err == gorm.ErrRecordNotFound {
 **Location**: `backend/internal/services/crowdsec_startup.go`
 
 **Lines 44-71 (Auto-initialization - THE BUG)**:
+
 ```go
 var cfg models.SecurityConfig
 if err := db.First(&cfg).Error; err != nil {
@@ -160,6 +166,7 @@ if err := db.First(&cfg).Error; err != nil {
 ```
 
 **Lines 74-90 (Runtime Setting Override - UNREACHABLE after auto-init)**:
+
 ```go
 // Also check for runtime setting override in settings table
 var settingOverride struct{ Value string }
@@ -176,6 +183,7 @@ if err := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.c
 **This code is NEVER REACHED** when SecurityConfig doesn't exist because line 70 returns early!
 
 **Lines 91-98 (Decision Logic)**:
+
 ```go
 // Only auto-start if CrowdSecMode is "local" OR runtime setting is enabled
 if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
@@ -194,6 +202,7 @@ if cfg.CrowdSecMode != "local" && !crowdSecEnabled {
 **Location**: `backend/internal/api/handlers/crowdsec_handler.go`
 
 **Lines 167-192 - CORRECT IMPLEMENTATION**:
+
 ```go
 func (h *CrowdsecHandler) Start(c *gin.Context) {
     ctx := c.Request.Context()
@@ -241,6 +250,7 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 **Location**: `frontend/src/pages/Security.tsx`
 
 **Lines 64-120 - THE DISCONNECT**:
+
 ```tsx
 const crowdsecPowerMutation = useMutation({
   mutationFn: async (enabled: boolean) => {
@@ -277,10 +287,12 @@ const crowdsecPowerMutation = useMutation({
 ```
 
 **Analysis**:
+
 - **Enable Path**: Updates Settings → Calls Start() → Start() updates SecurityConfig → ✅ Both tables synced
 - **Disable Path**: Updates Settings → Calls Stop() → Stop() **does NOT always update SecurityConfig** → ❌ Tables out of sync
 
 Looking at the Stop handler:
+
 ```go
 func (h *CrowdsecHandler) Stop(c *gin.Context) {
     ctx := c.Request.Context()
@@ -306,6 +318,7 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 **This IS CORRECT** - Stop() handler updates SecurityConfig when it can find it. BUT:
 
 **Scenario Where It Fails**:
+
 1. SecurityConfig table gets corrupted/cleared/migrated incorrectly
 2. User clicks toggle OFF
 3. Stop() tries to update SecurityConfig → record not found → skips update
@@ -324,6 +337,7 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 **CHANGE**: Lines 46-71 (auto-initialization block)
 
 **AFTER** (with Settings table check):
+
 ```go
 if err == gorm.ErrRecordNotFound {
     // AUTO-INITIALIZE: Create default SecurityConfig by checking Settings table
@@ -376,6 +390,7 @@ if err == gorm.ErrRecordNotFound {
 ```
 
 **KEY CHANGES**:
+
 1. **Check Settings table** during auto-initialization
 2. **Create SecurityConfig matching Settings state** (not hardcoded "disabled")
 3. **Don't return early** - let the rest of the function process the config
@@ -388,6 +403,7 @@ if err == gorm.ErrRecordNotFound {
 **CHANGE**: Lines 91-98 (decision logic - better logging)
 
 **AFTER**:
+
 ```go
 // Start when EITHER SecurityConfig has mode="local" OR Settings table has enabled=true
 // Exit only when BOTH are disabled
@@ -408,6 +424,7 @@ if cfg.CrowdSecMode == "local" {
 ```
 
 **KEY CHANGES**:
+
 1. **Change log level** from Debug to Info (so we see it in logs)
 2. **Add source attribution** (which table triggered the start)
 3. **Clarify condition** (exit only when BOTH are disabled)
@@ -603,12 +620,14 @@ func (h *CrowdsecHandler) ToggleCrowdSec(c *gin.Context) {
 ```
 
 **Register Route**:
+
 ```go
 // In RegisterRoutes() method
 rg.POST("/admin/crowdsec/toggle", h.ToggleCrowdSec)
 ```
 
 **Frontend API Client** (`frontend/src/api/crowdsec.ts`):
+
 ```typescript
 export async function toggleCrowdsec(enabled: boolean): Promise<{ enabled: boolean; pid?: number; lapi_ready?: boolean }> {
   const response = await client.post('/admin/crowdsec/toggle', { enabled })
@@ -617,6 +636,7 @@ export async function toggleCrowdsec(enabled: boolean): Promise<{ enabled: boole
 ```
 
 **Frontend Toggle Update** (`frontend/src/pages/Security.tsx`):
+
 ```tsx
 const crowdsecPowerMutation = useMutation({
   mutationFn: async (enabled: boolean) => {
@@ -779,6 +799,7 @@ If issues arise:
 
 1. **Immediate Revert**: `git revert <commit-hash>` (no DB changes needed)
 2. **Manual Fix** (if toggle stuck):
+
    ```sql
    -- Reset SecurityConfig
    UPDATE security_configs
@@ -790,6 +811,7 @@ If issues arise:
    SET value = 'false'
    WHERE key = 'security.crowdsec.enabled';
    ```
+
 3. **Force Stop CrowdSec**: `docker exec charon pkill -SIGTERM crowdsec`
 
 ---
@@ -799,11 +821,13 @@ If issues arise:
 ### Phase 1: Auto-Initialization Changes (crowdsec_startup.go)
 
 #### Files Directly Modified
+
 - `backend/internal/services/crowdsec_startup.go` (lines 46-71)
 
 #### Dependencies and Required Updates
 
 **1. Unit Tests - MUST BE UPDATED**
+
 - **File**: `backend/internal/services/crowdsec_startup_test.go`
 - **Impact**: Test `TestReconcileCrowdSecOnStartup_NoSecurityConfig` expects the function to skip/return early when no SecurityConfig exists
 - **Required Change**: Update test to:
@@ -816,6 +840,7 @@ If issues arise:
   - `TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettingsEntry` - No Settings entry → creates config with mode="disabled", does NOT start
 
 **2. Integration Tests - VERIFICATION NEEDED**
+
 - **Files**:
   - `scripts/crowdsec_integration.sh`
   - `scripts/crowdsec_startup_test.sh`
@@ -828,33 +853,39 @@ If issues arise:
 - **Action**: Review scripts for assumptions about auto-initialization behavior
 
 **3. Migration/Upgrade Path - DATABASE CONCERN**
+
 - **Scenario**: Existing installations with Settings='true' but missing SecurityConfig
 - **Impact**: After upgrade, reconciliation will auto-create SecurityConfig from Settings (POSITIVE)
 - **Risk**: Low - this is the intended fix
 - **Documentation**: Should document this as expected behavior in migration guide
 
 **4. Models - NO CHANGES REQUIRED**
+
 - **File**: `backend/internal/models/security_config.go`
 - **Analysis**: SecurityConfig model structure unchanged
 - **File**: `backend/internal/models/setting.go`
 - **Analysis**: Setting model structure unchanged
 
 **5. Route Registration - NO CHANGES REQUIRED**
+
 - **File**: `backend/internal/api/routes/routes.go` (line 360)
 - **Analysis**: Already calls `ReconcileCrowdSecOnStartup`, no signature changes
 
 **6. Handler Dependencies - NO CHANGES REQUIRED**
+
 - **File**: `backend/internal/api/handlers/crowdsec_handler.go`
 - **Analysis**: Start/Stop handlers operate independently, no coupling to reconciliation logic
 
 ### Phase 2: Logging Enhancement Changes (crowdsec_startup.go)
 
 #### Files Directly Modified
+
 - `backend/internal/services/crowdsec_startup.go` (lines 91-98)
 
 #### Dependencies and Required Updates
 
 **1. Log Aggregation/Parsing - DOCUMENTATION UPDATE**
+
 - **Concern**: Changing log level from Debug → Info increases log volume
 - **Impact**:
   - Logs will now appear in production (Info is default minimum level)
@@ -862,14 +893,17 @@ If issues arise:
 - **Required**: Update any log parsing scripts or documentation about expected log output
 
 **2. Integration Tests - POTENTIAL GREP PATTERNS**
+
 - **Files**: `scripts/crowdsec_*.sh`
 - **Impact**: If scripts `grep` for specific log messages, they may need updates
 - **Action**: Search for log message expectations in scripts
 
 **3. Documentation - UPDATE REQUIRED**
+
 - **File**: `docs/features.md`
 - **Section**: CrowdSec Integration (line 167+)
 - **Required Change**: Add note about reconciliation behavior:
+
   ```markdown
   #### Startup Behavior
 
@@ -884,6 +918,7 @@ If issues arise:
   ```
 
 **4. Troubleshooting Guide - UPDATE RECOMMENDED**
+
 - **File**: `docs/troubleshooting/` (if exists) or `docs/security.md`
 - **Required Change**: Add section on "CrowdSec Not Starting After Restart"
   - Explain reconciliation logic
@@ -893,6 +928,7 @@ If issues arise:
 ### Phase 3: Unified Toggle Endpoint (OPTIONAL)
 
 #### Files Directly Modified
+
 - `backend/internal/api/handlers/crowdsec_handler.go` (new method)
 - `backend/internal/api/handlers/crowdsec_handler.go` (RegisterRoutes)
 - `frontend/src/api/crowdsec.ts` (new function)
@@ -901,6 +937,7 @@ If issues arise:
 #### Dependencies and Required Updates
 
 **1. Handler Tests - NEW TESTS REQUIRED**
+
 - **File**: `backend/internal/api/handlers/crowdsec_handler_test.go`
 - **Required Tests**:
   - `TestCrowdsecHandler_Toggle_EnableSuccess`
@@ -909,6 +946,7 @@ If issues arise:
   - `TestCrowdsecHandler_Toggle_VerifyBothTablesUpdated`
 
 **2. Existing Handlers - DEPRECATION CONSIDERATION**
+
 - **Files**:
   - Start handler (line ~167 in crowdsec_handler.go)
   - Stop handler (line ~260 in crowdsec_handler.go)
@@ -920,26 +958,31 @@ If issues arise:
 - **Recommendation**: Keep Start/Stop handlers unchanged, document toggle as "preferred method"
 
 **3. Frontend API Layer - MIGRATION PATH**
+
 - **File**: `frontend/src/api/crowdsec.ts`
 - **Current Exports**: `startCrowdsec`, `stopCrowdsec`, `statusCrowdsec`
 - **After Change**: Add `toggleCrowdsec` to exports (line 75)
 - **Backward Compatibility**: Keep existing functions, don't remove them
 
 **4. Frontend Component - LIMITED SCOPE**
+
 - **File**: `frontend/src/pages/Security.tsx`
 - **Impact**: Only `crowdsecPowerMutation` needs updating (lines 86-125)
 - **Other Components**: No other components import these functions (verified)
 - **Risk**: Low - isolated change
 
 **5. API Documentation - NEW ENDPOINT**
+
 - **File**: `docs/api.md` (if exists)
 - **Required Addition**: Document `/admin/crowdsec/toggle` endpoint
 
 **6. Integration Tests - NEW TEST CASE**
+
 - **Files**: `scripts/crowdsec_integration.sh`
 - **Required Addition**: Test toggle endpoint directly
 
 **7. Backward Compatibility - ANALYSIS**
+
 - **Frontend**: Existing `/admin/crowdsec/start` and `/admin/crowdsec/stop` endpoints remain functional
 - **API Consumers**: External tools using Start/Stop continue to work
 - **Risk**: None - purely additive change
@@ -947,27 +990,33 @@ If issues arise:
 ### Cross-Cutting Concerns
 
 #### Database Migration
+
 - **No schema changes required** - both Settings and SecurityConfig tables already exist
 - **Data migration**: None needed - changes are behavioral only
 
 #### Configuration Files
+
 - **No changes required** - no new environment variables or config files
 
 #### Docker/Deployment
+
 - **No Dockerfile changes** - all changes are code-level
 - **No docker-compose changes** - no new services or volumes
 
 #### Security Implications
+
 - **Phase 1**: Improves security by respecting user's intent across restarts
 - **Phase 2**: No security impact (logging only)
 - **Phase 3**: Transaction safety prevents partial updates (improvement)
 
 #### Performance Considerations
+
 - **Phase 1**: Adds one SQL query during auto-initialization (one-time, on startup)
 - **Phase 2**: Minimal - only adds log statements
 - **Phase 3**: Minimal - wraps existing logic in transaction
 
 #### Rollback Safety
+
 - **All phases**: No database schema changes, can be rolled back via git revert
 - **Data safety**: No data loss risk - only affects process startup behavior
 

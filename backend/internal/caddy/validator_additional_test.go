@@ -74,7 +74,7 @@ func TestValidateListenAddr_InvalidPortNonNumeric(t *testing.T) {
 func TestValidate_MarshalError(t *testing.T) {
 	// stub jsonMarshalValidate to cause Marshal error
 	orig := jsonMarshalValidate
-	jsonMarshalValidate = func(v interface{}) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
+	jsonMarshalValidate = func(v any) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
 	defer func() { jsonMarshalValidate = orig }()
 
 	cfg := &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{"srv": {Listen: []string{":80"}, Routes: []*Route{{Match: []Match{{Host: []string{"x.com"}}}, Handle: []Handler{{"handler": "file_server"}}}}}}}}}

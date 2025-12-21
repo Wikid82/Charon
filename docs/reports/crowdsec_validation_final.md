@@ -43,6 +43,7 @@ Status: Up (healthy)
 ### 2. CrowdSec Startup Verification ✅ PASS
 
 **Log Evidence of Fix Working:**
+
 ```
 {"level":"warning","msg":"PID exists but is not CrowdSec (PID recycled)","pid":51,"time":"2025-12-15T16:37:36-05:00"}
 {"bin_path":"/usr/local/bin/crowdsec","data_dir":"/app/data/crowdsec","level":"info","msg":"CrowdSec reconciliation: starting CrowdSec (mode=local, not currently running)","time":"2025-12-15T16:37:36-05:00"}
@@ -50,17 +51,20 @@ Status: Up (healthy)
 ```
 
 The log shows:
+
 1. Old PID 51 was detected as recycled (NOT CrowdSec)
 2. CrowdSec was correctly identified as not running
 3. New CrowdSec process started with PID 67
 4. Process was verified as genuine CrowdSec
 
 **LAPI Health Check:**
+
 ```json
 {"status":"up"}
 ```
 
 **Bouncer Registration:**
+
 ```
 ---------------------------------------------------------------------------
  Name           IP Address  Valid  Last API pull  Type  Version  Auth Type
@@ -72,11 +76,13 @@ The log shows:
 ### 3. CrowdSec Decisions Sync ✅ PASS
 
 **Decision Added:**
+
 ```
 level=info msg="Decision successfully added"
 ```
 
 **Decisions List:**
+
 ```
 +----+--------+-----------------+---------+--------+---------+----+--------+------------+----------+
 | ID | Source |   Scope:Value   |  Reason | Action | Country | AS | Events | expiration | Alert ID |
@@ -86,6 +92,7 @@ level=info msg="Decision successfully added"
 ```
 
 **Bouncer Streaming Confirmed:**
+
 ```json
 {"deleted":null,"new":[{"duration":"8m30s","id":1,"origin":"cscli","scenario":"QA test","scope":"Ip","type":"ban","uuid":"b...
 ```
@@ -93,6 +100,7 @@ level=info msg="Decision successfully added"
 ### 4. Traffic Blocking Note
 
 Traffic blocking test from localhost shows HTTP 200 instead of expected HTTP 403. This is **expected behavior** due to:
+
 - `trusted_proxies` configuration includes localhost (127.0.0.1/32, ::1/128)
 - X-Forwarded-For from local requests is not trusted for security reasons
 - The bouncer uses the direct connection IP, not the forwarded IP
@@ -102,6 +110,7 @@ Traffic blocking test from localhost shows HTTP 200 instead of expected HTTP 403
 ### 5. Full Test Suite Results
 
 #### Backend Tests ✅ ALL PASS
+
 ```
 Packages: 18 passed
 Tests: 789+ individual test cases
@@ -130,6 +139,7 @@ Coverage: 85.1% (minimum required: 85%)
 | internal/version | ✅ PASS |
 
 #### Frontend Tests ✅ ALL PASS
+
 ```
 Test Files:  91 passed (91)
 Tests:       956 passed | 2 skipped (958)
@@ -174,6 +184,7 @@ Duration:    60.97s
 ### ✅ **VALIDATION PASSED**
 
 The PID reuse bug fix has been:
+
 1. ✅ Correctly implemented with process name validation
 2. ✅ Verified working in production container (log evidence shows recycled PID detection)
 3. ✅ Covered by unit tests

@@ -178,7 +178,7 @@ func BenchmarkSecurityHandler_UpsertRuleSet(b *testing.B) {
 	router := gin.New()
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "bench-ruleset",
 		"content": "SecRule REQUEST_URI \"@contains /admin\" \"id:1000,phase:1,deny\"",
 		"mode":    "blocking",
@@ -209,7 +209,7 @@ func BenchmarkSecurityHandler_CreateDecision(b *testing.B) {
 	router := gin.New()
 	router.POST("/api/v1/security/decisions", h.CreateDecision)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"ip":      "192.168.1.100",
 		"action":  "block",
 		"details": "benchmark test",
@@ -273,7 +273,7 @@ func BenchmarkSecurityHandler_UpdateConfig(b *testing.B) {
 	router := gin.New()
 	router.PUT("/api/v1/security/config", h.UpdateConfig)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":                "default",
 		"enabled":             true,
 		"rate_limit_enable":   true,
@@ -396,7 +396,7 @@ func BenchmarkSecurityHandler_LargeRuleSetContent(b *testing.B) {
 		largeContent += "SecRule REQUEST_URI \"@contains /path" + string(rune(i)) + "\" \"id:" + string(rune(1000+i)) + ",phase:1,deny\"\n"
 	}
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "large-ruleset",
 		"content": largeContent,
 		"mode":    "blocking",

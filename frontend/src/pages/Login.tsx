@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
@@ -11,6 +12,7 @@ import { getSetupStatus } from '../api/setup'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function Login() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
@@ -40,11 +42,11 @@ export default function Login() {
       const token = (res.data as { token?: string }).token
       await login(token)
       await queryClient.invalidateQueries({ queryKey: ['setupStatus'] })
-      toast.success('Logged in successfully')
+      toast.success(t('auth.loginSuccess'))
       navigate('/')
     } catch (err) {
       const error = err as { response?: { data?: { error?: string } } }
-      toast.error(error.response?.data?.error || 'Login failed')
+      toast.error(error.response?.data?.error || t('auth.loginFailed'))
     } finally {
       setLoading(false)
     }
@@ -53,7 +55,7 @@ export default function Login() {
   if (isCheckingSetup) {
     return (
       <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
-        <div className="text-white">Checking setup status...</div>
+        <div className="text-white">{t('auth.checkingSetup')}</div>
       </div>
     )
   }
@@ -62,8 +64,8 @@ export default function Login() {
     <>
       {loading && (
         <ConfigReloadOverlay
-          message="Paying the ferryman..."
-          submessage="Your obol grants passage"
+          message={t('auth.loggingIn')}
+          submessage={t('auth.loggingInSub')}
           type="coin"
         />
       )}
@@ -74,10 +76,10 @@ export default function Login() {
 
 
           </div>
-          <Card className="w-full" title="Login">
+          <Card className="w-full" title={t('auth.login')}>
           <form onSubmit={handleSubmit} className="space-y-6">
             <Input
-              label="Email"
+              label={t('auth.email')}
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
@@ -87,7 +89,7 @@ export default function Login() {
             />
             <div className="space-y-1">
               <Input
-                label="Password"
+                label={t('auth.password')}
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -102,15 +104,15 @@ export default function Login() {
                   className="text-sm text-blue-400 hover:text-blue-300"
                   disabled={loading}
                 >
-                  Forgot Password?
+                  {t('auth.forgotPassword')}
                 </button>
               </div>
             </div>
 
             {showResetInfo && (
               <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 text-sm text-blue-200">
-                <p className="mb-2 font-medium">To reset your password:</p>
-                <p className="mb-2">Run this command on your server:</p>
+                <p className="mb-2 font-medium">{t('auth.resetPasswordTitle')}</p>
+                <p className="mb-2">{t('auth.resetPasswordInstructions')}</p>
                 <code className="block bg-black/50 p-2 rounded font-mono text-xs break-all select-all">
                   docker exec -it caddy-proxy-manager /app/backend reset-password &lt;email&gt; &lt;new-password&gt;
                 </code>
@@ -118,7 +120,7 @@ export default function Login() {
             )}
 
             <Button type="submit" className="w-full" isLoading={loading}>
-              Sign In
+              {t('auth.signIn')}
             </Button>
           </form>
         </Card>

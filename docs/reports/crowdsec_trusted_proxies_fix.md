@@ -1,74 +1,87 @@
 # CrowdSec Trusted Proxies Fix - Deployment Report
 
 ## Date
+
 2025-12-15
 
 ## Objective
+
 Implement `trusted_proxies` configuration for CrowdSec bouncer to enable proper client IP detection from X-Forwarded-For headers when requests come through Docker networks, reverse proxies, or CDNs.
 
 ## Root Cause
+
 CrowdSec bouncer was unable to identify real client IPs because Caddy wasn't configured to trust X-Forwarded-For headers from known proxy networks. Without `trusted_proxies` configuration at the server level, Caddy would only see the direct connection IP (typically a Docker bridge network address), rendering IP-based blocking ineffective.
 
 ## Implementation
 
 ### 1. Added TrustedProxies Module Structure
+
 Created `TrustedProxies` struct in [backend/internal/caddy/types.go](../../backend/internal/caddy/types.go):
+
 ```go
 // TrustedProxies defines the module for configuring trusted proxy IP ranges.
 // This is used at the server level to enable Caddy to trust X-Forwarded-For headers.
 type TrustedProxies struct {
-	Source string   `json:"source"`
-	Ranges []string `json:"ranges"`
+ Source string   `json:"source"`
+ Ranges []string `json:"ranges"`
 }
 ```
 
 Modified `Server` struct to include:
+
 ```go
 type Server struct {
-	Listen         []string         `json:"listen"`
-	Routes         []*Route         `json:"routes"`
-	AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
-	Logs           *ServerLogs      `json:"logs,omitempty"`
-	TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
+ Listen         []string         `json:"listen"`
+ Routes         []*Route         `json:"routes"`
+ AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
+ Logs           *ServerLogs      `json:"logs,omitempty"`
+ TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
 }
 ```
 
 ### 2. Populated Configuration
+
 Updated [backend/internal/caddy/config.go](../../backend/internal/caddy/config.go) to populate trusted proxies:
+
 ```go
 trustedProxies := &TrustedProxies{
-	Source: "static",
-	Ranges: []string{
-		"127.0.0.1/32",   // Localhost
-		"::1/128",        // IPv6 localhost
-		"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
-		"10.0.0.0/8",     // Private network
-		"192.168.0.0/16", // Private network
-	},
+ Source: "static",
+ Ranges: []string{
+  "127.0.0.1/32",   // Localhost
+  "::1/128",        // IPv6 localhost
+  "172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
+  "10.0.0.0/8",     // Private network
+  "192.168.0.0/16", // Private network
+ },
 }
 
 config.Apps.HTTP.Servers["charon_server"] = &Server{
-	...
-	TrustedProxies: trustedProxies,
-	...
+ ...
+ TrustedProxies: trustedProxies,
+ ...
 }
 ```
 
 ### 3. Updated Tests
+
 Modified test assertions in:
+
 - [backend/internal/caddy/config_crowdsec_test.go](../../backend/internal/caddy/config_crowdsec_test.go)
 - [backend/internal/caddy/config_generate_additional_test.go](../../backend/internal/caddy/config_generate_additional_test.go)
 
 Tests now verify:
+
 - `TrustedProxies` module is configured with `source: "static"`
 - All 5 CIDR ranges are present in `ranges` array
 
 ## Technical Details
 
 ### Caddy JSON Configuration Format
+
 According to [Caddy documentation](https://caddyserver.com/docs/json/apps/http/servers/trusted_proxies/static/), `trusted_proxies` must be a module reference (not a plain array):
 
 **Correct structure:**
+
 ```json
 {
   "trusted_proxies": {
@@ -79,6 +92,7 @@ According to [Caddy documentation](https://caddyserver.com/docs/json/apps/http/s
 ```
 
 **Incorrect structure** (initial attempt):
+
 ```json
 {
   "trusted_proxies": ["127.0.0.1/32", ...]
@@ -86,16 +100,19 @@ According to [Caddy documentation](https://caddyserver.com/docs/json/apps/http/s
 ```
 
 The incorrect structure caused JSON unmarshaling error:
+
 ```
 json: cannot unmarshal array into Go value of type map[string]interface{}
 ```
 
 ### Key Learning
+
 The `trusted_proxies` field requires the `http.ip_sources` module namespace, specifically the `static` source implementation. This module-based approach allows for extensibility (e.g., dynamic IP lists from external services).
 
 ## Verification
 
 ### Caddy Config Verification ✅
+
 ```bash
 $ docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.http.servers.charon_server.trusted_proxies'
 {
@@ -111,14 +128,18 @@ $ docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.http.serv
 ```
 
 ### Test Results ✅
+
 All backend tests passing:
+
 ```bash
 $ cd /projects/Charon/backend && go test ./internal/caddy/...
 ok      github.com/Wikid82/charon/backend/internal/caddy        1.326s
 ```
 
 ### Docker Build ✅
+
 Image built successfully:
+
 ```bash
 $ docker build -t charon:local /projects/Charon/
 ...
@@ -126,7 +147,9 @@ $ docker build -t charon:local /projects/Charon/
 ```
 
 ### Container Deployment ✅
+
 Container running with trusted_proxies configuration active:
+
 ```bash
 $ docker ps --filter name=charon
 CONTAINER ID   IMAGE           ...   STATUS          PORTS
@@ -136,12 +159,15 @@ f6907e63082a   charon:local    ...   Up 5 minutes    0.0.0.0:80->80/tcp, 0.0.0.0
 ## End-to-End Testing Notes
 
 ### Blocking Test Status: Requires Additional Setup
+
 The full blocking test (verifying 403 response for banned IPs with X-Forwarded-For headers) requires:
+
 1. CrowdSec service running (currently GUI-controlled, not auto-started)
 2. API authentication configured for starting CrowdSec
 3. Decision added via `cscli decisions add`
 
 **Test command (for future validation):**
+
 ```bash
 # 1. Start CrowdSec (requires auth)
 curl -X POST -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/admin/crowdsec/start
@@ -208,6 +234,7 @@ This enables CrowdSec bouncer to correctly identify and block real client IPs wh
 ## Next Steps
 
 For production validation, complete the end-to-end blocking test by:
+
 1. Implementing automated CrowdSec startup in container entrypoint (or via systemd)
 2. Adding integration test script that:
    - Starts CrowdSec

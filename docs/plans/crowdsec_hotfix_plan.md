@@ -34,6 +34,7 @@ Additionally, the Live Log Viewer has a **WebSocket lifecycle bug** and the depr
 ### Backend Data Flow
 
 #### 1. SecurityConfig Model
+
 **File**: [backend/internal/models/security_config.go](../../backend/internal/models/security_config.go)
 
 ```go
@@ -45,6 +46,7 @@ type SecurityConfig struct {
 ```
 
 #### 2. GetStatus Handler - THE BUG
+
 **File**: [backend/internal/api/handlers/security_handler.go#L75-175](../../backend/internal/api/handlers/security_handler.go#L75-175)
 
 The `GetStatus` endpoint has a **three-tier priority chain** that causes the bug:
@@ -66,11 +68,13 @@ if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security
 ```
 
 **The Bug Flow**:
+
 1. User toggles CrowdSec ON → `security.crowdsec.enabled = "true"` → `crowdSecMode = "local"` ✓
 2. BUT if `security.crowdsec.mode = "disabled"` was previously set (by deprecated UI), it OVERRIDES step 1
 3. Final result: `crowdSecMode = "disabled"` even though user just toggled it ON
 
 #### 3. CrowdSec Start Handler - INCONSISTENT STATE UPDATE
+
 **File**: [backend/internal/api/handlers/crowdsec_handler.go#L184-240](../../backend/internal/api/handlers/crowdsec_handler.go#L184-240)
 
 ```go
@@ -88,9 +92,11 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 **Problem**: `Start()` updates `SecurityConfig.CrowdSecMode` but the frontend toggle updates `settings.security.crowdsec.enabled`. These are TWO DIFFERENT tables that both affect CrowdSec state.
 
 #### 4. Feature Flags Handler
+
 **File**: [backend/internal/api/handlers/feature_flags_handler.go](../../backend/internal/api/handlers/feature_flags_handler.go)
 
 Only manages THREE flags:
+
 - `feature.cerberus.enabled` (Cerberus master switch)
 - `feature.uptime.enabled`
 - `feature.crowdsec.console_enrollment`
@@ -100,6 +106,7 @@ Only manages THREE flags:
 ### Frontend Data Flow
 
 #### 1. Security.tsx (Cerberus Dashboard)
+
 **File**: [frontend/src/pages/Security.tsx#L65-110](../../frontend/src/pages/Security.tsx#L65-110)
 
 ```typescript
@@ -118,12 +125,14 @@ const crowdsecPowerMutation = useMutation({
 ```
 
 The mutation updates TWO places:
+
 1. `settings` table via `updateSetting()` → sets `security.crowdsec.enabled`
 2. `security_configs` table via `startCrowdsec()` backend → sets `CrowdSecMode`
 
 But `GetStatus` reads from BOTH and can get conflicting values.
 
 #### 2. CrowdSecConfig.tsx - DEPRECATED MODE TOGGLE
+
 **File**: [frontend/src/pages/CrowdSecConfig.tsx#L69-90](../../frontend/src/pages/CrowdSecConfig.tsx#L69-90)
 
 ```typescript
@@ -136,6 +145,7 @@ const updateModeMutation = useMutation({
 **This is the deprecated toggle that should not exist.** It sets `security.crowdsec.mode` which takes precedence over `security.crowdsec.enabled` in `GetStatus`.
 
 #### 3. LiveLogViewer.tsx - WEBSOCKET BUGS
+
 **File**: [frontend/src/components/LiveLogViewer.tsx#L100-150](../../frontend/src/components/LiveLogViewer.tsx#L100-150)
 
 ```typescript
@@ -152,12 +162,14 @@ useEffect(() => {
 ```
 
 **Problems**:
+
 1. `isPaused` in deps → toggling pause causes WebSocket disconnect/reconnect
 2. Navigation away unmounts component → `logs` state is lost
 3. `isConnected` is local state → lost on unmount, starts as `false` on remount
 4. No reconnection retry logic
 
 #### 4. Console Enrollment LAPI Check
+
 **File**: [frontend/src/pages/CrowdSecConfig.tsx#L85-120](../../frontend/src/pages/CrowdSecConfig.tsx#L85-120)
 
 ```typescript
@@ -176,6 +188,7 @@ const timer = setTimeout(() => {
 ### Problem 1: Dual-State Conflict (Toggle Shows Active But Not Working)
 
 **Evidence Chain**:
+
 ```
 User toggles ON → updateSetting('security.crowdsec.enabled', 'true')
                 → startCrowdsec() → sets SecurityConfig.CrowdSecMode = 'local'
@@ -188,6 +201,7 @@ If security.crowdsec.mode = 'disabled' (from deprecated UI) → Final: crowdSecM
 ```
 
 **Locations**:
+
 - Backend: [security_handler.go#L135-148](../../backend/internal/api/handlers/security_handler.go#L135-148)
 - Backend: [crowdsec_handler.go#L195-215](../../backend/internal/api/handlers/crowdsec_handler.go#L195-215)
 - Frontend: [Security.tsx#L65-110](../../frontend/src/pages/Security.tsx#L65-110)
@@ -195,6 +209,7 @@ If security.crowdsec.mode = 'disabled' (from deprecated UI) → Final: crowdSecM
 ### Problem 2: Live Log Viewer State Issues
 
 **Evidence**:
+
 - Shows "Disconnected" immediately after page load (initial state = false)
 - Logs appear because WebSocket connects quickly, but `isConnected` state update races
 - Navigation away loses all log entries (component state)
@@ -205,6 +220,7 @@ If security.crowdsec.mode = 'disabled' (from deprecated UI) → Final: crowdSecM
 ### Problem 3: Deprecated Mode Toggle Still Present
 
 **Evidence**: CrowdSecConfig.tsx still renders:
+
 ```tsx
 <Card>
   <h2>CrowdSec Mode</h2>
@@ -218,11 +234,13 @@ If security.crowdsec.mode = 'disabled' (from deprecated UI) → Final: crowdSecM
 ### Problem 4: Enrollment "Not Running" Error
 
 **Evidence**: User enables CrowdSec, immediately tries to enroll, sees error because:
+
 1. Process starts (running=true)
 2. LAPI takes 5-10s to initialize (lapi_ready=false)
 3. Frontend shows "not running" because it checks lapi_ready
 
 **Locations**:
+
 - Frontend: [CrowdSecConfig.tsx#L85-120](../../frontend/src/pages/CrowdSecConfig.tsx#L85-120)
 - Backend: [console_enroll.go#L165-190](../../backend/internal/crowdsec/console_enroll.go#L165-190)
 
@@ -233,10 +251,12 @@ If security.crowdsec.mode = 'disabled' (from deprecated UI) → Final: crowdSecM
 ### Phase 1: Backend Fixes (CRITICAL)
 
 #### 1.1 Fix GetStatus Priority Chain
+
 **File**: `backend/internal/api/handlers/security_handler.go`
 **Lines**: 143-148
 
 **Current Code (BUGGY)**:
+
 ```go
 // CrowdSec mode override (AFTER enabled check - causes override bug)
 setting = struct{ Value string }{}
@@ -264,9 +284,11 @@ if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security
 ```
 
 #### 1.2 Update Start/Stop to Sync State
+
 **File**: `backend/internal/api/handlers/crowdsec_handler.go`
 
 **In Start() after line 215**:
+
 ```go
 // Sync settings table (source of truth for UI)
 if h.DB != nil {
@@ -284,6 +306,7 @@ if h.DB != nil {
 ```
 
 **In Stop() after line 260**:
+
 ```go
 // Sync settings table
 if h.DB != nil {
@@ -298,9 +321,11 @@ if h.DB != nil {
 ```
 
 #### 1.3 Add Deprecation Warning for Mode Setting
+
 **File**: `backend/internal/api/handlers/settings_handler.go`
 
 Add validation in the update handler:
+
 ```go
 func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
     // ... existing code ...
@@ -316,11 +341,13 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 ### Phase 2: Frontend Fixes
 
 #### 2.1 Remove Deprecated Mode Toggle
+
 **File**: `frontend/src/pages/CrowdSecConfig.tsx`
 
 **Remove these sections**:
 
 1. **Lines 69-78** - Remove `updateModeMutation`:
+
 ```typescript
 // DELETE THIS ENTIRE MUTATION
 const updateModeMutation = useMutation({
@@ -336,7 +363,8 @@ const updateModeMutation = useMutation({
 })
 ```
 
-2. **Lines ~395-420** - Remove the Mode Card from render:
+1. **Lines ~395-420** - Remove the Mode Card from render:
+
 ```tsx
 // DELETE THIS ENTIRE CARD
 <Card>
@@ -354,7 +382,8 @@ const updateModeMutation = useMutation({
 </Card>
 ```
 
-3. **Replace with informational banner**:
+1. **Replace with informational banner**:
+
 ```tsx
 <Card>
   <div className="p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
@@ -367,9 +396,11 @@ const updateModeMutation = useMutation({
 ```
 
 #### 2.2 Fix Live Log Viewer
+
 **File**: `frontend/src/components/LiveLogViewer.tsx`
 
 **Fix 1**: Remove `isPaused` from dependencies (line 148):
+
 ```typescript
 // BEFORE:
 }, [currentMode, filters, securityFilters, isPaused, maxLogs, showBlockedOnly]);
@@ -379,6 +410,7 @@ const updateModeMutation = useMutation({
 ```
 
 **Fix 2**: Use ref for pause state in message handler:
+
 ```typescript
 // Add ref near other refs (around line 70):
 const isPausedRef = useRef(isPaused);
@@ -401,6 +433,7 @@ const handleSecurityMessage = (entry: SecurityLogEntry) => {
 ```
 
 **Fix 3**: Add reconnection retry logic:
+
 ```typescript
 // Add state for retry (around line 50):
 const [retryCount, setRetryCount] = useState(0);
@@ -443,9 +476,11 @@ const handleOpen = () => {
 ```
 
 #### 2.3 Improve Enrollment LAPI Messaging
+
 **File**: `frontend/src/pages/CrowdSecConfig.tsx`
 
 **Fix 1**: Increase initial delay (line 85):
+
 ```typescript
 // BEFORE:
 }, 3000) // Wait 3 seconds
@@ -455,6 +490,7 @@ const handleOpen = () => {
 ```
 
 **Fix 2**: Improve warning messages (around lines 200-250):
+
 ```tsx
 {/* Show LAPI initializing warning when process running but LAPI not ready */}
 {lapiStatusQuery.data && lapiStatusQuery.data.running && !lapiStatusQuery.data.lapi_ready && initialCheckComplete && (
@@ -496,6 +532,7 @@ const handleOpen = () => {
 ### Phase 3: Cleanup & Testing
 
 #### 3.1 Database Cleanup Migration (Optional)
+
 Create a one-time migration to remove conflicting settings:
 
 ```sql
@@ -504,14 +541,18 @@ DELETE FROM settings WHERE key = 'security.crowdsec.mode';
 ```
 
 #### 3.2 Backend Test Updates
+
 Add test cases for:
+
 1. `GetStatus` returns correct enabled state when only `security.crowdsec.enabled` is set
 2. `GetStatus` returns correct state when deprecated `security.crowdsec.mode` exists (should be ignored)
 3. `Start()` updates `settings` table
 4. `Stop()` updates `settings` table
 
 #### 3.3 Frontend Test Updates
+
 Add test cases for:
+
 1. `LiveLogViewer` doesn't reconnect when pause toggled
 2. `LiveLogViewer` retries connection on disconnect
 3. `CrowdSecConfig` doesn't render mode toggle

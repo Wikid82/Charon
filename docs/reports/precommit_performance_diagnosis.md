@@ -21,31 +21,35 @@ The pre-commit hooks are **hanging indefinitely** due to the `go-test-coverage` 
 Based on `.pre-commit-config.yaml`, the following hooks are configured:
 
 #### Standard Hooks (pre-commit/pre-commit-hooks)
+
 1. **end-of-file-fixer** - Fast (< 1 second)
 2. **trailing-whitespace** - Fast (< 1 second)
 3. **check-yaml** - Fast (< 1 second)
 4. **check-added-large-files** (max 2500 KB) - Fast (< 1 second)
 
 #### Local Hooks - Active (run on every commit)
-5. **dockerfile-check** - Fast (only on Dockerfile changes)
-6. **go-test-coverage** - **⚠️ CULPRIT - HANGS INDEFINITELY**
-7. **go-vet** - Moderate (~1-2 seconds)
-8. **check-version-match** - Fast (only on .version changes)
-9. **check-lfs-large-files** - Fast (< 1 second)
-10. **block-codeql-db-commits** - Fast (< 1 second)
-11. **block-data-backups-commit** - Fast (< 1 second)
-12. **frontend-type-check** - Slow (~21 seconds)
-13. **frontend-lint** - Moderate (~5 seconds)
+
+1. **dockerfile-check** - Fast (only on Dockerfile changes)
+2. **go-test-coverage** - **⚠️ CULPRIT - HANGS INDEFINITELY**
+3. **go-vet** - Moderate (~1-2 seconds)
+4. **check-version-match** - Fast (only on .version changes)
+5. **check-lfs-large-files** - Fast (< 1 second)
+6. **block-codeql-db-commits** - Fast (< 1 second)
+7. **block-data-backups-commit** - Fast (< 1 second)
+8. **frontend-type-check** - Slow (~21 seconds)
+9. **frontend-lint** - Moderate (~5 seconds)
 
 #### Local Hooks - Manual Stage (only run explicitly)
-14. **go-test-race** - Manual only
-15. **golangci-lint** - Manual only
-16. **hadolint** - Manual only
-17. **frontend-test-coverage** - Manual only
-18. **security-scan** - Manual only
+
+1. **go-test-race** - Manual only
+2. **golangci-lint** - Manual only
+3. **hadolint** - Manual only
+4. **frontend-test-coverage** - Manual only
+5. **security-scan** - Manual only
 
 #### Third-party Hooks - Manual Stage
-19. **markdownlint** - Manual only
+
+1. **markdownlint** - Manual only
 
 ---
 
@@ -54,12 +58,14 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 ### PRIMARY CULPRIT: `go-test-coverage` Hook
 
 **Evidence:**
+
 - Hook configuration: `entry: scripts/go-test-coverage.sh`
 - Runs on: All `.go` file changes (`files: '\.go$'`)
 - Pass filenames: `false` (always runs full test suite)
 - Command executed: `go test -race -v -mod=readonly -coverprofile=... ./...`
 
 **Why It Hangs:**
+
 1. **Full Test Suite Execution:** Runs ALL backend tests (155 test files across 20 packages)
 2. **Race Detector Enabled:** The `-race` flag adds significant overhead (5-10x slower)
 3. **Verbose Output:** The `-v` flag generates extensive output
@@ -68,12 +74,14 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 6. **Test Coverage Calculation:** After tests complete, coverage is calculated and filtered
 
 **Measured Performance:**
+
 - Timeout after 300 seconds (5 minutes) - never completes
 - Even on successful runs (without timeout), would take 2-5 minutes minimum
 
 ### SECONDARY SLOW HOOK: `frontend-type-check`
 
 **Evidence:**
+
 - Measured time: ~21 seconds
 - Runs TypeScript type checking on entire frontend
 - Resource intensive: 516 MB peak memory usage
@@ -85,6 +93,7 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 ## Environment Analysis
 
 ### File Count
+
 - **Total files in workspace:** 59,967 files
 - **Git-tracked files:** 776 files
 - **Test files (*.go):** 155 files
@@ -92,13 +101,16 @@ Based on `.pre-commit-config.yaml`, the following hooks are configured:
 - **Backend Go packages:** 20 packages
 
 ### Large Untracked Directories (Correctly Excluded)
+
 - `codeql-db/` - 187 MB (4,546 files)
 - `data/` - 46 MB
 - `.venv/` - 47 MB (2,348 files)
 - These are properly excluded via `.gitignore`
 
 ### Problematic Files in Workspace (Not Tracked)
+
 The following files exist but are correctly ignored:
+
 - Multiple `*.cover` files in `backend/` (coverage artifacts)
 - Multiple `*.sarif` files (CodeQL scan results)
 - Multiple `*.db` files (SQLite databases)
@@ -133,6 +145,7 @@ The following files exist but are correctly ignored:
 ### CRITICAL: Fix go-test-coverage Hook
 
 **Option 1: Move to Manual Stage (RECOMMENDED)**
+
 ```yaml
 - id: go-test-coverage
   name: Go Test Coverage
@@ -145,17 +158,20 @@ The following files exist but are correctly ignored:
 ```
 
 **Rationale:**
+
 - Running full test suite on every commit is excessive
 - Race detection is very slow and better suited for CI
 - Coverage checks should be run before PR submission, not every commit
 - Developers can run manually when needed: `pre-commit run go-test-coverage --all-files`
 
 **Option 2: Disable the Hook Entirely**
+
 ```yaml
 # Comment out or remove the entire go-test-coverage hook
 ```
 
 **Option 3: Run Tests Without Race Detector in Pre-commit**
+
 ```yaml
 - id: go-test-coverage
   name: Go Test Coverage (Fast)
@@ -164,6 +180,7 @@ The following files exist but are correctly ignored:
   files: '\.go$'
   pass_filenames: false
 ```
+
 - Remove `-race` flag
 - Add `-short` flag to skip long-running tests
 - This would reduce time from 300s+ to ~30s
@@ -171,6 +188,7 @@ The following files exist but are correctly ignored:
 ### SECONDARY: Optimize frontend-type-check (Optional)
 
 **Option 1: Move to Manual Stage**
+
 ```yaml
 - id: frontend-type-check
   name: Frontend TypeScript Check
@@ -183,6 +201,7 @@ The following files exist but are correctly ignored:
 
 **Option 2: Add Incremental Type Checking**
 Modify `frontend/tsconfig.json` to enable incremental compilation:
+
 ```json
 {
   "compilerOptions": {
@@ -257,11 +276,13 @@ repos:
 ## Impact Assessment
 
 ### Current State
+
 - **Total pre-commit time:** INFINITE (hangs)
 - **Developer experience:** BROKEN
 - **CI/CD reliability:** Blocked
 
 ### After Fix (Manual Stage)
+
 - **Total pre-commit time:** ~30 seconds
 - **Hooks remaining:**
   - Standard hooks: ~2s
@@ -272,6 +293,7 @@ repos:
 - **Developer experience:** Acceptable
 
 ### After Fix (Fast Go Tests)
+
 - **Total pre-commit time:** ~60 seconds
 - **Includes fast Go tests:** Yes
 - **Developer experience:** Acceptable but slower

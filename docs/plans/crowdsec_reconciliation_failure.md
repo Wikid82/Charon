@@ -74,6 +74,7 @@ volumes:
 ```
 
 **What happened:**
+
 1. SecurityConfig model was added to AutoMigrate in recent commits
 2. Container was rebuilt with `docker build -t charon:local .`
 3. Container started with `docker compose up -d`
@@ -100,6 +101,7 @@ if err := db.AutoMigrate(...); err != nil {
 ```
 
 Since the server started successfully, AutoMigrate either:
+
 - Ran successfully but found the DB already in sync (no new tables to add)
 - Never ran because the DB was opened but the tables already existed from a previous run
 
@@ -292,21 +294,27 @@ docker restart charon
 After applying any fix, verify:
 
 1. ✅ Check table exists:
+
    ```bash
    docker exec charon sqlite3 /app/data/charon.db "SELECT name FROM sqlite_master WHERE type='table' AND name='security_configs';"
    ```
+
    Expected: `security_configs`
 
 2. ✅ Check reconciliation logs:
+
    ```bash
    docker logs charon 2>&1 | grep -i "crowdsec reconciliation"
    ```
+
    Expected: "starting CrowdSec" or "already running" (NOT "skipped: SecurityConfig table not found")
 
 3. ✅ Check CrowdSec is running:
+
    ```bash
    docker exec charon ps aux | grep crowdsec
    ```
+
    Expected: `crowdsec -c /app/data/crowdsec/config/config.yaml`
 
 4. ✅ Check frontend Console Enrollment:

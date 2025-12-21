@@ -15,6 +15,10 @@ on:
   workflow_dispatch:
   workflow_call:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
@@ -287,6 +291,7 @@ jobs:
             traefik/whoami
 
       - name: Run Charon Container
+        timeout-minutes: 3
         run: |
           docker run -d \
             --name test-container \
@@ -294,6 +299,15 @@ jobs:
             -p 8080:8080 \
             -p 80:80 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+          # Wait for container to be healthy (max 2 minutes)
+          echo "Waiting for container to start..."
+          timeout 120s bash -c 'until docker exec test-container wget -q -O- http://localhost:8080/api/v1/health 2>/dev/null | grep -q "status"; do echo "Waiting..."; sleep 2; done' || {
+            echo "❌ Container failed to become healthy"
+            docker logs test-container
+            exit 1
+          }
+          echo "✅ Container is healthy"
       - name: Run Integration Test
         timeout-minutes: 5
         run: ./scripts/integration-test.sh

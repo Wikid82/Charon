@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh integration-test-coraza
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh integration-test-coraza" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Brief: Integration test for Coraza WAF using Docker Compose and built image
 # Steps:
 # 1. Build the local image: docker build -t charon:local .
-# 2. Start docker-compose.local.yml: docker compose -f docker-compose.local.yml up -d
+# 2. Start docker-compose.local.yml: docker compose -f .docker/compose/docker-compose.local.yml up -d
 # 3. Wait for API to be ready and then configure a ruleset that blocks a simple signature
 # 4. Request a path containing the signature and verify 403 (or WAF block response)
 
@@ -120,7 +129,7 @@ fi
 # NOTE: We intentionally do NOT mount $(pwd)/backend or $(pwd)/frontend/dist here.
 # In CI, frontend/dist does not exist (it's built inside the Docker image).
 # Mounting a non-existent directory would override the built frontend with an empty dir.
-# For local development with hot-reload, use docker-compose.local.yml instead.
+# For local development with hot-reload, use .docker/compose/docker-compose.local.yml instead.
 docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p 80:80 -p 443:443 -p 8080:8080 -p 2019:2019 -p 2345:2345 \
   -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_ADMIN_API=http://localhost:2019 -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \

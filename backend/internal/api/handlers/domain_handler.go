@@ -57,7 +57,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 			"domain",
 			"Domain Added",
 			fmt.Sprintf("Domain %s added", util.SanitizeForLog(domain.Name)),
-			map[string]interface{}{
+			map[string]any{
 				"Name":   util.SanitizeForLog(domain.Name),
 				"Action": "created",
 			},
@@ -77,7 +77,7 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 				"domain",
 				"Domain Deleted",
 				fmt.Sprintf("Domain %s deleted", util.SanitizeForLog(domain.Name)),
-				map[string]interface{}{
+				map[string]any{
 					"Name":   util.SanitizeForLog(domain.Name),
 					"Action": "deleted",
 				},

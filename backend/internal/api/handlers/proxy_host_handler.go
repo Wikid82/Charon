@@ -60,6 +60,7 @@ func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
 	router.POST("/proxy-hosts/test", h.TestConnection)
 	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
 }
 
 // List retrieves all proxy hosts.
@@ -83,7 +84,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	// Validate and normalize advanced config if present
 	if host.AdvancedConfig != "" {
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
 			return
@@ -128,7 +129,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			"proxy_host",
 			"Proxy Host Created",
 			fmt.Sprintf("Proxy Host %s (%s) created", util.SanitizeForLog(host.Name), util.SanitizeForLog(host.DomainNames)),
-			map[string]interface{}{
+			map[string]any{
 				"Name":    util.SanitizeForLog(host.Name),
 				"Domains": util.SanitizeForLog(host.DomainNames),
 				"Action":  "created",
@@ -163,7 +164,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	// Perform a partial update: only mutate fields present in payload
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -219,6 +220,25 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		host.Enabled = v
 	}
 
+	// Handle enable_standard_headers (nullable bool - uses pointer pattern like certificate_id)
+	if v, ok := payload["enable_standard_headers"]; ok {
+		if v == nil {
+			host.EnableStandardHeaders = nil // Explicit null → use default behavior
+		} else if b, ok := v.(bool); ok {
+			host.EnableStandardHeaders = &b // Explicit true/false
+		}
+	}
+
+	// Handle forward_auth_enabled (regular bool)
+	if v, ok := payload["forward_auth_enabled"].(bool); ok {
+		host.ForwardAuthEnabled = v
+	}
+
+	// Handle waf_disabled (regular bool)
+	if v, ok := payload["waf_disabled"].(bool); ok {
+		host.WAFDisabled = v
+	}
+
 	// Nullable foreign keys
 	if v, ok := payload["certificate_id"]; ok {
 		if v == nil {
@@ -263,8 +283,58 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Security Header Profile: update only if provided
+	if v, ok := payload["security_header_profile_id"]; ok {
+		logger := middleware.GetRequestLogger(c)
+		logger.WithField("host_uuid", uuidStr).WithField("raw_value", v).Debug("Processing security_header_profile_id update")
+
+		if v == nil {
+			logger.WithField("host_uuid", uuidStr).Debug("Setting security_header_profile_id to nil")
+			host.SecurityHeaderProfileID = nil
+		} else {
+			conversionSuccess := false
+			switch t := v.(type) {
+			case float64:
+				logger.WithField("host_uuid", uuidStr).WithField("type", "float64").WithField("value", t).Debug("Received security_header_profile_id as float64")
+				if id, ok := safeFloat64ToUint(t); ok {
+					host.SecurityHeaderProfileID = &id
+					conversionSuccess = true
+					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from float64")
+				} else {
+					logger.WithField("host_uuid", uuidStr).WithField("value", t).Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
+				}
+			case int:
+				logger.WithField("host_uuid", uuidStr).WithField("type", "int").WithField("value", t).Debug("Received security_header_profile_id as int")
+				if id, ok := safeIntToUint(t); ok {
+					host.SecurityHeaderProfileID = &id
+					conversionSuccess = true
+					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from int")
+				} else {
+					logger.WithField("host_uuid", uuidStr).WithField("value", t).Warn("Failed to convert security_header_profile_id from int: value is negative")
+				}
+			case string:
+				logger.WithField("host_uuid", uuidStr).WithField("type", "string").WithField("value", t).Debug("Received security_header_profile_id as string")
+				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+					id := uint(n)
+					host.SecurityHeaderProfileID = &id
+					conversionSuccess = true
+					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
+				} else {
+					logger.WithField("host_uuid", uuidStr).WithField("value", t).WithError(err).Warn("Failed to parse security_header_profile_id from string")
+				}
+			default:
+				logger.WithField("host_uuid", uuidStr).WithField("type", fmt.Sprintf("%T", v)).WithField("value", v).Warn("Unsupported type for security_header_profile_id")
+			}
+
+			if !conversionSuccess {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid security_header_profile_id: unable to convert value %v of type %T to uint", v, v)})
+				return
+			}
+		}
+	}
+
 	// Locations: replace only if provided
-	if v, ok := payload["locations"].([]interface{}); ok {
+	if v, ok := payload["locations"].([]any); ok {
 		// Rebind to []models.Location
 		b, _ := json.Marshal(v)
 		var locs []models.Location
@@ -285,7 +355,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	// Advanced config: normalize if provided and changed
 	if v, ok := payload["advanced_config"].(string); ok {
 		if v != "" && v != host.AdvancedConfig {
-			var parsed interface{}
+			var parsed any
 			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
 				return
@@ -369,7 +439,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 			"proxy_host",
 			"Proxy Host Deleted",
 			fmt.Sprintf("Proxy Host %s deleted", host.Name),
-			map[string]interface{}{
+			map[string]any{
 				"Name":   host.Name,
 				"Action": "deleted",
 			},
@@ -439,6 +509,107 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		}
 
 		updated++
+	}
+
+	// Apply Caddy config once for all updates
+	if updated > 0 && h.caddyManager != nil {
+		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to apply configuration: " + err.Error(),
+				"updated": updated,
+				"errors":  errors,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"updated": updated,
+		"errors":  errors,
+	})
+}
+
+// BulkUpdateSecurityHeadersRequest represents the request body for bulk security header updates.
+type BulkUpdateSecurityHeadersRequest struct {
+	HostUUIDs               []string `json:"host_uuids" binding:"required"`
+	SecurityHeaderProfileID *uint    `json:"security_header_profile_id"` // nil means remove profile
+}
+
+// BulkUpdateSecurityHeaders applies or removes a security header profile to multiple proxy hosts.
+func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
+	var req BulkUpdateSecurityHeadersRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.HostUUIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "host_uuids cannot be empty"})
+		return
+	}
+
+	// Validate profile exists if provided
+	if req.SecurityHeaderProfileID != nil {
+		var profile models.SecurityHeaderProfile
+		if err := h.service.DB().First(&profile, *req.SecurityHeaderProfileID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "security header profile not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	// Start transaction for atomic updates
+	tx := h.service.DB().Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	updated := 0
+	errors := []map[string]string{}
+
+	for _, hostUUID := range req.HostUUIDs {
+		var host models.ProxyHost
+		if err := tx.Where("uuid = ?", hostUUID).First(&host).Error; err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": "proxy host not found",
+			})
+			continue
+		}
+
+		// Update security header profile ID
+		host.SecurityHeaderProfileID = req.SecurityHeaderProfileID
+		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID").Updates(&host).Error; err != nil {
+			errors = append(errors, map[string]string{
+				"uuid":  hostUUID,
+				"error": err.Error(),
+			})
+			continue
+		}
+
+		updated++
+	}
+
+	// Commit transaction only if all updates succeeded
+	if len(errors) > 0 && updated == 0 {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "All updates failed",
+			"updated": updated,
+			"errors":  errors,
+		})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction: " + err.Error()})
+		return
 	}
 
 	// Apply Caddy config once for all updates

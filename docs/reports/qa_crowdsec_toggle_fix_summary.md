@@ -12,6 +12,7 @@
 This document provides a comprehensive summary of the QA validation performed on the CrowdSec toggle fix, which addresses the critical bug where the UI toggle showed "ON" but the CrowdSec process was not running after container restarts.
 
 ### Root Cause (Addressed)
+
 - **Problem**: Database disconnect between frontend (Settings table) and backend (SecurityConfig table)
 - **Symptom**: Toggle shows ON, but process not running after container restart
 - **Fix**: Auto-initialization now checks Settings table and creates SecurityConfig matching user's preference
@@ -46,6 +47,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Analysis**: The 0.6% gap is distributed across the entire codebase and not specific to the new changes. The CrowdSec reconciliation function itself has 76.9% coverage, which is reasonable for startup logic with many external dependencies.
 
 **Recommendation**:
+
 - **Option A** (Preferred): Add 3-4 tests for edge cases in other services to reach 85%
 - **Option B**: Temporarily adjust threshold to 84% (not recommended per copilot-instructions)
 - **Option C**: Accept the gap as the new code is well-tested (76.9% for critical function)
@@ -73,6 +75,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsEnabled`
 
 **Validates**:
+
 1. When SecurityConfig doesn't exist
 2. AND Settings table has `security.crowdsec.enabled = 'true'`
 3. THEN auto-init creates SecurityConfig with `crowdsec_mode = 'local'`
@@ -81,6 +84,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Result**: ✅ **PASS** (2.01s execution time validates actual process start)
 
 **Log Output Verified**:
+
 ```
 "CrowdSec reconciliation: no SecurityConfig found, checking Settings table for user preference"
 "CrowdSec reconciliation: found existing Settings table preference" enabled=true
@@ -95,6 +99,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled`
 
 **Validates**:
+
 1. When SecurityConfig doesn't exist
 2. AND Settings table has `security.crowdsec.enabled = 'false'`
 3. THEN auto-init creates SecurityConfig with `crowdsec_mode = 'disabled'`
@@ -103,6 +108,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Result**: ✅ **PASS** (0.01s - fast because process not started)
 
 **Log Output Verified**:
+
 ```
 "CrowdSec reconciliation: found existing Settings table preference" enabled=false
 "CrowdSec reconciliation: default SecurityConfig created from Settings preference" crowdsec_mode=disabled
@@ -114,6 +120,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings`
 
 **Validates**:
+
 1. Brand new installation with no Settings record
 2. Creates SecurityConfig with `crowdsec_mode = 'disabled'` (safe default)
 3. Does NOT start CrowdSec (user must explicitly enable)
@@ -125,6 +132,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Test**: `TestReconcileCrowdSecOnStartup_ModeLocal_AlreadyRunning`
 
 **Validates**:
+
 1. When SecurityConfig has `crowdsec_mode = 'local'`
 2. AND process is already running (PID exists)
 3. THEN reconciliation logs "already running" and exits
@@ -137,6 +145,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Test**: `TestReconcileCrowdSecOnStartup_ModeLocal_NotRunning_Starts`
 
 **Validates**:
+
 1. When SecurityConfig has `crowdsec_mode = 'local'`
 2. AND process is NOT running
 3. THEN reconciliation starts CrowdSec
@@ -156,6 +165,7 @@ This document provides a comprehensive summary of the QA validation performed on
 **Lines 46-93: Auto-Initialization Logic**
 
 **BEFORE (Broken)**:
+
 ```go
 if err == gorm.ErrRecordNotFound {
     defaultCfg := models.SecurityConfig{
@@ -167,6 +177,7 @@ if err == gorm.ErrRecordNotFound {
 ```
 
 **AFTER (Fixed)**:
+
 ```go
 if err == gorm.ErrRecordNotFound {
     // ✅ Check Settings table for existing preference
@@ -192,6 +203,7 @@ if err == gorm.ErrRecordNotFound {
 ```
 
 **Quality Metrics**:
+
 - ✅ No SQL injection (uses parameterized query)
 - ✅ Null-safe (checks error before accessing result)
 - ✅ Idempotent (can be called multiple times safely)
@@ -201,11 +213,13 @@ if err == gorm.ErrRecordNotFound {
 **Lines 112-118: Logging Enhancement**
 
 **Improvements**:
+
 - Changed `Debug` → `Info` (visible in production logs)
 - Added source attribution (which table triggered decision)
 - Clear condition logging
 
 **Example Logs**:
+
 ```
 ✅ "CrowdSec reconciliation: starting based on SecurityConfig mode='local'"
 ✅ "CrowdSec reconciliation: starting based on Settings table override"
@@ -219,21 +233,25 @@ if err == gorm.ErrRecordNotFound {
 ### Backend Impact: ✅ NO REGRESSIONS
 
 **Changed Components**:
+
 - `internal/services/crowdsec_startup.go` (reconciliation logic)
 
 **Unchanged Components** (critical for backward compatibility):
+
 - ✅ `internal/api/handlers/crowdsec_handler.go` (Start/Stop/Status endpoints)
 - ✅ `internal/api/routes/routes.go` (API routing)
 - ✅ `internal/models/security_config.go` (database schema)
 - ✅ `internal/models/setting.go` (database schema)
 
 **API Contracts**:
+
 - ✅ `/api/v1/admin/crowdsec/start` - Unchanged
 - ✅ `/api/v1/admin/crowdsec/stop` - Unchanged
 - ✅ `/api/v1/admin/crowdsec/status` - Unchanged
 - ✅ `/api/v1/admin/crowdsec/config` - Unchanged
 
 **Database Schema**:
+
 - ✅ No migrations required
 - ✅ No new columns added
 - ✅ No data transformation needed
@@ -241,11 +259,13 @@ if err == gorm.ErrRecordNotFound {
 ### Frontend Impact: ✅ NO CHANGES
 
 **Files Reviewed**:
+
 - `frontend/src/pages/Security.tsx` - No changes
 - `frontend/src/api/crowdsec.ts` - No changes
 - `frontend/src/hooks/useCrowdSec.ts` - No changes
 
 **UI Behavior**:
+
 - Toggle functionality unchanged
 - API calls unchanged
 - State management unchanged
@@ -253,11 +273,13 @@ if err == gorm.ErrRecordNotFound {
 ### Integration Impact: ✅ MINIMAL
 
 **Affected Flows**:
+
 1. ✅ Container startup (improved - now respects Settings)
 2. ✅ Docker restart (improved - auto-starts when enabled)
 3. ✅ First-time setup (unchanged - defaults to disabled)
 
 **Unaffected Flows**:
+
 - ✅ Manual start via UI
 - ✅ Manual stop via UI
 - ✅ Status polling
@@ -270,23 +292,28 @@ if err == gorm.ErrRecordNotFound {
 ### Vulnerability Assessment: ✅ NO NEW VULNERABILITIES
 
 **SQL Injection**: ✅ Safe
+
 - Uses parameterized queries: `db.Raw("SELECT value FROM settings WHERE key = ?", "security.crowdsec.enabled")`
 
 **Privilege Escalation**: ✅ Safe
+
 - Only reads from Settings table (no writes)
 - Creates SecurityConfig with predefined defaults
 - No user input processed during auto-init
 
 **Denial of Service**: ✅ Safe
+
 - Single query to Settings table (fast)
 - No loops or unbounded operations
 - 30-second timeout on process start
 
 **Information Disclosure**: ✅ Safe
+
 - Logs do not contain sensitive data
 - Settings values sanitized (only "true"/"false" checked)
 
 **Error Handling**: ✅ Robust
+
 - Gracefully handles missing Settings table
 - Continues operation if query fails (defaults to disabled)
 - Logs errors without exposing internals
@@ -298,6 +325,7 @@ if err == gorm.ErrRecordNotFound {
 ### Startup Performance Impact: ✅ NEGLIGIBLE
 
 **Additional Operations**:
+
 1. One SQL query to Settings table (~1ms)
 2. String comparison and logic (<1ms)
 3. Logging output (~1ms)
@@ -305,11 +333,13 @@ if err == gorm.ErrRecordNotFound {
 **Total Added Overhead**: ~2-3ms (negligible)
 
 **Measured Times**:
+
 - Fresh install (no Settings): 0.00s (cached test)
 - With Settings enabled: 2.01s (includes process start + verification)
 - With Settings disabled: 0.01s (no process start)
 
 **Analysis**: The 2.01s time in the "enabled" test is dominated by:
+
 - Process start: ~1.5s
 - Verification delay (sleep): 2.0s
 - The Settings table check adds <10ms
@@ -319,51 +349,61 @@ if err == gorm.ErrRecordNotFound {
 ## Edge Cases Covered
 
 ### ✅ Missing SecurityConfig + Missing Settings
+
 - **Behavior**: Creates SecurityConfig with `crowdsec_mode = "disabled"`
 - **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_NoSettings`
 - **Result**: ✅ PASS
 
 ### ✅ Missing SecurityConfig + Settings = "true"
+
 - **Behavior**: Creates SecurityConfig with `crowdsec_mode = "local"`, starts process
 - **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsEnabled`
 - **Result**: ✅ PASS
 
 ### ✅ Missing SecurityConfig + Settings = "false"
+
 - **Behavior**: Creates SecurityConfig with `crowdsec_mode = "disabled"`, skips start
 - **Test**: `TestReconcileCrowdSecOnStartup_NoSecurityConfig_SettingsDisabled`
 - **Result**: ✅ PASS
 
 ### ✅ SecurityConfig exists + mode = "local" + Already running
+
 - **Behavior**: Logs "already running", exits early
 - **Test**: `TestReconcileCrowdSecOnStartup_ModeLocal_AlreadyRunning`
 - **Result**: ✅ PASS
 
 ### ✅ SecurityConfig exists + mode = "local" + Not running
+
 - **Behavior**: Starts process, verifies stability
 - **Test**: `TestReconcileCrowdSecOnStartup_ModeLocal_NotRunning_Starts`
 - **Result**: ✅ PASS
 
 ### ✅ SecurityConfig exists + mode = "disabled"
+
 - **Behavior**: Logs "reconciliation skipped", does not start
 - **Test**: `TestReconcileCrowdSecOnStartup_ModeDisabled`
 - **Result**: ✅ PASS
 
 ### ✅ Process start fails
+
 - **Behavior**: Logs error, returns without panic
 - **Test**: `TestReconcileCrowdSecOnStartup_ModeLocal_StartError`
 - **Result**: ✅ PASS
 
 ### ✅ Status check fails
+
 - **Behavior**: Logs warning, returns without panic
 - **Test**: `TestReconcileCrowdSecOnStartup_StatusError`
 - **Result**: ✅ PASS
 
 ### ✅ Nil database
+
 - **Behavior**: Logs "skipped", returns early
 - **Test**: `TestReconcileCrowdSecOnStartup_NilDB`
 - **Result**: ✅ PASS
 
 ### ✅ Nil executor
+
 - **Behavior**: Logs "skipped", returns early
 - **Test**: `TestReconcileCrowdSecOnStartup_NilExecutor`
 - **Result**: ✅ PASS
@@ -375,6 +415,7 @@ if err == gorm.ErrRecordNotFound {
 ### Rollback Complexity: ✅ SIMPLE
 
 **Rollback Command**:
+
 ```bash
 git revert <commit-hash>
 docker build -t charon:latest .
@@ -382,11 +423,13 @@ docker restart charon
 ```
 
 **Database Impact**: None
+
 - No schema changes
 - No data migrations
 - Existing SecurityConfig records remain valid
 
 **User Impact**: Minimal
+
 - Toggle behavior reverts to previous state
 - Manual start/stop still works
 - No data loss

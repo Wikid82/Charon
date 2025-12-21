@@ -5,6 +5,10 @@ on:
     - cron: '17 7 * * 1' # Mondays at 07:17 UTC
   workflow_dispatch: {}
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write

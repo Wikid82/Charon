@@ -1,6 +1,6 @@
 # Repository Structure Reorganization Plan
 
-**Date**: December 15, 2025
+**Date**: December 21, 2025 (Revised)
 **Status**: Proposed
 **Risk Level**: Medium (requires CI/CD updates, Docker path changes)
 
@@ -8,9 +8,10 @@
 
 ## Executive Summary
 
-The repository root level currently contains **60+ items**, making it difficult to navigate and maintain. This plan proposes moving files into logical directories to achieve a cleaner, more organized structure with only **~15 essential items** at the root level.
+The repository root level currently contains **81 items**, making it difficult to navigate and maintain. This plan proposes moving files into logical directories to achieve a cleaner, more organized structure with only **~15 essential items** at the root level.
 
 **Key Benefits**:
+
 - Easier navigation for contributors
 - Clearer separation of concerns
 - Reduced cognitive load when browsing repository
@@ -27,7 +28,7 @@ The repository root level currently contains **60+ items**, making it difficult 
 |----------|-------|----------|--------|
 | **Docker Compose Files** | 5 | `docker-compose.yml`, `docker-compose.dev.yml`, etc. | 🔴 Scattered |
 | **CodeQL SARIF Files** | 6 | `codeql-go.sarif`, `codeql-results-*.sarif` | 🔴 Build artifacts at root |
-| **Implementation Docs** | 9 | `BULK_ACL_FEATURE.md`, `IMPLEMENTATION_SUMMARY.md`, etc. | 🔴 Should be in docs/ |
+| **Implementation Docs** | 16 | `BULK_ACL_FEATURE.md`, `IMPLEMENTATION_SUMMARY.md`, etc. | 🔴 Should be in docs/ |
 | **Config Files** | 8 | `eslint.config.js`, `.pre-commit-config.yaml`, `Makefile`, etc. | 🟡 Mixed - some stay, some move |
 | **Docker Files** | 3 | `Dockerfile`, `docker-entrypoint.sh`, `DOCKER.md` | 🟡 Could group |
 | **Core Docs** | 4 | `README.md`, `CONTRIBUTING.md`, `LICENSE`, `VERSION.md` | 🟢 Stay at root |
@@ -42,7 +43,7 @@ The repository root level currently contains **60+ items**, making it difficult 
 
 1. **Docker Compose Sprawl**: 5 files at root when they should be grouped
 2. **SARIF Pollution**: 6 CodeQL SARIF files are build artifacts (should be .gitignored)
-3. **Documentation Chaos**: 9 implementation/feature docs scattered at root instead of `docs/`
+3. **Documentation Chaos**: 16 implementation/feature docs scattered at root instead of `docs/`
 4. **Mixed Purposes**: Docker files, configs, docs, code all at same level
 
 ---
@@ -73,9 +74,10 @@ The repository root level currently contains **60+ items**, making it difficult 
 ├── .markdownlint.json          # Markdown lint config
 ├── .markdownlintrc             # Markdown lint config
 ├── .pre-commit-config.yaml     # Pre-commit hooks
-├── .sourcery.yml               # Sourcery config
+├── CHANGELOG.md                # Project changelog
 ├── Chiron.code-workspace       # VS Code workspace
 ├── CONTRIBUTING.md             # Contribution guidelines
+├── CONTRIBUTING_TRANSLATIONS.md # Translation guidelines
 ├── LICENSE                     # License file
 ├── Makefile                    # Build automation
 ├── README.md                   # Project readme
@@ -97,12 +99,14 @@ The repository root level currently contains **60+ items**, making it difficult 
 │   ├── docker-compose.dev.yml     # Dev override (moved from root)
 │   ├── docker-compose.local.yml   # Local override (moved from root)
 │   ├── docker-compose.remote.yml  # Remote override (moved from root)
+│   ├── docker-compose.override.yml   # Remote override (moved from root)
 │   └── README.md                  # Compose file documentation
 ├── docker-entrypoint.sh           # Entrypoint script (moved from root)
 └── README.md                      # Docker documentation (DOCKER.md renamed)
 ```
 
 **Why `.docker/` with a dot?**
+
 - Keeps it close to root-level Dockerfile (co-location)
 - Hidden by default in file browsers (reduces clutter)
 - Common pattern in monorepos (`.github/`, `.vscode/`)
@@ -143,6 +147,8 @@ docs/
 
 **New entries** to prevent SARIF files at root:
 
+> **Note**: The `*.sarif` pattern may already exist in `.gitignore`. Verify before adding to avoid duplication. The explicit patterns below ensure comprehensive coverage.
+
 ```gitignore
 # Add to "CodeQL & Security Scanning" section:
 # -----------------------------------------------------------------------------
@@ -161,7 +167,41 @@ docs/
 /codeql-results-go-backend.sarif
 /codeql-results-go-new.sarif
 /codeql-results-js.sarif
+
+# Test artifacts at root
+/block*.txt
+/final_block_test.txt
+
+# Debug/temp config files at root
+/caddy_*.json
+!package*.json
+
+# Trivy scan outputs at root
+/trivy-*.txt
 ```
+
+#### Local Override Migration
+
+**Important**: With the move to `.docker/compose/`, the standard `docker-compose.override.yml` behavior changes:
+
+- **Previous behavior**: `docker-compose.override.yml` at repository root was auto-applied by Docker Compose
+- **New behavior**: Override files at `.docker/compose/docker-compose.override.yml` must be explicitly referenced with `-f` flag
+
+**Updated .gitignore entry**:
+
+```gitignore
+# Local docker-compose override (new location)
+.docker/compose/docker-compose.override.yml
+```
+
+**Usage with new location**:
+
+```bash
+# Development with override
+docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-compose.override.yml up -d
+```
+
+**Note**: Users with existing `docker-compose.override.yml` at root should move it to `.docker/compose/` and update their workflow scripts accordingly.
 
 ---
 
@@ -198,6 +238,15 @@ docs/
 | `/SECURITY_CONFIG_PRIORITY.md` | `/docs/implementation/SECURITY_CONFIG_PRIORITY.md` | Move |
 | `/SECURITY_IMPLEMENTATION_PLAN.md` | `/docs/implementation/SECURITY_IMPLEMENTATION_PLAN.md` | Move |
 | `/WEBSOCKET_FIX_SUMMARY.md` | `/docs/implementation/WEBSOCKET_FIX_SUMMARY.md` | Move |
+| `/AGENT_SKILLS_MIGRATION_SUMMARY.md` | `/docs/implementation/AGENT_SKILLS_MIGRATION_SUMMARY.md` | Move |
+| `/I18N_IMPLEMENTATION_SUMMARY.md` | `/docs/implementation/I18N_IMPLEMENTATION_SUMMARY.md` | Move |
+| `/INVESTIGATION_SUMMARY.md` | `/docs/implementation/INVESTIGATION_SUMMARY.md` | Move |
+| `/PHASE_0_COMPLETE.md` | `/docs/implementation/PHASE_0_COMPLETE.md` | Move |
+| `/PHASE_3_COMPLETE.md` | `/docs/implementation/PHASE_3_COMPLETE.md` | Move |
+| `/PHASE_4_COMPLETE.md` | `/docs/implementation/PHASE_4_COMPLETE.md` | Move |
+| `/PHASE_5_COMPLETE.md` | `/docs/implementation/PHASE_5_COMPLETE.md` | Move |
+| `/QA_PHASE5_VERIFICATION_REPORT.md` | `/docs/implementation/QA_PHASE5_VERIFICATION_REPORT.md` | Move |
+| `/SECURITY_HEADERS_IMPLEMENTATION_SUMMARY.md` | `/docs/implementation/SECURITY_HEADERS_IMPLEMENTATION_SUMMARY.md` | Move |
 
 ### CodeQL SARIF Files → Delete (Add to .gitignore)
 
@@ -212,6 +261,20 @@ docs/
 
 **Note**: These are generated by CodeQL and should never be committed.
 
+### Test/Debug Files → Delete + Gitignore
+
+| Current Path | Action | Reason |
+|-------------|--------|--------|
+| `/block_test.txt` | Delete + gitignore | Test artifact |
+| `/blocking_test.txt` | Delete + gitignore | Test artifact |
+| `/final_block_test.txt` | Delete + gitignore | Test artifact |
+| `/caddy_config_qa.json` | Delete + gitignore | Debug config |
+| `/caddy_crowdsec_config.json` | Delete + gitignore | Debug config |
+| `/trivy-image-scan.txt` | Delete + gitignore | Scan output |
+| `/trivy-scan-output.txt` | Delete + gitignore | Scan output |
+
+**Note**: These are test/debug artifacts that should never be committed.
+
 ### Files Staying at Root
 
 | File | Reason |
@@ -220,17 +283,19 @@ docs/
 | `Makefile` | Build automation - standard location |
 | `README.md` | Project entry point - standard location |
 | `CONTRIBUTING.md` | Contributor guidelines - standard location |
+| `CONTRIBUTING_TRANSLATIONS.md` | Translation contribution guidelines - standard location |
 | `LICENSE` | License file - standard location |
 | `VERSION.md` | Version documentation - standard location |
+| `CHANGELOG.md` | Project changelog - standard location |
 | `Chiron.code-workspace` | VS Code workspace - standard location |
-| `go.work`, `go.work.sum` | Go workspace - required at root |
+| `go.work` | Go workspace - required at root |
+| `go.work.sum` | Go workspace checksums - required at root |
 | `package.json` | Root package (pre-commit, etc.) - required at root |
 | `eslint.config.js` | ESLint config - required at root |
 | `.codecov.yml` | Codecov config - required at root |
 | `.goreleaser.yaml` | GoReleaser config - required at root |
 | `.markdownlint.json` | Markdown lint config - required at root |
 | `.pre-commit-config.yaml` | Pre-commit config - required at root |
-| `.sourcery.yml` | Sourcery config - required at root |
 | All `.git*` files | Git configuration - required at root |
 | All hidden directories | Standard locations |
 
@@ -262,6 +327,7 @@ docs/
 ```
 
 **Specific Files**:
+
 - `.github/workflows/docker-lint.yml` - References Dockerfile (no change needed)
 - `.github/workflows/docker-build.yml` - May reference docker-compose
 - `.github/workflows/docker-publish.yml` - May reference docker-compose
@@ -286,6 +352,7 @@ docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-c
 ```
 
 **Specific Files**:
+
 - `scripts/coraza_integration.sh` - Uses docker-compose.local.yml
 - `scripts/crowdsec_integration.sh` - Uses docker-compose files
 - `scripts/crowdsec_startup_test.sh` - Uses docker-compose files
@@ -308,6 +375,7 @@ docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-c
 ```
 
 **Affected Tasks**:
+
 - "Build & Run: Local Docker Image"
 - "Build & Run: Local Docker Image No-Cache"
 - "Docker: Start Dev Environment"
@@ -352,6 +420,7 @@ COPY .docker/docker-entrypoint.sh /usr/local/bin/
 #### 6. Documentation Files
 
 **Files to Update**:
+
 - `README.md` - May reference docker-compose files or DOCKER.md
 - `CONTRIBUTING.md` - May reference docker-compose files
 - `docs/getting-started.md` - Likely references docker-compose
@@ -359,6 +428,7 @@ COPY .docker/docker-entrypoint.sh /usr/local/bin/
 - Any docs referencing implementation files moved to `docs/implementation/`
 
 **Search Pattern**:
+
 - `grep -r "docker-compose" docs/`
 - `grep -r "DOCKER.md" docs/`
 - `grep -r "BULK_ACL_FEATURE\|IMPLEMENTATION_SUMMARY" docs/`
@@ -395,6 +465,7 @@ docs/implementation/
 ### Phase 1: Preparation (No Breaking Changes)
 
 1. **Create new directories**:
+
    ```bash
    mkdir -p .docker/compose
    mkdir -p docs/implementation
@@ -406,6 +477,7 @@ docs/implementation/
    - `docs/implementation/README.md` (index of implementation docs)
 
 3. **Update .gitignore** (add SARIF exclusions):
+
    ```bash
    # Add to .gitignore:
    /*.sarif
@@ -414,6 +486,7 @@ docs/implementation/
    ```
 
 4. **Commit preparation**:
+
    ```bash
    git add .docker/ docs/implementation/ .gitignore
    git commit -m "chore: prepare directory structure for reorganization"
@@ -424,6 +497,7 @@ docs/implementation/
 **⚠️ WARNING**: This phase will break existing workflows until all references are updated.
 
 1. **Move Docker Compose files**:
+
    ```bash
    git mv docker-compose.yml .docker/compose/
    git mv docker-compose.dev.yml .docker/compose/
@@ -433,12 +507,14 @@ docs/implementation/
    ```
 
 2. **Move Docker support files**:
+
    ```bash
    git mv docker-entrypoint.sh .docker/
    git mv DOCKER.md .docker/README.md
    ```
 
 3. **Move implementation docs**:
+
    ```bash
    git mv BULK_ACL_FEATURE.md docs/implementation/
    git mv IMPLEMENTATION_SUMMARY.md docs/implementation/
@@ -448,9 +524,31 @@ docs/implementation/
    git mv SECURITY_CONFIG_PRIORITY.md docs/implementation/
    git mv SECURITY_IMPLEMENTATION_PLAN.md docs/implementation/
    git mv WEBSOCKET_FIX_SUMMARY.md docs/implementation/
+   git mv AGENT_SKILLS_MIGRATION_SUMMARY.md docs/implementation/
+   git mv I18N_IMPLEMENTATION_SUMMARY.md docs/implementation/
+   git mv INVESTIGATION_SUMMARY.md docs/implementation/
+   git mv PHASE_0_COMPLETE.md docs/implementation/
+   git mv PHASE_3_COMPLETE.md docs/implementation/
+   git mv PHASE_4_COMPLETE.md docs/implementation/
+   git mv PHASE_5_COMPLETE.md docs/implementation/
+   git mv QA_PHASE5_VERIFICATION_REPORT.md docs/implementation/
+   git mv SECURITY_HEADERS_IMPLEMENTATION_SUMMARY.md docs/implementation/
    ```
 
-4. **Delete SARIF files**:
+4. **Delete test/debug files**:
+
+   ```bash
+   git rm block_test.txt
+   git rm blocking_test.txt
+   git rm final_block_test.txt
+   git rm caddy_config_qa.json
+   git rm caddy_crowdsec_config.json
+   git rm trivy-image-scan.txt
+   git rm trivy-scan-output.txt
+   ```
+
+5. **Delete SARIF files**:
+
    ```bash
    git rm codeql-go.sarif
    git rm codeql-js.sarif
@@ -460,7 +558,8 @@ docs/implementation/
    git rm codeql-results-js.sarif
    ```
 
-5. **Commit file moves**:
+6. **Commit file moves**:
+
    ```bash
    git commit -m "chore: reorganize repository structure
 
@@ -469,6 +568,7 @@ docs/implementation/
    - Move DOCKER.md to .docker/README.md
    - Move implementation docs to docs/implementation/
    - Delete committed SARIF files (should be gitignored)
+   - Delete test/debug artifacts (should be gitignored)
    "
    ```
 
@@ -511,6 +611,7 @@ docs/implementation/
    - Update any docs referencing moved files
 
 8. **Commit all reference updates**:
+
    ```bash
    git add -A
    git commit -m "chore: update all references to reorganized files
@@ -528,12 +629,14 @@ docs/implementation/
 ### Phase 4: Verification
 
 1. **Local build test**:
+
    ```bash
    docker build -t charon:test .
    docker compose -f .docker/compose/docker-compose.yml build
    ```
 
 2. **Local run test**:
+
    ```bash
    docker compose -f .docker/compose/docker-compose.local.yml up -d
    # Verify Charon starts correctly
@@ -541,21 +644,25 @@ docs/implementation/
    ```
 
 3. **Backend tests**:
+
    ```bash
    cd backend && go test ./...
    ```
 
 4. **Frontend tests**:
+
    ```bash
    cd frontend && npm run test
    ```
 
 5. **Integration tests**:
+
    ```bash
    scripts/integration-test.sh
    ```
 
 6. **Pre-commit checks**:
+
    ```bash
    pre-commit run --all-files
    ```
@@ -567,6 +674,7 @@ docs/implementation/
 ### Phase 5: CI/CD Monitoring
 
 1. **Push to feature branch**:
+
    ```bash
    git checkout -b chore/reorganize-structure
    git push origin chore/reorganize-structure
@@ -587,6 +695,74 @@ docs/implementation/
    - Announce in project channels
    - Update any external documentation
    - Monitor for issues in next few days
+
+### Phase 6: Documentation & Enforcement
+
+1. **Create structure enforcement instructions**:
+   Create `.github/instructions/structure.instructions.md` to enforce the clean structure going forward:
+
+   ```markdown
+   ---
+   applyTo: '*'
+   description: 'Repository structure guidelines to maintain organized file placement'
+   ---
+
+   # Repository Structure Guidelines
+
+   ## Root Level Rules
+
+   The repository root should contain ONLY:
+   - Essential config files (`.gitignore`, `.pre-commit-config.yaml`, `Makefile`, etc.)
+   - Standard project files (`README.md`, `CONTRIBUTING.md`, `LICENSE`, `CHANGELOG.md`)
+   - Go workspace files (`go.work`, `go.work.sum`)
+   - VS Code workspace (`Chiron.code-workspace`)
+   - Primary `Dockerfile` (entrypoint and compose files live in `.docker/`)
+
+   ## File Placement Rules
+
+   ### Implementation/Feature Documentation
+   - **Location**: `docs/implementation/`
+   - **Pattern**: `*_SUMMARY.md`, `*_IMPLEMENTATION.md`, `*_COMPLETE.md`, `*_FEATURE.md`
+   - **Never** place implementation docs at root
+
+   ### Docker Compose Files
+   - **Location**: `.docker/compose/`
+   - **Files**: `docker-compose.yml`, `docker-compose.*.yml`
+   - **Override**: Local overrides go in `.docker/compose/docker-compose.override.yml`
+
+   ### Docker Support Files
+   - **Location**: `.docker/`
+   - **Files**: `docker-entrypoint.sh`, Docker documentation
+
+   ### Test Artifacts
+   - **Never commit**: `*.sarif`, `*_test.txt`, `*.cover` files at root
+   - **Location**: Test outputs should go to `test-results/` or be gitignored
+
+   ### Debug/Temp Config Files
+   - **Never commit**: Temporary JSON configs like `caddy_*.json` at root
+   - **Location**: Use `configs/` for persistent configs, gitignore temp files
+
+   ## Before Creating New Files
+
+   Ask yourself:
+   1. Is this a standard project file? → Root is OK
+   2. Is this implementation documentation? → `docs/implementation/`
+   3. Is this Docker-related? → `.docker/` or `.docker/compose/`
+   4. Is this a test artifact? → `test-results/` or gitignore
+   5. Is this a script? → `scripts/`
+   6. Is this runtime config? → `configs/`
+
+   ## Enforcement
+
+   Pre-commit hooks and CI will flag files placed incorrectly at root level.
+   ```
+
+2. **Update .pre-commit-config.yaml** (optional future enhancement):
+   Consider adding a hook to detect new files at root that don't match allowed patterns.
+
+3. **Announce changes**:
+   - Update `CHANGELOG.md` with structure reorganization entry
+   - Notify contributors of new file placement guidelines
 
 ---
 
@@ -631,6 +807,7 @@ If critical issues arise after merge:
 ## Success Criteria
 
 ✅ **Before Merge**:
+
 - [ ] All file moves completed
 - [ ] All references updated
 - [ ] Local Docker build succeeds
@@ -641,14 +818,17 @@ If critical issues arise after merge:
 - [ ] Pre-commit checks pass
 - [ ] All VS Code tasks work
 - [ ] Documentation updated
+- [ ] Structure instructions file created at `.github/instructions/structure.instructions.md`
+- [ ] Test/debug files cleaned up and gitignored
 - [ ] PR reviewed by maintainers
 
 ✅ **After Merge**:
+
 - [ ] All CI/CD workflows pass
 - [ ] Docker images build successfully
 - [ ] No broken links in documentation
 - [ ] No regressions reported
-- [ ] Root level has ~15 items (down from 60+)
+- [ ] Root level has ~15 items (down from 81)
 
 ---
 

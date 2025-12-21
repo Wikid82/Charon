@@ -246,7 +246,7 @@ describe('CrowdSecConfig', () => {
     renderWithProviders(<CrowdSecConfig />)
     await waitFor(() => expect(screen.getByText('CrowdSec Configuration')).toBeInTheDocument())
     expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
+    expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
   })
 
   it('renders preset preview and applies with backup when backend apply is unavailable', async () => {
@@ -337,7 +337,7 @@ describe('CrowdSecConfig', () => {
     const applyBtn = screen.getByTestId('apply-preset-btn') as HTMLButtonElement
     expect(applyBtn.disabled).toBe(true)
 
-    await userEvent.click(screen.getByText('Use cached preview'))
+    await userEvent.click(screen.getByText('Use Cached'))
     await waitFor(() => expect(screen.getByTestId('preset-preview')).toHaveTextContent('cached-preview'))
   })
 

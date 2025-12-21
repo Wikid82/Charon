@@ -17,6 +17,7 @@ The CrowdSec integration implementation has a **critical bug** that prevents the
 **Test Command:** `scripts/crowdsec_startup_test.sh`
 
 **Results:**
+
 - ✅ No fatal 'no datasource enabled' error
 - ❌ **LAPI health check failed** (port 8085 not responding)
 - ✅ Acquisition config exists with datasource definition
@@ -36,6 +37,7 @@ The CrowdSec process (PID 3469) **was** running during initial container startup
 5. CrowdSec LAPI never starts, bouncer cannot connect
 
 **Evidence:**
+
 ```bash
 # PID file shows 51
 $ docker exec charon cat /app/data/crowdsec/crowdsec.pid
@@ -50,6 +52,7 @@ $ docker exec charon ps aux | grep 51 | grep -v grep
 ```
 
 **Bouncer Errors:**
+
 ```
 {"level":"error","logger":"crowdsec","msg":"auth-api: auth with api key failed return nil response,
 error: dial tcp 127.0.0.1:8085: connect: connection refused","instance_id":"2977e81e"}
@@ -60,6 +63,7 @@ error: dial tcp 127.0.0.1:8085: connect: connection refused","instance_id":"2977
 ### 2. ❌ Traffic Blocking Validation (FAILED)
 
 **Test Commands:**
+
 ```bash
 # Added test ban
 $ docker exec charon cscli decisions add --ip 203.0.113.99 --duration 10m --type ban --reason "Test ban for QA validation"
@@ -81,11 +85,13 @@ $ curl -H "X-Forwarded-For: 203.0.113.99" http://localhost:8080/
 **Status:** ❌ **FAILED** - Traffic NOT blocked
 
 **Root Cause:**
+
 - CrowdSec LAPI is not running (see Test #1)
 - Caddy bouncer cannot retrieve decisions from LAPI
 - Without active decisions, all traffic passes through
 
 **Bouncer Status (Before LAPI Failure):**
+
 ```
 ----------------------------------------------------------------------------------------------
  Name           IP Address  Valid  Last API pull         Type              Version  Auth Type
@@ -101,18 +107,22 @@ $ curl -H "X-Forwarded-For: 203.0.113.99" http://localhost:8080/
 ### 3. ✅ Regression Tests
 
 #### Backend Tests
+
 **Command:** `cd backend && go test ./...`
 
 **Result:** ✅ **PASS**
+
 ```
 All tests passed (cached)
 Coverage: 85.1% (meets 85% requirement)
 ```
 
 #### Frontend Tests
+
 **Command:** `cd frontend && npm run test`
 
 **Result:** ✅ **PASS**
+
 ```
 Test Files  91 passed (91)
 Tests       956 passed | 2 skipped (958)
@@ -126,6 +136,7 @@ Duration    66.45s
 **Command:** `cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
 
 **Result:** ✅ **PASS**
+
 ```
 No vulnerabilities found.
 ```
@@ -137,6 +148,7 @@ No vulnerabilities found.
 **Command:** `source .venv/bin/activate && pre-commit run --all-files`
 
 **Result:** ✅ **PASS**
+
 ```
 Go Vet...................................................................Passed
 Check .version matches latest Git tag....................................Passed
@@ -153,6 +165,7 @@ Coverage: 85.1% (minimum required 85%)
 ## Critical Bug: PID Reuse Vulnerability
 
 ### Issue Location
+
 **File:** `backend/internal/api/handlers/crowdsec_exec.go`
 **Function:** `DefaultCrowdsecExecutor.Status()` (lines 95-122)
 
@@ -170,12 +183,14 @@ The Status() function checks if a process exists with the stored PID but **does 
 ### Evidence
 
 **PID File Content:**
+
 ```bash
 $ docker exec charon cat /app/data/crowdsec/crowdsec.pid
 51
 ```
 
 **Actual Process at PID 51:**
+
 ```bash
 $ docker exec charon cat /proc/51/cmdline | tr '\0' ' '
 /usr/local/bin/dlv ** telemetry **
@@ -184,6 +199,7 @@ $ docker exec charon cat /proc/51/cmdline | tr '\0' ' '
 **NOT CrowdSec!** The PID was recycled.
 
 **Reconciliation Log (Incorrect):**
+
 ```json
 {"level":"info","msg":"CrowdSec reconciliation: already running","pid":51,"time":"2025-12-15T16:14:44-05:00"}
 ```
@@ -277,6 +293,7 @@ func isCrowdSecProcess(pid int) bool {
 ### Implementation Details
 
 The fix requires:
+
 1. **Process name validation** by reading `/proc/{pid}/cmdline`
 2. **String matching** to verify "crowdsec" appears in command line
 3. **PID file cleanup** when recycled PID detected (optional, but recommended)
@@ -291,6 +308,7 @@ Store both PID and process start time in the PID file to detect reboots/recyclin
 ## Configuration Validation
 
 ### Environment Variables ✅
+
 ```bash
 CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
 CHARON_SECURITY_CROWDSEC_API_KEY=charonbouncerkey2024
@@ -302,6 +320,7 @@ FEATURE_CERBERUS_ENABLED=true
 **Status:** ✅ All correct
 
 ### Caddy CrowdSec App Configuration ✅
+
 ```json
 {
   "api_key": "charonbouncerkey2024",
@@ -314,6 +333,7 @@ FEATURE_CERBERUS_ENABLED=true
 **Status:** ✅ Correct configuration
 
 ### CrowdSec Binary Installation ✅
+
 ```bash
 -rwxr-xr-x    1 root     root      71772280 Dec 15 12:50 /usr/local/bin/crowdsec
 ```
@@ -340,24 +360,24 @@ FEATURE_CERBERUS_ENABLED=true
 
 ### Short-term Improvements (P1 - High)
 
-3. **Enhanced Health Checks**
+1. **Enhanced Health Checks**
    - Add LAPI connectivity check to container healthcheck
    - Alert on prolonged bouncer connection failures
    - **Impact:** Faster detection of CrowdSec issues
 
-4. **PID File Management**
+2. **PID File Management**
    - Move PID file to `/var/run/crowdsec.pid` (standard location)
    - Use systemd-style PID management if available
    - Auto-cleanup on graceful shutdown
 
 ### Long-term Enhancements (P2 - Medium)
 
-5. **Monitoring Dashboard**
+1. **Monitoring Dashboard**
    - Add CrowdSec status indicator to UI
    - Show LAPI health, bouncer connection status
    - Display decision count and recent blocks
 
-6. **Auto-recovery**
+2. **Auto-recovery**
    - Implement watchdog timer for CrowdSec process
    - Auto-restart on crash detection
    - Exponential backoff for restart attempts
@@ -384,16 +404,19 @@ FEATURE_CERBERUS_ENABLED=true
 **Issue:** Stale PID file prevents CrowdSec LAPI from starting after container restart.
 
 **Impact:**
+
 - ❌ CrowdSec does NOT function after restart
 - ❌ Traffic blocking DOES NOT work
 - ✅ All other components (tests, security, code quality) pass
 
 **Required Before Release:**
+
 1. Fix stale PID detection in reconciliation logic
 2. Add restart integration test
 3. Verify traffic blocking works after container restart
 
 **Timeline:**
+
 - **Fix Implementation:** 30-60 minutes
 - **Testing & Validation:** 30 minutes
 - **Total:** ~1.5 hours
@@ -403,18 +426,21 @@ FEATURE_CERBERUS_ENABLED=true
 ## Test Evidence
 
 ### Files Examined
+
 - [docker-entrypoint.sh](../../docker-entrypoint.sh) - CrowdSec initialization
 - [docker-compose.override.yml](../../docker-compose.override.yml) - Environment variables
 - Backend tests: All passed (cached)
 - Frontend tests: 956 passed, 2 skipped
 
 ### Container State
+
 - Container: `charon` (Up 43 minutes, healthy)
 - CrowdSec binary: Installed at `/usr/local/bin/crowdsec` (71MB)
 - LAPI port 8085: Not bound (process not running)
 - Bouncer: Registered but cannot connect
 
 ### Logs Analyzed
+
 - Container logs: 50+ lines analyzed
 - CrowdSec logs: Connection refused errors every 10s
 - Reconciliation logs: False "already running" messages

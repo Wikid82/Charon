@@ -73,7 +73,7 @@ func TestPullThenApplyIntegration(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, pullResp.Code, "Pull should succeed")
 
-	var pullResult map[string]interface{}
+	var pullResult map[string]any
 	err = json.Unmarshal(pullResp.Body.Bytes(), &pullResult)
 	require.NoError(t, err)
 	require.Equal(t, "pulled", pullResult["status"])
@@ -100,7 +100,7 @@ func TestPullThenApplyIntegration(t *testing.T) {
 	// This should NOT return "preset not cached" error
 	require.Equal(t, http.StatusOK, applyResp.Code, "Apply should succeed after pull. Response: %s", applyResp.Body.String())
 
-	var applyResult map[string]interface{}
+	var applyResult map[string]any
 	err = json.Unmarshal(applyResp.Body.Bytes(), &applyResult)
 	require.NoError(t, err)
 	require.Equal(t, "applied", applyResult["status"], "Apply status should be 'applied'")
@@ -144,7 +144,7 @@ func TestApplyWithoutPullReturnsProperError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, applyResp.Code, "Apply should fail without cache")
 
-	var errorResult map[string]interface{}
+	var errorResult map[string]any
 	err = json.Unmarshal(applyResp.Body.Bytes(), &errorResult)
 	require.NoError(t, err)
 

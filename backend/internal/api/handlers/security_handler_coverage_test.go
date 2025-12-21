@@ -28,7 +28,7 @@ func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/config", handler.UpdateConfig)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":            "default",
 		"admin_whitelist": "192.168.1.0/24",
 		"waf_mode":        "monitor",
@@ -41,7 +41,7 @@ func TestSecurityHandler_UpdateConfig_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.NotNil(t, resp["config"])
@@ -57,7 +57,7 @@ func TestSecurityHandler_UpdateConfig_DefaultName(t *testing.T) {
 	router.POST("/security/config", handler.UpdateConfig)
 
 	// Payload without name - should default to "default"
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"admin_whitelist": "10.0.0.0/8",
 	}
 	body, _ := json.Marshal(payload)
@@ -106,7 +106,7 @@ func TestSecurityHandler_GetConfig_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.NotNil(t, resp["config"])
@@ -126,7 +126,7 @@ func TestSecurityHandler_GetConfig_NotFound(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Nil(t, resp["config"])
@@ -151,10 +151,10 @@ func TestSecurityHandler_ListDecisions_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 2)
 }
 
@@ -177,10 +177,10 @@ func TestSecurityHandler_ListDecisions_WithLimit(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 2)
 }
 
@@ -194,7 +194,7 @@ func TestSecurityHandler_CreateDecision_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/decisions", handler.CreateDecision)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"ip":      "10.0.0.1",
 		"action":  "block",
 		"reason":  "manual block",
@@ -219,7 +219,7 @@ func TestSecurityHandler_CreateDecision_MissingIP(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/decisions", handler.CreateDecision)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"action": "block",
 	}
 	body, _ := json.Marshal(payload)
@@ -241,7 +241,7 @@ func TestSecurityHandler_CreateDecision_MissingAction(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/decisions", handler.CreateDecision)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"ip": "10.0.0.1",
 	}
 	body, _ := json.Marshal(payload)
@@ -290,10 +290,10 @@ func TestSecurityHandler_ListRuleSets_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	rulesets := resp["rulesets"].([]interface{})
+	rulesets := resp["rulesets"].([]any)
 	assert.Len(t, rulesets, 2)
 }
 
@@ -307,7 +307,7 @@ func TestSecurityHandler_UpsertRuleSet_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/rulesets", handler.UpsertRuleSet)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "test-ruleset",
 		"mode":    "blocking",
 		"content": "# Test rules",
@@ -331,7 +331,7 @@ func TestSecurityHandler_UpsertRuleSet_MissingName(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/rulesets", handler.UpsertRuleSet)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"mode":    "blocking",
 		"content": "# Test rules",
 	}
@@ -381,7 +381,7 @@ func TestSecurityHandler_DeleteRuleSet_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.True(t, resp["deleted"].(bool))
@@ -585,7 +585,7 @@ func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.False(t, resp["enabled"].(bool))
 }
@@ -694,7 +694,7 @@ func TestSecurityHandler_GenerateBreakGlass_NoConfig(t *testing.T) {
 
 	// Should succeed and create a new config with the token
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp["token"])

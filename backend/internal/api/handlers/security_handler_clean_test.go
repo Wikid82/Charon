@@ -50,7 +50,7 @@ func TestSecurityHandler_GetStatus_Clean(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	// response body intentionally not printed in clean test
@@ -76,10 +76,10 @@ func TestSecurityHandler_Cerberus_DBOverride(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	cerb := response["cerberus"].(map[string]interface{})
+	cerb := response["cerberus"].(map[string]any)
 	assert.Equal(t, true, cerb["enabled"].(bool))
 }
 
@@ -112,10 +112,10 @@ func TestSecurityHandler_ACL_DBOverride(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	acl := response["acl"].(map[string]interface{})
+	acl := response["acl"].(map[string]any)
 	assert.Equal(t, true, acl["enabled"].(bool))
 }
 
@@ -130,7 +130,7 @@ func TestSecurityHandler_GenerateBreakGlass_ReturnsToken(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	token, ok := resp["token"].(string)
@@ -160,12 +160,12 @@ func TestSecurityHandler_ACL_DisabledWhenCerberusOff(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	cerb := response["cerberus"].(map[string]interface{})
+	cerb := response["cerberus"].(map[string]any)
 	assert.Equal(t, false, cerb["enabled"].(bool))
-	acl := response["acl"].(map[string]interface{})
+	acl := response["acl"].(map[string]any)
 	// ACL must be false because Cerberus is disabled
 	assert.Equal(t, false, acl["enabled"].(bool))
 }
@@ -189,10 +189,10 @@ func TestSecurityHandler_CrowdSec_Mode_DBOverride(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	cs := response["crowdsec"].(map[string]interface{})
+	cs := response["crowdsec"].(map[string]any)
 	assert.Equal(t, "local", cs["mode"].(string))
 }
 
@@ -212,10 +212,10 @@ func TestSecurityHandler_CrowdSec_ExternalMappedToDisabled_DBOverride(t *testing
 	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	cs := response["crowdsec"].(map[string]interface{})
+	cs := response["crowdsec"].(map[string]any)
 	assert.Equal(t, "disabled", cs["mode"].(string))
 	assert.Equal(t, false, cs["enabled"].(bool))
 }
@@ -236,10 +236,10 @@ func TestSecurityHandler_ExternalModeMappedToDisabled(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/security/status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	cs := response["crowdsec"].(map[string]interface{})
+	cs := response["crowdsec"].(map[string]any)
 	assert.Equal(t, "disabled", cs["mode"].(string))
 	assert.Equal(t, false, cs["enabled"].(bool))
 }

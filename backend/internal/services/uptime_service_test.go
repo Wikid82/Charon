@@ -952,7 +952,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		}
 		db.Create(&monitor)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"max_retries": 5,
 		}
 
@@ -973,7 +973,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		}
 		db.Create(&monitor)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"interval": 120,
 		}
 
@@ -987,7 +987,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		ns := NewNotificationService(db)
 		us := NewUptimeService(db, ns)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"max_retries": 5,
 		}
 
@@ -1008,7 +1008,7 @@ func TestUptimeService_UpdateMonitor(t *testing.T) {
 		}
 		db.Create(&monitor)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"max_retries": 10,
 			"interval":    300,
 		}

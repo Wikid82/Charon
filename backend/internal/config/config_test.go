@@ -139,3 +139,69 @@ func TestLoad_SecurityConfig(t *testing.T) {
 	assert.Equal(t, "enabled", cfg.Security.WAFMode)
 	assert.True(t, cfg.Security.CerberusEnabled)
 }
+
+func TestLoad_DatabasePathError(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a file where the data directory should be created
+	blockingFile := filepath.Join(tempDir, "blocking")
+	f, err := os.Create(blockingFile)
+	require.NoError(t, err)
+	f.Close()
+
+	// Try to use a path that requires creating a dir inside the blocking file
+	os.Setenv("CHARON_DB_PATH", filepath.Join(blockingFile, "data", "test.db"))
+	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	defer func() {
+		os.Unsetenv("CHARON_DB_PATH")
+		os.Unsetenv("CHARON_CADDY_CONFIG_DIR")
+		os.Unsetenv("CHARON_IMPORT_DIR")
+	}()
+
+	_, err = Load()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ensure data directory")
+}
+
+func TestLoad_ACMEStaging(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Test ACME staging enabled
+	os.Setenv("CHARON_ACME_STAGING", "true")
+	defer os.Unsetenv("CHARON_ACME_STAGING")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.ACMEStaging)
+
+	// Test ACME staging disabled
+	os.Setenv("CHARON_ACME_STAGING", "false")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.ACMEStaging)
+}
+
+func TestLoad_DebugMode(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("CHARON_DB_PATH", filepath.Join(tempDir, "test.db"))
+	os.Setenv("CHARON_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	os.Setenv("CHARON_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+
+	// Test debug mode enabled
+	os.Setenv("CHARON_DEBUG", "true")
+	defer os.Unsetenv("CHARON_DEBUG")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.Debug)
+
+	// Test debug mode disabled
+	os.Setenv("CHARON_DEBUG", "false")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.Debug)
+}

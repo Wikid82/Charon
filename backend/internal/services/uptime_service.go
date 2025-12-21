@@ -405,7 +405,7 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 
 	if statusChanged {
 		host.LastStatusChange = time.Now()
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"host_name": host.Name,
 			"host_ip":   host.Host,
 			"old":       oldStatus,
@@ -518,7 +518,7 @@ func (s *UptimeService) sendHostDownNotification(host *models.UptimeHost, downMo
 	s.DB.Save(host)
 
 	// Send external notification
-	data := map[string]interface{}{
+	data := map[string]any{
 		"HostName":     host.Name,
 		"HostIP":       host.Host,
 		"Status":       "DOWN",
@@ -760,7 +760,7 @@ func (s *UptimeService) flushPendingNotification(hostID string) {
 	)
 
 	// Send external
-	data := map[string]interface{}{
+	data := map[string]any{
 		"HostName":     pending.hostName,
 		"Status":       "DOWN",
 		"ServiceCount": len(pending.downMonitors),
@@ -790,7 +790,7 @@ func (s *UptimeService) sendRecoveryNotification(monitor models.UptimeMonitor, d
 		sb.String(),
 	)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Name":     monitor.Name,
 		"Status":   "UP",
 		"Downtime": downtime,
@@ -878,14 +878,14 @@ func (s *UptimeService) GetMonitorHistory(id string, limit int) ([]models.Uptime
 	return heartbeats, result.Error
 }
 
-func (s *UptimeService) UpdateMonitor(id string, updates map[string]interface{}) (*models.UptimeMonitor, error) {
+func (s *UptimeService) UpdateMonitor(id string, updates map[string]any) (*models.UptimeMonitor, error) {
 	var monitor models.UptimeMonitor
 	if err := s.DB.First(&monitor, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 
 	// Whitelist allowed fields to update
-	allowedUpdates := make(map[string]interface{})
+	allowedUpdates := make(map[string]any)
 	if val, ok := updates["max_retries"]; ok {
 		allowedUpdates["max_retries"] = val
 	}

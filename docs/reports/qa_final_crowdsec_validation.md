@@ -38,6 +38,7 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 ## Detailed Evidence
 
 ### 1. Database Enable Status
+
 **Method:** Environment variables in `docker-compose.override.yml`
 
 ```yaml
@@ -50,9 +51,11 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Configured correctly
 
 ### 2. App-Level Config Verification
+
 **Command:** `docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.crowdsec'`
 
 **Output:**
+
 ```json
 {
   "api_key": "charonbouncerkey2024",
@@ -65,9 +68,11 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Non-null and properly configured
 
 ### 3. Bouncer Registration
+
 **Command:** `docker exec charon cscli bouncers list`
 
 **Output:**
+
 ```
 -----------------------------------------------------------------------------------------------------
  Name                  IP Address  Valid  Last API pull         Type              Version  Auth Type
@@ -79,9 +84,11 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Registered and actively pulling
 
 ### 4. Decision Creation
+
 **Command:** `docker exec charon cscli decisions add --ip 172.16.0.99 --duration 15m --reason "FINAL QA TEST"`
 
 **Output:**
+
 ```
 +----+--------+----------------+---------------+--------+---------+----+--------+------------+----------+
 | ID | Source |   Scope:Value  |     Reason    | Action | Country | AS | Events | expiration | Alert ID |
@@ -93,9 +100,11 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Decision created successfully
 
 ### 5. Decision Streaming Verification
+
 **Command:** `docker exec charon curl -s 'http://localhost:8085/v1/decisions/stream?startup=true' -H "X-Api-Key: charonbouncerkey2024"`
 
 **Output:**
+
 ```json
 {"deleted":null,"new":[{"duration":"13m58s","id":1,"origin":"cscli","scenario":"FINAL QA TEST","scope":"Ip","type":"ban","u...
 ```
@@ -103,11 +112,13 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Decision is being streamed from LAPI
 
 ### 6. Traffic Blocking Test (CRITICAL FAILURE)
+
 **Test Command:** `curl -H "X-Forwarded-For: 172.16.0.99" http://localhost/ -v`
 
 **Expected Result:** `HTTP/1.1 403 Forbidden` with CrowdSec block message
 
 **Actual Result:**
+
 ```
 < HTTP/1.1 200 OK
 < Accept-Ranges: bytes
@@ -119,6 +130,7 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ❌ FAIL - Request was **NOT blocked**
 
 ### 7. Bouncer Handler Verification
+
 **Command:** `docker exec charon curl -s http://localhost:2019/config/ | jq -r '.apps.http.servers | ... | select(.handler == "crowdsec")'`
 
 **Output:** Found crowdsec handler in multiple routes (5+ instances)
@@ -126,6 +138,7 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 **Status:** ✅ Handler is registered in routes
 
 ### 8. Normal Traffic Test
+
 **Command:** `curl http://localhost/ -v`
 
 **Result:** `HTTP/1.1 200 OK`
@@ -139,12 +152,14 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 ### Primary Issue: Bouncer Not Transitioning from Startup Mode
 
 **Evidence:**
+
 - Bouncer continuously polls with `startup=true` parameter
 - Log entries show: `GET /v1/decisions/stream?additional_pull=false&community_pull=false&startup=true`
 - This parameter should only be present during initial bouncer startup
 - After initial pull, bouncer should switch to continuous streaming mode
 
 **Technical Details:**
+
 1. Caddy CrowdSec bouncer initializes in "startup" mode
 2. Makes initial pull to get all existing decisions
 3. **Should transition to streaming mode** where it receives decision updates in real-time
@@ -172,6 +187,7 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 ## Configuration State
 
 ### Caddy CrowdSec App Config
+
 ```json
 {
   "api_key": "charonbouncerkey2024",
@@ -182,11 +198,13 @@ CrowdSec infrastructure is operational but **traffic blocking is NOT working**.
 ```
 
 **Missing Fields:**
+
 - ❌ `trusted_proxies` - Required for X-Forwarded-For support
 - ❌ `captcha_provider` - Optional but recommended
 - ❌ `ban_template_path` - Custom block page
 
 ### Environment Variables
+
 ```bash
 CHARON_SECURITY_CROWDSEC_MODE=local
 CHARON_SECURITY_CROWDSEC_API_URL=http://localhost:8080  # ⚠️ Should be 8085
@@ -247,6 +265,7 @@ CERBERUS_SECURITY_CERBERUS_ENABLED=true
 #### Immediate Actions
 
 1. **Add trusted_proxies configuration** to Caddy CrowdSec app
+
    ```json
    {
      "api_key": "charonbouncerkey2024",

@@ -105,7 +105,7 @@ func TestLogCorruptionError(t *testing.T) {
 	t.Run("logs with context", func(t *testing.T) {
 		// This just verifies it doesn't panic - actual log output is not captured
 		err := errors.New("database disk image is malformed")
-		ctx := map[string]interface{}{
+		ctx := map[string]any{
 			"operation":  "GetMonitorHistory",
 			"table":      "uptime_heartbeats",
 			"monitor_id": "test-uuid",
@@ -153,7 +153,7 @@ func TestCheckIntegrity(t *testing.T) {
 func TestLogCorruptionError_EmptyContext(t *testing.T) {
 	// Test with empty context map
 	err := errors.New("database disk image is malformed")
-	emptyCtx := map[string]interface{}{}
+	emptyCtx := map[string]any{}
 
 	// Should not panic with empty context
 	LogCorruptionError(err, emptyCtx)

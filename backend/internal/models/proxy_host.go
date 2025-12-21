@@ -8,10 +8,10 @@ import (
 type ProxyHost struct {
 	ID                   uint            `json:"id" gorm:"primaryKey"`
 	UUID                 string          `json:"uuid" gorm:"uniqueIndex;not null"`
-	Name                 string          `json:"name"`
-	DomainNames          string          `json:"domain_names" gorm:"not null"` // Comma-separated list
+	Name                 string          `json:"name" gorm:"index"`
+	DomainNames          string          `json:"domain_names" gorm:"not null;index"` // Comma-separated list
 	ForwardScheme        string          `json:"forward_scheme" gorm:"default:http"`
-	ForwardHost          string          `json:"forward_host" gorm:"not null"`
+	ForwardHost          string          `json:"forward_host" gorm:"not null;index"`
 	ForwardPort          int             `json:"forward_port" gorm:"not null"`
 	SSLForced            bool            `json:"ssl_forced" gorm:"default:false"`
 	HTTP2Support         bool            `json:"http2_support" gorm:"default:true"`
@@ -20,10 +20,10 @@ type ProxyHost struct {
 	BlockExploits        bool            `json:"block_exploits" gorm:"default:true"`
 	WebsocketSupport     bool            `json:"websocket_support" gorm:"default:false"`
 	Application          string          `json:"application" gorm:"default:none"` // none, plex, jellyfin, emby, homeassistant, nextcloud, vaultwarden
-	Enabled              bool            `json:"enabled" gorm:"default:true"`
-	CertificateID        *uint           `json:"certificate_id"`
+	Enabled              bool            `json:"enabled" gorm:"default:true;index"`
+	CertificateID        *uint           `json:"certificate_id" gorm:"index"`
 	Certificate          *SSLCertificate `json:"certificate" gorm:"foreignKey:CertificateID"`
-	AccessListID         *uint           `json:"access_list_id"`
+	AccessListID         *uint           `json:"access_list_id" gorm:"index"`
 	AccessList           *AccessList     `json:"access_list" gorm:"foreignKey:AccessListID"`
 	Locations            []Location      `json:"locations" gorm:"foreignKey:ProxyHostID;constraint:OnDelete:CASCADE"`
 	AdvancedConfig       string          `json:"advanced_config" gorm:"type:text"`
@@ -35,6 +35,23 @@ type ProxyHost struct {
 
 	// WAF override - when true, disables WAF for this specific host
 	WAFDisabled bool `json:"waf_disabled" gorm:"default:false"`
+
+	// Security Headers Configuration
+	// Either reference a profile OR use inline settings
+	SecurityHeaderProfileID *uint                  `json:"security_header_profile_id" gorm:"index"`
+	SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
+
+	// Inline security header settings (used when no profile is selected)
+	// These override profile settings if both are set
+	SecurityHeadersEnabled bool   `json:"security_headers_enabled" gorm:"default:true"`
+	SecurityHeadersCustom  string `json:"security_headers_custom" gorm:"type:text"` // JSON for custom headers
+
+	// EnableStandardHeaders controls whether standard proxy headers are added
+	// Default: true for NEW hosts, false for EXISTING hosts (via migration/seed update)
+	// When true: Adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Port
+	// When false: Old behavior (headers only with WebSocket or application-specific)
+	// X-Forwarded-For is handled natively by Caddy (not explicitly set)
+	EnableStandardHeaders *bool `json:"enable_standard_headers,omitempty" gorm:"default:true"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

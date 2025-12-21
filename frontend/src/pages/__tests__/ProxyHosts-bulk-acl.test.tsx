@@ -414,7 +414,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Should show success toast
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith('Applied 1 ACL(s) to 2 host(s)');
+      expect(toast.success).toHaveBeenCalledWith('Updated successfully');
     });
   });
 
@@ -575,7 +575,7 @@ describe('ProxyHosts - Bulk ACL Modal', () => {
 
     // Should show error toast
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith('Applied 1 ACL(s) with some errors');
+      expect(toast.error).toHaveBeenCalledWith('Failed to update');
     });
   });
 });

@@ -107,6 +107,12 @@ ignore:
   - "backend/internal/metrics/**"
   - "backend/internal/trace/**"
 
+  # Backend test utilities (test infrastructure, not application code)
+  # These files contain testing helpers that take *testing.T and are only
+  # callable from *_test.go files - they cannot be covered by production code
+  - "backend/internal/api/handlers/testdb.go"
+  - "backend/internal/api/handlers/test_helpers.go"
+
   # ==========================================================================
   # Frontend test utilities and helpers
   # These are test infrastructure, not application code
