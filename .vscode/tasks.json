@@ -173,21 +173,21 @@
         {
             "label": "Docker: Start Local Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.local.yml up -d",
+            "command": "docker compose -f .docker/compose/docker-compose.local.yml up -d",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: Stop Local Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.local.yml down",
+            "command": "docker compose -f .docker/compose/docker-compose.local.yml down",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: View Logs",
             "type": "shell",
-            "command": "docker compose logs -f",
+            "command": "docker compose -f .docker/compose/docker-compose.yml logs -f",
             "group": "none",
             "problemMatcher": [],
             "isBackground": true

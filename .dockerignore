@@ -138,6 +138,8 @@ docs/
 # -----------------------------------------------------------------------------
 docker-compose*.yml
 **/Dockerfile.*
+.docker/compose/
+docs/implementation/
 
 # -----------------------------------------------------------------------------
 # GoReleaser & dist artifacts

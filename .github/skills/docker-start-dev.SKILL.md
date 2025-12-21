@@ -41,13 +41,13 @@ metadata:
 
 ## Overview
 
-Starts the Charon development Docker Compose environment in detached mode. This brings up all required services including the application, database, CrowdSec, and any other dependencies defined in `docker-compose.dev.yml`.
+Starts the Charon development Docker Compose environment in detached mode. This brings up all required services including the application, database, CrowdSec, and any other dependencies defined in `.docker/compose/docker-compose.dev.yml`.
 
 ## Prerequisites
 
 - Docker Engine installed and running
 - Docker Compose V2 installed
-- `docker-compose.dev.yml` file in repository root
+- `.docker/compose/docker-compose.dev.yml` file in repository
 - Network access (for pulling images)
 - Sufficient system resources (CPU, memory, disk)
 
@@ -71,13 +71,13 @@ Use the task: **Docker: Start Dev Environment**
 
 ## Parameters
 
-This skill accepts no parameters. Services are configured in `docker-compose.dev.yml`.
+This skill accepts no parameters. Services are configured in `.docker/compose/docker-compose.dev.yml`.
 
 ## Environment Variables
 
 This skill uses environment variables defined in:
 - `.env` (if present)
-- `docker-compose.dev.yml` environment section
+- `.docker/compose/docker-compose.dev.yml` environment section
 - Shell environment
 
 ## Outputs
@@ -99,7 +99,7 @@ This skill uses environment variables defined in:
 
 ## What Gets Started
 
-Services defined in `docker-compose.dev.yml`:
+Services defined in `.docker/compose/docker-compose.dev.yml`:
 1. **charon-app**: Main application container
 2. **charon-db**: SQLite or PostgreSQL database
 3. **crowdsec**: Security bouncer
@@ -123,7 +123,7 @@ Docker Compose respects `depends_on` directives:
 .github/skills/docker-start-dev-scripts/run.sh
 
 # Verify services are running
-docker compose -f docker-compose.dev.yml ps
+docker compose -f .docker/compose/docker-compose.dev.yml ps
 ```
 
 ### Example 2: Start and View Logs
@@ -133,7 +133,7 @@ docker compose -f docker-compose.dev.yml ps
 .github/skills/docker-start-dev-scripts/run.sh
 
 # Follow logs from all services
-docker compose -f docker-compose.dev.yml logs -f
+docker compose -f .docker/compose/docker-compose.dev.yml logs -f
 ```
 
 ### Example 3: Start and Test Application
@@ -155,18 +155,18 @@ After starting, verify services are healthy:
 
 ```bash
 # Check service status
-docker compose -f docker-compose.dev.yml ps
+docker compose -f .docker/compose/docker-compose.dev.yml ps
 
 # Check specific service logs
-docker compose -f docker-compose.dev.yml logs app
+docker compose -f .docker/compose/docker-compose.dev.yml logs app
 
 # Execute command in running container
-docker compose -f docker-compose.dev.yml exec app /bin/sh
+docker compose -f .docker/compose/docker-compose.dev.yml exec app /bin/sh
 ```
 
 ## Port Mappings
 
-Default development ports (check `docker-compose.dev.yml`):
+Default development ports (check `.docker/compose/docker-compose.dev.yml`):
 - **8080**: Application HTTP
 - **8443**: Application HTTPS (if configured)
 - **9000**: Admin panel (if configured)
@@ -213,7 +213,7 @@ After starting, verify:
 
 1. **All Services Running**:
    ```bash
-   docker compose -f docker-compose.dev.yml ps
+   docker compose -f .docker/compose/docker-compose.dev.yml ps
    ```
 
 2. **Application Accessible**:
@@ -223,7 +223,7 @@ After starting, verify:
 
 3. **No Error Logs**:
    ```bash
-   docker compose -f docker-compose.dev.yml logs --tail=50
+   docker compose -f .docker/compose/docker-compose.dev.yml logs --tail=50
    ```
 
 ## Related Skills
@@ -246,9 +246,9 @@ After starting, verify:
 ### Services Won't Start
 
 1. Check Docker daemon: `docker info`
-2. Validate compose file: `docker compose -f docker-compose.dev.yml config`
+2. Validate compose file: `docker compose -f .docker/compose/docker-compose.dev.yml config`
 3. Check available resources: `docker stats`
-4. Review logs: `docker compose -f docker-compose.dev.yml logs`
+4. Review logs: `docker compose -f .docker/compose/docker-compose.dev.yml logs`
 
 ### Slow Startup
 
@@ -266,4 +266,4 @@ After starting, verify:
 
 **Last Updated**: 2025-12-20
 **Maintained by**: Charon Project
-**Compose File**: `docker-compose.dev.yml`
+**Compose File**: `.docker/compose/docker-compose.dev.yml`

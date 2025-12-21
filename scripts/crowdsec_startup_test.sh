@@ -318,7 +318,7 @@ if [ "$CRITICAL_FAILURE" = "true" ]; then
     echo "To fix:"
     echo "  1. Ensure configs/crowdsec/acquis.yaml exists with 'source:' definition"
     echo "  2. Ensure Dockerfile copies acquis.yaml to /etc/crowdsec.dist/"
-    echo "  3. Ensure docker-entrypoint.sh copies configs to /etc/crowdsec/"
+    echo "  3. Ensure .docker/docker-entrypoint.sh copies configs to /etc/crowdsec/"
     echo ""
     exit 1
 fi

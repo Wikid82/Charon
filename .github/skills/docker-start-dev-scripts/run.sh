@@ -18,4 +18,4 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 # Start development environment with Docker Compose
-exec docker compose -f docker-compose.dev.yml up -d
+exec docker compose -f .docker/compose/docker-compose.dev.yml up -d

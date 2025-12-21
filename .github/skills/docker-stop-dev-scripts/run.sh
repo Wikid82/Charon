@@ -18,4 +18,4 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$REPO_ROOT"
 
 # Stop development environment with Docker Compose
-exec docker compose -f docker-compose.dev.yml down
+exec docker compose -f .docker/compose/docker-compose.dev.yml down
