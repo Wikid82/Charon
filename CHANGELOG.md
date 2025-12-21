@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Repository Structure Reorganization**: Cleaned up root directory for better navigation
+  - Moved docker-compose files to `.docker/compose/`
+  - Moved `docker-entrypoint.sh` to `.docker/`
+  - Moved 16 implementation docs to `docs/implementation/`
+  - Deleted test artifacts (`block_test.txt`, `caddy_*.json`, etc.)
+  - Added `.github/instructions/structure.instructions.md` for ongoing structure enforcement
+
 ### Added
 
 - **Bulk Apply Security Header Profiles**: Apply or remove security header profiles from multiple proxy hosts simultaneously via the Bulk Apply modal

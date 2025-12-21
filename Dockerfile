@@ -308,7 +308,7 @@ COPY --from=backend-builder /go/bin/dlv /usr/local/bin/dlv
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Copy startup script
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY .docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Copy utility scripts (used for DB recovery and maintenance)

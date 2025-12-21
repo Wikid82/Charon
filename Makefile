@@ -82,7 +82,7 @@ clean:
 
 # Build Docker image
 docker-build:
-	docker-compose build
+	docker compose -f .docker/compose/docker-compose.yml build
 
 # Build Docker image with version
 docker-build-versioned:
@@ -99,19 +99,19 @@ docker-build-versioned:
 
 # Run Docker containers (production)
 docker-run:
-	docker-compose up -d
+	docker compose -f .docker/compose/docker-compose.yml up -d
 
 # Run Docker containers (development)
 docker-dev:
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+	docker compose -f .docker/compose/docker-compose.yml -f .docker/compose/docker-compose.dev.yml up
 
 # Stop Docker containers
 docker-stop:
-	docker-compose down
+	docker compose -f .docker/compose/docker-compose.yml down
 
 # View Docker logs
 docker-logs:
-	docker-compose logs -f
+	docker compose -f .docker/compose/docker-compose.yml logs -f
 
 # Development mode (requires tmux)
 dev:

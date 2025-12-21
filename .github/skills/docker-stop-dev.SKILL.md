@@ -49,7 +49,7 @@ Stops and removes all containers defined in the Charon development Docker Compos
 - Docker Engine installed and running
 - Docker Compose V2 installed
 - Development environment previously started
-- `docker-compose.dev.yml` file in repository root
+- `.docker/compose/docker-compose.dev.yml` file in repository
 
 ## Usage
 
@@ -96,7 +96,7 @@ This skill requires no environment variables.
 
 ## What Gets Stopped
 
-Services defined in `docker-compose.dev.yml`:
+Services defined in `.docker/compose/docker-compose.dev.yml`:
 1. **Application Containers**: Charon main app
 2. **Database Containers**: SQLite/PostgreSQL services
 3. **Security Services**: CrowdSec bouncer
@@ -110,7 +110,7 @@ The `down` command preserves:
 - **Images**: Docker images remain cached
 - **Configs**: Configuration files unchanged
 
-To remove volumes, use `docker compose -f docker-compose.dev.yml down -v`
+To remove volumes, use `docker compose -f .docker/compose/docker-compose.dev.yml down -v`
 
 ## Shutdown Order
 
@@ -129,14 +129,14 @@ Docker Compose stops services in reverse dependency order:
 .github/skills/docker-stop-dev-scripts/run.sh
 
 # Verify services are stopped
-docker compose -f docker-compose.dev.yml ps
+docker compose -f .docker/compose/docker-compose.dev.yml ps
 ```
 
 ### Example 2: Stop and Remove Volumes
 
 ```bash
 # Stop services and remove data volumes
-docker compose -f docker-compose.dev.yml down -v
+docker compose -f .docker/compose/docker-compose.dev.yml down -v
 ```
 
 ### Example 3: Stop and Verify Cleanup
@@ -269,4 +269,4 @@ docker rmi $(docker images -q "*charon*")
 
 **Last Updated**: 2025-12-20
 **Maintained by**: Charon Project
-**Compose File**: `docker-compose.dev.yml`
+**Compose File**: `.docker/compose/docker-compose.dev.yml`
