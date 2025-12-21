@@ -264,6 +264,42 @@ Now that you have the basics:
 
 ---
 
+## Staying Updated
+
+### Security Update Notifications
+
+To receive notifications about security updates:
+
+**1. GitHub Watch**
+
+Click "Watch" → "Custom" → Select "Security advisories" on the [Charon repository](https://github.com/Wikid82/Charon)
+
+**2. Automatic Updates with Watchtower**
+
+```yaml
+services:
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=86400  # Check daily
+```
+
+**3. Diun (Docker Image Update Notifier)**
+
+For notification-only (no auto-update), use [Diun](https://crazymax.dev/diun/). This sends alerts when new images are available without automatically updating.
+
+**Best Practices:**
+
+- Subscribe to GitHub security advisories for early vulnerability warnings
+- Review changelogs before updating production deployments
+- Test updates in a staging environment first
+- Keep backups before major version upgrades
+
+---
+
 ## Stuck?
 
 **[Ask for help](https://github.com/Wikid82/charon/discussions)** — The community is friendly!
