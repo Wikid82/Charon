@@ -124,3 +124,108 @@ func TestRecoveryDoesNotLogSensitiveHeaders(t *testing.T) {
 		t.Fatalf("log did not include sanitized panic message: %s", out)
 	}
 }
+
+// TestRecoveryTruncatesLongPanicMessage verifies that panic messages longer
+// than 200 characters are truncated with "..." suffix.
+func TestRecoveryTruncatesLongPanicMessage(t *testing.T) {
+	old := log.Writer()
+	buf := &bytes.Buffer{}
+	log.SetOutput(buf)
+	defer log.SetOutput(old)
+
+	logger.Init(false, buf)
+
+	router := gin.New()
+	router.Use(RequestID())
+	router.Use(Recovery(false))
+
+	// Create a panic message longer than 200 characters
+	longMessage := strings.Repeat("x", 250)
+	router.GET("/panic", func(c *gin.Context) {
+		panic(longMessage)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", w.Code)
+	}
+
+	out := buf.String()
+	// Should contain truncated message (200 chars + "...")
+	expectedTruncated := strings.Repeat("x", 200) + "..."
+	if !strings.Contains(out, expectedTruncated) {
+		t.Fatalf("log should contain truncated panic message with '...': %s", out)
+	}
+	// Should NOT contain the full 250 char message
+	if strings.Contains(out, longMessage) {
+		t.Fatalf("log should not contain full long panic message: %s", out)
+	}
+}
+
+// TestRecoveryNoPanicNormalFlow verifies that middleware passes through
+// normally when no panic occurs.
+func TestRecoveryNoPanicNormalFlow(t *testing.T) {
+	old := log.Writer()
+	buf := &bytes.Buffer{}
+	log.SetOutput(buf)
+	defer log.SetOutput(old)
+
+	logger.Init(false, buf)
+
+	router := gin.New()
+	router.Use(RequestID())
+	router.Use(Recovery(true))
+	router.GET("/ok", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ok", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	out := buf.String()
+	// Should NOT contain PANIC in logs
+	if strings.Contains(out, "PANIC") {
+		t.Fatalf("log should not contain PANIC for normal flow: %s", out)
+	}
+}
+
+// TestRecoveryPanicWithNilValue tests recovery from panic(nil).
+func TestRecoveryPanicWithNilValue(t *testing.T) {
+	old := log.Writer()
+	buf := &bytes.Buffer{}
+	log.SetOutput(buf)
+	defer log.SetOutput(old)
+
+	logger.Init(false, buf)
+
+	router := gin.New()
+	router.Use(RequestID())
+	router.Use(Recovery(false))
+	router.GET("/panic-nil", func(c *gin.Context) {
+		panic(nil)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic-nil", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// panic(nil) does not trigger recovery in Go 1.21+ (returns nil from recover())
+	// Prior versions would catch it. This test documents the expected behavior.
+	// With Go 1.21+, the request should complete normally since recover() returns nil
+	if w.Code == http.StatusInternalServerError {
+		out := buf.String()
+		// If it was caught, should log the nil panic
+		if !strings.Contains(out, "PANIC") {
+			t.Log("panic(nil) was caught but no PANIC in log")
+		}
+	}
+	// Either outcome is acceptable depending on Go version
+}

@@ -1748,3 +1748,418 @@ func TestUpdate_ExistingHostsBackwardCompatibility(t *testing.T) {
 	require.False(t, host.ForwardAuthEnabled)
 	require.False(t, host.WAFDisabled)
 }
+
+// Tests for BulkUpdateSecurityHeaders
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_Success(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create a security header profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:        uuid.NewString(),
+		Name:        "Test Security Profile",
+		HSTSEnabled: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create multiple proxy hosts
+	host1 := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Host 1",
+		DomainNames:   "host1.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8001,
+		Enabled:       true,
+	}
+	host2 := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Host 2",
+		DomainNames:   "host2.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8002,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host1).Error)
+	require.NoError(t, db.Create(host2).Error)
+
+	// Apply security profile to both hosts
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"security_header_profile_id":%d}`, host1.UUID, host2.UUID, profile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(2), result["updated"])
+	require.Empty(t, result["errors"])
+
+	// Verify hosts have security profile assigned
+	var updatedHost1 models.ProxyHost
+	require.NoError(t, db.First(&updatedHost1, "uuid = ?", host1.UUID).Error)
+	require.NotNil(t, updatedHost1.SecurityHeaderProfileID)
+	require.Equal(t, profile.ID, *updatedHost1.SecurityHeaderProfileID)
+
+	var updatedHost2 models.ProxyHost
+	require.NoError(t, db.First(&updatedHost2, "uuid = ?", host2.UUID).Error)
+	require.NotNil(t, updatedHost2.SecurityHeaderProfileID)
+	require.Equal(t, profile.ID, *updatedHost2.SecurityHeaderProfileID)
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_RemoveProfile(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create a security header profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:        uuid.NewString(),
+		Name:        "Test Security Profile",
+		HSTSEnabled: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create proxy host with profile
+	host := &models.ProxyHost{
+		UUID:                    uuid.NewString(),
+		Name:                    "Host with Profile",
+		DomainNames:             "profile-host.example.com",
+		ForwardScheme:           "http",
+		ForwardHost:             "localhost",
+		ForwardPort:             8000,
+		SecurityHeaderProfileID: &profile.ID,
+		Enabled:                 true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Remove profile (security_header_profile_id: null)
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"security_header_profile_id":null}`, host.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+	require.Empty(t, result["errors"])
+
+	// Verify profile removed
+	var updatedHost models.ProxyHost
+	require.NoError(t, db.First(&updatedHost, "uuid = ?", host.UUID).Error)
+	require.Nil(t, updatedHost.SecurityHeaderProfileID)
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_PartialFailure(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create a security header profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:        uuid.NewString(),
+		Name:        "Test Security Profile",
+		HSTSEnabled: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Create one valid host
+	host := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Valid Host",
+		DomainNames:   "valid.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8000,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to update valid host + non-existent host
+	nonExistentUUID := uuid.NewString()
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"security_header_profile_id":%d}`, host.UUID, nonExistentUUID, profile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Equal(t, float64(1), result["updated"])
+
+	errors := result["errors"].([]any)
+	require.Len(t, errors, 1)
+	errorMap := errors[0].(map[string]any)
+	require.Equal(t, nonExistentUUID, errorMap["uuid"])
+	require.Equal(t, "proxy host not found", errorMap["error"])
+
+	// Verify valid host was updated
+	var updatedHost models.ProxyHost
+	require.NoError(t, db.First(&updatedHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, updatedHost.SecurityHeaderProfileID)
+	require.Equal(t, profile.ID, *updatedHost.SecurityHeaderProfileID)
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_EmptyUUIDs(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	body := `{"host_uuids":[],"security_header_profile_id":1}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "host_uuids cannot be empty")
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	router, _ := setupTestRouter(t)
+
+	body := `{"host_uuids": invalid json}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_ProfileNotFound(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create a host
+	host := &models.ProxyHost{
+		UUID:          uuid.NewString(),
+		Name:          "Test Host",
+		DomainNames:   "test.example.com",
+		ForwardScheme: "http",
+		ForwardHost:   "localhost",
+		ForwardPort:   8000,
+		Enabled:       true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// Try to assign non-existent profile
+	body := fmt.Sprintf(`{"host_uuids":["%s"],"security_header_profile_id":99999}`, host.UUID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "security header profile not found")
+}
+
+func TestProxyHostHandler_BulkUpdateSecurityHeaders_AllFail(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Ensure SecurityHeaderProfile is migrated
+	require.NoError(t, db.AutoMigrate(&models.SecurityHeaderProfile{}))
+
+	// Create a profile
+	profile := &models.SecurityHeaderProfile{
+		UUID:        uuid.NewString(),
+		Name:        "Test Profile",
+		HSTSEnabled: true,
+	}
+	require.NoError(t, db.Create(profile).Error)
+
+	// Try to update non-existent hosts only
+	body := fmt.Sprintf(`{"host_uuids":["%s","%s"],"security_header_profile_id":%d}`, uuid.NewString(), uuid.NewString(), profile.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/bulk-update-security-headers", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
+	require.Contains(t, result["error"], "All updates failed")
+}
+
+// Test safeIntToUint and safeFloat64ToUint edge cases
+func TestProxyHostUpdate_NegativeIntCertificateID(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	host := &models.ProxyHost{
+		UUID:        "neg-int-cert-uuid",
+		Name:        "Neg Int Host",
+		DomainNames: "negint.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// certificate_id with negative value - will be silently ignored by switch default
+	updateBody := `{"certificate_id": -1}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// Certificate should remain nil
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.Nil(t, dbHost.CertificateID)
+}
+
+func TestProxyHostUpdate_AccessListID_StringValue(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Create access list
+	acl := &models.AccessList{Name: "Test ACL", Type: "ip", Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+
+	host := &models.ProxyHost{
+		UUID:        "acl-str-uuid",
+		Name:        "ACL String Host",
+		DomainNames: "aclstr.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// access_list_id as string
+	updateBody := fmt.Sprintf(`{"access_list_id": "%d"}`, acl.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.AccessListID)
+	require.Equal(t, acl.ID, *dbHost.AccessListID)
+}
+
+func TestProxyHostUpdate_AccessListID_IntValue(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	// Create access list
+	acl := &models.AccessList{Name: "Test ACL Int", Type: "ip", Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+
+	host := &models.ProxyHost{
+		UUID:        "acl-int-uuid",
+		Name:        "ACL Int Host",
+		DomainNames: "aclint.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	// access_list_id as int (JSON numbers are float64, this tests the int branch in case of future changes)
+	updateBody := fmt.Sprintf(`{"access_list_id": %d}`, acl.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.AccessListID)
+	require.Equal(t, acl.ID, *dbHost.AccessListID)
+}
+
+func TestProxyHostUpdate_CertificateID_IntValue(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	cert := &models.SSLCertificate{UUID: "cert-int-test", Name: "cert-int", Provider: "custom", Domains: "certint.example.com"}
+	require.NoError(t, db.Create(cert).Error)
+
+	host := &models.ProxyHost{
+		UUID:        "cert-int-uuid",
+		Name:        "Cert Int Host",
+		DomainNames: "certint.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	updateBody := fmt.Sprintf(`{"certificate_id": %d}`, cert.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.CertificateID)
+	require.Equal(t, cert.ID, *dbHost.CertificateID)
+}
+
+func TestProxyHostUpdate_CertificateID_StringValue(t *testing.T) {
+	t.Parallel()
+	router, db := setupTestRouter(t)
+
+	cert := &models.SSLCertificate{UUID: "cert-str-test", Name: "cert-str", Provider: "custom", Domains: "certstr.example.com"}
+	require.NoError(t, db.Create(cert).Error)
+
+	host := &models.ProxyHost{
+		UUID:        "cert-str-uuid",
+		Name:        "Cert Str Host",
+		DomainNames: "certstr.example.com",
+		ForwardHost: "localhost",
+		ForwardPort: 8080,
+		Enabled:     true,
+	}
+	require.NoError(t, db.Create(host).Error)
+
+	updateBody := fmt.Sprintf(`{"certificate_id": "%d"}`, cert.ID)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/proxy-hosts/"+host.UUID, strings.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var dbHost models.ProxyHost
+	require.NoError(t, db.First(&dbHost, "uuid = ?", host.UUID).Error)
+	require.NotNil(t, dbHost.CertificateID)
+	require.Equal(t, cert.ID, *dbHost.CertificateID)
+}
