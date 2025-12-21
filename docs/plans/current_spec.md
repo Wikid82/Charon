@@ -1,603 +1,1217 @@
-# Implementation Plan: Application URL Setting for User Invitations
+# Login Page Issues Fix - Comprehensive Implementation Plan (REVISED)
 
-**Issue**: When inviting users, verification email links use the internal address (e.g., `localhost:8080`) instead of the public-facing URL. External users cannot access these links.
-
-**Target Files**:
-
-- Backend: [settings_handler.go](../../backend/internal/api/handlers/settings_handler.go), [user_handler.go](../../backend/internal/api/handlers/user_handler.go), [mail_service.go](../../backend/internal/services/mail_service.go)
-- Frontend: [SystemSettings.tsx](../../frontend/src/pages/SystemSettings.tsx), [UsersPage.tsx](../../frontend/src/pages/UsersPage.tsx)
-- Translations: [translation.json](../../frontend/src/locales/en/translation.json)
+**Date:** December 21, 2025
+**Revision:** Post-Supervisor Review - Critical Implementation Flaws Addressed
+**Target:** Login page at `http://100.98.12.109:8080/login`
+**Issues Identified:** 3
 
 ---
 
-## 1. Recommended Setting Name: "Application URL"
+## Executive Summary
 
-### Research & Justification
+Three issues have been identified on the login page that need resolution:
 
-| Application | Setting Name | Notes |
-|-------------|--------------|-------|
-| Nginx Proxy Manager | N/A | No email system |
-| GitLab | `external_url` | Most common in self-hosted apps |
-| Grafana | `root_url` | Part of `[server]` config |
-| Nextcloud | `overwrite.cli.url` | Complex naming |
-| WordPress | `Site Address (URL)` | User-facing name |
-| Portainer | `Public URL` | Clean, simple |
-| Home Assistant | `external_url` | Paired with `internal_url` |
-| Authentik | `AUTHENTIK_HOST` | Environment variable |
+1. **401 Unauthorized from `/api/v1/auth/me`** - Expected behavior during initialization
+2. **Cross-Origin-Opener-Policy (COOP) header warning** - Browser warning on non-localhost HTTP
+3. **Missing autocomplete attribute on password input** - Accessibility/DOM warning
 
-### Recommendation: **"Application URL"**
+This plan analyzes each issue, determines if it's a bug or expected behavior, and provides actionable fixes with specific file locations and implementation details.
 
-**Why this name:**
+### 🔴 CRITICAL REVISION NOTICE
 
-1. **User-Friendly**: "Application URL" is clearer than "Base URL" or "External URL" for non-technical users
-2. **Self-Explanatory**: Immediately conveys "the URL used to access this application"
-3. **Consistent with Charon's naming**: Follows the pattern of human-readable settings (e.g., "Caddy Admin API Endpoint", "SSL Provider")
-4. **Internal Key**: `app.public_url` - clear, namespaced, and follows existing `caddy.admin_api` pattern
+**Supervisor Review Identified Critical Implementation Flaw:**
 
-**Alternative consideration**: "Public URL" is slightly more descriptive but may confuse users who don't understand internal vs external networking.
+The original plan proposed checking `c.Request.TLS != nil` to detect HTTPS connections. This approach is **fundamentally broken** in reverse proxy architectures:
 
----
+- **Problem:** Caddy terminates TLS before forwarding requests to the backend
+- **Result:** `c.Request.TLS` is ALWAYS `nil`, making HTTPS detection impossible
+- **Impact:** COOP header would never be set, even in production HTTPS
 
-## 2. Database Schema Changes
+**Corrected Approaches:**
 
-**No schema changes required.** The existing `settings` table structure supports this:
+1. **Option A:** Check `X-Forwarded-Proto` header (requires Caddy configuration verification)
+2. **Option B:** Set COOP only when NOT in development mode (simpler, recommended)
 
-```go
-// backend/internal/models/setting.go (existing)
-type Setting struct {
-    ID        uint      `json:"id" gorm:"primaryKey"`
-    Key       string    `json:"key" gorm:"uniqueIndex"`  // "app.public_url"
-    Value     string    `json:"value" gorm:"type:text"`  // "https://charon.example.com"
-    Type      string    `json:"type" gorm:"index"`       // "string"
-    Category  string    `json:"category" gorm:"index"`   // "general"
-    UpdatedAt time.Time `json:"updated_at"`
-}
-```
+**Additional Requirements Added:**
 
-The new setting will be stored as:
+- Verify Caddy forwards `X-Forwarded-Proto` header in reverse proxy config
+- Add integration tests for proxy header propagation
+- Document mixed content warnings for production HTTPS requirements
+- Add autocomplete compliance considerations for regulated industries
 
-- **Key**: `app.public_url`
-- **Value**: User-provided URL (e.g., `https://charon.example.com`)
-- **Type**: `string`
-- **Category**: `general`
+This revision ensures the implementation will work correctly in production reverse proxy deployments.
 
 ---
 
-## 3. Backend Changes
+## Issue 1: GET /api/v1/auth/me Returns 401 (Unauthorized)
 
-### 3.1 Settings Handler Updates
+### Status: EXPECTED BEHAVIOR (Minor Enhancement Possible)
 
-**File**: [backend/internal/api/handlers/settings_handler.go](../../backend/internal/api/handlers/settings_handler.go)
+### Root Cause Analysis
 
-Add a new helper function to retrieve the public URL:
+**File:** `frontend/src/context/AuthContext.tsx` (lines 10-24)
 
-```go
-// GetPublicURL retrieves the configured public URL or falls back to request host.
-// This should be used for all user-facing URLs (emails, invite links).
-func GetPublicURL(db *gorm.DB, c *gin.Context) string {
-    var setting models.Setting
-    if err := db.Where("key = ?", "app.public_url").First(&setting).Error; err == nil {
-        if setting.Value != "" {
-            return strings.TrimSuffix(setting.Value, "/")
-        }
-    }
-    // Fallback to request-derived URL
-    return getBaseURL(c)
-}
-```
+The `AuthProvider` component runs a `checkAuth()` function on mount that:
 
-Add a new endpoint to validate URL format:
-
-```go
-// ValidatePublicURL validates a URL is properly formatted and accessible.
-func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
-    var req struct {
-        URL string `json:"url" binding:"required,url"`
-    }
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    // Validate URL structure
-    parsed, err := url.Parse(req.URL)
-    if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-        c.JSON(http.StatusBadRequest, gin.H{
-            "valid": false,
-            "error": "URL must start with http:// or https://",
-        })
-        return
-    }
-
-    c.JSON(http.StatusOK, gin.H{
-        "valid": true,
-        "normalized": strings.TrimSuffix(req.URL, "/"),
-    })
-}
-```
-
-**Route Registration** in [routes.go](../../backend/internal/api/routes/routes.go):
-
-```go
-settings.POST("/validate-url", settingsHandler.ValidatePublicURL)
-```
-
-### 3.2 User Handler Updates
-
-**File**: [backend/internal/api/handlers/user_handler.go](../../backend/internal/api/handlers/user_handler.go)
-
-**Current Issue** (lines 392-400):
-
-```go
-// getBaseURL extracts the base URL from the request.
-func getBaseURL(c *gin.Context) string {
-    scheme := "https"
-    if c.Request.TLS == nil {
-        if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-            scheme = proto
-        } else {
-            scheme = "http"
-        }
-    }
-    return scheme + "://" + c.Request.Host
-}
-```
-
-**Solution**: Modify `InviteUser` to use the configured public URL:
-
-```go
-// InviteUser creates a new user with an invite token and sends an email (admin only).
-func (h *UserHandler) InviteUser(c *gin.Context) {
-    // ... existing validation code ...
-
-    // Try to send invite email
-    emailSent := false
-    if h.MailService.IsConfigured() {
-        baseURL := GetPublicURL(h.DB, c)  // Changed from getBaseURL(c)
-        appName := getAppName(h.DB)
-        if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
-            emailSent = true
-        }
-    }
-
-    // ... rest of handler ...
-}
-```
-
-Add a new endpoint for previewing the invite URL:
-
-```go
-// PreviewInviteURLRequest represents the request for previewing an invite URL.
-type PreviewInviteURLRequest struct {
-    Email string `json:"email" binding:"required,email"`
-}
-
-// PreviewInviteURL returns what the invite URL would look like with current settings.
-func (h *UserHandler) PreviewInviteURL(c *gin.Context) {
-    role, _ := c.Get("role")
-    if role != "admin" {
-        c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-        return
-    }
-
-    var req PreviewInviteURLRequest
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    baseURL := GetPublicURL(h.DB, c)
-    // Generate a sample token for preview (not stored)
-    sampleToken := "SAMPLE_TOKEN_PREVIEW"
-    inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), sampleToken)
-
-    // Check if public URL is configured
-    var setting models.Setting
-    isConfigured := h.DB.Where("key = ?", "app.public_url").First(&setting).Error == nil && setting.Value != ""
-
-    c.JSON(http.StatusOK, gin.H{
-        "preview_url":    inviteURL,
-        "base_url":       baseURL,
-        "is_configured":  isConfigured,
-        "email":          req.Email,
-        "warning":        !isConfigured,
-        "warning_message": "Application URL not configured. The invite link may not be accessible from external networks.",
-    })
-}
-```
-
-**Route Registration**:
-
-```go
-r.POST("/users/preview-invite-url", h.PreviewInviteURL)
-```
-
-### 3.3 Mail Service Updates
-
-**File**: [backend/internal/services/mail_service.go](../../backend/internal/services/mail_service.go)
-
-No changes required - the `SendInvite` function already accepts `baseURL` as a parameter:
-
-```go
-func (s *MailService) SendInvite(email, inviteToken, appName, baseURL string) error {
-    inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), inviteToken)
-    // ...
-}
-```
-
----
-
-## 4. Frontend Changes
-
-### 4.1 System Settings UI
-
-**File**: [frontend/src/pages/SystemSettings.tsx](../../frontend/src/pages/SystemSettings.tsx)
-
-Add a new section for Application URL after the General Configuration card:
-
-```tsx
-// Add state
-const [publicURL, setPublicURL] = useState('')
-const [publicURLValid, setPublicURLValid] = useState<boolean | null>(null)
-
-// Update useEffect to load setting
+```typescript
 useEffect(() => {
-  if (settings) {
-    // ... existing settings ...
-    if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
-  }
-}, [settings])
+  const checkAuth = async () => {
+    try {
+      const stored = localStorage.getItem('charon_auth_token');
+      if (stored) {
+        setAuthToken(stored);
+      }
+      const response = await client.get('/auth/me');  // Line 16
+      setUser(response.data);
+    } catch {
+      setAuthToken(null);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-// Add validation function
-const validatePublicURL = async (url: string) => {
-  if (!url) {
-    setPublicURLValid(null)
-    return
-  }
-  try {
-    const response = await client.post('/settings/validate-url', { url })
-    setPublicURLValid(response.data.valid)
-  } catch {
-    setPublicURLValid(false)
-  }
-}
+  checkAuth();
+}, []);
+```
 
-// Add to saveSettingsMutation
-const saveSettingsMutation = useMutation({
-  mutationFn: async () => {
-    // ... existing saves ...
-    await updateSetting('app.public_url', publicURL, 'general', 'string')
-  },
-  // ...
+**Why This Happens:**
+
+- On first load (before login), no auth token exists in localStorage
+- The `/auth/me` call is made to check if the user has a valid session
+- The backend correctly returns 401 because no valid authentication exists
+- This is **expected behavior** - the error is caught silently and doesn't affect UX
+
+**Backend Authentication Flow:**
+
+**File:** `backend/internal/api/routes/routes.go` (line 154)
+
+```go
+protected.GET("/auth/me", authHandler.Me)
+```
+
+**File:** `backend/internal/api/middleware/auth.go` (lines 12-35)
+
+- Checks Authorization header first
+- Falls back to `auth_token` cookie
+- Falls back to `token` query parameter (deprecated)
+- Returns 401 if no valid token found
+
+### Assessment
+
+**Is this a bug?** No - this is expected behavior for an unauthenticated user.
+
+**User Impact:** None - the error is silently caught and doesn't display to the user.
+
+**Browser Console Impact:** Minimal - developers see a 401 in Network tab, but this is normal for auth checks.
+
+### Recommended Action: ENHANCEMENT (OPTIONAL)
+
+If we want to eliminate the 401 from appearing in dev tools, we can optimize the auth check:
+
+**Option A: Skip `/auth/me` call if no token in localStorage**
+
+**File:** `frontend/src/context/AuthContext.tsx`
+
+```typescript
+useEffect(() => {
+  const checkAuth = async () => {
+    try {
+      const stored = localStorage.getItem('charon_auth_token');
+      if (!stored) {
+        // No token stored, skip API call
+        setIsLoading(false);
+        return;
+      }
+
+      setAuthToken(stored);
+      const response = await client.get('/auth/me');
+      setUser(response.data);
+    } catch {
+      setAuthToken(null);
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  checkAuth();
+}, []);
+```
+
+**Option B: Add a dedicated "check session" endpoint that returns 200 with `authenticated: false` instead of 401**
+
+**Backend File:** `backend/internal/api/handlers/auth_handler.go` (lines 271-304)
+
+The `VerifyStatus` handler already exists and returns:
+
+```go
+c.JSON(http.StatusOK, gin.H{
+  "authenticated": false,
 })
 ```
 
-**New UI Section** (add after General Configuration card):
+**Frontend Change:** Use `/auth/verify-status` instead of `/auth/me` in checkAuth
 
-```tsx
-{/* Application URL */}
-<Card>
-  <CardHeader>
-    <CardTitle>{t('systemSettings.applicationUrl.title')}</CardTitle>
-    <CardDescription>{t('systemSettings.applicationUrl.description')}</CardDescription>
-  </CardHeader>
-  <CardContent className="space-y-4">
-    <Alert variant="info">
-      <Info className="h-4 w-4" />
-      <AlertDescription>
-        {t('systemSettings.applicationUrl.infoMessage')}
-      </AlertDescription>
-    </Alert>
+### Priority: LOW (Cosmetic Enhancement)
 
-    <div className="space-y-2">
-      <Label htmlFor="public-url">{t('systemSettings.applicationUrl.label')}</Label>
-      <div className="flex gap-2">
-        <Input
-          id="public-url"
-          type="url"
-          value={publicURL}
-          onChange={(e) => {
-            setPublicURL(e.target.value)
-            validatePublicURL(e.target.value)
-          }}
-          placeholder="https://charon.example.com"
-          className={cn(
-            publicURLValid === false && 'border-red-500',
-            publicURLValid === true && 'border-green-500'
-          )}
-        />
-        {publicURLValid !== null && (
-          publicURLValid ? (
-            <CheckCircle2 className="h-5 w-5 text-green-500 self-center" />
-          ) : (
-            <XCircle className="h-5 w-5 text-red-500 self-center" />
-          )
-        )}
-      </div>
-      <p className="text-sm text-content-muted">
-        {t('systemSettings.applicationUrl.helper')}
-      </p>
-      {publicURLValid === false && (
-        <p className="text-sm text-red-500">
-          {t('systemSettings.applicationUrl.invalidUrl')}
-        </p>
-      )}
-    </div>
+---
 
-    {!publicURL && (
-      <Alert variant="warning">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>
-          {t('systemSettings.applicationUrl.notConfiguredWarning')}
-        </AlertDescription>
-      </Alert>
-    )}
-  </CardContent>
-</Card>
+## Issue 2: Cross-Origin-Opener-Policy Header Warning
+
+### Status: EXPECTED FOR HTTP DEV ENVIRONMENT (Documentation Needed)
+
+### Root Cause Analysis
+
+**File:** `backend/internal/api/middleware/security.go` (lines 61-62)
+
+```go
+// Cross-Origin-Opener-Policy: Isolate browsing context
+c.Header("Cross-Origin-Opener-Policy", "same-origin")
 ```
 
-### 4.2 User Invitation Flow Updates
+**Why This Happens:**
 
-**File**: [frontend/src/pages/UsersPage.tsx](../../frontend/src/pages/UsersPage.tsx)
+- The COOP header `same-origin` is a security feature that isolates the browsing context
+- Browser warns about COOP on HTTP (non-HTTPS) connections on non-localhost IPs
+- The warning states: "Cross-Origin-Opener-Policy policy would block the window.closed call"
 
-Add URL preview to the `InviteModal` component:
+**COOP Header Purpose:**
 
-```tsx
-// Add to InviteModal component
-const [urlPreview, setUrlPreview] = useState<{
-  preview_url: string
-  base_url: string
-  is_configured: boolean
-  warning: boolean
-  warning_message: string
-} | null>(null)
+- Prevents other origins from accessing the window object
+- Protects against Spectre-like attacks
+- Required for using `SharedArrayBuffer` and high-resolution timers
 
-// Add preview fetch when email changes
-useEffect(() => {
-  if (email && email.includes('@')) {
-    const fetchPreview = async () => {
-      try {
-        const response = await client.post('/users/preview-invite-url', { email })
-        setUrlPreview(response.data)
-      } catch {
-        setUrlPreview(null)
-      }
-    }
-    const debounce = setTimeout(fetchPreview, 500)
-    return () => clearTimeout(debounce)
-  } else {
-    setUrlPreview(null)
+**Current Behavior:**
+
+- Header is applied globally to all responses
+- No conditional logic for development vs production
+- Same header value for HTTP and HTTPS
+
+**File:** `backend/internal/api/routes/routes.go` (lines 36-40)
+
+```go
+securityHeadersCfg := middleware.SecurityHeadersConfig{
+  IsDevelopment: cfg.Environment == "development",
+}
+router.Use(middleware.SecurityHeaders(securityHeadersCfg))
+```
+
+The `IsDevelopment` flag is passed but currently only affects CSP directives, not COOP.
+
+### Assessment
+
+**Is this a bug?** No - this is expected behavior when accessing the app via HTTP on a non-localhost IP.
+
+**User Impact:**
+
+- Visual warning in browser console (Chrome/Edge DevTools)
+- No functional impact on the application
+- COOP doesn't break any existing functionality
+
+**Security Impact:**
+
+- COOP is a security enhancement and should remain in production (HTTPS)
+- Can be relaxed for local development HTTP
+
+### Recommended Action: CONDITIONAL COOP HEADER
+
+**Phase 1: Make COOP conditional on HTTPS**
+
+**File:** `backend/internal/api/middleware/security.go`
+
+**Current Implementation:** (lines 61-62)
+
+```go
+// Cross-Origin-Opener-Policy: Isolate browsing context
+c.Header("Cross-Origin-Opener-Policy", "same-origin")
+```
+
+**❌ ORIGINAL APPROACH (FLAWED):**
+
+```go
+// CRITICAL FLAW: c.Request.TLS will ALWAYS be nil behind a reverse proxy!
+// Caddy terminates TLS before forwarding to the backend.
+if c.Request.TLS != nil {  // ⚠️ THIS WILL NEVER BE TRUE
+  c.Header("Cross-Origin-Opener-Policy", "same-origin")
+}
+```
+
+**✅ CORRECT APPROACH (Option A - Check X-Forwarded-Proto):**
+
+```go
+// Cross-Origin-Opener-Policy: Isolate browsing context
+// Only set on HTTPS to avoid browser warnings on HTTP development
+// Reference: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy
+//
+// IMPORTANT: Behind reverse proxy (Caddy), TLS is terminated at proxy level.
+// Must check X-Forwarded-Proto header instead of c.Request.TLS
+isHTTPS := c.GetHeader("X-Forwarded-Proto") == "https"
+
+if isHTTPS {
+  c.Header("Cross-Origin-Opener-Policy", "same-origin")
+}
+```
+
+**✅ CORRECT APPROACH (Option B - Simpler for Dev/Prod Split):**
+
+```go
+// Cross-Origin-Opener-Policy: Isolate browsing context
+// Skip in development mode to avoid browser warnings on HTTP
+// In production, Caddy always uses HTTPS, so safe to set unconditionally
+if !cfg.IsDevelopment {
+  c.Header("Cross-Origin-Opener-Policy", "same-origin")
+}
+```
+
+**Recommended Implementation: Option B** (simpler, avoids header dependency)
+
+**Rationale:**
+- Development mode = always HTTP → skip COOP to avoid warnings
+- Production mode = always HTTPS (enforced by load balancer/Caddy) → always set COOP
+- Eliminates need to parse X-Forwarded-Proto header
+- Fails safe: if misconfigured, production gets COOP anyway
+
+**Phase 2: Verify Proxy Header Configuration**
+
+**⚠️ CRITICAL: Ensure Caddy forwards X-Forwarded-Proto header**
+
+**File:** `backend/internal/caddy/config.go` (verify line ~1216)
+
+**Required Configuration:**
+
+```go
+// In reverse_proxy directive
+reverseProxy := map[string]interface{}{
+  "handler": "reverse_proxy",
+  "upstreams": upstreams,
+  "headers": map[string]interface{}{
+    "request": map[string]interface{}{
+      "set": map[string][]string{
+        "X-Forwarded-Proto": ["{http.request.scheme}"],
+        "X-Forwarded-Host":  ["{http.request.host}"],
+        "X-Real-IP":         ["{http.request.remote.host}"],
+      },
+    },
+  },
+}
+```
+
+**Verification Steps:**
+
+1. Check that Caddy config includes `X-Forwarded-Proto` header
+2. Add integration test to verify header propagation
+3. Test both HTTP (development) and HTTPS (production) scenarios
+
+**Phase 3: Update Documentation**
+
+**File:** `docs/security.md` (create new section: "Production Deployment Considerations")
+
+Add a section explaining:
+
+- Why COOP warning appears on HTTP development
+- That it's expected and safe to ignore in local dev
+- That COOP is enforced in production HTTPS
+- **⚠️ CRITICAL WARNING: All production endpoints MUST use HTTPS**
+- **Mixed HTTP/HTTPS content will break COOP and secure cookies**
+- How to test with HTTPS locally (self-signed cert or mkcert)
+
+**Add Mixed Content Warning:**
+
+```markdown
+### ⚠️ Production HTTPS Requirements
+
+**All production deployments MUST enforce HTTPS for the following reasons:**
+
+1. **Security Headers:** COOP (`Cross-Origin-Opener-Policy`) should only be set over HTTPS
+2. **Secure Cookies:** `auth_token` cookie uses `Secure` flag, requires HTTPS
+3. **Mixed Content:** Mixing HTTP and HTTPS will cause browser warnings and broken functionality
+4. **Load Balancer Configuration:** Ensure your load balancer/CDN:
+   - Terminates TLS with valid certificates
+   - Forwards `X-Forwarded-Proto: https` header to backend
+   - Redirects HTTP → HTTPS (301 permanent redirect)
+
+**Consequences of HTTP in Production:**
+
+- COOP header triggers browser warnings
+- Secure cookies are not sent by browser
+- Authentication breaks (users can't login)
+- WebSocket connections fail
+- Password managers may not save credentials
+
+**How to Verify:**
+
+```bash
+# Check that load balancer forwards X-Forwarded-Proto
+curl -H "X-Forwarded-Proto: https" https://your-domain.com/api/v1/health
+
+# Response headers should include:
+# Cross-Origin-Opener-Policy: same-origin
+# Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+```
+
+### Tests to Update
+
+**File:** `backend/internal/api/middleware/security_test.go`
+
+**⚠️ CRITICAL: Old tests using `req.TLS` are INVALID for reverse proxy scenario**
+
+Add these test cases:
+
+```go
+// Test development mode - COOP should NOT be set
+func TestSecurityHeaders_COOP_DevelopmentMode(t *testing.T) {
+  gin.SetMode(gin.TestMode)
+  router := gin.New()
+  cfg := SecurityHeadersConfig{IsDevelopment: true}
+  router.Use(SecurityHeaders(cfg))
+  router.GET("/test", func(c *gin.Context) {
+    c.Status(http.StatusOK)
+  })
+
+  req := httptest.NewRequest("GET", "/test", nil)
+  resp := httptest.NewRecorder()
+  router.ServeHTTP(resp, req)
+
+  // COOP should NOT be set in development mode
+  assert.Empty(t, resp.Header().Get("Cross-Origin-Opener-Policy"),
+    "COOP header should not be set in development mode")
+}
+
+// Test production mode - COOP SHOULD be set
+func TestSecurityHeaders_COOP_ProductionMode(t *testing.T) {
+  gin.SetMode(gin.TestMode)
+  router := gin.New()
+  cfg := SecurityHeadersConfig{IsDevelopment: false}
+  router.Use(SecurityHeaders(cfg))
+  router.GET("/test", func(c *gin.Context) {
+    c.Status(http.StatusOK)
+  })
+
+  req := httptest.NewRequest("GET", "/test", nil)
+  resp := httptest.NewRecorder()
+  router.ServeHTTP(resp, req)
+
+  // COOP SHOULD be set in production mode
+  assert.Equal(t, "same-origin", resp.Header().Get("Cross-Origin-Opener-Policy"),
+    "COOP header must be set in production mode")
+}
+
+// ALTERNATIVE: If implementing Option A (X-Forwarded-Proto check)
+// Test HTTP via proxy - COOP should NOT be set
+func TestSecurityHeaders_COOP_HTTPViaProxy(t *testing.T) {
+  gin.SetMode(gin.TestMode)
+  router := gin.New()
+  cfg := SecurityHeadersConfig{IsDevelopment: false}
+  router.Use(SecurityHeaders(cfg))
+  router.GET("/test", func(c *gin.Context) {
+    c.Status(http.StatusOK)
+  })
+
+  req := httptest.NewRequest("GET", "/test", nil)
+  req.Header.Set("X-Forwarded-Proto", "http")
+  resp := httptest.NewRecorder()
+  router.ServeHTTP(resp, req)
+
+  // COOP should NOT be set when X-Forwarded-Proto is http
+  assert.Empty(t, resp.Header().Get("Cross-Origin-Opener-Policy"),
+    "COOP should not be set for HTTP requests (even in production)")
+}
+
+// Test HTTPS via proxy - COOP SHOULD be set
+func TestSecurityHeaders_COOP_HTTPSViaProxy(t *testing.T) {
+  gin.SetMode(gin.TestMode)
+  router := gin.New()
+  cfg := SecurityHeadersConfig{IsDevelopment: false}
+  router.Use(SecurityHeaders(cfg))
+  router.GET("/test", func(c *gin.Context) {
+    c.Status(http.StatusOK)
+  })
+
+  req := httptest.NewRequest("GET", "/test", nil)
+  req.Header.Set("X-Forwarded-Proto", "https")
+  resp := httptest.NewRecorder()
+  router.ServeHTTP(resp, req)
+
+  // COOP SHOULD be set when X-Forwarded-Proto is https
+  assert.Equal(t, "same-origin", resp.Header().Get("Cross-Origin-Opener-Policy"),
+    "COOP must be set for HTTPS requests")
+}
+```
+
+**Integration Test for Proxy Headers:**
+
+**File:** `backend/integration/proxy_headers_test.go` (new file)
+
+```go
+package integration
+
+import (
+  "net/http"
+  "testing"
+  "github.com/stretchr/testify/assert"
+  "github.com/stretchr/testify/require"
+)
+
+// TestProxyHeaderPropagation verifies that Caddy forwards X-Forwarded-Proto
+func TestProxyHeaderPropagation(t *testing.T) {
+  // This test requires the full stack (Caddy + Backend) to be running
+  if testing.Short() {
+    t.Skip("Skipping integration test in short mode")
   }
-}, [email])
+
+  tests := []struct {
+    name           string
+    requestScheme  string
+    expectCOOP     bool
+  }{
+    {
+      name:          "HTTP request should not have COOP",
+      requestScheme: "http",
+      expectCOOP:    false,
+    },
+    {
+      name:          "HTTPS request should have COOP",
+      requestScheme: "https",
+      expectCOOP:    true,
+    },
+  }
+
+  for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+      // Make request through Caddy proxy
+      req, err := http.NewRequest("GET", "http://localhost:8080/api/v1/health", nil)
+      require.NoError(t, err)
+
+      // Simulate load balancer setting X-Forwarded-Proto
+      req.Header.Set("X-Forwarded-Proto", tt.requestScheme)
+
+      client := &http.Client{}
+      resp, err := client.Do(req)
+      require.NoError(t, err)
+      defer resp.Body.Close()
+
+      coopHeader := resp.Header.Get("Cross-Origin-Opener-Policy")
+
+      if tt.expectCOOP {
+        assert.Equal(t, "same-origin", coopHeader,
+          "COOP header should be present for HTTPS")
+      } else {
+        assert.Empty(t, coopHeader,
+          "COOP header should not be present for HTTP")
+      }
+    })
+  }
+}
 ```
 
-Add preview UI to modal (before the submit buttons):
+### Priority: MEDIUM (User-facing warning, but not breaking)
+
+---
+
+## Issue 3: Missing Autocomplete Attribute on Password Input
+
+### Status: ACCESSIBILITY BUG (MUST FIX)
+
+### Root Cause Analysis
+
+**File:** `frontend/src/pages/Login.tsx` (lines 93-100)
 
 ```tsx
-{/* URL Preview */}
-{urlPreview && (
-  <div className="space-y-2 p-4 bg-surface-subtle rounded-lg border border-border">
-    <div className="flex items-center gap-2">
-      <ExternalLink className="h-4 w-4 text-content-muted" />
-      <Label className="text-sm font-medium">
-        {t('users.inviteUrlPreview')}
-      </Label>
-    </div>
-    <div className="text-sm font-mono text-content-secondary break-all bg-surface-elevated p-2 rounded">
-      {urlPreview.preview_url.replace('SAMPLE_TOKEN_PREVIEW', '...')}
-    </div>
-    {urlPreview.warning && (
-      <Alert variant="warning" className="mt-2">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription className="text-xs">
-          {t('users.inviteUrlWarning')}
-          <Link to="/settings/system" className="ml-1 underline">
-            {t('users.configureApplicationUrl')}
-          </Link>
-        </AlertDescription>
-      </Alert>
-    )}
-  </div>
-)}
+<Input
+  label={t('auth.password')}
+  type="password"
+  value={password}
+  onChange={e => setPassword(e.target.value)}
+  required
+  placeholder="••••••••"
+  disabled={loading}
+/>
 ```
 
-### 4.3 API Client Updates
+**Missing:** `autoComplete` attribute
 
-**File**: [frontend/src/api/settings.ts](../../frontend/src/api/settings.ts)
+**Why This Matters:**
 
-Add new function:
+1. **Accessibility:** Password managers rely on autocomplete to identify password fields
+2. **User Experience:** Browsers can't offer to save/fill passwords without proper attributes
+3. **DOM Standards:** HTML5 spec recommends autocomplete for all input fields
+4. **Security:** Modern password managers use autocomplete to prevent phishing
+
+**Component Implementation:**
+
+**File:** `frontend/src/components/ui/Input.tsx` (lines 1-95)
+
+The `Input` component is a controlled component that forwards all props to the native `<input>` element:
+
+```tsx
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  // Custom props...
+}
+
+<input
+  ref={ref}
+  type={isPassword ? (showPassword ? 'text' : 'password') : type}
+  disabled={disabled}
+  className={...}
+  {...props}  // Line 64 - All other props are spread here
+/>
+```
+
+The component already supports `autoComplete` through the spread operator, it just needs to be passed from the parent.
+
+### Recommended Action: ADD AUTOCOMPLETE ATTRIBUTES
+
+**Phase 1: Fix Login Page**
+
+**File:** `frontend/src/pages/Login.tsx`
+
+**Email Input** (lines 84-91):
+
+```tsx
+<Input
+  label={t('auth.email')}
+  type="email"
+  value={email}
+  onChange={e => setEmail(e.target.value)}
+  required
+  placeholder="admin@example.com"
+  disabled={loading}
+  autoComplete="email"  // ADD THIS
+/>
+```
+
+**Password Input** (lines 93-100):
+
+```tsx
+<Input
+  label={t('auth.password')}
+  type="password"
+  value={password}
+  onChange={e => setPassword(e.target.value)}
+  required
+  placeholder="••••••••"
+  disabled={loading}
+  autoComplete="current-password"  // ADD THIS
+/>
+```
+
+**Phase 2: Fix Setup Page**
+
+**File:** `frontend/src/pages/Setup.tsx`
+
+**Email Input** (lines 121-129):
+
+```tsx
+<Input
+  id="email"
+  name="email"
+  label={t('setup.emailLabel')}
+  type="email"
+  required
+  placeholder={t('setup.emailPlaceholder')}
+  value={formData.email}
+  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+  className={...}
+  autoComplete="email"  // ADD THIS
+/>
+```
+
+**Password Input** (lines 135-142):
+
+```tsx
+<Input
+  id="password"
+  name="password"
+  label={t('setup.passwordLabel')}
+  type="password"
+  required
+  placeholder="••••••••"
+  value={formData.password}
+  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+  autoComplete="new-password"  // ADD THIS - "new-password" for registration forms
+/>
+```
+
+**Phase 3: Fix Account Page (Password Change)**
+
+**File:** `frontend/src/pages/Account.tsx`
+
+**Current Password** (lines 376-381):
+
+```tsx
+<Input
+  id="current-password"
+  type="password"
+  value={oldPassword}
+  onChange={(e) => setOldPassword(e.target.value)}
+  required
+  autoComplete="current-password"  // ADD THIS
+/>
+```
+
+**New Password** (lines 386-391):
+
+```tsx
+<Input
+  id="new-password"
+  type="password"
+  value={newPassword}
+  onChange={(e) => setNewPassword(e.target.value)}
+  required
+  autoComplete="new-password"  // ADD THIS
+/>
+```
+
+**Confirm Password** (lines 398-403):
+
+```tsx
+<Input
+  id="confirm-password"
+  type="password"
+  value={confirmPassword}
+  onChange={(e) => setConfirmPassword(e.target.value)}
+  required
+  error={...}
+  autoComplete="new-password"  // ADD THIS
+/>
+```
+
+**Phase 4: Fix SMTP Settings Page**
+
+**File:** `frontend/src/pages/SMTPSettings.tsx`
+
+**SMTP Username** (lines 172-178):
+
+```tsx
+<Input
+  id="smtp-username"
+  type="text"
+  value={username}
+  onChange={(e) => setUsername(e.target.value)}
+  placeholder="your@email.com"
+  autoComplete="username"  // ADD THIS
+/>
+```
+
+**SMTP Password** (lines 182-188):
+
+```tsx
+<Input
+  id="smtp-password"
+  type="password"
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+  placeholder="••••••••"
+  helperText={t('smtp.passwordHelper')}
+  autoComplete="current-password"  // ADD THIS
+/>
+```
+
+**Phase 5: Fix Accept Invite Page**
+
+**File:** `frontend/src/pages/AcceptInvite.tsx`
+
+**Password** (lines 169-175):
+
+```tsx
+<Input
+  label={t('auth.password')}
+  type="password"
+  value={password}
+  onChange={(e) => setPassword(e.target.value)}
+  placeholder="••••••••"
+  required
+  autoComplete="new-password"  // ADD THIS - new account being created
+/>
+```
+
+**Confirm Password** (lines 178-190):
+
+```tsx
+<Input
+  label={t('acceptInvite.confirmPassword')}
+  type="password"
+  value={confirmPassword}
+  onChange={(e) => setConfirmPassword(e.target.value)}
+  placeholder="••••••••"
+  required
+  error={...}
+  autoComplete="new-password"  // ADD THIS
+/>
+```
+
+### Autocomplete Values Reference
+
+According to HTML5 spec (https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#autofill):
+
+- `email` - Email address
+- `username` - Username or account name
+- `current-password` - Current password (for login)
+- `new-password` - New password (for registration or password change)
+
+### Tests to Add/Update
+
+**File:** `frontend/src/pages/__tests__/Login.test.tsx`
 
 ```typescript
-/**
- * Validates a URL for use as the application URL.
- * @param url - The URL to validate
- * @returns Promise resolving to validation result
- */
-export const validatePublicURL = async (url: string): Promise<{
-  valid: boolean
-  normalized?: string
-  error?: string
-}> => {
-  const response = await client.post('/settings/validate-url', { url })
-  return response.data
+it('has proper autocomplete attributes for password managers', () => {
+  renderWithProviders(<Login />)
+
+  const emailInput = screen.getByPlaceholderText(/admin@example.com/i)
+  const passwordInput = screen.getByPlaceholderText(/••••••••/i)
+
+  expect(emailInput).toHaveAttribute('autocomplete', 'email')
+  expect(passwordInput).toHaveAttribute('autocomplete', 'current-password')
+})
+```
+
+### Autocomplete Security Considerations
+
+**⚠️ NOTE: Some regulated industries may require disabling autocomplete**
+
+**OWASP/NIST Recommendation:** Modern security guidelines **recommend AGAINST** disabling autocomplete:
+
+- Password managers improve security by enabling stronger, unique passwords
+- Users reuse weak passwords when managers are blocked
+- Disabling autocomplete reduces security, not improves it
+
+**References:**
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#password-managers)
+- [NIST SP 800-63B Section 5.1.1.2](https://pages.nist.gov/800-63-3/sp800-63b.html#memsecretver)
+
+**If compliance requires disabling autocomplete:**
+
+Implement as **opt-in** environment variable (not default):
+
+```bash
+# .env
+DISABLE_PASSWORD_AUTOCOMPLETE=true  # Only for specific compliance requirements
+```
+
+**Implementation:**
+
+```tsx
+// frontend/src/pages/Login.tsx
+const disableAutocomplete = import.meta.env.VITE_DISABLE_PASSWORD_AUTOCOMPLETE === 'true'
+
+<Input
+  autoComplete={disableAutocomplete ? "off" : "current-password"}
+  // ... other props
+/>
+```
+
+**Default Behavior:** Autocomplete ENABLED (best practice)
+
+### Priority: HIGH (Accessibility and UX impact)
+
+---
+
+## Configuration File Review
+
+### .gitignore
+
+**File:** `/projects/Charon/.gitignore`
+
+**Current State:** Well-structured and comprehensive
+
+**Recommended Changes:** None - the file properly excludes:
+
+- Coverage artifacts (`*.cover`, `*.html`, `coverage/`)
+- Test outputs (`test-results/`, `*.sarif`)
+- Docker overrides (`docker-compose.override.yml`)
+- Temporary files at root (`/caddy_*.json`, `/trivy-*.txt`)
+
+**Verification:**
+
+- ✅ Excludes test artifacts
+- ✅ Excludes build outputs
+- ✅ Excludes sensitive files (`.env`)
+- ✅ Excludes CodeQL/security scan results
+
+### codecov.yml
+
+**Status:** File does not exist in repository
+
+**Finding:** `file_search` and `read_file` both confirm no `codecov.yml` exists
+
+**Recommendation:**
+
+- If using Codecov for coverage reporting, create a `codecov.yml` at root
+- If not using Codecov, no action needed
+- Current CI/CD workflows may use inline coverage settings
+
+**Suggested Content** (if needed):
+
+```yaml
+# codecov.yml - Code coverage configuration
+coverage:
+  status:
+    project:
+      default:
+        target: 85%
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 1%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false
+
+ignore:
+  - "**/__tests__/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/test-*.ts"
+```
+
+**Priority:** LOW (Only if using Codecov service)
+
+### .dockerignore
+
+**File:** `/projects/Charon/.dockerignore`
+
+**Current State:** Well-maintained and comprehensive
+
+**Recommended Changes:** None - the file properly excludes:
+
+- Build artifacts and coverage files
+- Test directories
+- Node modules
+- Git and CI/CD directories
+- Documentation (except key files)
+- CodeQL and security scan results
+
+**Verification:**
+
+- ✅ Reduces Docker build context size
+- ✅ Excludes test artifacts
+- ✅ Keeps README and LICENSE
+- ✅ Excludes sensitive files
+
+### Dockerfile
+
+**File:** `/projects/Charon/Dockerfile`
+
+**Current State:** Multi-stage build with security best practices
+
+**Recommended Changes:** None - the Dockerfile already implements:
+
+- ✅ Multi-stage builds (frontend, backend, Caddy, CrowdSec builders)
+- ✅ Non-root user (`charon:charon` with UID/GID 1000)
+- ✅ Healthcheck endpoint
+- ✅ Security labels (OCI image spec)
+- ✅ Minimal runtime dependencies
+- ✅ Recent base images (Alpine 3.23, Go 1.25, Node 24.12)
+
+**Security Verification:**
+
+- ✅ Runs as non-root user (line 366: `USER charon`)
+- ✅ Includes security scanning (Trivy in CI/CD)
+- ✅ Uses HEALTHCHECK for monitoring
+- ✅ Proper volume permissions handled in entrypoint
+
+---
+
+## Implementation Plan
+
+### Phase 1: Quick Wins (1-2 hours)
+
+**Priority: HIGH**
+
+1. **Add autocomplete attributes to all password/email inputs**
+   - Files: `Login.tsx`, `Setup.tsx`, `Account.tsx`, `AcceptInvite.tsx`, `SMTPSettings.tsx`
+   - Impact: Immediate UX and accessibility improvement
+   - Testing: Manual test with browser password manager
+   - Add unit tests for autocomplete attributes
+
+2. **Write tests for autocomplete attributes**
+   - File: `frontend/src/pages/__tests__/Login.test.tsx`
+   - Verify email and password inputs have correct attributes
+
+### Phase 2: Documentation (1 hour)
+
+**Priority: MEDIUM**
+
+1. **Document COOP warning in development**
+   - Create or update: `docs/getting-started.md` or `docs/security.md`
+   - Explain why the warning appears on HTTP
+   - Provide context about COOP security benefits
+   - Optional: Add instructions for local HTTPS testing
+
+2. **Document auth flow in README or architecture docs**
+   - Explain that 401 on `/auth/me` during login is expected
+   - Describe the three-tier authentication (header > cookie > query param)
+
+### Phase 3: Optional Enhancements (2-3 hours)
+
+**Priority: LOW**
+
+1. **Optimize AuthContext to skip `/auth/me` if no token**
+   - File: `frontend/src/context/AuthContext.tsx`
+   - Reduces unnecessary 401 errors in console
+   - Slightly faster initial load
+
+2. **Make COOP header conditional on HTTPS**
+   - File: `backend/internal/api/middleware/security.go`
+   - Add logic to skip COOP on HTTP development
+   - Update tests to verify conditional behavior
+   - Testing: Verify COOP is present on HTTPS, absent on HTTP dev
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+
+**Frontend:**
+
+- `frontend/src/pages/__tests__/Login.test.tsx` - Add autocomplete verification
+- `frontend/src/pages/__tests__/Setup.test.tsx` - Verify autocomplete on setup form
+- `frontend/src/components/ui/__tests__/Input.test.tsx` - Verify autocomplete prop forwarding
+
+**Backend:**
+
+- `backend/internal/api/middleware/security_test.go` - Add COOP conditional tests
+- `backend/internal/api/middleware/auth_test.go` - Verify existing auth flow (already comprehensive)
+
+### Integration Tests
+
+1. **Manual Testing:**
+   - Navigate to login page without existing session
+   - Verify browser DevTools shows autocomplete attributes
+   - Test password manager save/fill functionality
+   - Check browser console for COOP warning (should exist on HTTP, not on HTTPS)
+
+2. **E2E Testing (if Playwright is set up):**
+   - Test login flow with password manager
+   - Verify autocomplete suggestions appear
+
+### Acceptance Criteria
+
+**Issue 1 (401 Error):**
+
+- ✅ Documented as expected behavior
+- ✅ Optional: AuthContext skips API call if no token
+
+**Issue 2 (COOP Warning):**
+
+- ✅ COOP header conditional on HTTPS (or documented as expected)
+- ✅ Tests verify conditional behavior
+- ✅ Documentation explains the warning
+
+**Issue 3 (Autocomplete):**
+
+- ✅ All password fields have `autoComplete="current-password"` or `"new-password"`
+- ✅ All email fields have `autoComplete="email"`
+- ✅ All username fields have `autoComplete="username"`
+- ✅ Tests verify autocomplete attributes
+- ✅ Password managers can save and fill credentials
+
+---
+
+## Risk Assessment
+
+### Low Risk
+
+- Adding autocomplete attributes (native HTML feature)
+- Documentation updates
+
+### Medium Risk
+
+- Making COOP conditional (requires testing on multiple browsers)
+- Modifying AuthContext initialization (could affect auth flow)
+
+### Mitigation
+
+- Comprehensive unit and integration tests
+- Manual testing on Chrome, Firefox, Safari
+- Rollback plan: revert commits if issues arise
+
+---
+
+## Files Requiring Changes
+
+### Frontend Files (High Priority)
+
+1. `frontend/src/pages/Login.tsx` - Add autocomplete to email/password inputs
+2. `frontend/src/pages/Setup.tsx` - Add autocomplete to registration form
+3. `frontend/src/pages/Account.tsx` - Add autocomplete to password change form
+4. `frontend/src/pages/AcceptInvite.tsx` - Add autocomplete to invite acceptance form
+5. `frontend/src/pages/SMTPSettings.tsx` - Add autocomplete to SMTP credentials
+6. `frontend/src/pages/__tests__/Login.test.tsx` - Add autocomplete attribute tests
+7. `frontend/src/context/AuthContext.tsx` - (Optional) Optimize checkAuth
+
+### Backend Files (Medium Priority)
+
+1. `backend/internal/api/middleware/security.go` - Make COOP conditional
+2. `backend/internal/api/middleware/security_test.go` - Add COOP conditional tests
+
+### Documentation Files (Medium Priority)
+
+1. `docs/getting-started.md` or `docs/security.md` - Document COOP warning
+2. `README.md` - (Optional) Add auth flow documentation
+
+### Configuration Files
+
+1. `.gitignore` - ✅ No changes needed
+2. `.dockerignore` - ✅ No changes needed
+3. `Dockerfile` - ✅ No changes needed
+4. `codecov.yml` - ✅ Does not exist (create only if using Codecov)
+
+---
+
+## Summary
+
+| Issue | Status | Priority | Effort | Risk |
+|-------|--------|----------|--------|------|
+| 401 on /auth/me | Expected Behavior | LOW | 1h (optional optimization) | Low |
+| COOP Header Warning | Expected on HTTP | MEDIUM | 2h | Medium |
+| Missing Autocomplete | Bug | HIGH | 2h | Low |
+
+**Total Estimated Effort:** 6-8 hours (includes proxy verification, testing, and documentation)
+
+**Time Breakdown:**
+- Autocomplete fixes: 2 hours
+- COOP implementation fix: 2 hours
+- Proxy header verification: 1 hour
+- Integration tests: 2 hours
+- Documentation: 1-2 hours
+
+**Recommended Order:**
+
+1. Fix autocomplete attributes (HIGH priority, LOW risk, immediate user benefit)
+2. Document COOP warning (MEDIUM priority, no code changes)
+3. Optionally make COOP conditional (MEDIUM priority, requires testing)
+4. Optionally optimize AuthContext (LOW priority, minor improvement)
+
+---
+
+## Appendix A: Related Files and Components
+
+### Authentication Flow Components
+
+- `frontend/src/context/AuthContext.tsx` - Main auth state management
+- `frontend/src/context/AuthContextValue.ts` - Auth context type definitions
+- `frontend/src/hooks/useAuth.ts` - Auth hook for components
+- `frontend/src/api/client.ts` - Axios client with auth interceptor
+- `frontend/src/components/RequireAuth.tsx` - Route guard component
+- `backend/internal/api/middleware/auth.go` - Auth middleware
+- `backend/internal/api/handlers/auth_handler.go` - Auth endpoints
+- `backend/internal/services/auth_service.go` - Auth business logic
+
+### Security Headers Components
+
+- `backend/internal/api/middleware/security.go` - Security headers middleware
+- `backend/internal/api/middleware/security_test.go` - Security middleware tests
+- `backend/internal/caddy/config.go` - Caddy security header config (line 1216)
+
+### Form Components
+
+- `frontend/src/components/ui/Input.tsx` - Reusable input component
+- `frontend/src/components/PasswordStrengthMeter.tsx` - Password validation UI
+
+---
+
+## Appendix B: Browser Compatibility
+
+### Autocomplete Attribute Support
+
+| Browser | Version | Support |
+|---------|---------|---------|
+| Chrome | 14+ | ✅ Full support |
+| Firefox | 4+ | ✅ Full support |
+| Safari | 6+ | ✅ Full support |
+| Edge | 12+ | ✅ Full support |
+
+### COOP Header Support
+
+| Browser | Version | Support |
+|---------|---------|---------|
+| Chrome | 83+ | ✅ Full support |
+| Firefox | 79+ | ✅ Full support |
+| Safari | 15.2+ | ✅ Full support |
+| Edge | 83+ | ✅ Full support |
+
+**Note:** All modern browsers support both features. Legacy browser users (IE11 and below) will safely ignore these attributes/headers.
+
+---
+
+## Appendix C: Relevant Documentation Links
+
+- [HTML Autocomplete Spec](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#autofill)
+- [MDN: autocomplete attribute](https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/autocomplete)
+- [MDN: Cross-Origin-Opener-Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cross-Origin-Opener-Policy)
+- [OWASP: Authentication Best Practices](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+- [X-Forwarded-Proto Header Spec](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-Proto)
+- [Caddy Reverse Proxy Documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+
+---
+
+## Appendix D: Reverse Proxy Architecture Considerations
+
+### Why `c.Request.TLS` Doesn't Work Behind a Reverse Proxy
+
+**Architecture Overview:**
+
+```
+[Client Browser] --HTTPS--> [Load Balancer/Caddy] --HTTP--> [Backend (Go/Gin)]
+                              ↑                              ↑
+                         TLS terminates here          c.Request.TLS == nil
+```
+
+**Key Points:**
+
+1. **TLS Termination:** Load balancers and reverse proxies (Caddy, nginx, HAProxy) terminate TLS connections
+2. **Backend Protocol:** Communication between proxy and backend is typically plain HTTP over private network
+3. **Request Object:** Go's `http.Request.TLS` field is only populated for direct TLS connections
+4. **Detection Method:** Backend must rely on headers set by the proxy (`X-Forwarded-Proto`, `X-Forwarded-For`)
+
+**Common Pitfalls:**
+
+```go
+// ❌ WRONG: Will always be false behind reverse proxy
+if c.Request.TLS != nil {
+  // This code is never reached!
+}
+
+// ✅ CORRECT: Check forwarded protocol header
+if c.GetHeader("X-Forwarded-Proto") == "https" {
+  // This works correctly
+}
+
+// ✅ ALSO CORRECT: Trust deployment configuration
+if !cfg.IsDevelopment {
+  // Production = HTTPS enforced at load balancer
 }
 ```
 
-**File**: [frontend/src/api/users.ts](../../frontend/src/api/users.ts)
+**Security Implications:**
 
-Add new function:
+1. **Trust Boundary:** Backend must trust headers set by reverse proxy
+2. **Header Spoofing:** If backend is directly exposed (bypassing proxy), malicious clients could set `X-Forwarded-Proto: https`
+3. **Mitigation:** Ensure backend only accepts connections from trusted proxy (firewall rules, network policies)
 
-```typescript
-/** Response from invite URL preview. */
-export interface PreviewInviteURLResponse {
-  preview_url: string
-  base_url: string
-  is_configured: boolean
-  email: string
-  warning: boolean
-  warning_message: string
-}
+**Testing Considerations:**
 
-/**
- * Previews what the invite URL will look like for a given email.
- * @param email - The email to preview
- * @returns Promise resolving to PreviewInviteURLResponse
- */
-export const previewInviteURL = async (email: string): Promise<PreviewInviteURLResponse> => {
-  const response = await client.post<PreviewInviteURLResponse>('/users/preview-invite-url', { email })
-  return response.data
-}
-```
+- Unit tests cannot test `c.Request.TLS` behavior in proxy scenarios
+- Integration tests must include full proxy stack
+- Mock `X-Forwarded-Proto` header in tests to simulate proxy behavior
+
+**Production Deployment Checklist:**
+
+- [ ] Verify load balancer/CDN forwards `X-Forwarded-Proto` header
+- [ ] Confirm backend firewall blocks direct public access
+- [ ] Test HTTPS redirect (HTTP → HTTPS 301)
+- [ ] Verify `Strict-Transport-Security` header is set
+- [ ] Check that secure cookies (`Secure` flag) work correctly
+- [ ] Validate COOP header is present on HTTPS responses
+- [ ] Test WebSocket connections over HTTPS
 
 ---
 
-## 5. Translation Updates
-
-**File**: [frontend/src/locales/en/translation.json](../../frontend/src/locales/en/translation.json)
-
-Add under `systemSettings`:
-
-```json
-"applicationUrl": {
-  "title": "Application URL",
-  "description": "Configure the public URL used for user-facing links and emails.",
-  "label": "Application URL",
-  "helper": "The public URL where users access Charon (e.g., https://charon.example.com). Used in invitation emails and password reset links.",
-  "infoMessage": "This URL is used when sending invitation emails. If not configured, Charon will use the URL from the current browser request, which may not work for external users.",
-  "invalidUrl": "Please enter a valid URL starting with http:// or https://",
-  "notConfiguredWarning": "Application URL is not configured. Invitation emails will use the current browser URL, which may not be accessible from external networks."
-}
-```
-
-Add under `users`:
-
-```json
-"inviteUrlPreview": "Invite Link Preview",
-"inviteUrlWarning": "Application URL is not configured. This link may not work for external users.",
-"configureApplicationUrl": "Configure Application URL"
-```
-
-**Repeat for other locale files**: `de/translation.json`, `es/translation.json`, `fr/translation.json`, `zh/translation.json`
-
----
-
-## 6. Implementation Phases
-
-### Phase 1: Backend Foundation
-
-**Files to modify:**
-
-1. [backend/internal/api/handlers/settings_handler.go](../../backend/internal/api/handlers/settings_handler.go)
-   - Add `GetPublicURL()` helper function
-   - Add `ValidatePublicURL()` endpoint
-
-2. [backend/internal/api/handlers/user_handler.go](../../backend/internal/api/handlers/user_handler.go)
-   - Modify `InviteUser()` to use `GetPublicURL()`
-   - Add `PreviewInviteURL()` endpoint
-
-3. [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go)
-   - Register new routes
-
-**Deliverable**: Backend can store, validate, and use the public URL setting.
-
-### Phase 2: Frontend Settings UI
-
-**Files to modify:**
-
-1. [frontend/src/pages/SystemSettings.tsx](../../frontend/src/pages/SystemSettings.tsx)
-   - Add Application URL input field
-   - Add validation feedback
-   - Add warning when not configured
-
-2. [frontend/src/api/settings.ts](../../frontend/src/api/settings.ts)
-   - Add `validatePublicURL()` function
-
-3. [frontend/src/locales/en/translation.json](../../frontend/src/locales/en/translation.json)
-   - Add `systemSettings.applicationUrl.*` translations
-
-**Deliverable**: Admin can configure the Application URL in settings.
-
-### Phase 3: User Invitation Preview
-
-**Files to modify:**
-
-1. [frontend/src/pages/UsersPage.tsx](../../frontend/src/pages/UsersPage.tsx)
-   - Add URL preview to `InviteModal`
-   - Add warning banner if URL not configured
-
-2. [frontend/src/api/users.ts](../../frontend/src/api/users.ts)
-   - Add `previewInviteURL()` function
-
-3. [frontend/src/locales/en/translation.json](../../frontend/src/locales/en/translation.json)
-   - Add `users.inviteUrlPreview`, `users.inviteUrlWarning`, `users.configureApplicationUrl`
-
-**Deliverable**: Admin sees URL preview and warnings when inviting users.
-
-### Phase 4: i18n & Polish
-
-**Files to modify:**
-
-1. All locale files:
-   - `frontend/src/locales/de/translation.json`
-   - `frontend/src/locales/es/translation.json`
-   - `frontend/src/locales/fr/translation.json`
-   - `frontend/src/locales/zh/translation.json`
-
-2. Add unit tests for new endpoints
-
-**Deliverable**: Complete feature with all translations.
-
----
-
-## 7. Security Considerations
-
-### 7.1 URL Validation
-
-- **SSRF Prevention**: The URL is only used for generating email links, not for server-side requests
-- **Input Validation**: Backend validates URL format (must start with `http://` or `https://`)
-- **XSS Prevention**: URL is HTML-escaped in email templates (already handled by Go's `html/template`)
-
-### 7.2 Authorization
-
-- **Settings Access**: Only admins can modify `app.public_url` (existing middleware)
-- **Preview Access**: Only admins can preview invite URLs
-
-### 7.3 Data Exposure
-
-- The preview endpoint only returns sanitized data, no sensitive tokens
-- Sample tokens in preview are clearly marked and not stored
-
----
-
-## 8. Testing Checklist
-
-- [ ] Setting saves and persists across restarts
-- [ ] URL validation rejects invalid formats
-- [ ] Invite emails use the configured URL
-- [ ] Invite emails fall back to request URL if not configured
-- [ ] Preview shows warning when URL not configured
-- [ ] Preview updates when email changes
-- [ ] Accept invite page works with the configured URL
-- [ ] All translations display correctly
-- [ ] Setting is admin-only
-
----
-
-## 9. Files Changed Summary
-
-| File | Changes |
-|------|---------|
-| `backend/internal/api/handlers/settings_handler.go` | Add `GetPublicURL()`, `ValidatePublicURL()` |
-| `backend/internal/api/handlers/user_handler.go` | Modify `InviteUser()`, add `PreviewInviteURL()` |
-| `backend/internal/api/routes/routes.go` | Register 2 new routes |
-| `frontend/src/pages/SystemSettings.tsx` | Add Application URL card |
-| `frontend/src/pages/UsersPage.tsx` | Add URL preview to InviteModal |
-| `frontend/src/api/settings.ts` | Add `validatePublicURL()` |
-| `frontend/src/api/users.ts` | Add `previewInviteURL()` |
-| `frontend/src/locales/*/translation.json` | Add new translation keys |
-
-**No changes required to:**
-
-- `backend/internal/models/setting.go` - Uses existing schema
-- `backend/internal/services/mail_service.go` - Already accepts URL parameter
-- `.gitignore`, `codecov.yml`, `.dockerignore`, `Dockerfile` - No changes needed
+**End of Plan**
