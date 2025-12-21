@@ -26,3 +26,17 @@ export const getSettings = async (): Promise<SettingsMap> => {
 export const updateSetting = async (key: string, value: string, category?: string, type?: string): Promise<void> => {
   await client.post('/settings', { key, value, category, type })
 }
+
+/**
+ * Validates a URL for use as the application URL.
+ * @param url - The URL to validate
+ * @returns Promise resolving to validation result
+ */
+export const validatePublicURL = async (url: string): Promise<{
+  valid: boolean
+  normalized?: string
+  error?: string
+}> => {
+  const response = await client.post('/settings/validate-url', { url })
+  return response.data
+}

@@ -181,3 +181,23 @@ export const acceptInvite = async (data: AcceptInviteRequest): Promise<{ message
   const response = await client.post<{ message: string; email: string }>('/invite/accept', data)
   return response.data
 }
+
+/** Response from invite URL preview. */
+export interface PreviewInviteURLResponse {
+  preview_url: string
+  base_url: string
+  is_configured: boolean
+  email: string
+  warning: boolean
+  warning_message: string
+}
+
+/**
+ * Previews what the invite URL will look like for a given email.
+ * @param email - The email to preview
+ * @returns Promise resolving to PreviewInviteURLResponse
+ */
+export const previewInviteURL = async (email: string): Promise<PreviewInviteURLResponse> => {
+  const response = await client.post<PreviewInviteURLResponse>('/users/preview-invite-url', { email })
+  return response.data
+}

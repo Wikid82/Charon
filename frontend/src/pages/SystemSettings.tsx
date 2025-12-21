@@ -6,7 +6,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
 import { Label } from '../components/ui/Label'
-import { Alert } from '../components/ui/Alert'
+import { Alert, AlertDescription } from '../components/ui/Alert'
 import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
@@ -15,10 +15,11 @@ import { toast } from '../utils/toast'
 import { getSettings, updateSetting } from '../api/settings'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
-import { Server, RefreshCw, Save, Activity, Info, ExternalLink } from 'lucide-react'
+import { Server, RefreshCw, Save, Activity, Info, ExternalLink, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
 import { LanguageSelector } from '../components/LanguageSelector'
+import { cn } from '../utils/cn'
 
 interface HealthResponse {
   status: string
@@ -41,6 +42,9 @@ export default function SystemSettings() {
   const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
   const [domainLinkBehavior, setDomainLinkBehavior] = useState('new_tab')
+  const [publicURL, setPublicURL] = useState('')
+  const [publicURLValid, setPublicURLValid] = useState<boolean | null>(null)
+  const [publicURLSaving, setPublicURLSaving] = useState(false)
 
   // Fetch Settings
   const { data: settings } = useQuery({
@@ -59,8 +63,33 @@ export default function SystemSettings() {
         setSslProvider(validProviders.includes(provider) ? provider : 'auto')
       }
       if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
+      if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
     }
   }, [settings])
+
+  // Validate Public URL with debouncing
+  const validatePublicURL = async (url: string) => {
+    if (!url) {
+      setPublicURLValid(null)
+      return
+    }
+    try {
+      const response = await client.post('/settings/validate-url', { url })
+      setPublicURLValid(response.data.valid)
+    } catch {
+      setPublicURLValid(false)
+    }
+  }
+
+  // Debounce validation
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (publicURL) {
+        validatePublicURL(publicURL)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [publicURL])
 
   // Fetch Health/System Status
   const { data: health, isLoading: isLoadingHealth } = useQuery({
@@ -70,6 +99,23 @@ export default function SystemSettings() {
       return response.data
     },
   })
+
+  // Test Public URL
+  const testPublicURL = async () => {
+    if (!publicURL) {
+      toast.error(t('systemSettings.applicationUrl.invalidUrl'))
+      return
+    }
+    setPublicURLSaving(true)
+    try {
+      window.open(publicURL, '_blank')
+      toast.success(t('systemSettings.applicationUrl.testSuccess') || 'URL opened in new tab')
+    } catch {
+      toast.error(t('systemSettings.applicationUrl.testFailed') || 'Failed to open URL')
+    } finally {
+      setPublicURLSaving(false)
+    }
+  }
 
   // Check for Updates
   const {
@@ -90,6 +136,7 @@ export default function SystemSettings() {
       await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('ui.domain_link_behavior', domainLinkBehavior, 'ui', 'string')
+      await updateSetting('app.public_url', publicURL, 'general', 'string')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
@@ -294,6 +341,85 @@ export default function SystemSettings() {
               <p className="text-sm text-content-muted">
                 {t('systemSettings.general.languageHelper')}
               </p>
+            </div>
+          </CardContent>
+          <CardFooter className="justify-end">
+            <Button
+              onClick={() => saveSettingsMutation.mutate()}
+              isLoading={saveSettingsMutation.isPending}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {t('systemSettings.saveSettings')}
+            </Button>
+          </CardFooter>
+        </Card>
+
+        {/* Application URL */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('systemSettings.applicationUrl.title')}</CardTitle>
+            <CardDescription>{t('systemSettings.applicationUrl.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Alert variant="info">
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                {t('systemSettings.applicationUrl.infoMessage')}
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              <Label htmlFor="public-url">{t('systemSettings.applicationUrl.label')}</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="public-url"
+                  type="url"
+                  value={publicURL}
+                  onChange={(e) => {
+                    setPublicURL(e.target.value)
+                  }}
+                  placeholder="https://charon.example.com"
+                  className={cn(
+                    publicURLValid === false && 'border-red-500',
+                    publicURLValid === true && 'border-green-500'
+                  )}
+                />
+                {publicURLValid !== null && (
+                  publicURLValid ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-500 self-center flex-shrink-0" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500 self-center flex-shrink-0" />
+                  )
+                )}
+              </div>
+              <p className="text-sm text-content-muted">
+                {t('systemSettings.applicationUrl.helper')}
+              </p>
+              {publicURLValid === false && (
+                <p className="text-sm text-red-500">
+                  {t('systemSettings.applicationUrl.invalidUrl')}
+                </p>
+              )}
+            </div>
+
+            {!publicURL && (
+              <Alert variant="warning">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  {t('systemSettings.applicationUrl.notConfiguredWarning')}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                onClick={testPublicURL}
+                disabled={!publicURL || publicURLSaving}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                {t('systemSettings.applicationUrl.testButton')}
+              </Button>
             </div>
           </CardContent>
           <CardFooter className="justify-end">

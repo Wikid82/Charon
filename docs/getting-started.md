@@ -159,7 +159,39 @@ Expected output:
 
 ---
 
-## Step 2: Add Your First Website
+## Step 2: Configure Application URL (Recommended)
+
+Before inviting users, you should configure your Application URL. This ensures invite links work correctly from external networks.
+
+**What it does:** Sets the public URL used in user invitation emails and links.
+
+**When you need it:** If you plan to invite users or access Charon from external networks.
+
+**How to configure:**
+
+1. **Go to System Settings** (gear icon in sidebar)
+2. **Scroll to "Application URL" section**
+3. **Enter your public URL** (e.g., `https://charon.example.com`)
+   - Must start with `http://` or `https://`
+   - Should be the URL users use to access Charon
+   - No path components (e.g., `/admin`)
+4. **Click "Validate"** to check the format
+5. **Click "Test"** to verify the URL opens in a new tab
+6. **Click "Save Changes"**
+
+**What happens if you skip this?** User invitation emails will use the server's local address (like `http://localhost:8080`), which won't work from external networks. You'll see a warning when previewing invite links.
+
+**Examples:**
+
+- ✅ `https://charon.example.com`
+- ✅ `https://proxy.mydomain.net`
+- ✅ `http://192.168.1.100:8080` (for internal networks only)
+- ❌ `charon.example.com` (missing protocol)
+- ❌ `https://charon.example.com/admin` (no paths allowed)
+
+---
+
+## Step 3: Add Your First Website
 
 Let's say you have an app running at `192.168.1.100:3000` and you want it available at `myapp.example.com`.
 
@@ -189,7 +221,7 @@ By default (and recommended), Charon adds special headers to requests so your ap
 
 ---
 
-## Step 3: Get HTTPS (The Green Lock)
+## Step 4: Get HTTPS (The Green Lock)
 
 For this to work, you need:
 

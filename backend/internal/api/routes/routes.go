@@ -191,6 +191,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
 		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
 
+		// URL Validation
+		protected.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
+
 		// Auth related protected routes
 		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)
 		protected.GET("/auth/check-host/:hostId", authHandler.CheckHostAccess)
@@ -209,6 +212,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/users", userHandler.ListUsers)
 		protected.POST("/users", userHandler.CreateUser)
 		protected.POST("/users/invite", userHandler.InviteUser)
+		protected.POST("/users/preview-invite-url", userHandler.PreviewInviteURL)
 		protected.GET("/users/:id", userHandler.GetUser)
 		protected.PUT("/users/:id", userHandler.UpdateUser)
 		protected.DELETE("/users/:id", userHandler.DeleteUser)
