@@ -1,4 +1,9 @@
-# Getting Started with Charon
+---
+title: Getting Started with Charon
+description: Get your first website up and running in minutes. A beginner-friendly guide to setting up Charon reverse proxy.
+---
+
+## Getting Started with Charon
 
 **Welcome!** Let's get your first website up and running. No experience needed.
 

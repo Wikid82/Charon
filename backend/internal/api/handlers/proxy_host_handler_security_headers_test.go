@@ -83,7 +83,7 @@ func TestBulkUpdateSecurityHeaders_Success(t *testing.T) {
 	require.NoError(t, db.Create(&host3).Error)
 
 	// Apply profile to all hosts
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host1.UUID, host2.UUID, host3.UUID},
 		"security_header_profile_id": profile.ID,
 	}
@@ -96,7 +96,7 @@ func TestBulkUpdateSecurityHeaders_Success(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Equal(t, float64(3), result["updated"])
 	assert.Empty(t, result["errors"])
@@ -150,7 +150,7 @@ func TestBulkUpdateSecurityHeaders_RemoveProfile(t *testing.T) {
 	require.NoError(t, db.Create(&host2).Error)
 
 	// Remove profile from all hosts (set to null)
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host1.UUID, host2.UUID},
 		"security_header_profile_id": nil,
 	}
@@ -163,7 +163,7 @@ func TestBulkUpdateSecurityHeaders_RemoveProfile(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Equal(t, float64(2), result["updated"])
 
@@ -192,7 +192,7 @@ func TestBulkUpdateSecurityHeaders_InvalidProfileID(t *testing.T) {
 
 	// Try to apply non-existent profile
 	nonExistentProfileID := uint(99999)
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host.UUID},
 		"security_header_profile_id": nonExistentProfileID,
 	}
@@ -205,7 +205,7 @@ func TestBulkUpdateSecurityHeaders_InvalidProfileID(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Contains(t, result["error"], "security header profile not found")
 }
@@ -214,7 +214,7 @@ func TestBulkUpdateSecurityHeaders_EmptyUUIDs(t *testing.T) {
 	router, _ := setupTestRouterForSecurityHeaders(t)
 
 	// Try to update with empty host UUIDs
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{},
 		"security_header_profile_id": nil,
 	}
@@ -227,7 +227,7 @@ func TestBulkUpdateSecurityHeaders_EmptyUUIDs(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Contains(t, result["error"], "host_uuids cannot be empty")
 }
@@ -257,7 +257,7 @@ func TestBulkUpdateSecurityHeaders_PartialFailure(t *testing.T) {
 
 	// Include one valid and one invalid UUID
 	invalidUUID := "non-existent-uuid"
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host1.UUID, invalidUUID},
 		"security_header_profile_id": profile.ID,
 	}
@@ -270,16 +270,16 @@ func TestBulkUpdateSecurityHeaders_PartialFailure(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Equal(t, float64(1), result["updated"])
 
 	// Check errors array
-	errors, ok := result["errors"].([]interface{})
+	errors, ok := result["errors"].([]any)
 	require.True(t, ok)
 	require.Len(t, errors, 1)
 
-	errorMap := errors[0].(map[string]interface{})
+	errorMap := errors[0].(map[string]any)
 	assert.Equal(t, invalidUUID, errorMap["uuid"])
 	assert.Contains(t, errorMap["error"], "proxy host not found")
 
@@ -296,7 +296,7 @@ func TestBulkUpdateSecurityHeaders_TransactionRollback(t *testing.T) {
 	// Try to update with all invalid UUIDs
 	invalidUUID1 := "invalid-uuid-1"
 	invalidUUID2 := "invalid-uuid-2"
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{invalidUUID1, invalidUUID2},
 		"security_header_profile_id": nil,
 	}
@@ -309,7 +309,7 @@ func TestBulkUpdateSecurityHeaders_TransactionRollback(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Contains(t, result["error"], "All updates failed")
 	assert.Equal(t, float64(0), result["updated"])
@@ -383,7 +383,7 @@ func TestBulkUpdateSecurityHeaders_MixedProfileStates(t *testing.T) {
 	require.NoError(t, db.Create(&host3).Error)
 
 	// Apply profile2 to all hosts
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host1.UUID, host2.UUID, host3.UUID},
 		"security_header_profile_id": profile2.ID,
 	}
@@ -396,7 +396,7 @@ func TestBulkUpdateSecurityHeaders_MixedProfileStates(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Equal(t, float64(3), result["updated"])
 
@@ -438,7 +438,7 @@ func TestBulkUpdateSecurityHeaders_SingleHost(t *testing.T) {
 	require.NoError(t, db.Create(&host).Error)
 
 	// Apply profile to single host
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"host_uuids":                 []string{host.UUID},
 		"security_header_profile_id": profile.ID,
 	}
@@ -451,7 +451,7 @@ func TestBulkUpdateSecurityHeaders_SingleHost(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	assert.Equal(t, float64(1), result["updated"])
 	assert.Empty(t, result["errors"])

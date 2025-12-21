@@ -401,8 +401,8 @@ func (s *AccessListService) isPrivateIP(ip net.IP) bool {
 }
 
 // GetTemplates returns predefined ACL templates
-func (s *AccessListService) GetTemplates() []map[string]interface{} {
-	return []map[string]interface{}{
+func (s *AccessListService) GetTemplates() []map[string]any {
+	return []map[string]any{
 		{
 			"id":                 "local-network",
 			"name":               "Local Network Only",

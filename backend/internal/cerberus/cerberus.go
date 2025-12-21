@@ -104,7 +104,7 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 							ClientIP:  clientIP,
 							Path:      ctx.Request.URL.Path,
 							Timestamp: time.Now(),
-							Metadata: map[string]interface{}{
+							Metadata: map[string]any{
 								"acl_name": acl.Name,
 								"acl_id":   acl.ID,
 							},

@@ -36,7 +36,7 @@ func TestBuildSecurityHeadersHandler_AllEnabled(t *testing.T) {
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
@@ -73,7 +73,7 @@ func TestBuildSecurityHeadersHandler_HSTSOnly(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, handler)
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers["Strict-Transport-Security"][0], "max-age=31536000")
@@ -103,7 +103,7 @@ func TestBuildSecurityHeadersHandler_CSPOnly(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, handler)
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.NotContains(t, headers, "Strict-Transport-Security")
@@ -129,7 +129,7 @@ func TestBuildSecurityHeadersHandler_CSPReportOnly(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, handler)
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.NotContains(t, headers, "Content-Security-Policy")
@@ -147,7 +147,7 @@ func TestBuildSecurityHeadersHandler_NoProfile(t *testing.T) {
 	assert.NotNil(t, handler)
 
 	// Should use defaults
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers, "Strict-Transport-Security")
@@ -314,7 +314,7 @@ func TestBuildSecurityHeadersHandler_PermissionsPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, handler)
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	assert.Contains(t, headers, "Permissions-Policy")
@@ -341,7 +341,7 @@ func TestBuildSecurityHeadersHandler_InvalidCSPJSON(t *testing.T) {
 	assert.NotNil(t, handler)
 
 	// Should skip CSP if invalid JSON
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 	assert.NotContains(t, headers, "Content-Security-Policy")
 	// But should include the other header
@@ -394,7 +394,7 @@ func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
 	assert.NotNil(t, handler)
 	assert.Equal(t, "headers", handler["handler"])
 
-	response := handler["response"].(map[string]interface{})
+	response := handler["response"].(map[string]any)
 	headers := response["set"].(map[string][]string)
 
 	// Verify HSTS is present

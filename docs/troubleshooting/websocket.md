@@ -1,8 +1,13 @@
-# Troubleshooting WebSocket Issues
+---
+title: Troubleshooting WebSocket Issues
+description: Resolve WebSocket connection problems in Charon. Proxy configuration, timeouts, and connection stability.
+---
+
+## Troubleshooting WebSocket Issues
 
 WebSocket connections are used in Charon for real-time features like live log streaming. If you're experiencing issues with WebSocket connections (e.g., logs not updating in real-time), this guide will help you diagnose and resolve the problem.
 
-## Quick Diagnostics
+### Quick Diagnostics
 
 ### Check WebSocket Connection Status
 

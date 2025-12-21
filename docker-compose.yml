@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   charon:
     image: ghcr.io/wikid82/charon:latest

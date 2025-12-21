@@ -295,7 +295,7 @@ func TestProxyHostCreate_AdvancedConfig_Normalization(t *testing.T) {
 
 	// Provide an advanced_config value that will be normalized by caddy.NormalizeAdvancedConfig
 	adv := `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":            "AdvHost",
 		"domain_names":    "adv.example.com",
 		"forward_scheme":  "http",
@@ -318,7 +318,7 @@ func TestProxyHostCreate_AdvancedConfig_Normalization(t *testing.T) {
 	require.NotEmpty(t, created.AdvancedConfig)
 
 	// Confirm it can be unmarshaled and that headers are normalized to array/strings
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(created.AdvancedConfig), &parsed))
 	// a basic assertion: ensure 'handler' field exists in parsed config when normalized
 	require.Contains(t, parsed, "handler")
@@ -513,7 +513,7 @@ func TestProxyHostHandler_BulkUpdateACL_Success(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Equal(t, float64(2), result["updated"])
 	require.Empty(t, result["errors"])
@@ -563,7 +563,7 @@ func TestProxyHostHandler_BulkUpdateACL_RemoveACL(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Equal(t, float64(1), result["updated"])
 	require.Empty(t, result["errors"])
@@ -607,13 +607,13 @@ func TestProxyHostHandler_BulkUpdateACL_PartialFailure(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Equal(t, float64(1), result["updated"])
 
-	errors := result["errors"].([]interface{})
+	errors := result["errors"].([]any)
 	require.Len(t, errors, 1)
-	errorMap := errors[0].(map[string]interface{})
+	errorMap := errors[0].(map[string]any)
 	require.Equal(t, nonExistentUUID, errorMap["uuid"])
 	require.Equal(t, "proxy host not found", errorMap["error"])
 
@@ -635,7 +635,7 @@ func TestProxyHostHandler_BulkUpdateACL_EmptyUUIDs(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Contains(t, result["error"], "host_uuids cannot be empty")
 }
@@ -883,7 +883,7 @@ func TestProxyHostCreate_WithCertificateAndLocations(t *testing.T) {
 	require.NoError(t, db.Create(cert).Error)
 
 	adv := `{"handler":"headers","response":{"set":{"X-Test":"1"}}}`
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":            "Create With Cert",
 		"domain_names":    "cert.example.com",
 		"forward_scheme":  "http",
@@ -891,7 +891,7 @@ func TestProxyHostCreate_WithCertificateAndLocations(t *testing.T) {
 		"forward_port":    8080,
 		"enabled":         true,
 		"certificate_id":  cert.ID,
-		"locations":       []map[string]interface{}{{"path": "/app", "forward_scheme": "http", "forward_host": "localhost", "forward_port": 8080}},
+		"locations":       []map[string]any{{"path": "/app", "forward_scheme": "http", "forward_host": "localhost", "forward_port": 8080}},
 		"advanced_config": adv,
 	}
 	body, _ := json.Marshal(payload)
@@ -930,7 +930,7 @@ func TestProxyHostCreate_WithSecurityHeaderProfile(t *testing.T) {
 	require.NoError(t, db.Create(profile).Error)
 
 	// Create proxy host with security_header_profile_id
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":                       "Host With Security Profile",
 		"domain_names":               "secure.example.com",
 		"forward_scheme":             "http",
@@ -1303,7 +1303,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_InvalidString(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Contains(t, result["error"], "invalid security_header_profile_id")
 }
@@ -1334,7 +1334,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_InvalidFloat(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Contains(t, result["error"], "invalid security_header_profile_id")
 }
@@ -1407,7 +1407,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_UnsupportedType(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &result))
 	require.Contains(t, result["error"], "invalid security_header_profile_id")
 }

@@ -231,7 +231,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 
 	// Debug logging: WAF configuration state for troubleshooting integration issues
-	logger.Log().WithFields(map[string]interface{}{
+	logger.Log().WithFields(map[string]any{
 		"waf_enabled":       wafEnabled,
 		"waf_mode":          secCfg.WAFMode,
 		"waf_rules_source":  secCfg.WAFRulesSource,
@@ -239,7 +239,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		"ruleset_paths_len": len(rulesetPaths),
 	}).Debug("WAF configuration state")
 	for rsName, rsPath := range rulesetPaths {
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"ruleset_name": rsName,
 			"ruleset_path": rsPath,
 		}).Debug("WAF ruleset path mapping")

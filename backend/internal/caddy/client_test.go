@@ -179,7 +179,7 @@ func TestClient_NetworkErrors(t *testing.T) {
 func TestClient_Load_MarshalFailure(t *testing.T) {
 	// Simulate json.Marshal failure
 	orig := jsonMarshalClient
-	jsonMarshalClient = func(v interface{}) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
+	jsonMarshalClient = func(v any) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
 	defer func() { jsonMarshalClient = orig }()
 
 	client := NewClient("http://localhost")

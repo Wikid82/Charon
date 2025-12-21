@@ -1,10 +1,15 @@
-# WebSocket Authentication Security
+---
+title: WebSocket Authentication Security
+description: Security documentation for WebSocket authentication in Charon. HttpOnly cookie implementation and token protection.
+---
 
-## Overview
+## WebSocket Authentication Security
+
+### Overview
 
 This document explains the security improvements made to WebSocket authentication in Charon to prevent JWT tokens from being exposed in access logs.
 
-## Security Issue
+### Security Issue
 
 ### Before (Insecure)
 

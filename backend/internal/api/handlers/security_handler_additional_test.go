@@ -33,7 +33,7 @@ func TestSecurityHandler_GetConfigAndUpdateConfig(t *testing.T) {
 	c.Request = req
 	h.GetConfig(c)
 	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	// Should return config: null
 	if _, ok := body["config"]; !ok {
@@ -57,9 +57,9 @@ func TestSecurityHandler_GetConfigAndUpdateConfig(t *testing.T) {
 	c.Request = req
 	h.GetConfig(c)
 	require.Equal(t, http.StatusOK, w.Code)
-	var body2 map[string]interface{}
+	var body2 map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body2))
-	cfgVal, ok := body2["config"].(map[string]interface{})
+	cfgVal, ok := body2["config"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected config object, got %v", body2["config"])
 	}

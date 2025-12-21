@@ -124,7 +124,7 @@ func validateHandler(handler Handler) error {
 }
 
 func validateReverseProxy(handler Handler) error {
-	upstreams, ok := handler["upstreams"].([]map[string]interface{})
+	upstreams, ok := handler["upstreams"].([]map[string]any)
 	if !ok {
 		return fmt.Errorf("reverse_proxy missing upstreams")
 	}

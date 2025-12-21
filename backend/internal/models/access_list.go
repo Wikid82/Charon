@@ -11,11 +11,11 @@ type AccessList struct {
 	UUID             string    `json:"uuid" gorm:"uniqueIndex"`
 	Name             string    `json:"name" gorm:"index"`
 	Description      string    `json:"description"`
-	Type             string    `json:"type"`                      // "whitelist", "blacklist", "geo_whitelist", "geo_blacklist"
+	Type             string    `json:"type" gorm:"index"`         // "whitelist", "blacklist", "geo_whitelist", "geo_blacklist"
 	IPRules          string    `json:"ip_rules" gorm:"type:text"` // JSON array of IP/CIDR rules
 	CountryCodes     string    `json:"country_codes"`             // Comma-separated ISO country codes (for geo types)
 	LocalNetworkOnly bool      `json:"local_network_only"`        // RFC1918 private networks only
-	Enabled          bool      `json:"enabled"`
+	Enabled          bool      `json:"enabled" gorm:"index"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

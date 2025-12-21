@@ -1,5 +1,6 @@
 import client from './client';
 
+/** Information about a WebSocket connection. */
 export interface ConnectionInfo {
   id: string;
   type: 'logs' | 'cerberus';
@@ -10,6 +11,7 @@ export interface ConnectionInfo {
   filters?: string;
 }
 
+/** Aggregate statistics for WebSocket connections. */
 export interface ConnectionStats {
   total_active: number;
   logs_connections: number;
@@ -18,13 +20,16 @@ export interface ConnectionStats {
   last_updated: string;
 }
 
+/** Response containing WebSocket connections list. */
 export interface ConnectionsResponse {
   connections: ConnectionInfo[];
   count: number;
 }
 
 /**
- * Get all active WebSocket connections
+ * Gets all active WebSocket connections.
+ * @returns Promise resolving to ConnectionsResponse with connections list
+ * @throws {AxiosError} If the request fails
  */
 export const getWebSocketConnections = async (): Promise<ConnectionsResponse> => {
   const response = await client.get('/websocket/connections');
@@ -32,7 +37,9 @@ export const getWebSocketConnections = async (): Promise<ConnectionsResponse> =>
 };
 
 /**
- * Get aggregate WebSocket connection statistics
+ * Gets aggregate WebSocket connection statistics.
+ * @returns Promise resolving to ConnectionStats
+ * @throws {AxiosError} If the request fails
  */
 export const getWebSocketStats = async (): Promise<ConnectionStats> => {
   const response = await client.get('/websocket/stats');

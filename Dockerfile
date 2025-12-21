@@ -253,6 +253,11 @@ RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gette
     && apk --no-cache upgrade \
     && apk --no-cache upgrade c-ares
 
+# Security: Create non-root user and group for running the application
+# This follows the principle of least privilege (CIS Docker Benchmark 4.1)
+RUN addgroup -g 1000 charon && \
+    adduser -D -u 1000 -G charon -h /app -s /sbin/nologin charon
+
 # Download MaxMind GeoLite2 Country database
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
@@ -279,9 +284,11 @@ RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     fi
 
 # Create required CrowdSec directories in runtime image
+# Also prepare persistent config directory structure for volume mounts
 RUN mkdir -p /etc/crowdsec /etc/crowdsec/acquis.d /etc/crowdsec/bouncers \
              /etc/crowdsec/hub /etc/crowdsec/notifications \
-             /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy
+             /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
+             /app/data/crowdsec/config /app/data/crowdsec/data
 
 # Copy CrowdSec configuration templates from source
 COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
@@ -320,6 +327,14 @@ ENV CHARON_ENV=production \
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
+# Security: Set ownership of all application directories to non-root charon user
+# Note: /app/data and /config are typically mounted as volumes; permissions
+# will be handled at runtime in docker-entrypoint.sh if needed
+RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
+    chown -R charon:charon /etc/crowdsec 2>/dev/null || true && \
+    chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
+    chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+
 # Re-declare build args for LABEL usage
 ARG VERSION=dev
 ARG BUILD_DATE
@@ -338,6 +353,15 @@ LABEL org.opencontainers.image.title="Charon (CPMP legacy)" \
 
 # Expose ports
 EXPOSE 80 443 443/udp 2019 8080
+
+# Security: Add healthcheck to monitor container health
+# Verifies the Charon API is responding correctly
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+
+# Security: Run as non-root user (CIS Docker Benchmark 4.1)
+# The entrypoint script handles any required permission fixes for volumes
+USER charon
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

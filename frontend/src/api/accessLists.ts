@@ -48,7 +48,9 @@ export interface AccessListTemplate {
 
 export const accessListsApi = {
   /**
-   * Fetch all access lists
+   * Fetches all access lists.
+   * @returns Promise resolving to array of AccessList objects
+   * @throws {AxiosError} If the request fails
    */
   async list(): Promise<AccessList[]> {
     const response = await client.get<AccessList[]>('/access-lists');
@@ -56,7 +58,10 @@ export const accessListsApi = {
   },
 
   /**
-   * Get a single access list by ID
+   * Gets a single access list by ID.
+   * @param id - The access list ID
+   * @returns Promise resolving to the AccessList object
+   * @throws {AxiosError} If the request fails or access list not found
    */
   async get(id: number): Promise<AccessList> {
     const response = await client.get<AccessList>(`/access-lists/${id}`);
@@ -64,7 +69,10 @@ export const accessListsApi = {
   },
 
   /**
-   * Create a new access list
+   * Creates a new access list.
+   * @param data - CreateAccessListRequest with access list configuration
+   * @returns Promise resolving to the created AccessList
+   * @throws {AxiosError} If creation fails or validation errors occur
    */
   async create(data: CreateAccessListRequest): Promise<AccessList> {
     const response = await client.post<AccessList>('/access-lists', data);
@@ -72,7 +80,11 @@ export const accessListsApi = {
   },
 
   /**
-   * Update an existing access list
+   * Updates an existing access list.
+   * @param id - The access list ID to update
+   * @param data - Partial CreateAccessListRequest with fields to update
+   * @returns Promise resolving to the updated AccessList
+   * @throws {AxiosError} If update fails or access list not found
    */
   async update(id: number, data: Partial<CreateAccessListRequest>): Promise<AccessList> {
     const response = await client.put<AccessList>(`/access-lists/${id}`, data);
@@ -80,14 +92,20 @@ export const accessListsApi = {
   },
 
   /**
-   * Delete an access list
+   * Deletes an access list.
+   * @param id - The access list ID to delete
+   * @throws {AxiosError} If deletion fails or access list not found
    */
   async delete(id: number): Promise<void> {
     await client.delete(`/access-lists/${id}`);
   },
 
   /**
-   * Test if an IP address would be allowed/blocked
+   * Tests if an IP address would be allowed or blocked by an access list.
+   * @param id - The access list ID to test against
+   * @param ipAddress - The IP address to test
+   * @returns Promise resolving to TestIPResponse with allowed status and reason
+   * @throws {AxiosError} If test fails or access list not found
    */
   async testIP(id: number, ipAddress: string): Promise<TestIPResponse> {
     const response = await client.post<TestIPResponse>(`/access-lists/${id}/test`, {
@@ -97,7 +115,9 @@ export const accessListsApi = {
   },
 
   /**
-   * Get predefined ACL templates
+   * Gets predefined access list templates.
+   * @returns Promise resolving to array of AccessListTemplate objects
+   * @throws {AxiosError} If the request fails
    */
   async getTemplates(): Promise<AccessListTemplate[]> {
     const response = await client.get<AccessListTemplate[]>('/access-lists/templates');

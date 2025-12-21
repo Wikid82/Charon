@@ -373,7 +373,7 @@ func TestManager_SaveSnapshot_MarshalError(t *testing.T) {
 	manager := NewManager(nil, nil, tmp, "", false, config.SecurityConfig{})
 	// Stub jsonMarshallFunc to return error
 	orig := jsonMarshalFunc
-	jsonMarshalFunc = func(v interface{}, prefix, indent string) ([]byte, error) {
+	jsonMarshalFunc = func(v any, prefix, indent string) ([]byte, error) {
 		return nil, fmt.Errorf("marshal fail")
 	}
 	defer func() { jsonMarshalFunc = orig }()
@@ -915,12 +915,12 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 				if h == "flag.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
-							if routes, ok := handle["routes"].([]interface{}); ok {
+							if routes, ok := handle["routes"].([]any); ok {
 								for _, rt := range routes {
-									if rtMap, ok := rt.(map[string]interface{}); ok {
-										if inner, ok := rtMap["handle"].([]interface{}); ok {
+									if rtMap, ok := rt.(map[string]any); ok {
+										if inner, ok := rtMap["handle"].([]any); ok {
 											for _, itm := range inner {
-												if itmMap, ok := itm.(map[string]interface{}); ok {
+												if itmMap, ok := itm.(map[string]any); ok {
 													if body, ok := itmMap["body"].(string); ok {
 														if strings.Contains(body, "Access denied") {
 															found = true
@@ -959,12 +959,12 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 				if h == "flag.example.com" {
 					for _, handle := range r.Handle {
 						if handlerName, ok := handle["handler"].(string); ok && handlerName == "subroute" {
-							if routes, ok := handle["routes"].([]interface{}); ok {
+							if routes, ok := handle["routes"].([]any); ok {
 								for _, rt := range routes {
-									if rtMap, ok := rt.(map[string]interface{}); ok {
-										if inner, ok := rtMap["handle"].([]interface{}); ok {
+									if rtMap, ok := rt.(map[string]any); ok {
+										if inner, ok := rtMap["handle"].([]any); ok {
 											for _, itm := range inner {
-												if itmMap, ok := itm.(map[string]interface{}); ok {
+												if itmMap, ok := itm.(map[string]any); ok {
 													if body, ok := itmMap["body"].(string); ok {
 														if strings.Contains(body, "Access denied") {
 															found = true
@@ -1162,7 +1162,7 @@ func TestManager_ApplyConfig_DebugMarshalFailure(t *testing.T) {
 
 	// Stub jsonMarshalDebugFunc to return an error (exercises the else branch in debug logging)
 	origMarshalDebug := jsonMarshalDebugFunc
-	jsonMarshalDebugFunc = func(v interface{}) ([]byte, error) {
+	jsonMarshalDebugFunc = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("simulated marshal error")
 	}
 	defer func() { jsonMarshalDebugFunc = origMarshalDebug }()

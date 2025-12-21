@@ -1,8 +1,13 @@
-# Troubleshooting gopls / VS Code Go errors in Charon
+---
+title: Troubleshooting gopls / VS Code Go Errors
+description: Resolve gopls and VS Code Go extension errors in the Charon repository. Log collection and common fixes.
+---
+
+## Troubleshooting gopls / VS Code Go Errors in Charon
 
 This page documents how to triage and collect logs for persistent Go errors shown by gopls or VS Code in the Charon repository.
 
-Steps:
+### Steps
 
 1. Open the Charon workspace in VS Code (project root).
 2. Accept the workspace settings prompt to apply .vscode/settings.json.

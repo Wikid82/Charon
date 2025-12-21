@@ -74,7 +74,7 @@ func (h *RemoteServerHandler) Create(c *gin.Context) {
 			"remote_server",
 			"Remote Server Added",
 			fmt.Sprintf("Remote Server %s (%s:%d) added", util.SanitizeForLog(server.Name), util.SanitizeForLog(server.Host), server.Port),
-			map[string]interface{}{
+			map[string]any{
 				"Name":   util.SanitizeForLog(server.Name),
 				"Host":   util.SanitizeForLog(server.Host),
 				"Port":   server.Port,
@@ -143,7 +143,7 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 			"remote_server",
 			"Remote Server Deleted",
 			fmt.Sprintf("Remote Server %s deleted", util.SanitizeForLog(server.Name)),
-			map[string]interface{}{
+			map[string]any{
 				"Name":   util.SanitizeForLog(server.Name),
 				"Action": "deleted",
 			},

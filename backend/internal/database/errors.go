@@ -37,7 +37,7 @@ func IsCorruptionError(err error) bool {
 
 // LogCorruptionError logs a database corruption error with structured context.
 // The context map can include fields like "operation", "table", "query", "monitor_id", etc.
-func LogCorruptionError(err error, context map[string]interface{}) {
+func LogCorruptionError(err error, context map[string]any) {
 	if err == nil {
 		return
 	}

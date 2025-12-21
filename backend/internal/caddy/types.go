@@ -119,7 +119,7 @@ type Match struct {
 
 // Handler is the interface for all handler types.
 // Actual types will implement handler-specific fields.
-type Handler map[string]interface{}
+type Handler map[string]any
 
 // ReverseProxyHandler creates a reverse_proxy handler.
 // application: "none", "plex", "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden"
@@ -128,14 +128,14 @@ func ReverseProxyHandler(dial string, enableWS bool, application string, enableS
 	h := Handler{
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
-		"upstreams": []map[string]interface{}{
+		"upstreams": []map[string]any{
 			{"dial": dial},
 		},
 	}
 
 	// Build headers configuration
-	headers := make(map[string]interface{})
-	requestHeaders := make(map[string]interface{})
+	headers := make(map[string]any)
+	requestHeaders := make(map[string]any)
 	setHeaders := make(map[string][]string)
 
 	// STEP 1: Standard proxy headers (if feature enabled)
@@ -202,7 +202,7 @@ func ReverseProxyHandler(dial string, enableWS bool, application string, enableS
 func HeaderHandler(headers map[string][]string) Handler {
 	return Handler{
 		"handler": "headers",
-		"response": map[string]interface{}{
+		"response": map[string]any{
 			"set": headers,
 		},
 	}
@@ -260,5 +260,5 @@ type AutomationConfig struct {
 // AutomationPolicy defines certificate management for specific domains.
 type AutomationPolicy struct {
 	Subjects   []string      `json:"subjects,omitempty"`
-	IssuersRaw []interface{} `json:"issuers,omitempty"`
+	IssuersRaw []any `json:"issuers,omitempty"`
 }

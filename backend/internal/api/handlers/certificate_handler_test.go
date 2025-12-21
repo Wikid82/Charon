@@ -27,7 +27,7 @@ import (
 // mockAuthMiddleware adds a mock user to the context for testing
 func mockAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set("user", map[string]interface{}{"id": 1, "username": "testuser"})
+		c.Set("user", map[string]any{"id": 1, "username": "testuser"})
 		c.Next()
 	}
 }

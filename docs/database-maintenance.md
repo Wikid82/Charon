@@ -1,4 +1,9 @@
-# Database Maintenance
+---
+title: Database Maintenance
+description: SQLite database maintenance guide for Charon. Covers backups, recovery, and troubleshooting database issues.
+---
+
+## Database Maintenance
 
 Charon uses SQLite as its embedded database. This guide explains how the database
 is configured, how to maintain it, and what to do if something goes wrong.

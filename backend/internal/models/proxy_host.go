@@ -8,10 +8,10 @@ import (
 type ProxyHost struct {
 	ID                   uint            `json:"id" gorm:"primaryKey"`
 	UUID                 string          `json:"uuid" gorm:"uniqueIndex;not null"`
-	Name                 string          `json:"name"`
-	DomainNames          string          `json:"domain_names" gorm:"not null"` // Comma-separated list
+	Name                 string          `json:"name" gorm:"index"`
+	DomainNames          string          `json:"domain_names" gorm:"not null;index"` // Comma-separated list
 	ForwardScheme        string          `json:"forward_scheme" gorm:"default:http"`
-	ForwardHost          string          `json:"forward_host" gorm:"not null"`
+	ForwardHost          string          `json:"forward_host" gorm:"not null;index"`
 	ForwardPort          int             `json:"forward_port" gorm:"not null"`
 	SSLForced            bool            `json:"ssl_forced" gorm:"default:false"`
 	HTTP2Support         bool            `json:"http2_support" gorm:"default:true"`
@@ -20,10 +20,10 @@ type ProxyHost struct {
 	BlockExploits        bool            `json:"block_exploits" gorm:"default:true"`
 	WebsocketSupport     bool            `json:"websocket_support" gorm:"default:false"`
 	Application          string          `json:"application" gorm:"default:none"` // none, plex, jellyfin, emby, homeassistant, nextcloud, vaultwarden
-	Enabled              bool            `json:"enabled" gorm:"default:true"`
-	CertificateID        *uint           `json:"certificate_id"`
+	Enabled              bool            `json:"enabled" gorm:"default:true;index"`
+	CertificateID        *uint           `json:"certificate_id" gorm:"index"`
 	Certificate          *SSLCertificate `json:"certificate" gorm:"foreignKey:CertificateID"`
-	AccessListID         *uint           `json:"access_list_id"`
+	AccessListID         *uint           `json:"access_list_id" gorm:"index"`
 	AccessList           *AccessList     `json:"access_list" gorm:"foreignKey:AccessListID"`
 	Locations            []Location      `json:"locations" gorm:"foreignKey:ProxyHostID;constraint:OnDelete:CASCADE"`
 	AdvancedConfig       string          `json:"advanced_config" gorm:"type:text"`
@@ -38,7 +38,7 @@ type ProxyHost struct {
 
 	// Security Headers Configuration
 	// Either reference a profile OR use inline settings
-	SecurityHeaderProfileID *uint                  `json:"security_header_profile_id"`
+	SecurityHeaderProfileID *uint                  `json:"security_header_profile_id" gorm:"index"`
 	SecurityHeaderProfile   *SecurityHeaderProfile `json:"security_header_profile" gorm:"foreignKey:SecurityHeaderProfileID"`
 
 	// Inline security header settings (used when no profile is selected)

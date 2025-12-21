@@ -9,20 +9,20 @@ import (
 
 type UptimeMonitor struct {
 	ID             string    `gorm:"primaryKey" json:"id"`
-	ProxyHostID    *uint     `json:"proxy_host_id"`    // Optional link to proxy host
-	RemoteServerID *uint     `json:"remote_server_id"` // Optional link to remote server
-	UptimeHostID   *string   `json:"uptime_host_id"`   // Link to parent host for grouping
-	Name           string    `json:"name"`
+	ProxyHostID    *uint     `json:"proxy_host_id" gorm:"index"`    // Optional link to proxy host
+	RemoteServerID *uint     `json:"remote_server_id" gorm:"index"` // Optional link to remote server
+	UptimeHostID   *string   `json:"uptime_host_id" gorm:"index"`   // Link to parent host for grouping
+	Name           string    `json:"name" gorm:"index"`
 	Type           string    `json:"type"` // http, tcp, ping
 	URL            string    `json:"url"`
-	UpstreamHost   string    `json:"upstream_host"` // The actual backend host/IP (for grouping)
-	Interval       int       `json:"interval"`      // seconds
-	Enabled        bool      `json:"enabled"`
+	UpstreamHost   string    `json:"upstream_host" gorm:"index"` // The actual backend host/IP (for grouping)
+	Interval       int       `json:"interval"`                   // seconds
+	Enabled        bool      `json:"enabled" gorm:"index"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 
 	// Current Status (Cached)
-	Status           string    `json:"status"` // up, down, maintenance, pending
+	Status           string    `json:"status" gorm:"index"` // up, down, maintenance, pending
 	LastCheck        time.Time `json:"last_check"`
 	Latency          int64     `json:"latency"` // ms
 	FailureCount     int       `json:"failure_count"`

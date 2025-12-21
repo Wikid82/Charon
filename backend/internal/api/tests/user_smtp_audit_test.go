@@ -97,7 +97,7 @@ func TestInviteToken_MustBeUnguessable(t *testing.T) {
 
 	require.Equal(t, http.StatusCreated, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	token := resp["invite_token"].(string)
@@ -239,7 +239,7 @@ func TestAcceptInvite_PasswordValidation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset user to pending state for each test
-			db.Model(&user).Updates(map[string]interface{}{
+			db.Model(&user).Updates(map[string]any{
 				"invite_status": "pending",
 				"enabled":       false,
 				"password_hash": "",
@@ -369,7 +369,7 @@ func TestSMTPConfig_PasswordMasked(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	// Password MUST be masked
@@ -397,7 +397,7 @@ func TestSMTPConfig_PortValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body, _ := json.Marshal(map[string]interface{}{
+			body, _ := json.Marshal(map[string]any{
 				"host":         "smtp.test.com",
 				"port":         tc.port,
 				"from_address": "test@test.com",
@@ -432,7 +432,7 @@ func TestSMTPConfig_EncryptionValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body, _ := json.Marshal(map[string]interface{}{
+			body, _ := json.Marshal(map[string]any{
 				"host":         "smtp.test.com",
 				"port":         587,
 				"from_address": "test@test.com",
@@ -549,7 +549,7 @@ func TestUpdatePermissions_ValidModes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body, _ := json.Marshal(map[string]interface{}{
+			body, _ := json.Marshal(map[string]any{
 				"permission_mode": tc.mode,
 				"permitted_hosts": []int{},
 			})

@@ -56,31 +56,67 @@ export interface ProxyHost {
   updated_at: string;
 }
 
+/**
+ * Fetches all proxy hosts from the API.
+ * @returns Promise resolving to array of ProxyHost objects
+ * @throws {AxiosError} If the request fails
+ */
 export const getProxyHosts = async (): Promise<ProxyHost[]> => {
   const { data } = await client.get<ProxyHost[]>('/proxy-hosts');
   return data;
 };
 
+/**
+ * Fetches a single proxy host by UUID.
+ * @param uuid - The unique identifier of the proxy host
+ * @returns Promise resolving to the ProxyHost object
+ * @throws {AxiosError} If the request fails or host not found
+ */
 export const getProxyHost = async (uuid: string): Promise<ProxyHost> => {
   const { data } = await client.get<ProxyHost>(`/proxy-hosts/${uuid}`);
   return data;
 };
 
+/**
+ * Creates a new proxy host.
+ * @param host - Partial ProxyHost object with configuration
+ * @returns Promise resolving to the created ProxyHost
+ * @throws {AxiosError} If the request fails or validation errors occur
+ */
 export const createProxyHost = async (host: Partial<ProxyHost>): Promise<ProxyHost> => {
   const { data } = await client.post<ProxyHost>('/proxy-hosts', host);
   return data;
 };
 
+/**
+ * Updates an existing proxy host.
+ * @param uuid - The unique identifier of the proxy host to update
+ * @param host - Partial ProxyHost object with fields to update
+ * @returns Promise resolving to the updated ProxyHost
+ * @throws {AxiosError} If the request fails or host not found
+ */
 export const updateProxyHost = async (uuid: string, host: Partial<ProxyHost>): Promise<ProxyHost> => {
   const { data } = await client.put<ProxyHost>(`/proxy-hosts/${uuid}`, host);
   return data;
 };
 
+/**
+ * Deletes a proxy host.
+ * @param uuid - The unique identifier of the proxy host to delete
+ * @param deleteUptime - Optional flag to also delete associated uptime monitors
+ * @throws {AxiosError} If the request fails or host not found
+ */
 export const deleteProxyHost = async (uuid: string, deleteUptime?: boolean): Promise<void> => {
   const url = `/proxy-hosts/${uuid}${deleteUptime ? '?delete_uptime=true' : ''}`
   await client.delete(url);
 };
 
+/**
+ * Tests connectivity to a backend host.
+ * @param host - The hostname or IP address to test
+ * @param port - The port number to test
+ * @throws {AxiosError} If the connection test fails
+ */
 export const testProxyHostConnection = async (host: string, port: number): Promise<void> => {
   await client.post('/proxy-hosts/test', { forward_host: host, forward_port: port });
 };
@@ -95,6 +131,13 @@ export interface BulkUpdateACLResponse {
   errors: { uuid: string; error: string }[];
 }
 
+/**
+ * Bulk updates access control list assignments for multiple proxy hosts.
+ * @param hostUUIDs - Array of proxy host UUIDs to update
+ * @param accessListID - The access list ID to assign, or null to remove
+ * @returns Promise resolving to the bulk update result with success/error counts
+ * @throws {AxiosError} If the request fails
+ */
 export const bulkUpdateACL = async (
   hostUUIDs: string[],
   accessListID: number | null
@@ -116,6 +159,13 @@ export interface BulkUpdateSecurityHeadersResponse {
   errors: { uuid: string; error: string }[];
 }
 
+/**
+ * Bulk updates security header profile assignments for multiple proxy hosts.
+ * @param hostUUIDs - Array of proxy host UUIDs to update
+ * @param securityHeaderProfileId - The security header profile ID to assign, or null to remove
+ * @returns Promise resolving to the bulk update result with success/error counts
+ * @throws {AxiosError} If the request fails
+ */
 export const bulkUpdateSecurityHeaders = async (
   hostUUIDs: string[],
   securityHeaderProfileId: number | null

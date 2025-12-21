@@ -45,9 +45,9 @@ func TestGenerateConfig_AdvancedInvalidJSON(t *testing.T) {
 }
 
 func TestGenerateConfig_AdvancedArrayHandler(t *testing.T) {
-	array := []map[string]interface{}{{
+	array := []map[string]any{{
 		"handler": "headers",
-		"response": map[string]interface{}{
+		"response": map[string]any{
 			"set": map[string][]string{"X-Test": {"1"}},
 		},
 	}}
@@ -119,12 +119,12 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 	require.Equal(t, "headers", first["handler"])
 
 	// request.set.Upgrade should be an array
-	if req, ok := first["request"].(map[string]interface{}); ok {
-		if set, ok := req["set"].(map[string]interface{}); ok {
+	if req, ok := first["request"].(map[string]any); ok {
+		if set, ok := req["set"].(map[string]any); ok {
 			switch val := set["Upgrade"].(type) {
 			case []string:
 				require.Equal(t, []string{"websocket"}, val)
-			case []interface{}:
+			case []any:
 				var out []string
 				for _, v := range val {
 					out = append(out, fmt.Sprintf("%v", v))
@@ -141,12 +141,12 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 	}
 
 	// response.set.X-Obj should be an array
-	if resp, ok := first["response"].(map[string]interface{}); ok {
-		if set, ok := resp["set"].(map[string]interface{}); ok {
+	if resp, ok := first["response"].(map[string]any); ok {
+		if set, ok := resp["set"].(map[string]any); ok {
 			switch val := set["X-Obj"].(type) {
 			case []string:
 				require.Equal(t, []string{"1"}, val)
-			case []interface{}:
+			case []any:
 				var out []string
 				for _, v := range val {
 					out = append(out, fmt.Sprintf("%v", v))

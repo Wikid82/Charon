@@ -100,7 +100,7 @@ func (s *MailService) SaveSMTPConfig(config *SMTPConfig) error {
 				return fmt.Errorf("failed to create setting %s: %w", key, err)
 			}
 		} else {
-			if err := s.db.Model(&models.Setting{}).Where("key = ?", key).Updates(map[string]interface{}{
+			if err := s.db.Model(&models.Setting{}).Where("key = ?", key).Updates(map[string]any{
 				"value":    value,
 				"category": "smtp",
 			}).Error; err != nil {

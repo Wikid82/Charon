@@ -1,4 +1,9 @@
-# Import Your Old Caddy Setup
+---
+title: Import Your Old Caddy Setup
+description: Guide to importing existing Caddyfile configurations into Charon. Migrate your reverse proxy setup without starting from scratch.
+---
+
+## Import Your Old Caddy Setup
 
 Already using Caddy? You can bring your existing configuration into Charon instead of starting from scratch.
 

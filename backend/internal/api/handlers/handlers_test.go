@@ -78,7 +78,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
 	// Test Create
-	serverData := map[string]interface{}{
+	serverData := map[string]any{
 		"name":     "New Server",
 		"provider": "generic",
 		"host":     "192.168.1.100",
@@ -128,7 +128,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	assert.NoError(t, err)
 	assert.False(t, result["reachable"].(bool))
@@ -189,7 +189,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
 	// Test Update
-	updateData := map[string]interface{}{
+	updateData := map[string]any{
 		"name":     "Updated Server",
 		"provider": "generic",
 		"host":     "10.0.0.1",
@@ -293,7 +293,7 @@ func TestProxyHostHandler_Create(t *testing.T) {
 	handler.RegisterRoutes(router.Group("/api/v1"))
 
 	// Test Create
-	hostData := map[string]interface{}{
+	hostData := map[string]any{
 		"name":           "New Host",
 		"domain_names":   "new.local",
 		"forward_scheme": "http",

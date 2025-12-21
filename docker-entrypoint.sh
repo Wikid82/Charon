@@ -7,6 +7,30 @@ set -e
 echo "Starting Charon with integrated Caddy..."
 
 # ============================================================================
+# Volume Permission Handling for Non-Root User
+# ============================================================================
+# When running as non-root user (charon), mounted volumes may have incorrect
+# permissions. This section ensures the application can write to required paths.
+# Note: This runs as the charon user, so we can only fix owned directories.
+
+# Ensure /app/data exists and is writable (primary data volume)
+if [ ! -w "/app/data" ] 2>/dev/null; then
+    echo "Warning: /app/data is not writable. Please ensure volume permissions are correct."
+    echo "  Run: docker run ... -v charon_data:/app/data ..."
+    echo "  Or fix permissions: chown -R 1000:1000 /path/to/volume"
+fi
+
+# Ensure /config exists and is writable (Caddy config volume)
+if [ ! -w "/config" ] 2>/dev/null; then
+    echo "Warning: /config is not writable. Please ensure volume permissions are correct."
+fi
+
+# Create required subdirectories in writable volumes
+mkdir -p /app/data/caddy 2>/dev/null || true
+mkdir -p /app/data/crowdsec 2>/dev/null || true
+mkdir -p /app/data/geoip 2>/dev/null || true
+
+# ============================================================================
 # CrowdSec Initialization
 # ============================================================================
 # Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.
@@ -20,28 +44,31 @@ if command -v cscli >/dev/null; then
     CS_CONFIG_DIR="$CS_PERSIST_DIR/config"
     CS_DATA_DIR="$CS_PERSIST_DIR/data"
 
-    # Ensure persistent directories exist
-    mkdir -p "$CS_CONFIG_DIR"
-    mkdir -p "$CS_DATA_DIR"
-    mkdir -p /var/log/crowdsec
-    mkdir -p /var/log/caddy
+    # Ensure persistent directories exist (within writable volume)
+    mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
+    mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
+    # Log directories are created at build time with correct ownership
+    # Only attempt to create if they don't exist (first run scenarios)
+    mkdir -p /var/log/crowdsec 2>/dev/null || true
+    mkdir -p /var/log/caddy 2>/dev/null || true
 
     # Initialize persistent config if key files are missing
     if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
         echo "Initializing persistent CrowdSec configuration..."
         if [ -d "/etc/crowdsec.dist" ]; then
-            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/"
-        elif [ -d "/etc/crowdsec" ]; then
+            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy dist config"
+        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
             # Fallback if .dist is missing
-            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/"
+            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy config"
         fi
     fi
 
     # Link /etc/crowdsec to persistent config for runtime compatibility
-    if [ ! -L "/etc/crowdsec" ]; then
-        echo "Relinking /etc/crowdsec to persistent storage..."
-        rm -rf /etc/crowdsec
-        ln -s "$CS_CONFIG_DIR" /etc/crowdsec
+    # Note: This symlink is created at build time; verify it exists
+    if [ -L "/etc/crowdsec" ]; then
+        echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
+    else
+        echo "Warning: /etc/crowdsec symlink not found. CrowdSec may use volume config directly."
     fi
 
     # Create/update acquisition config for Caddy logs

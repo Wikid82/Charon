@@ -34,7 +34,7 @@ func TestImportUploadSanitizesFilename(t *testing.T) {
 	logger.Init(true, buf)
 
 	maliciousFilename := "../evil\nfile.caddy"
-	payload := map[string]interface{}{"filename": maliciousFilename, "content": "site { respond \"ok\" }"}
+	payload := map[string]any{"filename": maliciousFilename, "content": "site { respond \"ok\" }"}
 	bodyBytes, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/import/upload", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")

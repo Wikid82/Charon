@@ -773,7 +773,7 @@ func CheckMountedImport(db *gorm.DB, mountPath, caddyBinary, importDir string) e
 	return nil
 }
 
-func mustMarshal(v interface{}) []byte {
+func mustMarshal(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }

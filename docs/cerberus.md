@@ -1,4 +1,9 @@
-# Cerberus Technical Documentation
+---
+title: Cerberus Technical Documentation
+description: Technical deep-dive into Charon's Cerberus security suite. Architecture, configuration, and API reference for developers.
+---
+
+## Cerberus Technical Documentation
 
 This document is for developers and advanced users who want to understand how Cerberus works under the hood.
 

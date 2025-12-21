@@ -84,7 +84,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	// Validate and normalize advanced config if present
 	if host.AdvancedConfig != "" {
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
 			return
@@ -129,7 +129,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 			"proxy_host",
 			"Proxy Host Created",
 			fmt.Sprintf("Proxy Host %s (%s) created", util.SanitizeForLog(host.Name), util.SanitizeForLog(host.DomainNames)),
-			map[string]interface{}{
+			map[string]any{
 				"Name":    util.SanitizeForLog(host.Name),
 				"Domains": util.SanitizeForLog(host.DomainNames),
 				"Action":  "created",
@@ -164,7 +164,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	// Perform a partial update: only mutate fields present in payload
-	var payload map[string]interface{}
+	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -334,7 +334,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	// Locations: replace only if provided
-	if v, ok := payload["locations"].([]interface{}); ok {
+	if v, ok := payload["locations"].([]any); ok {
 		// Rebind to []models.Location
 		b, _ := json.Marshal(v)
 		var locs []models.Location
@@ -355,7 +355,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	// Advanced config: normalize if provided and changed
 	if v, ok := payload["advanced_config"].(string); ok {
 		if v != "" && v != host.AdvancedConfig {
-			var parsed interface{}
+			var parsed any
 			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config JSON: " + err.Error()})
 				return
@@ -439,7 +439,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 			"proxy_host",
 			"Proxy Host Deleted",
 			fmt.Sprintf("Proxy Host %s deleted", host.Name),
-			map[string]interface{}{
+			map[string]any{
 				"Name":   host.Name,
 				"Action": "deleted",
 			},
