@@ -155,3 +155,24 @@ func TestCertificateHandler_List_WithCertificates(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "Cert 1")
 	assert.Contains(t, w.Body.String(), "Cert 2")
 }
+
+func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
+	// Tests the ID=0 validation check (line 149-152 in certificate_handler.go)
+	// DELETE /api/certificates/0 should return 400 Bad Request
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{})
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/0", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "invalid id")
+}
