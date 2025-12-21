@@ -126,7 +126,7 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 			"cert",
 			"Certificate Uploaded",
 			fmt.Sprintf("Certificate %s uploaded", util.SanitizeForLog(cert.Name)),
-			map[string]interface{}{
+			map[string]any{
 				"Name":    util.SanitizeForLog(cert.Name),
 				"Domains": util.SanitizeForLog(cert.Domains),
 				"Action":  "uploaded",
@@ -203,7 +203,7 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 				"cert",
 				"Certificate Deleted",
 				fmt.Sprintf("Certificate ID %d deleted", id),
-				map[string]interface{}{
+				map[string]any{
 					"ID":     id,
 					"Action": "deleted",
 				},

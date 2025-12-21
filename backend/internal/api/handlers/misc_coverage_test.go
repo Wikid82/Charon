@@ -212,7 +212,7 @@ func TestRemoteServerHandler_TestConnectionCustom_Unreachable(t *testing.T) {
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"host": "192.0.2.1", // TEST-NET - should be unreachable
 		"port": 65535,
 	})

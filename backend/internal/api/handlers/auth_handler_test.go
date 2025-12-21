@@ -210,7 +210,7 @@ func TestAuthHandler_Me(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, float64(user.ID), resp["user_id"])
 	assert.Equal(t, "admin", resp["role"])
@@ -513,7 +513,7 @@ func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
@@ -530,7 +530,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
@@ -560,10 +560,10 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, true, resp["authenticated"])
-	userObj := resp["user"].(map[string]interface{})
+	userObj := resp["user"].(map[string]any)
 	assert.Equal(t, "status@example.com", userObj["email"])
 }
 
@@ -593,7 +593,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
@@ -643,9 +643,9 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	hosts := resp["hosts"].([]interface{})
+	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 2)
 }
 
@@ -679,9 +679,9 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	hosts := resp["hosts"].([]interface{})
+	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 0)
 }
 
@@ -718,9 +718,9 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	hosts := resp["hosts"].([]interface{})
+	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 1)
 }
 
@@ -803,7 +803,7 @@ func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, true, resp["can_access"])
 }
@@ -835,7 +835,7 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["can_access"])
 }

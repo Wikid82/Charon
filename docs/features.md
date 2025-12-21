@@ -1,4 +1,9 @@
-# What Can Charon Do?
+---
+title: What Can Charon Do?
+description: Complete feature guide for Charon reverse proxy manager. Learn about SSL certificates, security, Docker integration, and more.
+---
+
+## What Can Charon Do?
 
 Here's everything Charon can do for you, explained simply.
 

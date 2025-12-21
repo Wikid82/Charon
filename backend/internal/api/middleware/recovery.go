@@ -16,7 +16,7 @@ func Recovery(verbose bool) gin.HandlerFunc {
 				// Try to get a request-scoped logger; fall back to global logger
 				entry := GetRequestLogger(c)
 				if verbose {
-					entry.WithFields(map[string]interface{}{
+					entry.WithFields(map[string]any{
 						"method":  c.Request.Method,
 						"path":    SanitizePath(c.Request.URL.Path),
 						"headers": SanitizeHeaders(c.Request.Header),

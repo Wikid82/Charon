@@ -303,7 +303,7 @@ func TestApplyPresetHandlerBackupFailure(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 
 	// Verify response includes backup path for traceability
-	var response map[string]interface{}
+	var response map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	_, hasBackup := response["backup"]
 	require.True(t, hasBackup, "Response should include 'backup' field for diagnostics")
@@ -479,7 +479,7 @@ r.ServeHTTP(w, req)
 
 require.Equal(t, http.StatusOK, w.Code)
 
-var resp map[string]interface{}
+var resp map[string]any
 require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 require.Equal(t, "pulled", resp["status"])
@@ -520,7 +520,7 @@ r.ServeHTTP(w, req)
 
 require.Equal(t, http.StatusOK, w.Code)
 
-var resp map[string]interface{}
+var resp map[string]any
 require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 require.Equal(t, "applied", resp["status"])

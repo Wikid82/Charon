@@ -43,7 +43,7 @@ func TestRemoteServerHandler_TestConnectionCustom(t *testing.T) {
 	r, _ := setupRemoteServerTest_New(t)
 
 	// Test with a likely closed port
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"host": "127.0.0.1",
 		"port": 54321,
 	}
@@ -54,7 +54,7 @@ func TestRemoteServerHandler_TestConnectionCustom(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, false, result["reachable"])

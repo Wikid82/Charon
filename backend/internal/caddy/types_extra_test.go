@@ -12,8 +12,8 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 	h := ReverseProxyHandler("app:32400", false, "plex", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 	// Assert headers exist
-	if hdrs, ok := h["headers"].(map[string]interface{}); ok {
-		req := hdrs["request"].(map[string]interface{})
+	if hdrs, ok := h["headers"].(map[string]any); ok {
+		req := hdrs["request"].(map[string]any)
 		set := req["set"].(map[string][]string)
 		require.Contains(t, set, "X-Plex-Client-Identifier")
 		require.Contains(t, set, "X-Real-IP")
@@ -27,8 +27,8 @@ func TestReverseProxyHandler_PlexAndOthers(t *testing.T) {
 	// Jellyfin should include X-Real-IP and standard headers when enabled
 	h2 := ReverseProxyHandler("app:8096", true, "jellyfin", true)
 	require.Equal(t, "reverse_proxy", h2["handler"])
-	if hdrs, ok := h2["headers"].(map[string]interface{}); ok {
-		req := hdrs["request"].(map[string]interface{})
+	if hdrs, ok := h2["headers"].(map[string]any); ok {
+		req := hdrs["request"].(map[string]any)
 		set := req["set"].(map[string][]string)
 		require.Contains(t, set, "X-Real-IP")
 		require.Contains(t, set, "X-Forwarded-Proto")
@@ -52,10 +52,10 @@ func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 	h := ReverseProxyHandler("app:8080", true, "none", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
-	hdrs, ok := h["headers"].(map[string]interface{})
+	hdrs, ok := h["headers"].(map[string]any)
 	require.True(t, ok, "expected headers map when enableWS=true and enableStandardHeaders=true")
 
-	req, ok := hdrs["request"].(map[string]interface{})
+	req, ok := hdrs["request"].(map[string]any)
 	require.True(t, ok, "expected request headers")
 
 	set, ok := req["set"].(map[string][]string)
@@ -97,10 +97,10 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 	require.Equal(t, "reverse_proxy", h["handler"])
 
 	// With enableStandardHeaders=true, headers should exist
-	hdrs, ok := h["headers"].(map[string]interface{})
+	hdrs, ok := h["headers"].(map[string]any)
 	require.True(t, ok, "expected headers map when enableStandardHeaders=true")
 
-	req, ok := hdrs["request"].(map[string]interface{})
+	req, ok := hdrs["request"].(map[string]any)
 	require.True(t, ok, "expected request headers")
 
 	set, ok := req["set"].(map[string][]string)
@@ -136,8 +136,8 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 func TestReverseProxyHandler_ApplicationSpecificHeaders(t *testing.T) {
 	// Test Plex with standard headers enabled
 	hPlex := ReverseProxyHandler("app:32400", false, "plex", true)
-	hdrs := hPlex["headers"].(map[string]interface{})
-	set := hdrs["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrs := hPlex["headers"].(map[string]any)
+	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
 	// Verify Plex-specific headers
 	require.Contains(t, set, "X-Plex-Client-Identifier")
@@ -156,8 +156,8 @@ func TestReverseProxyHandler_ApplicationSpecificHeaders(t *testing.T) {
 
 	// Test Jellyfin with standard headers enabled
 	hJellyfin := ReverseProxyHandler("app:8096", false, "jellyfin", true)
-	hdrsJ := hJellyfin["headers"].(map[string]interface{})
-	setJ := hdrsJ["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrsJ := hJellyfin["headers"].(map[string]any)
+	setJ := hdrsJ["request"].(map[string]any)["set"].(map[string][]string)
 
 	// Verify standard headers present for Jellyfin
 	require.Contains(t, setJ, "X-Real-IP")
@@ -175,8 +175,8 @@ func TestReverseProxyHandler_WebSocketWithApplication(t *testing.T) {
 	h := ReverseProxyHandler("app:8096", true, "jellyfin", true)
 	require.Equal(t, "reverse_proxy", h["handler"])
 
-	hdrs := h["headers"].(map[string]interface{})
-	set := hdrs["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrs := h["headers"].(map[string]any)
+	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
 	// Verify all 6 headers present (4 standard + 2 WebSocket)
 	require.Contains(t, set, "X-Real-IP")
@@ -210,8 +210,8 @@ func TestReverseProxyHandler_FeatureFlagDisabled(t *testing.T) {
 
 	// Test: Standard headers disabled with Plex (backward compatibility)
 	hPlex := ReverseProxyHandler("app:32400", false, "plex", false)
-	hdrsPlex := hPlex["headers"].(map[string]interface{})
-	setPlex := hdrsPlex["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrsPlex := hPlex["headers"].(map[string]any)
+	setPlex := hdrsPlex["request"].(map[string]any)["set"].(map[string][]string)
 
 	// Should still have X-Real-IP and X-Forwarded-Host from application logic
 	require.Contains(t, setPlex, "X-Real-IP")
@@ -225,23 +225,23 @@ func TestReverseProxyHandler_FeatureFlagDisabled(t *testing.T) {
 func TestReverseProxyHandler_XForwardedForNotDuplicated(t *testing.T) {
 	// Test with standard headers enabled
 	h := ReverseProxyHandler("app:8080", false, "none", true)
-	hdrs := h["headers"].(map[string]interface{})
-	set := hdrs["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrs := h["headers"].(map[string]any)
+	set := hdrs["request"].(map[string]any)["set"].(map[string][]string)
 
 	// Verify X-Forwarded-For is NOT in the setHeaders map
 	require.NotContains(t, set, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set (Caddy handles it natively)")
 
 	// Test with WebSocket enabled
 	h2 := ReverseProxyHandler("app:8080", true, "none", true)
-	hdrs2 := h2["headers"].(map[string]interface{})
-	set2 := hdrs2["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrs2 := h2["headers"].(map[string]any)
+	set2 := hdrs2["request"].(map[string]any)["set"].(map[string][]string)
 
 	require.NotContains(t, set2, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set even with WebSocket")
 
 	// Test with application
 	h3 := ReverseProxyHandler("app:32400", false, "plex", true)
-	hdrs3 := h3["headers"].(map[string]interface{})
-	set3 := hdrs3["request"].(map[string]interface{})["set"].(map[string][]string)
+	hdrs3 := h3["headers"].(map[string]any)
+	set3 := hdrs3["request"].(map[string]any)["set"].(map[string][]string)
 
 	require.NotContains(t, set3, "X-Forwarded-For", "X-Forwarded-For must NOT be explicitly set even with Plex")
 }

@@ -31,10 +31,10 @@ func TestSecurityHandler_GetWAFExclusions_Empty(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 0)
 }
 
@@ -57,14 +57,14 @@ func TestSecurityHandler_GetWAFExclusions_WithExclusions(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 2)
 
 	// Verify first exclusion
-	first := exclusions[0].(map[string]interface{})
+	first := exclusions[0].(map[string]any)
 	assert.Equal(t, float64(942100), first["rule_id"])
 	assert.Equal(t, "SQL Injection rule", first["description"])
 }
@@ -88,10 +88,10 @@ func TestSecurityHandler_GetWAFExclusions_InvalidJSON(t *testing.T) {
 
 	// Should return empty array on parse failure
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 0)
 }
 
@@ -105,7 +105,7 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id":     942100,
 		"description": "SQL Injection false positive",
 	}
@@ -117,11 +117,11 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	exclusion := resp["exclusion"].(map[string]interface{})
+	exclusion := resp["exclusion"].(map[string]any)
 	assert.Equal(t, float64(942100), exclusion["rule_id"])
 	assert.Equal(t, "SQL Injection false positive", exclusion["description"])
 }
@@ -135,7 +135,7 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id":     942100,
 		"target":      "ARGS:password",
 		"description": "Skip password field for SQL injection",
@@ -148,11 +148,11 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	exclusion := resp["exclusion"].(map[string]interface{})
+	exclusion := resp["exclusion"].(map[string]any)
 	assert.Equal(t, "ARGS:password", exclusion["target"])
 }
 
@@ -172,7 +172,7 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	router.GET("/security/waf/exclusions", handler.GetWAFExclusions)
 
 	// Add new exclusion
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id":     942100,
 		"description": "SQL Injection rule",
 	}
@@ -190,9 +190,9 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 2)
 }
 
@@ -211,7 +211,7 @@ func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Try to add duplicate
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id":     942100,
 		"description": "Another description",
 	}
@@ -240,7 +240,7 @@ func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Add same rule_id with different target - should succeed
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id": 942100,
 		"target":  "ARGS:password",
 	}
@@ -263,7 +263,7 @@ func TestSecurityHandler_AddWAFExclusion_MissingRuleID(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"description": "Missing rule_id",
 	}
 	body, _ := json.Marshal(payload)
@@ -286,7 +286,7 @@ func TestSecurityHandler_AddWAFExclusion_InvalidRuleID(t *testing.T) {
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
 	// Zero rule_id
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id": 0,
 	}
 	body, _ := json.Marshal(payload)
@@ -308,7 +308,7 @@ func TestSecurityHandler_AddWAFExclusion_NegativeRuleID(t *testing.T) {
 	router := gin.New()
 	router.POST("/security/waf/exclusions", handler.AddWAFExclusion)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id": -1,
 	}
 	body, _ := json.Marshal(payload)
@@ -359,7 +359,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.True(t, resp["deleted"].(bool))
 
@@ -369,9 +369,9 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
-	first := exclusions[0].(map[string]interface{})
+	first := exclusions[0].(map[string]any)
 	assert.Equal(t, float64(941100), first["rule_id"])
 }
 
@@ -402,11 +402,11 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
-	first := exclusions[0].(map[string]interface{})
+	first := exclusions[0].(map[string]any)
 	assert.Equal(t, float64(942100), first["rule_id"])
 	assert.Empty(t, first["target"])
 }
@@ -513,12 +513,12 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Len(t, resp["exclusions"].([]interface{}), 0)
+	assert.Len(t, resp["exclusions"].([]any), 0)
 
 	// Step 2: Add first exclusion (full rule removal)
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"rule_id":     942100,
 		"description": "SQL Injection false positive",
 	}
@@ -530,7 +530,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Step 3: Add second exclusion (targeted)
-	payload = map[string]interface{}{
+	payload = map[string]any{
 		"rule_id":     941100,
 		"target":      "ARGS:content",
 		"description": "XSS false positive in content field",
@@ -547,7 +547,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Len(t, resp["exclusions"].([]interface{}), 2)
+	assert.Len(t, resp["exclusions"].([]any), 2)
 
 	// Step 5: Delete first exclusion
 	w = httptest.NewRecorder()
@@ -560,9 +560,9 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	exclusions := resp["exclusions"].([]interface{})
+	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
-	first := exclusions[0].(map[string]interface{})
+	first := exclusions[0].(map[string]any)
 	assert.Equal(t, float64(941100), first["rule_id"])
 	assert.Equal(t, "ARGS:content", first["target"])
 }
@@ -683,7 +683,7 @@ func TestSecurityConfig_WAFExclusions_JSONArray(t *testing.T) {
 	assert.Equal(t, exclusions, retrieved.WAFExclusions)
 
 	// Verify it can be parsed
-	var parsed []map[string]interface{}
+	var parsed []map[string]any
 	err := json.Unmarshal([]byte(retrieved.WAFExclusions), &parsed)
 	require.NoError(t, err)
 	assert.Len(t, parsed, 1)

@@ -1,4 +1,9 @@
-# API Documentation
+---
+title: API Documentation
+description: Complete REST API reference for Charon. Includes endpoints for proxy hosts, certificates, security, and more.
+---
+
+## API Documentation
 
 Charon REST API documentation. All endpoints return JSON and use standard HTTP status codes.
 

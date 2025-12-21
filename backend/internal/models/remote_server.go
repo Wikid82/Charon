@@ -10,13 +10,13 @@ type RemoteServer struct {
 	ID          uint       `json:"id" gorm:"primaryKey"`
 	UUID        string     `json:"uuid" gorm:"uniqueIndex"`
 	Name        string     `json:"name" gorm:"index"`
-	Provider    string     `json:"provider"` // e.g., "docker", "vm", "cloud", "manual"
-	Host        string     `json:"host"`     // IP address or hostname
+	Provider    string     `json:"provider" gorm:"index"` // e.g., "docker", "vm", "cloud", "manual"
+	Host        string     `json:"host" gorm:"index"`     // IP address or hostname
 	Port        int        `json:"port"`
 	Scheme      string     `json:"scheme"` // http/https
 	Tags        string     `json:"tags"`   // comma-separated tags for filtering
 	Description string     `json:"description"`
-	Enabled     bool       `json:"enabled" gorm:"default:true"`
+	Enabled     bool       `json:"enabled" gorm:"default:true;index"`
 	LastChecked *time.Time `json:"last_checked,omitempty"`
 	Reachable   bool       `json:"reachable" gorm:"default:false"`
 	CreatedAt   time.Time  `json:"created_at"`

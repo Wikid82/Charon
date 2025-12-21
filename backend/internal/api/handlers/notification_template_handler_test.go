@@ -71,7 +71,7 @@ func TestNotificationTemplateHandler_CRUDAndPreview(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
-	var previewResp map[string]interface{}
+	var previewResp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &previewResp))
 	require.NotEmpty(t, previewResp["rendered"])
 

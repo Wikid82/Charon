@@ -1,4 +1,9 @@
-# Testing SSL Certificates (Without Breaking Things)
+---
+title: Testing SSL Certificates
+description: Guide to using Let's Encrypt staging mode for SSL testing. Avoid rate limits while testing your Charon configuration.
+---
+
+## Testing SSL Certificates (Without Breaking Things)
 
 Let's Encrypt gives you free SSL certificates. But there's a catch: **you can only get 50 per week**.
 

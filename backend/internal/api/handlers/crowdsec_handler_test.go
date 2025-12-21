@@ -648,7 +648,7 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	// Enrollment request sent, but user must accept on crowdsec.net
 	require.Equal(t, "pending_acceptance", resp["status"])
@@ -725,7 +725,7 @@ func TestConsoleStatusSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "not_enrolled", resp["status"])
 }
@@ -754,7 +754,7 @@ func TestConsoleStatusAfterEnroll(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w2.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
 	// Enrollment request sent, but user must accept on crowdsec.net
 	require.Equal(t, "pending_acceptance", resp["status"])
@@ -969,7 +969,7 @@ func TestGetAcquisitionConfigNotFound(t *testing.T) {
 	if w.Code == http.StatusNotFound {
 		require.Contains(t, w.Body.String(), "not found")
 	} else {
-		var resp map[string]interface{}
+		var resp map[string]any
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		require.Contains(t, resp, "content")
 		require.Equal(t, "/etc/crowdsec/acquis.yaml", resp["path"])
@@ -1134,7 +1134,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w2, req2)
 	require.Equal(t, http.StatusOK, w2.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &resp))
 	require.Equal(t, "pending_acceptance", resp["status"])
 	require.Equal(t, "test-agent-1", resp["agent_name"])
@@ -1150,7 +1150,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req4 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w4, req4)
 	require.Equal(t, http.StatusOK, w4.Code)
-	var resp2 map[string]interface{}
+	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(w4.Body.Bytes(), &resp2))
 	require.Equal(t, "not_enrolled", resp2["status"])
 
@@ -1167,7 +1167,7 @@ func TestDeleteConsoleEnrollmentThenReenroll(t *testing.T) {
 	req6 := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/console/status", http.NoBody)
 	r.ServeHTTP(w6, req6)
 	require.Equal(t, http.StatusOK, w6.Code)
-	var resp3 map[string]interface{}
+	var resp3 map[string]any
 	require.NoError(t, json.Unmarshal(w6.Body.Bytes(), &resp3))
 	require.Equal(t, "pending_acceptance", resp3["status"])
 	require.Equal(t, "test-agent-2", resp3["agent_name"])
@@ -1200,7 +1200,7 @@ func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "started", resp["status"])
 	require.False(t, resp["lapi_ready"].(bool))

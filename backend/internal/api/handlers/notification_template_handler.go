@@ -1,10 +1,11 @@
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type NotificationTemplateHandler struct {
@@ -63,7 +64,7 @@ func (h *NotificationTemplateHandler) Delete(c *gin.Context) {
 
 // Preview allows rendering an arbitrary template (provided in request) or a stored template by id.
 func (h *NotificationTemplateHandler) Preview(c *gin.Context) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := c.ShouldBindJSON(&raw); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -81,8 +82,8 @@ func (h *NotificationTemplateHandler) Preview(c *gin.Context) {
 		tmplStr = s
 	}
 
-	data := map[string]interface{}{}
-	if d, ok := raw["data"].(map[string]interface{}); ok {
+	data := map[string]any{}
+	if d, ok := raw["data"].(map[string]any); ok {
 		data = d
 	}
 

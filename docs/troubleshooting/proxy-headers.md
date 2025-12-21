@@ -1,4 +1,9 @@
-# Troubleshooting Standard Proxy Headers
+---
+title: Troubleshooting Standard Proxy Headers
+description: Resolve issues with Charon's X-Real-IP, X-Forwarded-Proto, and other standard proxy headers.
+---
+
+## Troubleshooting Standard Proxy Headers
 
 This guide helps resolve issues with Charon's standard proxy headers feature.
 

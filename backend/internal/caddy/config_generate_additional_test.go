@@ -29,7 +29,7 @@ func TestGenerateConfig_ZerosslAndBothProviders(t *testing.T) {
 	issuers := cfgZ.Apps.TLS.Automation.Policies[0].IssuersRaw
 	foundZerossl := false
 	for _, i := range issuers {
-		m := i.(map[string]interface{})
+		m := i.(map[string]any)
 		if m["module"] == "zerossl" {
 			foundZerossl = true
 		}
@@ -251,13 +251,13 @@ func TestGenerateConfig_DecisionAdminPartsEmpty(t *testing.T) {
 
 func TestNormalizeHeaderOps_PreserveStringArray(t *testing.T) {
 	// Construct a headers map where set has a []string value already
-	set := map[string]interface{}{
+	set := map[string]any{
 		"X-Array": []string{"1", "2"},
 	}
-	headerOps := map[string]interface{}{"set": set}
+	headerOps := map[string]any{"set": set}
 	normalizeHeaderOps(headerOps)
 	// Ensure the value remained a []string
-	if v, ok := headerOps["set"].(map[string]interface{}); ok {
+	if v, ok := headerOps["set"].(map[string]any); ok {
 		if arr, ok := v["X-Array"].([]string); ok {
 			require.Equal(t, []string{"1", "2"}, arr)
 			return
@@ -366,8 +366,8 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "rate_limit" {
 			// Check caddy-ratelimit format: rate_limits.static.max_events and window
-			if rateLimits, ok := h["rate_limits"].(map[string]interface{}); ok {
-				if static, ok := rateLimits["static"].(map[string]interface{}); ok {
+			if rateLimits, ok := h["rate_limits"].(map[string]any); ok {
+				if static, ok := rateLimits["static"].(map[string]any); ok {
 					if maxEvents, ok := static["max_events"].(int); ok && maxEvents == 10 {
 						if window, ok := static["window"].(string); ok && window == "60s" {
 							found = true
@@ -463,7 +463,7 @@ func TestGenerateConfig_DefaultAcmeStaging(t *testing.T) {
 	issuers := cfg.Apps.TLS.Automation.Policies[0].IssuersRaw
 	found := false
 	for _, i := range issuers {
-		if m, ok := i.(map[string]interface{}); ok {
+		if m, ok := i.(map[string]any); ok {
 			if m["module"] == "acme" {
 				if _, ok := m["ca"]; ok {
 					found = true

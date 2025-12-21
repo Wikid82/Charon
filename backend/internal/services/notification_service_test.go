@@ -126,7 +126,7 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 
 	// Start a test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]interface{}
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		// Minimal template uses lowercase keys: title, message
 		assert.Equal(t, "Test Notification", body["title"])
@@ -181,9 +181,9 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	svc := NewNotificationService(db)
 
 	// Minimal template
-	rcvMinimal := make(chan map[string]interface{}, 1)
+	rcvMinimal := make(chan map[string]any, 1)
 	tsMin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]interface{}
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		rcvMinimal <- body
 		w.WriteHeader(http.StatusOK)
@@ -200,7 +200,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	}
 	svc.CreateProvider(&providerMin)
 
-	data := map[string]interface{}{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
+	data := map[string]any{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
 	svc.SendExternal(context.Background(), "uptime", "Min Title", "Min Message", data)
 
 	select {
@@ -216,9 +216,9 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	}
 
 	// Detailed template
-	rcvDetailed := make(chan map[string]interface{}, 1)
+	rcvDetailed := make(chan map[string]any, 1)
 	tsDet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]interface{}
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		rcvDetailed <- body
 		w.WriteHeader(http.StatusOK)
@@ -235,7 +235,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	}
 	svc.CreateProvider(&providerDet)
 
-	dataDet := map[string]interface{}{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]interface{}{{"Name": "svc1"}}}
+	dataDet := map[string]any{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]any{{"Name": "svc1"}}}
 	svc.SendExternal(context.Background(), "uptime", "Det Title", "Det Message", dataDet)
 
 	select {
@@ -356,7 +356,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Type: "webhook",
 			URL:  "://invalid-url",
 		}
-		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
 		err := svc.sendCustomWebhook(context.Background(), provider, data)
 		assert.Error(t, err)
 	})
@@ -366,7 +366,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Type: "webhook",
 			URL:  "http://192.0.2.1:9999", // TEST-NET-1, unreachable
 		}
-		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
 		// Set short timeout for client if possible, but here we just expect error
 		// Note: http.Client default timeout is 0 (no timeout), but OS might timeout
 		// We can't easily change client timeout here without modifying service
@@ -388,7 +388,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Type: "webhook",
 			URL:  ts.URL,
 		}
-		data := map[string]interface{}{"Title": "Test", "Message": "Test Message"}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
 		err := svc.sendCustomWebhook(context.Background(), provider, data)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "500")
@@ -398,7 +398,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		receivedBody := ""
 		received := make(chan struct{})
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]interface{}
+			var body map[string]any
 			json.NewDecoder(r.Body).Decode(&body)
 			if custom, ok := body["custom"]; ok {
 				receivedBody = custom.(string)
@@ -413,7 +413,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:    ts.URL,
 			Config: `{"custom": "Test: {{.Title}}"}`,
 		}
-		data := map[string]interface{}{"Title": "My Title", "Message": "Test Message"}
+		data := map[string]any{"Title": "My Title", "Message": "Test Message"}
 		svc.sendCustomWebhook(context.Background(), provider, data)
 
 		select {
@@ -428,7 +428,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		receivedContent := ""
 		received := make(chan struct{})
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]interface{}
+			var body map[string]any
 			json.NewDecoder(r.Body).Decode(&body)
 			if title, ok := body["title"]; ok {
 				receivedContent = title.(string)
@@ -443,7 +443,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:  ts.URL,
 			// Config is empty, so default template is used: minimal
 		}
-		data := map[string]interface{}{"Title": "Default Title", "Message": "Test Message"}
+		data := map[string]any{"Title": "Default Title", "Message": "Test Message"}
 		svc.sendCustomWebhook(context.Background(), provider, data)
 
 		select {
@@ -467,7 +467,7 @@ func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T)
 	defer ts.Close()
 
 	provider := models.NotificationProvider{Type: "webhook", URL: ts.URL}
-	data := map[string]interface{}{"Title": "Test", "Message": "Test"}
+	data := map[string]any{"Title": "Test", "Message": "Test"}
 	// Build context with requestID value
 	ctx := context.WithValue(context.Background(), trace.RequestIDKey, "my-rid")
 	err := svc.sendCustomWebhook(ctx, provider, data)
@@ -591,7 +591,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 
 		// Force update to false using map (to bypass zero value check)
-		err = db.Model(&provider).Updates(map[string]interface{}{
+		err = db.Model(&provider).Updates(map[string]any{
 			"notify_proxy_hosts":    false,
 			"notify_uptime":         false,
 			"notify_certs":          false,
@@ -620,7 +620,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		var receivedCustom atomic.Value
 		receivedCustom.Store("")
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]interface{}
+			var body map[string]any
 			json.NewDecoder(r.Body).Decode(&body)
 			if custom, ok := body["custom"]; ok {
 				receivedCustom.Store(custom.(string))
@@ -639,7 +639,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		}
 		svc.CreateProvider(&provider)
 
-		customData := map[string]interface{}{
+		customData := map[string]any{
 			"CustomField": "test-value",
 		}
 		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", customData)
@@ -655,11 +655,11 @@ func TestNotificationService_RenderTemplate(t *testing.T) {
 
 	// Minimal template
 	provider := models.NotificationProvider{Type: "webhook", Template: "minimal"}
-	data := map[string]interface{}{"Title": "T1", "Message": "M1", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+	data := map[string]any{"Title": "T1", "Message": "M1", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
 	rendered, parsed, err := svc.RenderTemplate(provider, data)
 	require.NoError(t, err)
 	assert.Contains(t, rendered, "T1")
-	if parsedMap, ok := parsed.(map[string]interface{}); ok {
+	if parsedMap, ok := parsed.(map[string]any); ok {
 		assert.Equal(t, "T1", parsedMap["title"])
 	}
 

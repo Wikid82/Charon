@@ -219,7 +219,7 @@ func (w *LogWatcher) ParseLogEntry(line string) *models.SecurityLogEntry {
 		Host:      caddyLog.Request.Host,
 		Source:    "normal",
 		Blocked:   false,
-		Details:   make(map[string]interface{}),
+		Details:   make(map[string]any),
 	}
 
 	// Detect security events based on status codes and response headers

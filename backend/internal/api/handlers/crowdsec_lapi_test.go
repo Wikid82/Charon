@@ -31,7 +31,7 @@ func TestGetLAPIDecisions_FallbackToCscli(t *testing.T) {
 	// Should return success (from cscli fallback)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	// Should have decisions array (empty from mock)
@@ -58,7 +58,7 @@ func TestGetLAPIDecisions_EmptyResponse(t *testing.T) {
 	// Will fallback to cscli which returns empty
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	// Should have decisions array (may be empty)
@@ -83,7 +83,7 @@ func TestCheckLAPIHealth_Handler(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 

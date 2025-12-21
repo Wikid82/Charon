@@ -477,7 +477,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 
 // GetRateLimitPresets returns predefined rate limit configurations
 func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
-	presets := []map[string]interface{}{
+	presets := []map[string]any{
 		{
 			"id":          "standard",
 			"name":        "Standard Web",
@@ -518,17 +518,17 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 	if h.geoipSvc == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"loaded":   false,
-			"message":  "GeoIP service not initialized",
-			"db_path":  "",
+			"loaded":  false,
+			"message": "GeoIP service not initialized",
+			"db_path": "",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"loaded":   h.geoipSvc.IsLoaded(),
-		"db_path":  h.geoipSvc.GetDatabasePath(),
-		"message":  "GeoIP service available",
+		"loaded":  h.geoipSvc.IsLoaded(),
+		"db_path": h.geoipSvc.GetDatabasePath(),
+		"message": "GeoIP service available",
 	})
 }
 

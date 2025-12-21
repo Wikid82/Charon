@@ -118,7 +118,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 func TestCreateProfile(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":                   "New Profile",
 		"hsts_enabled":           true,
 		"hsts_max_age":           31536000,
@@ -145,7 +145,7 @@ func TestCreateProfile(t *testing.T) {
 func TestCreateProfile_MissingName(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"hsts_enabled": true,
 	}
 
@@ -167,7 +167,7 @@ func TestUpdateProfile(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	updates := map[string]interface{}{
+	updates := map[string]any{
 		"name":           "Updated Name",
 		"hsts_enabled":   false,
 		"csp_enabled":    true,
@@ -200,7 +200,7 @@ func TestUpdateProfile_CannotModifyPreset(t *testing.T) {
 	}
 	db.Create(&preset)
 
-	updates := map[string]interface{}{
+	updates := map[string]any{
 		"name": "Modified Preset",
 	}
 
@@ -305,7 +305,7 @@ func TestGetPresets(t *testing.T) {
 func TestApplyPreset(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"preset_type": "basic",
 		"name":        "My Basic Profile",
 	}
@@ -330,7 +330,7 @@ func TestApplyPreset(t *testing.T) {
 func TestApplyPreset_InvalidType(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"preset_type": "nonexistent",
 		"name":        "Test",
 	}
@@ -347,7 +347,7 @@ func TestApplyPreset_InvalidType(t *testing.T) {
 func TestCalculateScore(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"hsts_enabled":                 true,
 		"hsts_max_age":                 31536000,
 		"hsts_include_subdomains":      true,
@@ -371,7 +371,7 @@ func TestCalculateScore(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(100), response["score"])
@@ -382,7 +382,7 @@ func TestCalculateScore(t *testing.T) {
 func TestValidateCSP_Valid(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"csp": `{"default-src":["'self'"],"script-src":["'self'"]}`,
 	}
 
@@ -394,7 +394,7 @@ func TestValidateCSP_Valid(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.True(t, response["valid"].(bool))
@@ -403,7 +403,7 @@ func TestValidateCSP_Valid(t *testing.T) {
 func TestValidateCSP_Invalid(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"csp": `not valid json`,
 	}
 
@@ -415,7 +415,7 @@ func TestValidateCSP_Invalid(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.False(t, response["valid"].(bool))
@@ -425,7 +425,7 @@ func TestValidateCSP_Invalid(t *testing.T) {
 func TestValidateCSP_UnsafeDirectives(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"csp": `{"default-src":["'self'"],"script-src":["'self'","'unsafe-inline'","'unsafe-eval'"]}`,
 	}
 
@@ -437,19 +437,19 @@ func TestValidateCSP_UnsafeDirectives(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.False(t, response["valid"].(bool))
-	errors := response["errors"].([]interface{})
+	errors := response["errors"].([]any)
 	assert.NotEmpty(t, errors)
 }
 
 func TestBuildCSP(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	payload := map[string]interface{}{
-		"directives": []map[string]interface{}{
+	payload := map[string]any{
+		"directives": []map[string]any{
 			{
 				"directive": "default-src",
 				"values":    []string{"'self'"},

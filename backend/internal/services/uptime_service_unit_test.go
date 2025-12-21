@@ -52,7 +52,7 @@ func TestUpdateMonitorEnabled_Unit(t *testing.T) {
 	monitor := models.UptimeMonitor{ID: uuid.New().String(), Name: "unit-test", URL: "http://example.com", Interval: 60, Enabled: true}
 	require.NoError(t, db.Create(&monitor).Error)
 
-	r, err := svc.UpdateMonitor(monitor.ID, map[string]interface{}{"enabled": false})
+	r, err := svc.UpdateMonitor(monitor.ID, map[string]any{"enabled": false})
 	require.NoError(t, err)
 	require.False(t, r.Enabled)
 
@@ -222,6 +222,6 @@ func TestUpdateMonitor_NonExistent(t *testing.T) {
 	svc := NewUptimeService(db, nil)
 
 	// Try to update non-existent monitor
-	_, err := svc.UpdateMonitor("non-existent-id", map[string]interface{}{"enabled": false})
+	_, err := svc.UpdateMonitor("non-existent-id", map[string]any{"enabled": false})
 	require.Error(t, err)
 }

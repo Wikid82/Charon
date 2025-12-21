@@ -44,7 +44,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, false, resp["has_pending"])
@@ -65,7 +65,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, true, resp["has_pending"])
-	session := resp["session"].(map[string]interface{})
+	session := resp["session"].(map[string]any)
 	assert.Equal(t, "transient", session["state"])
 	assert.Equal(t, mountPath, session["source_file"])
 
@@ -84,7 +84,7 @@ func TestImportHandler_GetStatus(t *testing.T) {
 	err = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Equal(t, true, resp["has_pending"])
-	session = resp["session"].(map[string]interface{})
+	session = resp["session"].(map[string]any)
 	assert.Equal(t, "pending", session["state"]) // DB session, not transient
 }
 
@@ -114,11 +114,11 @@ func TestImportHandler_GetPreview(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var result map[string]interface{}
+	var result map[string]any
 	json.Unmarshal(w.Body.Bytes(), &result)
 
-	preview := result["preview"].(map[string]interface{})
-	hosts := preview["hosts"].([]interface{})
+	preview := result["preview"].(map[string]any)
+	hosts := preview["hosts"].([]any)
 	assert.Len(t, hosts, 1)
 
 	// Verify status changed to reviewing
@@ -165,7 +165,7 @@ func TestImportHandler_Commit(t *testing.T) {
 	}
 	db.Create(&session)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"session_uuid": "test-uuid",
 		"resolutions": map[string]string{
 			"example.com": "import",
@@ -248,7 +248,7 @@ func TestImportHandler_GetPreview_WithContent(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(w.Body.Bytes(), &result)
 	assert.NoError(t, err)
 
@@ -269,7 +269,7 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// Case 2: Session not found
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"session_uuid": "non-existent",
 		"resolutions":  map[string]string{},
 	}
@@ -287,7 +287,7 @@ func TestImportHandler_Commit_Errors(t *testing.T) {
 	}
 	db.Create(&session)
 
-	payload = map[string]interface{}{
+	payload = map[string]any{
 		"session_uuid": "invalid-data-uuid",
 		"resolutions":  map[string]string{},
 	}
@@ -367,7 +367,7 @@ func TestImportHandler_Upload_Failure(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	// The error message comes from Upload -> ImportFile -> "import failed: ..."
 	assert.Contains(t, resp["error"], "import failed")
@@ -406,11 +406,11 @@ func TestImportHandler_Upload_Conflict(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Verify response contains conflict in preview (upload is transient)
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
-	preview := resp["preview"].(map[string]interface{})
-	conflicts := preview["conflicts"].([]interface{})
+	preview := resp["preview"].(map[string]any)
+	conflicts := preview["conflicts"].([]any)
 	found := false
 	for _, c := range conflicts {
 		if c.(string) == "example.com" || strings.Contains(c.(string), "example.com") {
@@ -450,7 +450,7 @@ func TestImportHandler_GetPreview_BackupContent(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var result map[string]interface{}
+	var result map[string]any
 	json.Unmarshal(w.Body.Bytes(), &result)
 
 	assert.Equal(t, content, result["caddyfile_content"])
@@ -495,18 +495,18 @@ func TestImportHandler_GetPreview_TransientMount(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code, "Response body: %s", w.Body.String())
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(w.Body.Bytes(), &result)
 	assert.NoError(t, err)
 
 	// Verify transient session
-	session, ok := result["session"].(map[string]interface{})
+	session, ok := result["session"].(map[string]any)
 	assert.True(t, ok, "session should be present in response")
 	assert.Equal(t, "transient", session["state"])
 	assert.Equal(t, mountPath, session["source_file"])
 
 	// Verify preview contains hosts
-	preview, ok := result["preview"].(map[string]interface{})
+	preview, ok := result["preview"].(map[string]any)
 	assert.True(t, ok, "preview should be present in response")
 	assert.NotNil(t, preview["hosts"])
 
@@ -541,13 +541,13 @@ func TestImportHandler_Commit_TransientUpload(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Extract session ID
-	var uploadResp map[string]interface{}
+	var uploadResp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &uploadResp)
-	session := uploadResp["session"].(map[string]interface{})
+	session := uploadResp["session"].(map[string]any)
 	sessionID := session["id"].(string)
 
 	// Now commit the transient upload
-	commitPayload := map[string]interface{}{
+	commitPayload := map[string]any{
 		"session_uuid": sessionID,
 		"resolutions": map[string]string{
 			"uploaded.com": "import",
@@ -594,7 +594,7 @@ func TestImportHandler_Commit_TransientMount(t *testing.T) {
 
 	// Commit the mount with a random session ID (transient)
 	sessionID := uuid.NewString()
-	commitPayload := map[string]interface{}{
+	commitPayload := map[string]any{
 		"session_uuid": sessionID,
 		"resolutions": map[string]string{
 			"mounted.com": "import",
@@ -646,9 +646,9 @@ func TestImportHandler_Cancel_TransientUpload(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Extract session ID and file path
-	var uploadResp map[string]interface{}
+	var uploadResp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &uploadResp)
-	session := uploadResp["session"].(map[string]interface{})
+	session := uploadResp["session"].(map[string]any)
 	sessionID := session["id"].(string)
 	sourceFile := session["source_file"].(string)
 
@@ -691,7 +691,7 @@ func TestImportHandler_Errors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// Commit - Session Not Found
-	body := map[string]interface{}{
+	body := map[string]any{
 		"session_uuid": "non-existent",
 		"resolutions":  map[string]string{},
 	}
@@ -760,12 +760,12 @@ func TestImportHandler_DetectImports(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var resp map[string]interface{}
+			var resp map[string]any
 			err := json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.hasImport, resp["has_imports"])
 
-			imports := resp["imports"].([]interface{})
+			imports := resp["imports"].([]any)
 			assert.Len(t, imports, len(tt.imports))
 		})
 	}
@@ -801,7 +801,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 	router.POST("/import/upload-multi", handler.UploadMulti)
 
 	t.Run("single Caddyfile", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"files": []map[string]string{
 				{"filename": "Caddyfile", "content": "example.com"},
 			},
@@ -815,14 +815,14 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NotNil(t, resp["session"])
 		assert.NotNil(t, resp["preview"])
 	})
 
 	t.Run("Caddyfile with site files", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"files": []map[string]string{
 				{"filename": "Caddyfile", "content": "import sites/*\n"},
 				{"filename": "sites/site1", "content": "site1.com"},
@@ -838,14 +838,14 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		session := resp["session"].(map[string]interface{})
+		session := resp["session"].(map[string]any)
 		assert.Equal(t, "transient", session["state"])
 	})
 
 	t.Run("missing Caddyfile", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"files": []map[string]string{
 				{"filename": "sites/site1", "content": "site1.com"},
 			},
@@ -861,7 +861,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 	})
 
 	t.Run("path traversal in filename", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"files": []map[string]string{
 				{"filename": "Caddyfile", "content": "import sites/*\n"},
 				{"filename": "../etc/passwd", "content": "sensitive"},
@@ -878,7 +878,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 	})
 
 	t.Run("empty file content", func(t *testing.T) {
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"files": []map[string]string{
 				{"filename": "Caddyfile", "content": "example.com"},
 				{"filename": "sites/site1", "content": "   "},
@@ -892,7 +892,7 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		var resp map[string]interface{}
+		var resp map[string]any
 		json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Contains(t, resp["error"], "empty")
 	})

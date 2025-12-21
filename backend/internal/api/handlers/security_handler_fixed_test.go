@@ -19,7 +19,7 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 		name           string
 		cfg            config.SecurityConfig
 		expectedStatus int
-		expectedBody   map[string]interface{}
+		expectedBody   map[string]any
 	}{
 		{
 			name: "All Disabled",
@@ -30,22 +30,22 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 				ACLMode:       "disabled",
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody: map[string]interface{}{
-				"cerberus": map[string]interface{}{"enabled": false},
-				"crowdsec": map[string]interface{}{
+			expectedBody: map[string]any{
+				"cerberus": map[string]any{"enabled": false},
+				"crowdsec": map[string]any{
 					"mode":    "disabled",
 					"api_url": "",
 					"enabled": false,
 				},
-				"waf": map[string]interface{}{
+				"waf": map[string]any{
 					"mode":    "disabled",
 					"enabled": false,
 				},
-				"rate_limit": map[string]interface{}{
+				"rate_limit": map[string]any{
 					"mode":    "disabled",
 					"enabled": false,
 				},
-				"acl": map[string]interface{}{
+				"acl": map[string]any{
 					"mode":    "disabled",
 					"enabled": false,
 				},
@@ -61,22 +61,22 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 				ACLMode:         "enabled",
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody: map[string]interface{}{
-				"cerberus": map[string]interface{}{"enabled": true},
-				"crowdsec": map[string]interface{}{
+			expectedBody: map[string]any{
+				"cerberus": map[string]any{"enabled": true},
+				"crowdsec": map[string]any{
 					"mode":    "local",
 					"api_url": "",
 					"enabled": true,
 				},
-				"waf": map[string]interface{}{
+				"waf": map[string]any{
 					"mode":    "enabled",
 					"enabled": true,
 				},
-				"rate_limit": map[string]interface{}{
+				"rate_limit": map[string]any{
 					"mode":    "enabled",
 					"enabled": true,
 				},
-				"acl": map[string]interface{}{
+				"acl": map[string]any{
 					"mode":    "enabled",
 					"enabled": true,
 				},
@@ -96,12 +96,12 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 
 			assert.Equal(t, tt.expectedStatus, w.Code)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			assert.NoError(t, err)
 
 			expectedJSON, _ := json.Marshal(tt.expectedBody)
-			var expectedNormalized map[string]interface{}
+			var expectedNormalized map[string]any
 			if err := json.Unmarshal(expectedJSON, &expectedNormalized); err != nil {
 				t.Fatalf("failed to unmarshal expected JSON: %v", err)
 			}

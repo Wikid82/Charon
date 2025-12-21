@@ -54,7 +54,7 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 
 	// Normalize and validate advanced config (if present)
 	if host.AdvancedConfig != "" {
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
 			return fmt.Errorf("invalid advanced_config JSON: %w", err)
 		}
@@ -77,7 +77,7 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 
 	// Normalize and validate advanced config (if present)
 	if host.AdvancedConfig != "" {
-		var parsed interface{}
+		var parsed any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
 			return fmt.Errorf("invalid advanced_config JSON: %w", err)
 		}

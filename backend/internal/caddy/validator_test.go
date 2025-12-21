@@ -162,7 +162,7 @@ func TestValidateReverseProxy(t *testing.T) {
 			name: "Valid",
 			handler: Handler{
 				"handler": "reverse_proxy",
-				"upstreams": []map[string]interface{}{
+				"upstreams": []map[string]any{
 					{"dial": "localhost:8080"},
 				},
 			},
@@ -179,7 +179,7 @@ func TestValidateReverseProxy(t *testing.T) {
 			name: "EmptyUpstreams",
 			handler: Handler{
 				"handler":   "reverse_proxy",
-				"upstreams": []map[string]interface{}{},
+				"upstreams": []map[string]any{},
 			},
 			wantErr: true,
 		},
@@ -187,7 +187,7 @@ func TestValidateReverseProxy(t *testing.T) {
 			name: "MissingDial",
 			handler: Handler{
 				"handler": "reverse_proxy",
-				"upstreams": []map[string]interface{}{
+				"upstreams": []map[string]any{
 					{"foo": "bar"},
 				},
 			},
@@ -197,7 +197,7 @@ func TestValidateReverseProxy(t *testing.T) {
 			name: "InvalidDial",
 			handler: Handler{
 				"handler": "reverse_proxy",
-				"upstreams": []map[string]interface{}{
+				"upstreams": []map[string]any{
 					{"dial": "invalid"},
 				},
 			},
