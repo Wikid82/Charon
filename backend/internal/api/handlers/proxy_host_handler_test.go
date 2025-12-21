@@ -45,6 +45,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 }
 
 func TestProxyHostLifecycle(t *testing.T) {
+	t.Parallel()
 	router, _ := setupTestRouter(t)
 
 	body := `{"name":"Media","domain_names":"media.example.com","forward_scheme":"http","forward_host":"media","forward_port":32400,"enabled":true}`
@@ -105,6 +106,7 @@ func TestProxyHostLifecycle(t *testing.T) {
 }
 
 func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
+	t.Parallel()
 	// Setup DB and router with uptime service
 	dsn := "file:test-delete-uptime?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
@@ -146,6 +148,7 @@ func TestProxyHostDelete_WithUptimeCleanup(t *testing.T) {
 }
 
 func TestProxyHostErrors(t *testing.T) {
+	t.Parallel()
 	// Mock Caddy Admin API that fails
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -254,6 +257,7 @@ func TestProxyHostErrors(t *testing.T) {
 }
 
 func TestProxyHostValidation(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Invalid JSON
@@ -279,6 +283,7 @@ func TestProxyHostValidation(t *testing.T) {
 }
 
 func TestProxyHostCreate_AdvancedConfig_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	router, _ := setupTestRouter(t)
 
 	body := `{"name":"AdvHost","domain_names":"adv.example.com","forward_scheme":"http","forward_host":"localhost","forward_port":8080,"enabled":true,"advanced_config":"{invalid json}"}`
@@ -291,6 +296,7 @@ func TestProxyHostCreate_AdvancedConfig_InvalidJSON(t *testing.T) {
 }
 
 func TestProxyHostCreate_AdvancedConfig_Normalization(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Provide an advanced_config value that will be normalized by caddy.NormalizeAdvancedConfig
@@ -329,6 +335,7 @@ func TestProxyHostCreate_AdvancedConfig_Normalization(t *testing.T) {
 }
 
 func TestProxyHostUpdate_CertificateID_Null(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create a host with CertificateID
@@ -365,6 +372,7 @@ func TestProxyHostUpdate_CertificateID_Null(t *testing.T) {
 }
 
 func TestProxyHostConnection(t *testing.T) {
+	t.Parallel()
 	router, _ := setupTestRouter(t)
 
 	// 1. Test Invalid Input (Missing Host)
@@ -402,6 +410,7 @@ func TestProxyHostConnection(t *testing.T) {
 }
 
 func TestProxyHostHandler_List_Error(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Close DB to force error
@@ -415,6 +424,7 @@ func TestProxyHostHandler_List_Error(t *testing.T) {
 }
 
 func TestProxyHostWithCaddyIntegration(t *testing.T) {
+	t.Parallel()
 	// Mock Caddy Admin API
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/load" && r.Method == "POST" {
@@ -472,6 +482,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 }
 
 func TestProxyHostHandler_BulkUpdateACL_Success(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create an access list
@@ -531,6 +542,7 @@ func TestProxyHostHandler_BulkUpdateACL_Success(t *testing.T) {
 }
 
 func TestProxyHostHandler_BulkUpdateACL_RemoveACL(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create an access list
@@ -575,6 +587,7 @@ func TestProxyHostHandler_BulkUpdateACL_RemoveACL(t *testing.T) {
 }
 
 func TestProxyHostHandler_BulkUpdateACL_PartialFailure(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create an access list
@@ -625,6 +638,7 @@ func TestProxyHostHandler_BulkUpdateACL_PartialFailure(t *testing.T) {
 }
 
 func TestProxyHostHandler_BulkUpdateACL_EmptyUUIDs(t *testing.T) {
+	t.Parallel()
 	router, _ := setupTestRouter(t)
 
 	body := `{"host_uuids":[],"access_list_id":1}`
@@ -641,6 +655,7 @@ func TestProxyHostHandler_BulkUpdateACL_EmptyUUIDs(t *testing.T) {
 }
 
 func TestProxyHostHandler_BulkUpdateACL_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	router, _ := setupTestRouter(t)
 
 	body := `{"host_uuids": invalid json}`
@@ -653,6 +668,7 @@ func TestProxyHostHandler_BulkUpdateACL_InvalidJSON(t *testing.T) {
 }
 
 func TestProxyHostUpdate_AdvancedConfig_ClearAndBackup(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create host with advanced config
@@ -683,6 +699,7 @@ func TestProxyHostUpdate_AdvancedConfig_ClearAndBackup(t *testing.T) {
 }
 
 func TestProxyHostUpdate_AdvancedConfig_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create host
@@ -706,6 +723,7 @@ func TestProxyHostUpdate_AdvancedConfig_InvalidJSON(t *testing.T) {
 }
 
 func TestProxyHostUpdate_SetCertificateID(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create cert and host
@@ -735,6 +753,7 @@ func TestProxyHostUpdate_SetCertificateID(t *testing.T) {
 }
 
 func TestProxyHostUpdate_AdvancedConfig_SetBackup(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create host with initial advanced_config
@@ -766,6 +785,7 @@ func TestProxyHostUpdate_AdvancedConfig_SetBackup(t *testing.T) {
 }
 
 func TestProxyHostUpdate_ForwardPort_StringValue(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -791,6 +811,7 @@ func TestProxyHostUpdate_ForwardPort_StringValue(t *testing.T) {
 }
 
 func TestProxyHostUpdate_Locations_InvalidPayload(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -813,6 +834,7 @@ func TestProxyHostUpdate_Locations_InvalidPayload(t *testing.T) {
 }
 
 func TestProxyHostUpdate_SetBooleansAndApplication(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -845,6 +867,7 @@ func TestProxyHostUpdate_SetBooleansAndApplication(t *testing.T) {
 }
 
 func TestProxyHostUpdate_Locations_Replace(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -876,6 +899,7 @@ func TestProxyHostUpdate_Locations_Replace(t *testing.T) {
 }
 
 func TestProxyHostCreate_WithCertificateAndLocations(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Create certificate to reference
@@ -914,6 +938,7 @@ func TestProxyHostCreate_WithCertificateAndLocations(t *testing.T) {
 // Security Header Profile ID Tests
 
 func TestProxyHostCreate_WithSecurityHeaderProfile(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -954,6 +979,7 @@ func TestProxyHostCreate_WithSecurityHeaderProfile(t *testing.T) {
 }
 
 func TestProxyHostUpdate_AssignSecurityHeaderProfile(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1001,6 +1027,7 @@ func TestProxyHostUpdate_AssignSecurityHeaderProfile(t *testing.T) {
 }
 
 func TestProxyHostUpdate_ChangeSecurityHeaderProfile(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1056,6 +1083,7 @@ func TestProxyHostUpdate_ChangeSecurityHeaderProfile(t *testing.T) {
 }
 
 func TestProxyHostUpdate_RemoveSecurityHeaderProfile(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1102,6 +1130,7 @@ func TestProxyHostUpdate_RemoveSecurityHeaderProfile(t *testing.T) {
 }
 
 func TestProxyHostUpdate_InvalidSecurityHeaderProfileID(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1132,6 +1161,7 @@ func TestProxyHostUpdate_InvalidSecurityHeaderProfileID(t *testing.T) {
 
 // Test profile change from Strict → Basic (actual bug user encountered)
 func TestProxyHostUpdate_SecurityHeaderProfile_StrictToBasic(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1190,6 +1220,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_StrictToBasic(t *testing.T) {
 
 // Test profile change to None (null)
 func TestProxyHostUpdate_SecurityHeaderProfile_ToNone(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1232,6 +1263,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_ToNone(t *testing.T) {
 
 // Test profile change from None to valid ID
 func TestProxyHostUpdate_SecurityHeaderProfile_FromNoneToValid(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1279,6 +1311,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_FromNoneToValid(t *testing.T) {
 
 // Test invalid string value (should fail gracefully)
 func TestProxyHostUpdate_SecurityHeaderProfile_InvalidString(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1310,6 +1343,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_InvalidString(t *testing.T) {
 
 // Test invalid float value (should fail gracefully)
 func TestProxyHostUpdate_SecurityHeaderProfile_InvalidFloat(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1341,6 +1375,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_InvalidFloat(t *testing.T) {
 
 // Test valid string value conversion
 func TestProxyHostUpdate_SecurityHeaderProfile_ValidString(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1383,6 +1418,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_ValidString(t *testing.T) {
 
 // Test unsupported type (bool, object, array, etc)
 func TestProxyHostUpdate_SecurityHeaderProfile_UnsupportedType(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Ensure SecurityHeaderProfile is migrated
@@ -1414,6 +1450,7 @@ func TestProxyHostUpdate_SecurityHeaderProfile_UnsupportedType(t *testing.T) {
 
 // Phase 2: Test enable_standard_headers (nullable bool)
 func TestUpdate_EnableStandardHeaders(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	// Setup: Create host with enable_standard_headers = nil (default)
@@ -1496,6 +1533,7 @@ func TestUpdate_EnableStandardHeaders(t *testing.T) {
 
 // Phase 2: Test forward_auth_enabled (regular bool)
 func TestUpdate_ForwardAuthEnabled(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -1559,6 +1597,7 @@ func TestUpdate_ForwardAuthEnabled(t *testing.T) {
 
 // Phase 2: Test waf_disabled (regular bool)
 func TestUpdate_WAFDisabled(t *testing.T) {
+	t.Parallel()
 	router, db := setupTestRouter(t)
 
 	host := &models.ProxyHost{
@@ -1622,6 +1661,7 @@ func TestUpdate_WAFDisabled(t *testing.T) {
 
 // Phase 2: Integration test - Verify Caddy config generation with enable_standard_headers
 func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
+	t.Parallel()
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/load" && r.Method == "POST" {
 			w.WriteHeader(http.StatusOK)
@@ -1680,6 +1720,7 @@ func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
 
 // Phase 2: Regression test - Existing hosts without these fields
 func TestUpdate_ExistingHostsBackwardCompatibility(t *testing.T) {
+	t.Parallel()
 	_, db := setupTestRouter(t)
 
 	err := db.Exec(`
