@@ -1,3 +1,14 @@
+---
+title: "Issue #365: Additional Security Enhancements - Manual Test Plan"
+labels:
+  - manual-testing
+  - security
+  - testing
+type: testing
+priority: medium
+parent_issue: 365
+---
+
 # Issue #365: Additional Security Enhancements - Manual Test Plan
 
 **Issue**: https://github.com/Wikid82/Charon/issues/365
