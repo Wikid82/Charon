@@ -780,6 +780,150 @@ https://yourapp.com/search?q=' OR '1'='1
 
 ---
 
+## COOP (Cross-Origin-Opener-Policy) Behavior
+
+### Development Mode
+
+When accessing Charon over HTTP on non-localhost IP addresses (e.g., `http://192.168.1.100:8080`), you may see this browser console warning:
+
+```
+Cross-Origin-Opener-Policy policy would block the window.closed call.
+```
+
+**This is expected behavior and safe to ignore in local development.**
+
+### Why Does This Happen?
+
+The COOP header is conditionally applied based on the environment:
+
+- **Development (HTTP):** COOP header is **disabled** to allow convenient local testing
+- **Production (HTTPS):** COOP header is **enabled** with `same-origin-allow-popups` to protect against Spectre-class attacks
+
+The browser warning appears because:
+
+1. Your development server is accessed via HTTP (not HTTPS)
+2. The IP address is not `localhost` (e.g., accessing from another device on your network)
+3. Browsers enforce stricter security checks for non-localhost HTTP connections
+
+### Production HTTPS Requirements
+
+**⚠️ All production deployments MUST use HTTPS.** Running Charon in production over HTTP disables critical security protections:
+
+**Security Headers Disabled on HTTP:**
+
+- ✅ HSTS (HTTP Strict Transport Security)
+- ✅ COOP (Cross-Origin-Opener-Policy)
+- ✅ Secure cookie attributes
+
+**Why HTTPS is Required:**
+
+1. **Spectre Attack Protection:** COOP isolates browsing contexts to prevent cross-origin memory leaks
+2. **Secure Cookies:** Session cookies with `Secure` flag only work over HTTPS
+3. **Mixed Content:** Modern browsers block HTTP content loaded from HTTPS pages
+4. **Compliance:** PCI-DSS, HIPAA, and other regulations mandate encryption in transit
+
+### Load Balancer Configuration
+
+If Charon runs behind a load balancer or reverse proxy (Cloudflare, nginx, Traefik):
+
+**Required Header Forwarding:**
+
+```nginx
+# nginx example
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+**Why this matters:** Charon detects HTTPS mode via the `X-Forwarded-Proto` header. If your load balancer terminates TLS but doesn't forward this header, Charon thinks it's running in HTTP mode and disables security features.
+
+**Verification:**
+
+Check your browser's developer tools → Network → Response Headers:
+
+```
+Cross-Origin-Opener-Policy: same-origin-allow-popups
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
+
+If these headers are missing on HTTPS, verify your load balancer configuration.
+
+### Caddy TLS Termination
+
+When using Charon's built-in Caddy reverse proxy:
+
+- ✅ TLS termination happens at Caddy (port 443)
+- ✅ Charon backend receives `X-Forwarded-Proto: https` automatically
+- ✅ Security headers applied correctly
+- ✅ No additional configuration needed
+
+**Docker Network:** Caddy and Charon communicate internally over HTTP, but the `X-Forwarded-Proto` header ensures Charon knows the client connection was HTTPS.
+
+---
+
+## Autocomplete Security
+
+### Why Autocomplete is Enabled
+
+Charon enables the `autocomplete` attribute on password and authentication fields. This is a **security best practice** recommended by OWASP and NIST.
+
+**Benefits:**
+
+1. **Stronger Passwords:** Password managers generate cryptographically secure passwords (20+ characters, high entropy)
+2. **Unique Passwords:** Users are more likely to use unique passwords per-site when managers handle storage
+3. **Reduced Phishing:** Password managers verify domain names before autofilling, protecting against phishing sites
+4. **Better UX:** Improves accessibility and reduces password reuse
+
+### OWASP Recommendations
+
+From [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html):
+
+> "Do not disable the browser autocomplete on credential inputs. Modern password managers and browsers have secure implementations that rely on autocomplete attributes."
+
+### NIST Guidelines
+
+From [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html):
+
+> "Verifiers SHOULD permit the use of paste functionality and password managers."
+
+### Implementation in Charon
+
+```html
+<!-- Login form -->
+<input
+  type="text"
+  name="username"
+  autocomplete="username"
+  required
+/>
+<input
+  type="password"
+  name="password"
+  autocomplete="current-password"
+  required
+/>
+```
+
+**Autocomplete values used:**
+
+- `username` — For login username/email fields
+- `current-password` — For password login fields
+- `new-password` — For password creation/change fields (future implementation)
+
+### Compliance Considerations
+
+**For most organizations:** Autocomplete is secure and recommended.
+
+**For highly regulated industries (PCI-DSS Level 1, HIPAA, government):** Some compliance frameworks may require disabling autocomplete. If your organization has specific policies against password managers, you can:
+
+1. Enforce company-wide password managers (preferred)
+2. Disable browser autocomplete via group policy (not recommended)
+3. Use hardware security keys (WebAuthn, FIDO2) as primary authentication
+
+**Charon's position:** We follow modern security best practices. Disabling autocomplete reduces security for 99% of users to accommodate legacy compliance interpretations.
+
+---
+
 ## Testing & Validation
 
 ### Integration Testing

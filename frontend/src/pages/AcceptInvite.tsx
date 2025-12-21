@@ -171,6 +171,7 @@ export default function AcceptInvite() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
+                  autoComplete="new-password"
                 />
                 <PasswordStrengthMeter password={password} />
               </div>
@@ -187,6 +188,7 @@ export default function AcceptInvite() {
                     ? t('acceptInvite.passwordsDoNotMatch')
                     : undefined
                 }
+                autoComplete="new-password"
               />
 
               <Button

@@ -92,10 +92,17 @@ func TestSecurityHeaders(t *testing.T) {
 			},
 		},
 		{
-			name:          "sets Cross-Origin-Opener-Policy",
+			name:          "sets Cross-Origin-Opener-Policy in production",
 			isDevelopment: false,
 			checkHeaders: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, "same-origin", resp.Header().Get("Cross-Origin-Opener-Policy"))
+			},
+		},
+		{
+			name:          "skips Cross-Origin-Opener-Policy in development",
+			isDevelopment: true,
+			checkHeaders: func(t *testing.T, resp *httptest.ResponseRecorder) {
+				assert.Empty(t, resp.Header().Get("Cross-Origin-Opener-Policy"))
 			},
 		},
 		{
@@ -153,6 +160,40 @@ func TestDefaultSecurityHeadersConfig(t *testing.T) {
 	cfg := DefaultSecurityHeadersConfig()
 	assert.False(t, cfg.IsDevelopment)
 	assert.Nil(t, cfg.CustomCSPDirectives)
+}
+
+func TestSecurityHeaders_COOP_DevelopmentMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := SecurityHeadersConfig{IsDevelopment: true}
+	router.Use(SecurityHeaders(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	assert.Empty(t, resp.Header().Get("Cross-Origin-Opener-Policy"),
+		"COOP header should not be set in development mode")
+}
+
+func TestSecurityHeaders_COOP_ProductionMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	cfg := SecurityHeadersConfig{IsDevelopment: false}
+	router.Use(SecurityHeaders(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	assert.Equal(t, "same-origin", resp.Header().Get("Cross-Origin-Opener-Policy"),
+		"COOP header must be set in production mode")
 }
 
 func TestBuildCSP(t *testing.T) {
