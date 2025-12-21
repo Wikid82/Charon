@@ -481,3 +481,363 @@ func TestBuildCSP(t *testing.T) {
 	assert.Equal(t, []string{"'self'"}, cspMap["default-src"])
 	assert.Equal(t, []string{"'self'", "https:"}, cspMap["script-src"])
 }
+
+// Additional tests for missing coverage
+
+func TestListProfiles_DBError(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestGetProfile_UUID_NotFound(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	// Use a UUID that doesn't exist
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/non-existent-uuid-12345", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetProfile_ID_DBError(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestGetProfile_UUID_DBError(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/some-uuid-format", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestCreateProfile_InvalidJSON(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/profiles", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateProfile_DBError(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	// Close DB to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	payload := map[string]any{
+		"name": "Test Profile",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/profiles", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUpdateProfile_InvalidID(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/security/headers/profiles/invalid", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateProfile_NotFound(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	payload := map[string]any{"name": "Updated"}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/security/headers/profiles/99999", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUpdateProfile_InvalidJSON(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	profile := models.SecurityHeaderProfile{
+		UUID: uuid.New().String(),
+		Name: "Test Profile",
+	}
+	db.Create(&profile)
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateProfile_DBError(t *testing.T) {
+	router, db := setupSecurityHeadersTestRouter(t)
+
+	profile := models.SecurityHeaderProfile{
+		UUID: uuid.New().String(),
+		Name: "Test Profile",
+	}
+	db.Create(&profile)
+
+	// Close DB to force error on save
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	payload := map[string]any{"name": "Updated"}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestUpdateProfile_LookupDBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
+	assert.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	handler := NewSecurityHeadersHandler(db, nil)
+	handler.RegisterRoutes(router.Group("/"))
+
+	// Close DB before making request
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	payload := map[string]any{"name": "Updated"}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/security/headers/profiles/1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDeleteProfile_InvalidID(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/invalid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDeleteProfile_NotFound(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/99999", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDeleteProfile_LookupDBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
+	assert.NoError(t, err)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	handler := NewSecurityHeadersHandler(db, nil)
+	handler.RegisterRoutes(router.Group("/"))
+
+	// Close DB before making request
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDeleteProfile_CountDBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	// Only migrate SecurityHeaderProfile, NOT ProxyHost - this will cause count to fail
+	err = db.AutoMigrate(&models.SecurityHeaderProfile{})
+	assert.NoError(t, err)
+
+	profile := models.SecurityHeaderProfile{
+		UUID: uuid.New().String(),
+		Name: "Test",
+	}
+	db.Create(&profile)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	handler := NewSecurityHeadersHandler(db, nil)
+	handler.RegisterRoutes(router.Group("/"))
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDeleteProfile_DeleteDBError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	assert.NoError(t, err)
+
+	err = db.AutoMigrate(&models.SecurityHeaderProfile{}, &models.ProxyHost{})
+	assert.NoError(t, err)
+
+	profile := models.SecurityHeaderProfile{
+		UUID: uuid.New().String(),
+		Name: "Test",
+	}
+	db.Create(&profile)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	handler := NewSecurityHeadersHandler(db, nil)
+	handler.RegisterRoutes(router.Group("/"))
+
+	// Close DB before delete to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should be internal server error since DB is closed
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestApplyPreset_InvalidJSON(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/presets/apply", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCalculateScore_InvalidJSON(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/score", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidateCSP_InvalidJSON(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/csp/validate", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidateCSP_EmptyCSP(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	payload := map[string]any{
+		"csp": "",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/csp/validate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Empty CSP binding should fail since it's required
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidateCSP_UnknownDirective(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	payload := map[string]any{
+		"csp": `{"unknown-directive":["'self'"]}`,
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/csp/validate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.False(t, response["valid"].(bool))
+	errors := response["errors"].([]any)
+	assert.NotEmpty(t, errors)
+}
+
+func TestBuildCSP_InvalidJSON(t *testing.T) {
+	router, _ := setupSecurityHeadersTestRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/security/headers/csp/build", bytes.NewReader([]byte("invalid json")))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

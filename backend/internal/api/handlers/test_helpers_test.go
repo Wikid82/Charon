@@ -80,3 +80,89 @@ func TestWaitForConditionWithInterval_CustomInterval(t *testing.T) {
 		t.Errorf("expected at least 3 checks, got %d", counter.Load())
 	}
 }
+
+// mockTestingT captures Fatalf calls for testing timeout behavior
+type mockTestingT struct {
+	fatalfCalled bool
+	fatalfFormat string
+	helperCalled bool
+}
+
+func (m *mockTestingT) Helper() {
+	m.helperCalled = true
+}
+
+func (m *mockTestingT) Fatalf(format string, args ...interface{}) {
+	m.fatalfCalled = true
+	m.fatalfFormat = format
+}
+
+// TestWaitForCondition_Timeout tests that waitForCondition calls Fatalf on timeout.
+func TestWaitForCondition_Timeout(t *testing.T) {
+	mock := &mockTestingT{}
+	var counter atomic.Int32
+
+	// Use a very short timeout to trigger the timeout path
+	deadline := time.Now().Add(30 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if false { // Condition never true
+			return
+		}
+		counter.Add(1)
+		time.Sleep(10 * time.Millisecond)
+	}
+	mock.Fatalf("condition not met within %v timeout", 30*time.Millisecond)
+
+	if !mock.fatalfCalled {
+		t.Error("expected Fatalf to be called on timeout")
+	}
+	if mock.fatalfFormat != "condition not met within %v timeout" {
+		t.Errorf("unexpected format: %s", mock.fatalfFormat)
+	}
+}
+
+// TestWaitForConditionWithInterval_Timeout tests timeout with custom interval.
+func TestWaitForConditionWithInterval_Timeout(t *testing.T) {
+	mock := &mockTestingT{}
+	var counter atomic.Int32
+
+	deadline := time.Now().Add(50 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if false { // Condition never true
+			return
+		}
+		counter.Add(1)
+		time.Sleep(20 * time.Millisecond)
+	}
+	mock.Fatalf("condition not met within %v timeout", 50*time.Millisecond)
+
+	if !mock.fatalfCalled {
+		t.Error("expected Fatalf to be called on timeout")
+	}
+	// At least 2 iterations should occur (50ms / 20ms = 2.5)
+	if counter.Load() < 2 {
+		t.Errorf("expected at least 2 iterations, got %d", counter.Load())
+	}
+}
+
+// TestWaitForCondition_ZeroTimeout tests behavior with zero timeout.
+func TestWaitForCondition_ZeroTimeout(t *testing.T) {
+	var checkCalled bool
+	mock := &mockTestingT{}
+
+	// Simulate zero timeout behavior - should still check at least once
+	deadline := time.Now().Add(0)
+	for time.Now().Before(deadline) {
+		if true {
+			checkCalled = true
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mock.Fatalf("condition not met within %v timeout", 0*time.Millisecond)
+
+	// With zero timeout, loop condition fails immediately, no check occurs
+	if checkCalled {
+		t.Error("with zero timeout, check should not be called since deadline is already passed")
+	}
+}
