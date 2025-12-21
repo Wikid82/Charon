@@ -1,489 +1,359 @@
-# PR #434 Codecov Coverage Gap Remediation Plan
+# Issue #365: Additional Security Enhancements - Implementation Specification
 
-**Status**: Analysis Complete - REMEDIATION REQUIRED
+**Status**: Planning Complete
 **Created**: 2025-12-21
-**Last Updated**: 2025-12-21
-**Objective**: Increase patch coverage from 87.31% to meet 85% threshold across 7 files
+**Issue**: https://github.com/Wikid82/Charon/issues/365
+**Branch**: `feature/issue-365-additional-security`
+**PRs**: #436 (targets `development`), #437 (targets `main`)
 
 ---
 
 ## Executive Summary
 
-**Coverage Status:** ⚠️ 78 MISSING LINES across 7 files
+This specification details the implementation plan for Issue #365, which addresses six security enhancement areas. After thorough codebase analysis, this document provides file-by-file implementation details, phase breakdown, and complexity estimates.
 
-PR #434: `feat: add API-Friendly security header preset for mobile apps`
-- **Branch:** `feature/beta-release`
-- **Patch Coverage:** 87.31% (above 85% threshold ✅)
-- **Total Missing Lines:** 78 lines across 7 files
-- **Recommendation:** Add targeted tests to improve coverage and reduce technical debt
+### Scope Summary
 
-### Coverage Gap Summary
-
-| File | Coverage | Missing | Partials | Priority | Effort |
-|------|----------|---------|----------|----------|--------|
-| `handlers/testdb.go` | 61.53% | 29 | 1 | **P1** | Medium |
-| `handlers/proxy_host_handler.go` | 75.00% | 25 | 4 | **P1** | High |
-| `handlers/security_headers_handler.go` | 93.75% | 8 | 4 | P2 | Low |
-| `handlers/test_helpers.go` | 87.50% | 2 | 0 | P3 | Low |
-| `routes/routes.go` | 66.66% | 1 | 1 | P3 | Low |
-| `caddy/config.go` | 98.82% | 1 | 1 | P4 | Low |
-| `handlers/certificate_handler.go` | 50.00% | 1 | 0 | P4 | Low |
+| Requirement | Status | Complexity | Phase |
+|-------------|--------|------------|-------|
+| Supply Chain - SBOM Generation | ❌ TODO | Medium | 2 |
+| DNS Hijacking - Documentation | ❌ TODO | Low | 1 |
+| TLS Downgrade - Documentation | ✅ Partial | Low | 1 |
+| Privilege Escalation - Container Hardening | ⚠️ Partial | Medium | 2 |
+| Session Hijacking - Cookie/CSP Audit | ✅ Implemented | Low | 1 |
+| Timing Attacks - Constant-Time Comparison | ❌ TODO | Medium | 2 |
+| SIRP Documentation | ❌ TODO | Low | 1 |
+| Security Update Notifications Doc | ❌ TODO | Low | 1 |
 
 ---
 
-## Detailed Analysis by File
+## Codebase Research Findings
 
----
+### 1. Cookie/Session Implementation
 
-### 1. `backend/internal/api/handlers/testdb.go` (29 Missing, 1 Partial)
+**Location**: [backend/internal/api/handlers/auth_handler.go](backend/internal/api/handlers/auth_handler.go)
 
-**File Purpose:** Test database utilities providing template DB and migrations for faster test setup.
-
-**Current Coverage:** 61.53%
-
-**Test File:** `testdb_test.go` (exists - 200+ lines)
-
-#### Uncovered Code Paths
-
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| 26-28 | `initTemplateDB()` | Error return path after `gorm.Open` fails | Mock DB open failure |
-| 32-55 | `initTemplateDB()` | `AutoMigrate` error path | Inject migration failure |
-| 98-104 | `OpenTestDBWithMigrations()` | `rows.Scan` error + empty sql handling | Test with corrupted template |
-| 109-131 | `OpenTestDBWithMigrations()` | Fallback AutoMigrate path | Force template DB unavailable |
-
-#### Test Scenarios to Add
-
+**Current Implementation** (lines 52-73):
 ```go
-// File: backend/internal/api/handlers/testdb_coverage_test.go
-
-func TestInitTemplateDB_OpenError(t *testing.T) {
-    // Cannot directly test since initTemplateDB uses sync.Once
-    // This path is covered by testing GetTemplateDB behavior
-    // when underlying DB operations fail
-}
-
-func TestOpenTestDBWithMigrations_TemplateUnavailable(t *testing.T) {
-    // Force the template DB to be unavailable
-    // Verify fallback AutoMigrate is called
-    // Test by checking table creation works
-}
-
-func TestOpenTestDBWithMigrations_ScanError(t *testing.T) {
-    // Test when rows.Scan returns error
-    // Should fall through to fallback path
-}
-
-func TestOpenTestDBWithMigrations_EmptySQL(t *testing.T) {
-    // Test when sql string is empty
-    // Should skip db.Exec call
+func setSecureCookie(c *gin.Context, name, value string, maxAge int) {
+    scheme := requestScheme(c)
+    secure := isProduction() && scheme == "https"
+    sameSite := http.SameSiteStrictMode
+    if scheme != "https" {
+        sameSite = http.SameSiteLaxMode
+    }
+    c.SetSameSite(sameSite)
+    c.SetCookie(name, value, maxAge, "/", "", secure, true) // HttpOnly: true ✅
 }
 ```
 
-#### Recommended Actions
+**Assessment**: ✅ **SECURE** - All cookie security attributes properly configured:
+- `HttpOnly: true` - Prevents XSS access
+- `Secure: true` (production + HTTPS)
+- `SameSite: Strict` (HTTPS) / `Lax` (HTTP dev)
 
-1. **Add `testdb_coverage_test.go`** with scenarios above
-2. **Complexity:** Medium - requires mocking GORM internals or using test doubles
-3. **Alternative:** Accept lower coverage since this is test infrastructure code
+### 2. Security Headers Implementation
 
-**Note:** This file is test-only infrastructure (`testdb.go`). Coverage gaps here are acceptable since:
-- The happy path is already tested
-- Error paths are defensive programming
-- Testing test utilities creates circular dependencies
+**Location**: [backend/internal/api/middleware/security.go](backend/internal/api/middleware/security.go)
 
-**Recommendation:** P3 - Lower priority, accept current coverage for test utilities.
+**Current Headers Set**:
+- ✅ Content-Security-Policy (CSP)
+- ✅ Strict-Transport-Security (HSTS) with preload
+- ✅ X-Frame-Options: DENY
+- ✅ X-Content-Type-Options: nosniff
+- ✅ X-XSS-Protection: 1; mode=block
+- ✅ Referrer-Policy: strict-origin-when-cross-origin
+- ✅ Permissions-Policy (restricts camera, mic, etc.)
+- ✅ Cross-Origin-Opener-Policy: same-origin
+- ✅ Cross-Origin-Resource-Policy: same-origin
+
+**Assessment**: ✅ **COMPREHENSIVE** - All major security headers present.
+
+### 3. Token Comparison Methods
+
+**Locations Analyzed**:
+
+| File | Function | Method | Status |
+|------|----------|--------|--------|
+| [models/user.go#L62](backend/internal/models/user.go#L62) | `CheckPassword` | `bcrypt.CompareHashAndPassword` | ✅ Constant-time |
+| [services/security_service.go#L151](backend/internal/services/security_service.go#L151) | `VerifyBreakGlassToken` | `bcrypt.CompareHashAndPassword` | ✅ Constant-time |
+| [services/auth_service.go#L128](backend/internal/services/auth_service.go#L128) | `ValidateToken` | JWT library | ✅ Handled by library |
+
+**Potential Issue Found**: Invite token validation uses database lookup which could leak timing:
+- Location: `backend/internal/api/handlers/user_handler.go` (AcceptInvite)
+- Risk: Low (requires network timing analysis)
+- Recommendation: Add constant-time wrapper for token comparison after DB lookup
+
+### 4. Current Security Documentation
+
+**Location**: [docs/security.md](docs/security.md)
+
+**Current Coverage**:
+- ✅ Cerberus security suite (CrowdSec, WAF, ACL)
+- ✅ Access Lists configuration
+- ✅ Certificate management
+- ✅ Break-glass token
+- ✅ Zero-day protection explanation
+- ❌ TLS version enforcement (not documented)
+- ❌ DNS security (not documented)
+- ❌ SIRP (not documented)
+- ❌ Container hardening (not documented)
+
+### 5. CI/CD Pipeline Analysis
+
+**Location**: [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
+
+**Current State**:
+- ✅ Trivy vulnerability scanning (SARIF + table output)
+- ✅ Weekly security rebuilds (separate workflow)
+- ✅ Caddy security patches verification
+- ❌ SBOM generation (not implemented)
+- ❌ SBOM attestation (not implemented)
+
+**Best Integration Point**: After `build-and-push` step, before Trivy scan (around line 130)
+
+### 6. Dockerfile Security Analysis
+
+**Location**: [Dockerfile](Dockerfile)
+
+**Current Security Features**:
+- ✅ Non-root user (`charon:charon`, UID 1000)
+- ✅ Healthcheck configured
+- ✅ Minimal base image (Alpine)
+- ✅ Multi-stage build (reduces attack surface)
+- ⚠️ Root filesystem writable (can be improved)
+- ⚠️ All capabilities retained (can drop unnecessary ones)
 
 ---
 
-### 2. `backend/internal/api/handlers/proxy_host_handler.go` (25 Missing, 4 Partials)
+## Phase 1: Documentation Enhancements (Estimated: 1-2 hours)
 
-**File Purpose:** CRUD operations for proxy hosts including bulk security header updates.
+### 1.1 TLS Downgrade Attack Documentation
 
-**Current Coverage:** 75.00%
+**File**: `docs/security.md`
 
-**Test Files:**
-- `proxy_host_handler_test.go`
-- `proxy_host_handler_security_headers_test.go`
+**Add Section**:
+```markdown
+## TLS Security
 
-#### Uncovered Code Paths (New in PR #434)
+### TLS Version Enforcement
 
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| 222-226 | `Update()` | `enable_standard_headers` null handling | Test with null payload |
-| 227-232 | `Update()` | `forward_auth_enabled` bool handling | Test update with this field |
-| 234-237 | `Update()` | `waf_disabled` bool handling | Test update with this field |
-| 286-340 | `Update()` | `security_header_profile_id` type conversions | Test int, string, float64, default cases |
-| 302-305 | `Update()` | Failed float64→uint conversion (negative) | Test with -1 value |
-| 312-315 | `Update()` | Failed int→uint conversion (negative) | Test with -1 value |
-| 322-325 | `Update()` | Failed string parse | Test with "invalid" string |
-| 326-328 | `Update()` | Unsupported type default case | Test with bool or array |
-| 331-334 | `Update()` | Conversion failed response | Implicit test from above |
-| 546-549 | `BulkUpdateSecurityHeaders()` | Profile lookup DB error (non-404) | Mock DB error |
+Charon (via Caddy) enforces a minimum TLS version of 1.2 by default. This prevents TLS downgrade attacks that attempt to force connections to use vulnerable TLS 1.0 or 1.1.
 
-#### Test Scenarios to Add
+**What's Protected:**
+- ✅ TLS 1.0/1.1 downgrade attacks
+- ✅ BEAST, POODLE, and similar protocol-level attacks
+- ✅ Weak cipher suite negotiation
 
+**HSTS (HTTP Strict Transport Security):**
+Charon sets HSTS headers with:
+- `max-age=31536000` (1 year)
+- `includeSubDomains`
+- `preload` (for browser preload lists)
+```
+
+**Complexity**: Low | **Dependencies**: None
+
+---
+
+### 1.2 DNS Hijacking Documentation
+
+**File**: `docs/security.md`
+
+**Add Section**:
+```markdown
+## DNS Security
+
+### Protecting Against DNS Hijacking
+
+Configure your upstream resolver to use DNS-over-HTTPS (DoH) or DNS-over-TLS (DoT):
+
+**Docker Host Configuration:**
+```bash
+# /etc/systemd/resolved.conf
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com
+DNSOverTLS=yes
+```
+
+**Additional Protections:**
+1. **DNSSEC**: Ensure your domain registrar supports DNSSEC
+2. **CAA Records**: Restrict which CAs can issue certs for your domain
+```
+
+**Complexity**: Low | **Dependencies**: None
+
+---
+
+### 1.3 Security Incident Response Plan
+
+**New File**: `docs/security-incident-response.md`
+
+**Content**: Incident classification, detection, containment, recovery procedures
+
+**Complexity**: Low | **Dependencies**: None
+
+---
+
+### 1.4 Security Update Notifications
+
+**Files**: `docs/getting-started.md`, `docs/security.md`
+
+**Add**: GitHub Watch instructions, Watchtower/Diun configuration examples
+
+**Complexity**: Low | **Dependencies**: None
+
+---
+
+## Phase 2: Code Changes (Estimated: 4-6 hours)
+
+### 2.1 SBOM Generation
+
+**File**: `.github/workflows/docker-build.yml`
+
+**Changes** (add after build-and-push step):
+```yaml
+- name: Generate SBOM (CycloneDX)
+  uses: anchore/sbom-action@v0
+  with:
+    image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+    format: cyclonedx-json
+    output-file: sbom.cyclonedx.json
+
+- name: Attest SBOM to Image
+  if: github.event_name != 'pull_request'
+  uses: actions/attest-sbom@v2
+  with:
+    subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    subject-digest: ${{ steps.build-and-push.outputs.digest }}
+    sbom-path: sbom.cyclonedx.json
+```
+
+**Additional Files**:
+- `.gitignore`: Add `sbom*.json`
+- `.dockerignore`: Add `sbom*.json`
+
+**Complexity**: Medium | **Dependencies**: None
+
+---
+
+### 2.2 Container Hardening Documentation
+
+**File**: `docs/security.md`
+
+**Add Example**:
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+```
+
+**Complexity**: Medium | **Dependencies**: Testing with read-only FS
+
+---
+
+### 2.3 Constant-Time Token Comparison
+
+**New File**: `backend/internal/util/crypto.go`
 ```go
-// File: backend/internal/api/handlers/proxy_host_handler_update_test.go
+package util
 
-func TestProxyHostUpdate_EnableStandardHeaders_Null(t *testing.T) {
-    // Create host, then update with enable_standard_headers: null
-    // Verify host.EnableStandardHeaders becomes nil
-}
+import "crypto/subtle"
 
-func TestProxyHostUpdate_EnableStandardHeaders_True(t *testing.T) {
-    // Create host, then update with enable_standard_headers: true
-    // Verify host.EnableStandardHeaders is pointer to true
-}
-
-func TestProxyHostUpdate_EnableStandardHeaders_False(t *testing.T) {
-    // Create host, then update with enable_standard_headers: false
-    // Verify host.EnableStandardHeaders is pointer to false
-}
-
-func TestProxyHostUpdate_ForwardAuthEnabled(t *testing.T) {
-    // Create host with forward_auth_enabled: false
-    // Update to forward_auth_enabled: true
-    // Verify change persisted
-}
-
-func TestProxyHostUpdate_WAFDisabled(t *testing.T) {
-    // Create host with waf_disabled: false
-    // Update to waf_disabled: true
-    // Verify change persisted
-}
-
-func TestProxyHostUpdate_SecurityHeaderProfileID_Int(t *testing.T) {
-    // Create profile, create host
-    // Update with security_header_profile_id as int (Go doesn't JSON decode to int, but test anyway)
-}
-
-func TestProxyHostUpdate_SecurityHeaderProfileID_NegativeFloat(t *testing.T) {
-    // Create host
-    // Update with security_header_profile_id: -1.0 (float64)
-    // Expect 400 Bad Request
-}
-
-func TestProxyHostUpdate_SecurityHeaderProfileID_NegativeInt(t *testing.T) {
-    // Create host
-    // Update with security_header_profile_id: -1 (if possible via int type)
-    // Expect 400 Bad Request
-}
-
-func TestProxyHostUpdate_SecurityHeaderProfileID_InvalidString(t *testing.T) {
-    // Create host
-    // Update with security_header_profile_id: "not-a-number"
-    // Expect 400 Bad Request
-}
-
-func TestProxyHostUpdate_SecurityHeaderProfileID_UnsupportedType(t *testing.T) {
-    // Create host
-    // Send security_header_profile_id as boolean (true) or array
-    // Expect 400 Bad Request
-}
-
-func TestBulkUpdateSecurityHeaders_DBError_NonNotFound(t *testing.T) {
-    // Close DB connection to simulate internal error
-    // Call bulk update with valid profile ID
-    // Expect 500 Internal Server Error
+// ConstantTimeCompare compares two strings in constant time.
+func ConstantTimeCompare(a, b string) bool {
+    return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 ```
 
-#### Recommended Actions
+**New Test File**: `backend/internal/util/crypto_test.go`
 
-1. **Add `proxy_host_handler_update_test.go`** with 11 new test cases
-2. **Estimated effort:** 2-3 hours
-3. **Impact:** Covers 25 lines, brings coverage to ~95%
+**Modify**: `backend/internal/api/handlers/user_handler.go` - Use constant-time comparison in AcceptInvite
 
----
-
-### 3. `backend/internal/api/handlers/security_headers_handler.go` (8 Missing, 4 Partials)
-
-**File Purpose:** CRUD for security header profiles, presets, CSP validation.
-
-**Current Coverage:** 93.75%
-
-**Test File:** `security_headers_handler_test.go` (extensive - 500+ lines)
-
-#### Uncovered Code Paths
-
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| 89-91 | `GetProfile()` | UUID lookup DB error (non-404) | Close DB before UUID lookup |
-| 142-145 | `UpdateProfile()` | `db.Save()` error | Close DB before save |
-| 177-180 | `DeleteProfile()` | `db.Delete()` error | Already tested in `TestDeleteProfile_DeleteDBError` |
-| 269-271 | `validateCSPString()` | Unknown directive warning | Test with `unknown-directive` |
-
-#### Test Scenarios to Add
-
-```go
-// File: backend/internal/api/handlers/security_headers_handler_coverage_test.go
-
-func TestGetProfile_UUID_DBError_NonNotFound(t *testing.T) {
-    // Create profile, get UUID
-    // Close DB connection
-    // GET /security/headers/profiles/{uuid}
-    // Expect 500 Internal Server Error
-}
-
-func TestUpdateProfile_SaveError(t *testing.T) {
-    // Create profile (ID = 1)
-    // Close DB connection
-    // PUT /security/headers/profiles/1
-    // Expect 500 Internal Server Error
-    // Note: Similar to TestUpdateProfile_DBError but for save specifically
-}
-```
-
-**Note:** Most paths are already covered by existing tests. The 8 missing lines are edge cases around DB errors that are already partially tested.
-
-#### Recommended Actions
-
-1. **Verify existing tests cover scenarios** - some may already be present
-2. **Add 2 additional DB error tests** if not covered
-3. **Estimated effort:** 30 minutes
+**Complexity**: Medium | **Dependencies**: None
 
 ---
 
-### 4. `backend/internal/api/handlers/test_helpers.go` (2 Missing)
+## Phase 3: Testing & Validation (Estimated: 2-3 hours)
 
-**File Purpose:** Polling helpers for test synchronization (`waitForCondition`).
+### Required Tests
 
-**Current Coverage:** 87.50%
+| File | Purpose |
+|------|---------|
+| `backend/internal/util/crypto_test.go` | Constant-time comparison tests + benchmarks |
+| Integration test additions | Security header verification |
 
-**Test File:** `test_helpers_test.go` (exists)
+### Coverage Requirements
 
-#### Uncovered Code Paths
-
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| 17-18 | `waitForCondition()` | `t.Fatalf` call on timeout | Cannot directly test without custom interface |
-| 31-32 | `waitForConditionWithInterval()` | `t.Fatalf` call on timeout | Same issue |
-
-#### Analysis
-
-The missing coverage is in the `t.Fatalf()` calls which are intentionally not tested because:
-1. `t.Fatalf()` terminates the test immediately
-2. Testing this would require a custom testing.T interface
-3. The existing tests use mock implementations to verify timeout behavior
-
-**Current tests already cover:**
-- `TestWaitForCondition_PassesImmediately`
-- `TestWaitForCondition_PassesAfterIterations`
-- `TestWaitForCondition_Timeout` (uses mockTestingT)
-- `TestWaitForConditionWithInterval_*` variants
-
-#### Recommended Actions
-
-1. **Accept current coverage** - The timeout paths are defensive and covered via mocks
-2. **No additional tests needed** - mockTestingT already verifies the behavior
-3. **Estimated effort:** None
+- All new code must achieve 85% coverage
+- Run: `scripts/go-test-coverage.sh`
 
 ---
 
-### 5. `backend/internal/api/routes/routes.go` (1 Missing, 1 Partial)
+## File Change Summary
 
-**File Purpose:** API route registration and middleware wiring.
+### Files to Create
 
-**Current Coverage:** 66.66% (but only 1 new line missing)
+| File | Purpose |
+|------|---------|
+| `backend/internal/util/crypto.go` | Constant-time comparison utilities |
+| `backend/internal/util/crypto_test.go` | Tests for crypto utilities |
+| `docs/security-incident-response.md` | SIRP documentation |
 
-**Test File:** `routes_test.go` (exists)
+### Files to Modify
 
-#### Uncovered Code Paths
+| File | Changes |
+|------|---------|
+| `docs/security.md` | TLS, DNS, container hardening sections |
+| `docs/getting-started.md` | Security update notification section |
+| `.github/workflows/docker-build.yml` | SBOM generation steps |
+| `.gitignore` | Add `sbom*.json` |
+| `.dockerignore` | Add `sbom*.json` |
+| `backend/internal/api/handlers/user_handler.go` | Constant-time token comparison |
 
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| ~234 | `Register()` | `secHeadersSvc.EnsurePresetsExist()` error logging | Error is logged but not fatal |
+### Files Verified Secure (No Changes)
 
-#### Analysis
-
-The missing line is error handling for `EnsurePresetsExist()`:
-```go
-if err := secHeadersSvc.EnsurePresetsExist(); err != nil {
-    logger.Log().WithError(err).Warn("Failed to initialize security header presets")
-}
-```
-
-This is non-fatal logging - the route registration continues even if preset initialization fails.
-
-#### Test Scenarios to Add
-
-```go
-// File: backend/internal/api/routes/routes_security_headers_test.go
-
-func TestRegister_EnsurePresetsExist_Error(t *testing.T) {
-    // This requires mocking SecurityHeadersService
-    // Or testing with a DB that fails on insert
-    // Low priority since it's just a warning log
-}
-```
-
-#### Recommended Actions
-
-1. **Accept current coverage** - Error path only logs a warning
-2. **Low impact** - Registration continues regardless of error
-3. **Estimated effort:** 30 minutes if mocking is needed
+| File | Reason |
+|------|--------|
+| `backend/internal/api/handlers/auth_handler.go` | Cookie security correct |
+| `backend/internal/api/middleware/security.go` | Headers comprehensive |
+| `backend/internal/models/user.go` | bcrypt is constant-time |
+| `backend/internal/services/security_service.go` | bcrypt is constant-time |
+| `Dockerfile` | Non-root user configured |
 
 ---
 
-### 6. `backend/internal/caddy/config.go` (1 Missing, 1 Partial)
+## Out of Scope (Future Issues)
 
-**File Purpose:** Caddy JSON configuration generation.
-
-**Current Coverage:** 98.82% (excellent)
-
-**Test Files:** Multiple test files `config_security_headers_test.go`
-
-#### Uncovered Code Path
-
-Based on the API-Friendly preset feature, the missing line is likely in `buildSecurityHeadersHandler()` for an edge case.
-
-#### Analysis
-
-The existing test `TestBuildSecurityHeadersHandler_APIFriendlyPreset` covers the new API-Friendly preset. The 1 missing line is likely an edge case in:
-- Empty string handling for headers
-- Cross-origin policy variations
-
-#### Recommended Actions
-
-1. **Review coverage report details** to identify exact line
-2. **Likely already covered** by `TestBuildSecurityHeadersHandler_APIFriendlyPreset`
-3. **Estimated effort:** 15 minutes to verify
-
----
-
-### 7. `backend/internal/api/handlers/certificate_handler.go` (1 Missing)
-
-**File Purpose:** Certificate upload, list, and delete operations.
-
-**Current Coverage:** 50.00% (only 1 new line)
-
-**Test File:** `certificate_handler_coverage_test.go` (exists)
-
-#### Uncovered Code Path
-
-| Lines | Function | Issue | Solution |
-|-------|----------|-------|----------|
-| ~67 | `Delete()` | ID=0 validation check | Already tested |
-
-#### Analysis
-
-Looking at the test file, `TestCertificateHandler_Delete_InvalidID` tests the "invalid" ID case but may not specifically test ID=0.
-
-```go
-// Validate ID range
-if id == 0 {
-    c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-    return
-}
-```
-
-#### Test Scenarios to Add
-
-```go
-func TestCertificateHandler_Delete_ZeroID(t *testing.T) {
-    // DELETE /api/certificates/0
-    // Expect 400 Bad Request with "invalid id" error
-}
-```
-
-#### Recommended Actions
-
-1. **Add single test for ID=0 case**
-2. **Estimated effort:** 10 minutes
-
----
-
-## Implementation Plan
-
-### Priority Order (by impact)
-
-1. **P1: proxy_host_handler.go** - 25 lines, new feature code
-2. **P1: testdb.go** - 29 lines, but test-only infrastructure (lower actual priority)
-3. **P2: security_headers_handler.go** - 8 lines, minor gaps
-4. **P3: test_helpers.go** - Accept current coverage
-5. **P3: routes.go** - Accept current coverage (warning log only)
-6. **P4: config.go** - Verify existing coverage
-7. **P4: certificate_handler.go** - Add 1 test
-
-### Estimated Effort
-
-| File | Tests to Add | Time Estimate |
-|------|--------------|---------------|
-| `proxy_host_handler.go` | 11 tests | 2-3 hours |
-| `security_headers_handler.go` | 2 tests | 30 minutes |
-| `certificate_handler.go` | 1 test | 10 minutes |
-| `testdb.go` | Skip (test utilities) | 0 |
-| `test_helpers.go` | Skip (already covered) | 0 |
-| `routes.go` | Skip (warning log) | 0 |
-| `config.go` | Verify only | 15 minutes |
-| **Total** | **14 tests** | **~4 hours** |
-
----
-
-## Test File Locations
-
-### New Test Files to Create
-
-1. `backend/internal/api/handlers/proxy_host_handler_update_test.go` - Update field coverage
-
-### Existing Test Files to Extend
-
-1. `backend/internal/api/handlers/security_headers_handler_test.go` - Add 2 DB error tests
-2. `backend/internal/api/handlers/certificate_handler_coverage_test.go` - Add ID=0 test
-
----
-
-## Dependencies Between Tests
-
-```
-None identified - all tests can be implemented independently
-```
+Per Issue #365:
+- ❌ Certificate Transparency Log Monitoring
+- ❌ MFA via Authentik
+- ❌ SSO for Charon admin
+- ❌ Audit logging for GDPR/SOC2
 
 ---
 
 ## Acceptance Criteria
 
-1. ✅ Patch coverage ≥ 85% (currently 87.31%, already passing)
-2. ⬜ All new test scenarios pass
-3. ⬜ No regression in existing tests
-4. ⬜ Test execution time < 30 seconds total
-5. ⬜ All tests use `OpenTestDB` or `OpenTestDBWithMigrations` for isolation
+- [ ] Documentation sections added to `docs/security.md`
+- [ ] SIRP document created
+- [ ] SBOM generation in CI (CycloneDX format)
+- [ ] Constant-time utility with tests
+- [ ] Container hardening documented
+- [ ] 85%+ test coverage
+- [ ] Pre-commit hooks pass
 
 ---
 
-## Mock Requirements
-
-### For proxy_host_handler.go Tests
-
-- Standard Gin test router setup (already exists in test files)
-- GORM SQLite in-memory DB (use `OpenTestDBWithMigrations`)
-- Mock Caddy manager (nil is acceptable for these tests)
-
-### For security_headers_handler.go Tests
-
-- Same as above
-- Close DB connection to simulate errors
-
-### For certificate_handler.go Tests
-
-- Use existing test setup patterns
-- No mocks needed for ID=0 test
-
----
-
-## Conclusion
-
-**Immediate Action Required:** None - coverage is above 85% threshold
-
-**Recommended Improvements:**
-1. Add 14 targeted tests to improve coverage quality
-2. Focus on `proxy_host_handler.go` which has the most new feature code
-3. Accept lower coverage on test infrastructure files (`testdb.go`, `test_helpers.go`)
-
-**Total Estimated Effort:** ~4 hours for all improvements
-
----
-
-**Analysis Date:** 2025-12-21
-**Analyzed By:** GitHub Copilot
-**Next Action:** Implement tests in priority order if coverage improvement is desired
+**Analysis Date**: 2025-12-21
+**Analyzed By**: GitHub Copilot
+**Status**: Ready for Implementation
