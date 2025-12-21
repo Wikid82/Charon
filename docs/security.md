@@ -615,6 +615,95 @@ Remove the security lines from `docker-compose.yml` and restart.
 
 ---
 
+## TLS Security
+
+### TLS Version Enforcement
+
+Charon (via Caddy) enforces a minimum TLS version of 1.2 by default. This prevents TLS downgrade attacks that attempt to force connections to use vulnerable TLS 1.0 or 1.1.
+
+**What's Protected:**
+
+- ✅ TLS 1.0/1.1 downgrade attacks
+- ✅ BEAST, POODLE, and similar protocol-level attacks
+- ✅ Weak cipher suite negotiation
+
+**HSTS (HTTP Strict Transport Security):**
+
+Charon sets HSTS headers with:
+
+- `max-age=31536000` (1 year)
+- `includeSubDomains`
+- `preload` (for browser preload lists)
+
+This ensures browsers always use HTTPS after the first visit.
+
+---
+
+## DNS Security
+
+### Protecting Against DNS Hijacking
+
+While Charon cannot directly control your DNS resolver, you can protect against DNS hijacking and cache poisoning by configuring your host to use encrypted DNS.
+
+**Docker Host Configuration (systemd-resolved):**
+
+```bash
+# /etc/systemd/resolved.conf
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com
+DNSOverTLS=yes
+```
+
+Then restart: `sudo systemctl restart systemd-resolved`
+
+**Alternative DNS Providers with DoH/DoT:**
+
+- Cloudflare: `1.1.1.1` / `1.0.0.1`
+- Google: `8.8.8.8` / `8.8.4.4`
+- Quad9: `9.9.9.9`
+
+**Additional DNS Protections:**
+
+1. **DNSSEC**: Enable at your domain registrar to prevent DNS spoofing
+2. **CAA Records**: Restrict which Certificate Authorities can issue certificates for your domain
+
+---
+
+## Container Hardening
+
+### Running Charon with Maximum Security
+
+For production deployments, apply these Docker security configurations:
+
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+      - /config:size=50M
+      - /data/logs:size=100M
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./data:/data
+```
+
+**Security Options Explained:**
+
+- `read_only: true` — Prevents filesystem modifications (defense against malware)
+- `cap_drop: ALL` — Removes all Linux capabilities
+- `cap_add: NET_BIND_SERVICE` — Only allows binding to ports (required for reverse proxy)
+- `no-new-privileges` — Prevents privilege escalation attacks
+- `tmpfs` mounts — Provides writable directories for logs and temp files without persistent storage
+
+---
+
 ## Common Questions
 
 ### "Will this slow down my websites?"

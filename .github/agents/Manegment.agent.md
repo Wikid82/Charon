@@ -55,6 +55,7 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 7. **Phase 7: Closure**:
     - **Docs**: Call `Docs_Writer`.
+    - **Manual Testing**: create a new test plan in `docs/issues/*.md` for tracking manual testing focused on finding potential bugs of the implemented features.
     - **Final Report**: Summarize the successful subagent runs.
     - **Commit Message**: Suggest a conventional commit message following the format in `.github/copilot-instructions.md`:
         - Use `feat:` for new user-facing features
