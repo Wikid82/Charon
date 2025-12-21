@@ -29,7 +29,7 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
 3. **Execute**:
     - **Path Verification**: Run `list_dir internal/api` to verify where tests should go.
     - **Creation**: Write a new test file (e.g., `internal/api/tests/audit_test.go`) to test the *flow*.
-    - **Run**: Execute `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
+    - **Run**: Execute `.github/skills`, `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
         - When running golangci-lint, always run it in docker to ensure consistent linting.
         - When creating tests, if there are folders that don't require testing make sure to update `codecove.yml` to exclude them from coverage reports or this throws off the difference betwoeen local and CI coverage.
     - **Cleanup**: If the test was temporary, delete it. If it's valuable, keep it.
@@ -85,7 +85,7 @@ The task is not complete until ALL of the following pass with zero issues:
 4. **Security Scans**:
     - CodeQL: Run as VS Code task or via GitHub Actions
     - Trivy: Run as VS Code task or via Docker
-    - Zero Critical or High severity issues allowed
+    - Zero issues allowed
 
 5. **Linting**: All language-specific linters must pass (Go vet, ESLint, markdownlint)
 
