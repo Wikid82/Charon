@@ -224,6 +224,251 @@ Response 200: `{ "deleted": true }`
 
 ---
 
+### Application URL Endpoints
+
+#### Validate Application URL
+
+Validates that a URL is properly formatted for use as the application's public URL.
+
+```http
+POST /settings/validate-url
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+
+```json
+{
+  "url": "https://charon.example.com"
+}
+```
+
+**Required Fields:**
+
+- `url` (string) - The URL to validate
+
+**Response 200 (Valid URL):**
+
+```json
+{
+  "valid": true,
+  "normalized": "https://charon.example.com"
+}
+```
+
+**Response 200 (Valid with Warning):**
+
+```json
+{
+  "valid": true,
+  "normalized": "http://charon.example.com",
+  "warning": "Using http:// instead of https:// is not recommended for production environments"
+}
+```
+
+**Response 400 (Invalid URL):**
+
+```json
+{
+  "valid": false,
+  "error": "URL must start with http:// or https:// and cannot include path components"
+}
+```
+
+**Response 403:**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Validation Rules:**
+
+- URL must start with `http://` or `https://`
+- URL cannot include path components (e.g., `/admin`)
+- Trailing slashes are automatically removed
+- Port numbers are allowed (e.g., `:8080`)
+- Warning is returned if using `http://` (insecure)
+
+**Examples:**
+
+```bash
+# Valid HTTPS URL
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com"}'
+
+# Valid with port
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com:8443"}'
+
+# Invalid - no protocol
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "charon.example.com"}'
+
+# Invalid - includes path
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com/admin"}'
+```
+
+---
+
+#### Preview User Invite URL
+
+Generates a preview of the invite URL that would be sent to a user, without actually creating the invitation.
+
+```http
+POST /users/preview-invite-url
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+
+```json
+{
+  "email": "newuser@example.com"
+}
+```
+
+**Required Fields:**
+
+- `email` (string) - Email address for the preview
+
+**Response 200 (Configured):**
+
+```json
+{
+  "preview_url": "https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "https://charon.example.com",
+  "is_configured": true,
+  "email": "newuser@example.com",
+  "warning": false,
+  "warning_message": ""
+}
+```
+
+**Response 200 (Not Configured):**
+
+```json
+{
+  "preview_url": "http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "http://localhost:8080",
+  "is_configured": false,
+  "email": "newuser@example.com",
+  "warning": true,
+  "warning_message": "Application URL not configured. The invite link may not be accessible from external networks."
+}
+```
+
+**Response 400:**
+
+```json
+{
+  "error": "email is required"
+}
+```
+
+**Response 403:**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Field Descriptions:**
+
+- `preview_url` - Complete invite URL with sample token
+- `base_url` - The base URL being used (configured or fallback)
+- `is_configured` - Whether Application URL is configured in settings
+- `email` - Email address from the request (echoed back)
+- `warning` - Boolean indicating if there's a configuration warning
+- `warning_message` - Human-readable warning (empty if no warning)
+
+**Use Cases:**
+
+1. **Pre-flight check:** Verify invite URLs before creating users
+2. **Configuration validation:** Confirm Application URL is set correctly
+3. **UI preview:** Show users what invite link will look like
+4. **Testing:** Validate invite flow without creating actual invitations
+
+**Examples:**
+
+```bash
+# Preview invite URL
+curl -X POST http://localhost:8080/api/v1/users/preview-invite-url \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com"}'
+
+# Response when configured:
+{
+  "preview_url": "https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "https://charon.example.com",
+  "is_configured": true,
+  "email": "admin@example.com",
+  "warning": false,
+  "warning_message": ""
+}
+```
+
+**JavaScript Example:**
+
+```javascript
+const previewInvite = async (email) => {
+  const response = await fetch('http://localhost:8080/api/v1/users/preview-invite-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer <admin-token>'
+    },
+    body: JSON.stringify({ email })
+  });
+
+  const data = await response.json();
+
+  if (data.warning) {
+    console.warn(data.warning_message);
+    console.log('Configure Application URL in System Settings');
+  } else {
+    console.log('Invite URL:', data.preview_url);
+  }
+};
+
+previewInvite('newuser@example.com');
+```
+
+**Python Example:**
+
+```python
+import requests
+
+def preview_invite(email, api_base='http://localhost:8080/api/v1'):
+    response = requests.post(
+        f'{api_base}/users/preview-invite-url',
+        headers={'Content-Type': 'application/json'},
+        json={'email': email}
+    )
+
+    data = response.json()
+
+    if data.get('warning'):
+        print(f"Warning: {data['warning_message']}")
+    else:
+        print(f"Invite URL: {data['preview_url']}")
+
+    return data
+
+preview_invite('admin@example.com')
+```
+
+---
+
 ### SSL Certificates
 
 #### List All Certificates

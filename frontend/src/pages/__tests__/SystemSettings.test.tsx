@@ -123,8 +123,8 @@ describe('SystemSettings', () => {
       })
 
       const user = userEvent.setup()
-      const saveButton = screen.getByRole('button', { name: /Save Settings/i })
-      await user.click(saveButton)
+      const saveButtons = screen.getAllByRole('button', { name: /Save Settings/i })
+      await user.click(saveButtons[0])
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).toHaveBeenCalledWith(
@@ -165,15 +165,15 @@ describe('SystemSettings', () => {
       renderWithProviders(<SystemSettings />)
 
       await waitFor(() => {
-        expect(screen.getByText('Save Settings')).toBeTruthy()
+        expect(screen.getAllByText('Save Settings')).toHaveLength(2)
       })
 
       const user = userEvent.setup()
-      const saveButton = screen.getByRole('button', { name: /Save Settings/i })
-      await user.click(saveButton)
+      const saveButtons = screen.getAllByRole('button', { name: /Save Settings/i })
+      await user.click(saveButtons[0])
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(3)
+        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(4)
         expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.admin_api',
           expect.any(String),

@@ -34,6 +34,116 @@ We welcome translation contributions! See our [Translation Contributing Guide](h
 
 ---
 
+## 🌐 Application URL Configuration
+
+**What it does:** Configures the public URL used in user invitation emails and system-generated links.
+
+**Why you care:** Without this, invite links will use the server's local address (like `http://localhost:8080`), which won't work for users on external networks. Configuring this ensures invitations work correctly.
+
+**Where to find it:** System Settings → Application URL section
+
+### Configuration
+
+**URL Requirements:**
+
+- Must start with `http://` or `https://`
+- Should be the URL users use to access Charon
+- Cannot include path components (e.g., `/admin`)
+- Port numbers are allowed (e.g., `:8080`)
+
+**Validation:**
+
+1. Enter your URL in the input field
+2. Click **"Validate"** to check the format
+   - Displays normalized URL if valid
+   - Shows error message if invalid
+   - Warns if using `http://` instead of `https://` in production
+3. Click **"Test"** to open the URL in a new browser tab
+4. Click **"Save Changes"** to persist the configuration
+
+**Examples:**
+
+✅ **Valid URLs:**
+
+- `https://charon.example.com`
+- `https://proxy.mydomain.net`
+- `https://charon.example.com:8443` (custom port)
+- `http://192.168.1.100:8080` (for internal testing only)
+
+❌ **Invalid URLs:**
+
+- `charon.example.com` (missing protocol)
+- `https://charon.example.com/admin` (path not allowed)
+- `ftp://charon.example.com` (wrong protocol)
+- `https://charon.example.com/` (trailing slash not allowed)
+
+### User Invitation Preview
+
+**What it does:** Preview how invite URLs will look before sending invitations.
+
+**Where to find it:** Users page → "Preview Invite" button when creating a new user
+
+**How it works:**
+
+1. Enter a user's email address in the invitation form
+2. Click **"Preview Invite"**
+3. See the exact invite URL that will be sent
+4. View warning if Application URL is not configured
+
+**Preview includes:**
+
+- Full invite URL with sample token
+- Base URL being used
+- Configuration status indicator
+- Warning message if not configured
+
+**Example preview:**
+
+```
+Invite URL Preview:
+https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW
+
+Base URL: https://charon.example.com
+Status: ✅ Configured
+```
+
+**Warning state:**
+
+```
+⚠️ Application URL not configured
+
+Invite URL Preview:
+http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW
+
+This link may not be accessible from external networks.
+Configure the Application URL in System Settings.
+```
+
+### Multi-Language Support
+
+The Application URL configuration is fully localized and available in all supported languages:
+
+- English, Spanish, French, German, Chinese
+- All validation messages are translated
+- Error messages and warnings respect language settings
+
+### Admin-Only Access
+
+Application URL configuration is restricted to administrators:
+
+- Only users with admin role can modify the setting
+- Non-admin users cannot access the validation or test endpoints
+- API endpoints return 403 Forbidden for non-admin attempts
+
+### API Integration
+
+See [API Documentation](api.md#application-url-endpoints) for programmatic access to:
+
+- `POST /settings/validate-url` - Validate URL format
+- `POST /users/preview-invite-url` - Preview invite URL for a user
+
+---
+
 ## ⚙️ Optional Features
 
 Charon includes optional features that can be toggled on or off based on your needs.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/utils"
 )
 
 type SettingsHandler struct {
@@ -223,4 +224,43 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 		"success": true,
 		"message": "Test email sent successfully",
 	})
+}
+
+// ValidatePublicURL validates a URL is properly formatted for use as the application URL.
+func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type ValidateURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req ValidateURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	normalized, warning, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"valid": false,
+			"error": "URL must start with http:// or https:// and cannot include path components",
+		})
+		return
+	}
+
+	response := gin.H{
+		"valid":      true,
+		"normalized": normalized,
+	}
+
+	if warning != "" {
+		response["warning"] = warning
+	}
+
+	c.JSON(http.StatusOK, response)
 }

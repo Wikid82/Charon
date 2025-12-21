@@ -535,7 +535,10 @@
     "whitelist": "白名单",
     "blacklist": "黑名单",
     "deleteConfirm": "您确定要删除此用户吗？",
-    "deleteUser": "删除用户"
+    "deleteUser": "删除用户",
+    "inviteUrlPreview": "邀请链接预览",
+    "inviteUrlWarning": "未配置应用程序 URL。此链接可能无法为外部用户工作。",
+    "configureApplicationUrl": "配置应用程序 URL"
   },
   "dashboard": {
     "title": "仪表板",
@@ -735,6 +738,18 @@
       "newWindow": "新窗口",
       "domainLinkBehaviorHelper": "控制代理主机列表中的域名链接如何打开。",
       "languageHelper": "选择您的首选语言。更改立即生效。"
+    },
+    "applicationUrl": {
+      "title": "应用程序 URL",
+      "description": "配置用于面向用户的链接和电子邮件的公共 URL。",
+      "label": "应用程序 URL",
+      "helper": "用户访问 Charon 的公共 URL（例如 https://charon.example.com）。用于邀请邮件和密码重置链接。",
+      "infoMessage": "此 URL 用于发送邀请邮件。如果未配置，Charon 将使用当前浏览器请求的 URL，该 URL 可能无法从外部网络访问。",
+      "invalidUrl": "请输入以 http:// 或 https:// 开头的有效 URL",
+      "notConfiguredWarning": "应用程序 URL 未配置。邀请邮件将使用当前浏览器 URL，该 URL 可能无法从外部网络访问。",
+      "testButton": "测试 URL",
+      "testSuccess": "URL 打开成功",
+      "testFailed": "打开 URL 失败"
     },
     "systemStatus": {
       "title": "系统状态",
