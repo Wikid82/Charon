@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Enhanced
+
+- **Sidebar Navigation Scrolling**: Sidebar menu area is now scrollable, preventing the logout button from being pushed off-screen when multiple submenus are expanded. Includes custom scrollbar styling for better visual consistency.
+- **Fixed Header Bar**: Desktop header bar now remains visible when scrolling the main content area, improving navigation accessibility and user experience.
+
 ### Changed
 
 - **Repository Structure Reorganization**: Cleaned up root directory for better navigation
