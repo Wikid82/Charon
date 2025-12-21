@@ -35,6 +35,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 }
 
 func TestRemoteServerHandler_List(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -69,6 +70,7 @@ func TestRemoteServerHandler_List(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Create(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -102,6 +104,7 @@ func TestRemoteServerHandler_Create(t *testing.T) {
 }
 
 func TestRemoteServerHandler_TestConnection(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -136,6 +139,7 @@ func TestRemoteServerHandler_TestConnection(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Get(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -169,6 +173,7 @@ func TestRemoteServerHandler_Get(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Update(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -214,6 +219,7 @@ func TestRemoteServerHandler_Update(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Delete(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -249,6 +255,7 @@ func TestRemoteServerHandler_Delete(t *testing.T) {
 }
 
 func TestProxyHostHandler_List(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -284,6 +291,7 @@ func TestProxyHostHandler_List(t *testing.T) {
 }
 
 func TestProxyHostHandler_Create(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -319,6 +327,7 @@ func TestProxyHostHandler_Create(t *testing.T) {
 }
 
 func TestProxyHostHandler_PartialUpdate_DoesNotWipeFields(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 
@@ -376,6 +385,7 @@ func TestProxyHostHandler_PartialUpdate_DoesNotWipeFields(t *testing.T) {
 }
 
 func TestHealthHandler(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	router := gin.New()
@@ -394,6 +404,7 @@ func TestHealthHandler(t *testing.T) {
 }
 
 func TestRemoteServerHandler_Errors(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	db := setupTestDB(t)
 

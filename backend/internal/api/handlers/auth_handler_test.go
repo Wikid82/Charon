@@ -31,6 +31,7 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, *gorm.DB) {
 }
 
 func TestAuthHandler_Login(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandler(t)
 
 	// Create user
@@ -79,6 +80,7 @@ func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
 }
 
 func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
+	t.Parallel()
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -95,6 +97,7 @@ func TestSetSecureCookie_HTTP_Lax(t *testing.T) {
 }
 
 func TestAuthHandler_Login_Errors(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -121,6 +124,7 @@ func TestAuthHandler_Login_Errors(t *testing.T) {
 }
 
 func TestAuthHandler_Register(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 
 	gin.SetMode(gin.TestMode)
@@ -143,6 +147,7 @@ func TestAuthHandler_Register(t *testing.T) {
 }
 
 func TestAuthHandler_Register_Duplicate(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandler(t)
 	db.Create(&models.User{UUID: uuid.NewString(), Email: "dup@example.com", Name: "Dup"})
 
@@ -165,6 +170,7 @@ func TestAuthHandler_Register_Duplicate(t *testing.T) {
 }
 
 func TestAuthHandler_Logout(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 
 	gin.SetMode(gin.TestMode)
@@ -184,6 +190,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 }
 
 func TestAuthHandler_Me(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandler(t)
 
 	// Create user that matches the middleware ID
@@ -219,6 +226,7 @@ func TestAuthHandler_Me(t *testing.T) {
 }
 
 func TestAuthHandler_Me_NotFound(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -236,6 +244,7 @@ func TestAuthHandler_Me_NotFound(t *testing.T) {
 }
 
 func TestAuthHandler_ChangePassword(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandler(t)
 
 	// Create user
@@ -276,6 +285,7 @@ func TestAuthHandler_ChangePassword(t *testing.T) {
 }
 
 func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandler(t)
 	user := &models.User{UUID: uuid.NewString(), Email: "wrong@example.com"}
 	user.SetPassword("correct")
@@ -303,6 +313,7 @@ func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
 }
 
 func TestAuthHandler_ChangePassword_Errors(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandler(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -341,6 +352,7 @@ func setupAuthHandlerWithDB(t *testing.T) (*AuthHandler, *gorm.DB) {
 }
 
 func TestNewAuthHandlerWithDB(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 	assert.NotNil(t, handler)
 	assert.NotNil(t, handler.db)
@@ -348,6 +360,7 @@ func TestNewAuthHandlerWithDB(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_NoCookie(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -362,6 +375,7 @@ func TestAuthHandler_Verify_NoCookie(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -376,6 +390,7 @@ func TestAuthHandler_Verify_InvalidToken(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_ValidToken(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	// Create user
@@ -407,6 +422,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_BearerToken(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	user := &models.User{
@@ -435,6 +451,7 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	user := &models.User{
@@ -463,6 +480,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 }
 
 func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	// Create proxy host with forward auth enabled
@@ -503,6 +521,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 }
 
 func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -519,6 +538,7 @@ func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 }
 
 func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -536,6 +556,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 }
 
 func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	user := &models.User{
@@ -568,6 +589,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 }
 
 func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	user := &models.User{
@@ -599,6 +621,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 }
 
 func TestAuthHandler_GetAccessibleHosts_Unauthorized(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -612,6 +635,7 @@ func TestAuthHandler_GetAccessibleHosts_Unauthorized(t *testing.T) {
 }
 
 func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	// Create proxy hosts
@@ -650,6 +674,7 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 }
 
 func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	// Create proxy hosts
@@ -686,6 +711,7 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 }
 
 func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	// Create proxy hosts
@@ -725,6 +751,7 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 }
 
 func TestAuthHandler_GetAccessibleHosts_UserNotFound(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 
 	gin.SetMode(gin.TestMode)
@@ -743,6 +770,7 @@ func TestAuthHandler_GetAccessibleHosts_UserNotFound(t *testing.T) {
 }
 
 func TestAuthHandler_CheckHostAccess_Unauthorized(t *testing.T) {
+	t.Parallel()
 	handler, _ := setupAuthHandlerWithDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -756,6 +784,7 @@ func TestAuthHandler_CheckHostAccess_Unauthorized(t *testing.T) {
 }
 
 func TestAuthHandler_CheckHostAccess_InvalidHostID(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	user := &models.User{UUID: uuid.NewString(), Email: "check@example.com", Enabled: true}
@@ -777,6 +806,7 @@ func TestAuthHandler_CheckHostAccess_InvalidHostID(t *testing.T) {
 }
 
 func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	host := &models.ProxyHost{UUID: uuid.NewString(), Name: "Test Host", DomainNames: "test.example.com", Enabled: true}
@@ -809,6 +839,7 @@ func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
 }
 
 func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
+	t.Parallel()
 	handler, db := setupAuthHandlerWithDB(t)
 
 	host := &models.ProxyHost{UUID: uuid.NewString(), Name: "Protected Host", DomainNames: "protected.example.com", Enabled: true}
