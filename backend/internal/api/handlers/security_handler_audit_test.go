@@ -72,7 +72,7 @@ func TestSecurityHandler_GetStatus_SQLInjection(t *testing.T) {
 	// Should return 200 and valid JSON despite malicious data
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NoError(t, err)
 	assert.Contains(t, resp, "cerberus")
@@ -134,7 +134,7 @@ func TestSecurityHandler_UpsertRuleSet_MassivePayload(t *testing.T) {
 	// Try to submit a 3MB payload (should be rejected by service)
 	hugeContent := strings.Repeat("SecRule REQUEST_URI \"@contains /admin\" \"id:1000,phase:1,deny\"\n", 50000)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "huge-ruleset",
 		"content": hugeContent,
 	}
@@ -163,7 +163,7 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/v1/security/rulesets", h.UpsertRuleSet)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "",
 		"content": "SecRule REQUEST_URI \"@contains /admin\"",
 	}
@@ -176,7 +176,7 @@ func TestSecurityHandler_UpsertRuleSet_EmptyName(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Contains(t, resp, "error")
 }
@@ -264,7 +264,7 @@ func TestSecurityHandler_GetStatus_SettingsOverride(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]map[string]interface{}
+	var resp map[string]map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -310,7 +310,7 @@ func TestSecurityHandler_GetStatus_DisabledViaSettings(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]map[string]interface{}
+	var resp map[string]map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -379,7 +379,7 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 
 	// Store content with XSS payload
 	xssPayload := `<script>alert('XSS')</script>`
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":    "xss-test",
 		"content": xssPayload,
 	}
@@ -423,27 +423,27 @@ func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		payload map[string]interface{}
+		payload map[string]any
 		wantOK  bool
 	}{
 		{
 			"valid_limits",
-			map[string]interface{}{"rate_limit_requests": 100, "rate_limit_burst": 10, "rate_limit_window_sec": 60},
+			map[string]any{"rate_limit_requests": 100, "rate_limit_burst": 10, "rate_limit_window_sec": 60},
 			true,
 		},
 		{
 			"zero_requests",
-			map[string]interface{}{"rate_limit_requests": 0, "rate_limit_burst": 10},
+			map[string]any{"rate_limit_requests": 0, "rate_limit_burst": 10},
 			true, // Backend accepts, frontend validates
 		},
 		{
 			"negative_burst",
-			map[string]interface{}{"rate_limit_requests": 100, "rate_limit_burst": -1},
+			map[string]any{"rate_limit_requests": 100, "rate_limit_burst": -1},
 			true, // Backend accepts, frontend validates
 		},
 		{
 			"huge_values",
-			map[string]interface{}{"rate_limit_requests": 999999999, "rate_limit_burst": 999999999},
+			map[string]any{"rate_limit_requests": 999999999, "rate_limit_burst": 999999999},
 			true, // Backend accepts (no upper bound validation currently)
 		},
 	}
@@ -577,7 +577,7 @@ func TestSecurityHandler_GetStatus_CrowdSecModeValidation(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var resp map[string]map[string]interface{}
+			var resp map[string]map[string]any
 			json.Unmarshal(w.Body.Bytes(), &resp)
 
 			// Invalid modes should be normalized to "disabled"

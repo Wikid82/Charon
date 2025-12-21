@@ -99,11 +99,11 @@ func TestSecurityHandler_Priority_SettingsOverSecurityConfig(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
 
-			waf := response["waf"].(map[string]interface{})
+			waf := response["waf"].(map[string]any)
 			assert.Equal(t, tt.expectedWAFMode, waf["mode"].(string), "WAF mode mismatch")
 			assert.Equal(t, tt.expectedWAFEnable, waf["enabled"].(bool), "WAF enabled mismatch")
 		})
@@ -156,21 +156,21 @@ func TestSecurityHandler_Priority_AllModules(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
 	// Verify Settings table took precedence
-	waf := response["waf"].(map[string]interface{})
+	waf := response["waf"].(map[string]any)
 	assert.True(t, waf["enabled"].(bool), "WAF should be enabled via settings")
 
-	rateLimit := response["rate_limit"].(map[string]interface{})
+	rateLimit := response["rate_limit"].(map[string]any)
 	assert.False(t, rateLimit["enabled"].(bool), "Rate Limit should be disabled via settings")
 
-	crowdsec := response["crowdsec"].(map[string]interface{})
+	crowdsec := response["crowdsec"].(map[string]any)
 	assert.Equal(t, "disabled", crowdsec["mode"].(string), "CrowdSec should be disabled via settings")
 	assert.False(t, crowdsec["enabled"].(bool))
 
-	acl := response["acl"].(map[string]interface{})
+	acl := response["acl"].(map[string]any)
 	assert.True(t, acl["enabled"].(bool), "ACL should be enabled via settings")
 }

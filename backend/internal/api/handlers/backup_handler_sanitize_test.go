@@ -31,7 +31,7 @@ func TestBackupHandlerSanitizesFilename(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	// Ensure request-scoped logger is present and writes to our buffer
-	c.Set("logger", logger.WithFields(map[string]interface{}{"test": "1"}))
+	c.Set("logger", logger.WithFields(map[string]any{"test": "1"}))
 
 	// initialize logger to buffer
 	buf := &bytes.Buffer{}

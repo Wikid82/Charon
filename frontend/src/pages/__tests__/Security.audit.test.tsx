@@ -213,8 +213,15 @@ describe('Security Page - QA Security Audit', () => {
       await waitFor(() => screen.getByTestId('toggle-crowdsec'))
       const toggle = screen.getByTestId('toggle-crowdsec')
 
-      // Double click
+      // First click
       await user.click(toggle)
+
+      // Wait for toggle to become disabled (mutation in progress)
+      await waitFor(() => {
+        expect(toggle).toBeDisabled()
+      })
+
+      // Second click attempt while disabled should be ignored
       await user.click(toggle)
 
       // Wait for potential multiple calls

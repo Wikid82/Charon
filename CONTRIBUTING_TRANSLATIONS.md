@@ -41,6 +41,7 @@ frontend/src/locales/
 1. **Create a new language directory** in `frontend/src/locales/` with the ISO 639-1 language code (e.g., `pt` for Portuguese)
 
 2. **Copy the English translation file** as a starting point:
+
    ```bash
    cp frontend/src/locales/en/translation.json frontend/src/locales/pt/translation.json
    ```
@@ -48,6 +49,7 @@ frontend/src/locales/
 3. **Translate all strings** in the new file, keeping the JSON structure intact
 
 4. **Update the i18n configuration** in `frontend/src/i18n.ts`:
+
    ```typescript
    import ptTranslation from './locales/pt/translation.json'
 
@@ -60,11 +62,13 @@ frontend/src/locales/
    ```
 
 5. **Update the Language type** in `frontend/src/context/LanguageContextValue.ts`:
+
    ```typescript
    export type Language = 'en' | 'es' | 'fr' | 'de' | 'zh' | 'pt' // Add new language
    ```
 
 6. **Update the LanguageSelector component** in `frontend/src/components/LanguageSelector.tsx`:
+
    ```typescript
    const languageOptions: { code: Language; label: string; nativeLabel: string }[] = [
      // ... existing languages
@@ -149,6 +153,7 @@ Here's an example of translating a section from English to Spanish:
 ### Manual Testing
 
 1. Start the development server:
+
    ```bash
    cd frontend
    npm run dev
@@ -200,6 +205,6 @@ If you have questions or run into issues while contributing translations:
 
 To check which translations need updates, compare your language file with the English (`en/translation.json`) file. Any keys present in English but missing in your language file should be added.
 
-## Thank You!
+## Thank You
 
 Your contributions help make Charon accessible to users worldwide. Thank you for taking the time to improve the internationalization of this project!

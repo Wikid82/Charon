@@ -6,6 +6,13 @@ on:
       - main
       - development
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24.12.0'
+
 permissions:
   contents: write
   pull-requests: write
@@ -20,7 +27,7 @@ jobs:
       - name: Set up Node (for github-script)
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
         with:
-          node-version: '24.12.0'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Propagate Changes
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8

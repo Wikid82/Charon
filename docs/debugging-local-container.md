@@ -1,8 +1,13 @@
-# Debugging the Local Docker Image
+---
+title: Debugging the Local Docker Image
+description: Developer guide for attaching VS Code debuggers to Charon running in Docker containers.
+---
+
+## Debugging the Local Docker Image
 
 Use the `charon:local` image as the source of truth and attach VS Code debuggers directly to the running container. Backwards-compatibility: `cpmp:local` still works (fallback).
 
-## 1. Enable the debugger
+### 1. Enable the debugger
 
 The image now ships with the Delve debugger. When you start the container, set `CHARON_DEBUG=1` (and optionally `CHARON_DEBUG_PORT`) to enable Delve. For backward compatibility you may still use `CPMP_DEBUG`/`CPMP_DEBUG_PORT`.
 

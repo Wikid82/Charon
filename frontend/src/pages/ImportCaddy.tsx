@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { createBackup } from '../api/backups'
 import { useImport } from '../hooks/useImport'
 import ImportBanner from '../components/ImportBanner'
@@ -8,6 +9,7 @@ import ImportSitesModal from '../components/ImportSitesModal'
 import ImportSuccessModal from '../components/dialogs/ImportSuccessModal'
 
 export default function ImportCaddy() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { session, preview, loading, error, upload, commit, cancel, commitResult, clearCommitResult } = useImport()
   const [content, setContent] = useState('')
@@ -17,7 +19,7 @@ export default function ImportCaddy() {
 
   const handleUpload = async () => {
     if (!content.trim()) {
-      alert('Please enter Caddyfile content')
+      alert(t('importCaddy.enterCaddyfileContent'))
       return
     }
 
@@ -56,7 +58,7 @@ export default function ImportCaddy() {
   }
 
   const handleCancel = async () => {
-    if (confirm('Are you sure you want to cancel this import?')) {
+    if (confirm(t('importCaddy.cancelConfirm'))) {
       try {
         await cancel()
         setShowReview(false)
@@ -68,7 +70,7 @@ export default function ImportCaddy() {
 
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold text-white mb-6">Import Caddyfile</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">{t('importCaddy.title')}</h1>
 
       {session && (
         <ImportBanner
@@ -87,10 +89,9 @@ export default function ImportCaddy() {
       {/* Show warning if preview is empty but session exists (e.g. mounted file was empty or invalid) */}
       {session && preview && preview.preview && preview.preview.hosts.length === 0 && (
         <div className="bg-yellow-900/20 border border-yellow-500 text-yellow-400 px-4 py-3 rounded mb-6">
-          <p className="font-bold">No domains found in Caddyfile</p>
+          <p className="font-bold">{t('importCaddy.noDomainsFound')}</p>
           <p className="text-sm mt-1">
-            The imported file appears to be empty or contains no valid reverse_proxy directives.
-            Please check the file content below.
+            {t('importCaddy.emptyFileWarning')}
           </p>
         </div>
       )}
@@ -98,10 +99,9 @@ export default function ImportCaddy() {
       {!session && (
         <div className="bg-dark-card rounded-lg border border-gray-800 p-6">
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-white mb-2">Upload or Paste Caddyfile</h2>
+            <h2 className="text-xl font-semibold text-white mb-2">{t('importCaddy.uploadOrPaste')}</h2>
             <p className="text-gray-400 text-sm">
-              Import an existing Caddyfile to automatically create proxy host configurations.
-              The system will detect conflicts and allow you to review changes before committing.
+              {t('importCaddy.description')}
             </p>
           </div>
 
@@ -109,7 +109,7 @@ export default function ImportCaddy() {
             {/* File Upload */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Upload Caddyfile
+                {t('importCaddy.uploadCaddyfile')}
               </label>
               <input
                 type="file"
@@ -122,14 +122,14 @@ export default function ImportCaddy() {
             {/* Or Divider */}
             <div className="flex items-center gap-4">
               <div className="flex-1 border-t border-gray-700" />
-              <span className="text-gray-500 text-sm">or paste content</span>
+              <span className="text-gray-500 text-sm">{t('importCaddy.orPasteContent')}</span>
               <div className="flex-1 border-t border-gray-700" />
             </div>
 
             {/* Text Area */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Caddyfile Content
+                {t('importCaddy.caddyfileContent')}
               </label>
               <textarea
                 value={content}
@@ -150,13 +150,13 @@ api.example.com {
               disabled={loading || !content.trim()}
               className="px-6 py-2 bg-blue-active hover:bg-blue-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
-              {loading ? 'Processing...' : 'Parse and Review'}
+              {loading ? t('importCaddy.processing') : t('importCaddy.parseAndReview')}
             </button>
             <button
               onClick={() => setShowMultiModal(true)}
               className="ml-4 px-4 py-2 bg-gray-800 text-white rounded-lg"
             >
-              Multi-site Import
+              {t('importCaddy.multiSiteImport')}
             </button>
           </div>
         </div>

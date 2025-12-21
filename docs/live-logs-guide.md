@@ -1,4 +1,9 @@
-# Live Logs & Notifications User Guide
+---
+title: Live Logs & Notifications User Guide
+description: Real-time security monitoring and notification configuration for Charon. Stream logs via WebSocket and configure webhooks.
+---
+
+## Live Logs & Notifications User Guide
 
 **Quick links:**
 

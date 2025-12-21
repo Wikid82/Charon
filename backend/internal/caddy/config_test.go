@@ -170,7 +170,7 @@ func TestGenerateConfig_IPHostsSkipAutoHTTPS(t *testing.T) {
 		if p.Subjects[0] == "192.0.2.10" {
 			foundIPPolicy = true
 			require.Len(t, p.IssuersRaw, 1)
-			issuer := p.IssuersRaw[0].(map[string]interface{})
+			issuer := p.IssuersRaw[0].(map[string]any)
 			require.Equal(t, "internal", issuer["module"])
 		}
 	}
@@ -259,7 +259,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	issuers := config.Apps.TLS.Automation.Policies[0].IssuersRaw
 	require.Len(t, issuers, 1)
 
-	acmeIssuer := issuers[0].(map[string]interface{})
+	acmeIssuer := issuers[0].(map[string]any)
 	require.Equal(t, "acme", acmeIssuer["module"])
 	require.Equal(t, "admin@example.com", acmeIssuer["email"])
 	require.Equal(t, "https://acme-staging-v02.api.letsencrypt.org/directory", acmeIssuer["ca"])
@@ -274,7 +274,7 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 	issuers = config.Apps.TLS.Automation.Policies[0].IssuersRaw
 	require.Len(t, issuers, 1)
 
-	acmeIssuer = issuers[0].(map[string]interface{})
+	acmeIssuer = issuers[0].(map[string]any)
 	require.Equal(t, "acme", acmeIssuer["module"])
 	require.Equal(t, "admin@example.com", acmeIssuer["email"])
 	_, hasCA := acmeIssuer["ca"]
@@ -401,10 +401,10 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 	require.Equal(t, "rate_limit", h["handler"])
 
 	// Verify rate_limits structure
-	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	rateLimits, ok := h["rate_limits"].(map[string]any)
 	require.True(t, ok, "rate_limits should be a map")
 
-	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	staticZone, ok := rateLimits["static"].(map[string]any)
 	require.True(t, ok, "static zone should be a map")
 
 	// Verify caddy-ratelimit specific fields
@@ -498,9 +498,9 @@ func TestBuildRateLimitHandler_UsesBurst(t *testing.T) {
 	// Handler should be a plain rate_limit (no bypass list)
 	require.Equal(t, "rate_limit", h["handler"])
 
-	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	rateLimits, ok := h["rate_limits"].(map[string]any)
 	require.True(t, ok)
-	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	staticZone, ok := rateLimits["static"].(map[string]any)
 	require.True(t, ok)
 
 	// Verify burst field is NOT present (not supported by caddy-ratelimit)
@@ -519,9 +519,9 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, h)
 
-	rateLimits, ok := h["rate_limits"].(map[string]interface{})
+	rateLimits, ok := h["rate_limits"].(map[string]any)
 	require.True(t, ok)
-	staticZone, ok := rateLimits["static"].(map[string]interface{})
+	staticZone, ok := rateLimits["static"].(map[string]any)
 	require.True(t, ok)
 
 	// Verify burst field is NOT present
@@ -538,9 +538,9 @@ func TestBuildRateLimitHandler_DefaultBurst(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, h2)
 
-	rateLimits2, ok := h2["rate_limits"].(map[string]interface{})
+	rateLimits2, ok := h2["rate_limits"].(map[string]any)
 	require.True(t, ok)
-	staticZone2, ok := rateLimits2["static"].(map[string]interface{})
+	staticZone2, ok := rateLimits2["static"].(map[string]any)
 	require.True(t, ok)
 
 	// Verify no burst field here either

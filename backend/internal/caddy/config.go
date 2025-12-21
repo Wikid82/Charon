@@ -74,12 +74,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	}
 
 	if acmeEmail != "" {
-		var issuers []interface{}
+		var issuers []any
 
 		// Configure issuers based on provider preference
 		switch sslProvider {
 		case "letsencrypt":
-			acmeIssuer := map[string]interface{}{
+			acmeIssuer := map[string]any{
 				"module": "acme",
 				"email":  acmeEmail,
 			}
@@ -88,11 +88,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 			issuers = append(issuers, acmeIssuer)
 		case "zerossl":
-			issuers = append(issuers, map[string]interface{}{
+			issuers = append(issuers, map[string]any{
 				"module": "zerossl",
 			})
 		default: // "both" or empty
-			acmeIssuer := map[string]interface{}{
+			acmeIssuer := map[string]any{
 				"module": "acme",
 				"email":  acmeEmail,
 			}
@@ -100,7 +100,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
 			}
 			issuers = append(issuers, acmeIssuer)
-			issuers = append(issuers, map[string]interface{}{
+			issuers = append(issuers, map[string]any{
 				"module": "zerossl",
 			})
 		}
@@ -243,8 +243,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			// Build a subroute to match these remote IPs and serve 403
 			// Admin whitelist exclusion must be applied: exclude adminWhitelist if present
 			// Build matchParts
-			var matchParts []map[string]interface{}
-			matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": decisionIPs}})
+			var matchParts []map[string]any
+			matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}})
 			if adminWhitelist != "" {
 				adminParts := strings.Split(adminWhitelist, ",")
 				trims := make([]string, 0)
@@ -256,15 +256,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					trims = append(trims, p)
 				}
 				if len(trims) > 0 {
-					matchParts = append(matchParts, map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}})
+					matchParts = append(matchParts, map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}})
 				}
 			}
 			decHandler := Handler{
 				"handler": "subroute",
-				"routes": []map[string]interface{}{
+				"routes": []map[string]any{
 					{
 						"match": matchParts,
-						"handle": []map[string]interface{}{
+						"handle": []map[string]any{
 							{
 								"handler":     "static_response",
 								"status_code": 403,
@@ -308,7 +308,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 
-		// Add HSTS header if enabled
+		// Add Security Headers handler
+		if secHeadersHandler, err := buildSecurityHeadersHandler(&host); err == nil && secHeadersHandler != nil {
+			handlers = append(handlers, secHeadersHandler)
+		}
+
+		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile)
 		if host.HSTSEnabled {
 			hstsValue := "max-age=31536000"
 			if host.HSTSSubdomains {
@@ -329,7 +334,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
 			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+			// Determine if standard headers should be enabled (default true if nil)
+			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+			locHandlers = append(locHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
 			locRoute := &Route{
 				Match: []Match{
 					{
@@ -348,12 +355,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Insert user advanced config (if present) as headers or handlers before the reverse proxy
 		// so user-specified headers/handlers are applied prior to proxying.
 		if host.AdvancedConfig != "" {
-			var parsed interface{}
+			var parsed any
 			if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
 				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to parse advanced_config for host")
 			} else {
 				switch v := parsed.(type) {
-				case map[string]interface{}:
+				case map[string]any:
 					// Append as a handler
 					// Ensure it has a "handler" key
 					if _, ok := v["handler"]; ok {
@@ -375,9 +382,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					} else {
 						logger.Log().WithField("host", host.UUID).Warn("advanced_config for host is not a handler object")
 					}
-				case []interface{}:
+				case []any:
 					for _, it := range v {
-						if m, ok := it.(map[string]interface{}); ok {
+						if m, ok := it.(map[string]any); ok {
 							if rn, has := m["ruleset_name"]; has {
 								if rnStr, ok := rn.(string); ok && rnStr != "" {
 									if rulesetPaths != nil {
@@ -401,7 +408,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
-		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application))
+		// Determine if standard headers should be enabled (default true if nil)
+		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
+		mainHandlers = append(mainHandlers, ReverseProxyHandler(dial, host.WebsocketSupport, host.Application, enableStdHeaders))
 
 		route := &Route{
 			Match: []Match{
@@ -465,7 +474,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 		policy := &AutomationPolicy{
 			Subjects:   ipSubjects,
-			IssuersRaw: []interface{}{map[string]interface{}{"module": "internal"}},
+			IssuersRaw: []any{map[string]any{"module": "internal"}},
 		}
 		if config.Apps.TLS.Automation == nil {
 			config.Apps.TLS.Automation = &AutomationConfig{}
@@ -478,26 +487,26 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 // normalizeHandlerHeaders ensures header values in handlers are arrays of strings
 // Caddy's JSON schema expects header values to be an array of strings (e.g. ["websocket"]) rather than a single string.
-func normalizeHandlerHeaders(h map[string]interface{}) {
+func normalizeHandlerHeaders(h map[string]any) {
 	// normalize top-level headers key
-	if headersRaw, ok := h["headers"].(map[string]interface{}); ok {
+	if headersRaw, ok := h["headers"].(map[string]any); ok {
 		normalizeHeaderOps(headersRaw)
 	}
 	// also normalize in nested request/response if present explicitly
 	for _, side := range []string{"request", "response"} {
-		if sideRaw, ok := h[side].(map[string]interface{}); ok {
+		if sideRaw, ok := h[side].(map[string]any); ok {
 			normalizeHeaderOps(sideRaw)
 		}
 	}
 }
 
-func normalizeHeaderOps(headerOps map[string]interface{}) {
-	if setRaw, ok := headerOps["set"].(map[string]interface{}); ok {
+func normalizeHeaderOps(headerOps map[string]any) {
+	if setRaw, ok := headerOps["set"].(map[string]any); ok {
 		for k, v := range setRaw {
 			switch vv := v.(type) {
 			case string:
 				setRaw[k] = []string{vv}
-			case []interface{}:
+			case []any:
 				// convert to []string
 				arr := make([]string, 0, len(vv))
 				for _, it := range vv {
@@ -518,25 +527,25 @@ func normalizeHeaderOps(headerOps map[string]interface{}) {
 // NormalizeAdvancedConfig traverses a parsed JSON advanced config (map or array)
 // and normalizes any headers blocks so that header values are arrays of strings.
 // It returns the modified config object which can be JSON marshaled again.
-func NormalizeAdvancedConfig(parsed interface{}) interface{} {
+func NormalizeAdvancedConfig(parsed any) any {
 	switch v := parsed.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// This might be a handler object
 		normalizeHandlerHeaders(v)
 		// Also inspect nested 'handle' or 'routes' arrays for nested handlers
-		if handles, ok := v["handle"].([]interface{}); ok {
+		if handles, ok := v["handle"].([]any); ok {
 			for _, it := range handles {
-				if m, ok := it.(map[string]interface{}); ok {
+				if m, ok := it.(map[string]any); ok {
 					NormalizeAdvancedConfig(m)
 				}
 			}
 		}
-		if routes, ok := v["routes"].([]interface{}); ok {
+		if routes, ok := v["routes"].([]any); ok {
 			for _, rit := range routes {
-				if rm, ok := rit.(map[string]interface{}); ok {
-					if handles, ok := rm["handle"].([]interface{}); ok {
+				if rm, ok := rit.(map[string]any); ok {
+					if handles, ok := rm["handle"].([]any); ok {
 						for _, it := range handles {
-							if m, ok := it.(map[string]interface{}); ok {
+							if m, ok := it.(map[string]any); ok {
 								NormalizeAdvancedConfig(m)
 							}
 						}
@@ -545,9 +554,9 @@ func NormalizeAdvancedConfig(parsed interface{}) interface{} {
 			}
 		}
 		return v
-	case []interface{}:
+	case []any:
 		for _, it := range v {
-			if m, ok := it.(map[string]interface{}); ok {
+			if m, ok := it.(map[string]any); ok {
 				NormalizeAdvancedConfig(m)
 			}
 		}
@@ -577,18 +586,18 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 			// For whitelist, block when NOT in the list
 			return Handler{
 				"handler": "subroute",
-				"routes": []map[string]interface{}{
+				"routes": []map[string]any{
 					{
-						"match": []map[string]interface{}{
+						"match": []map[string]any{
 							{
-								"not": []map[string]interface{}{
+								"not": []map[string]any{
 									{
 										"expression": expression,
 									},
 								},
 							},
 						},
-						"handle": []map[string]interface{}{
+						"handle": []map[string]any{
 							{
 								"handler":     "static_response",
 								"status_code": 403,
@@ -604,14 +613,14 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
 		return Handler{
 			"handler": "subroute",
-			"routes": []map[string]interface{}{
+			"routes": []map[string]any{
 				{
-					"match": []map[string]interface{}{
+					"match": []map[string]any{
 						{
 							"expression": expression,
 						},
 					},
-					"handle": []map[string]interface{}{
+					"handle": []map[string]any{
 						{
 							"handler":     "static_response",
 							"status_code": 403,
@@ -629,13 +638,13 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		// Allow only RFC1918 private networks
 		return Handler{
 			"handler": "subroute",
-			"routes": []map[string]interface{}{
+			"routes": []map[string]any{
 				{
-					"match": []map[string]interface{}{
+					"match": []map[string]any{
 						{
-							"not": []map[string]interface{}{
+							"not": []map[string]any{
 								{
-									"remote_ip": map[string]interface{}{
+									"remote_ip": map[string]any{
 										"ranges": []string{
 											"10.0.0.0/8",
 											"172.16.0.0/12",
@@ -651,7 +660,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 							},
 						},
 					},
-					"handle": []map[string]interface{}{
+					"handle": []map[string]any{
 						{
 							"handler":     "static_response",
 							"status_code": 403,
@@ -699,20 +708,20 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		}
 		return Handler{
 			"handler": "subroute",
-			"routes": []map[string]interface{}{
+			"routes": []map[string]any{
 				{
-					"match": []map[string]interface{}{
+					"match": []map[string]any{
 						{
-							"not": []map[string]interface{}{
+							"not": []map[string]any{
 								{
-									"remote_ip": map[string]interface{}{
+									"remote_ip": map[string]any{
 										"ranges": cidrs,
 									},
 								},
 							},
 						},
 					},
-					"handle": []map[string]interface{}{
+					"handle": []map[string]any{
 						{
 							"handler":     "static_response",
 							"status_code": 403,
@@ -728,7 +737,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else)
 		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
-		var adminExclusion interface{}
+		var adminExclusion any
 		if adminWhitelist != "" {
 			adminParts := strings.Split(adminWhitelist, ",")
 			trims := make([]string, 0)
@@ -740,21 +749,21 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 				trims = append(trims, p)
 			}
 			if len(trims) > 0 {
-				adminExclusion = map[string]interface{}{"not": []map[string]interface{}{{"remote_ip": map[string]interface{}{"ranges": trims}}}}
+				adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
 			}
 		}
 		// Build matcher parts
-		matchParts := []map[string]interface{}{}
-		matchParts = append(matchParts, map[string]interface{}{"remote_ip": map[string]interface{}{"ranges": cidrs}})
+		matchParts := []map[string]any{}
+		matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": cidrs}})
 		if adminExclusion != nil {
-			matchParts = append(matchParts, adminExclusion.(map[string]interface{}))
+			matchParts = append(matchParts, adminExclusion.(map[string]any))
 		}
 		return Handler{
 			"handler": "subroute",
-			"routes": []map[string]interface{}{
+			"routes": []map[string]any{
 				{
 					"match": matchParts,
-					"handle": []map[string]interface{}{
+					"handle": []map[string]any{
 						{
 							"handler":     "static_response",
 							"status_code": 403,
@@ -867,7 +876,7 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 	// If the host provided an advanced_config containing a 'ruleset_name', prefer that value
 	var hostRulesetName string
 	if host != nil && host.AdvancedConfig != "" {
-		var ac map[string]interface{}
+		var ac map[string]any
 		if err := json.Unmarshal([]byte(host.AdvancedConfig), &ac); err == nil {
 			if rn, ok := ac["ruleset_name"]; ok {
 				if rnStr, ok2 := rn.(string); ok2 && rnStr != "" {
@@ -1053,8 +1062,8 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 	// Note: The caddy-ratelimit module uses a sliding window algorithm
 	// and does not have a separate burst parameter
 	rateLimitHandler := Handler{"handler": "rate_limit"}
-	rateLimitHandler["rate_limits"] = map[string]interface{}{
-		"static": map[string]interface{}{
+	rateLimitHandler["rate_limits"] = map[string]any{
+		"static": map[string]any{
 			"key":        "{http.request.remote.host}",
 			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
 			"max_events": secCfg.RateLimitRequests,
@@ -1075,22 +1084,22 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) (
 	// 2. Everything else -> apply rate limiting
 	return Handler{
 		"handler": "subroute",
-		"routes": []map[string]interface{}{
+		"routes": []map[string]any{
 			{
 				// Route 1: Match bypass IPs - terminal with no handlers (skip rate limiting)
-				"match": []map[string]interface{}{
+				"match": []map[string]any{
 					{
-						"remote_ip": map[string]interface{}{
+						"remote_ip": map[string]any{
 							"ranges": bypassCIDRs,
 						},
 					},
 				},
 				// No handlers - just pass through without rate limiting
-				"handle": []map[string]interface{}{},
+				"handle": []map[string]any{},
 			},
 			{
 				// Route 2: Default - apply rate limiting to everyone else
-				"handle": []map[string]interface{}{
+				"handle": []map[string]any{
 					rateLimitHandler,
 				},
 			},
@@ -1132,4 +1141,180 @@ func parseBypassCIDRs(bypassList string) []string {
 		validCIDRs = append(validCIDRs, p)
 	}
 	return validCIDRs
+}
+
+// buildSecurityHeadersHandler creates a headers handler for security headers
+// based on the profile configuration or host-level settings
+func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
+	if host == nil {
+		return nil, nil
+	}
+
+	// Use profile if configured
+	var cfg *models.SecurityHeaderProfile
+	if host.SecurityHeaderProfile != nil {
+		cfg = host.SecurityHeaderProfile
+	} else if !host.SecurityHeadersEnabled {
+		// No profile and headers disabled - skip
+		return nil, nil
+	} else {
+		// Use default secure headers
+		cfg = getDefaultSecurityHeaderProfile()
+	}
+
+	responseHeaders := make(map[string][]string)
+
+	// HSTS
+	if cfg.HSTSEnabled {
+		hstsValue := fmt.Sprintf("max-age=%d", cfg.HSTSMaxAge)
+		if cfg.HSTSIncludeSubdomains {
+			hstsValue += "; includeSubDomains"
+		}
+		if cfg.HSTSPreload {
+			hstsValue += "; preload"
+		}
+		responseHeaders["Strict-Transport-Security"] = []string{hstsValue}
+	}
+
+	// CSP
+	if cfg.CSPEnabled && cfg.CSPDirectives != "" {
+		cspHeader := "Content-Security-Policy"
+		if cfg.CSPReportOnly {
+			cspHeader = "Content-Security-Policy-Report-Only"
+		}
+		cspString, err := buildCSPString(cfg.CSPDirectives)
+		if err == nil && cspString != "" {
+			responseHeaders[cspHeader] = []string{cspString}
+		}
+	}
+
+	// X-Frame-Options
+	if cfg.XFrameOptions != "" {
+		responseHeaders["X-Frame-Options"] = []string{cfg.XFrameOptions}
+	}
+
+	// X-Content-Type-Options
+	if cfg.XContentTypeOptions {
+		responseHeaders["X-Content-Type-Options"] = []string{"nosniff"}
+	}
+
+	// Referrer-Policy
+	if cfg.ReferrerPolicy != "" {
+		responseHeaders["Referrer-Policy"] = []string{cfg.ReferrerPolicy}
+	}
+
+	// Permissions-Policy
+	if cfg.PermissionsPolicy != "" {
+		ppString, err := buildPermissionsPolicyString(cfg.PermissionsPolicy)
+		if err == nil && ppString != "" {
+			responseHeaders["Permissions-Policy"] = []string{ppString}
+		}
+	}
+
+	// Cross-Origin headers
+	if cfg.CrossOriginOpenerPolicy != "" {
+		responseHeaders["Cross-Origin-Opener-Policy"] = []string{cfg.CrossOriginOpenerPolicy}
+	}
+	if cfg.CrossOriginResourcePolicy != "" {
+		responseHeaders["Cross-Origin-Resource-Policy"] = []string{cfg.CrossOriginResourcePolicy}
+	}
+	if cfg.CrossOriginEmbedderPolicy != "" {
+		responseHeaders["Cross-Origin-Embedder-Policy"] = []string{cfg.CrossOriginEmbedderPolicy}
+	}
+
+	// X-XSS-Protection
+	if cfg.XSSProtection {
+		responseHeaders["X-XSS-Protection"] = []string{"1; mode=block"}
+	}
+
+	// Cache-Control
+	if cfg.CacheControlNoStore {
+		responseHeaders["Cache-Control"] = []string{"no-store"}
+	}
+
+	if len(responseHeaders) == 0 {
+		return nil, nil
+	}
+
+	return Handler{
+		"handler": "headers",
+		"response": map[string]any{
+			"set": responseHeaders,
+		},
+	}, nil
+}
+
+// buildCSPString converts JSON CSP directives to a CSP string
+func buildCSPString(directivesJSON string) (string, error) {
+	if directivesJSON == "" {
+		return "", nil
+	}
+
+	var directivesMap map[string][]string
+	if err := json.Unmarshal([]byte(directivesJSON), &directivesMap); err != nil {
+		return "", fmt.Errorf("invalid CSP JSON: %w", err)
+	}
+
+	var parts []string
+	for directive, values := range directivesMap {
+		if len(values) > 0 {
+			part := fmt.Sprintf("%s %s", directive, strings.Join(values, " "))
+			parts = append(parts, part)
+		}
+	}
+
+	return strings.Join(parts, "; "), nil
+}
+
+// buildPermissionsPolicyString converts JSON permissions to policy string
+func buildPermissionsPolicyString(permissionsJSON string) (string, error) {
+	if permissionsJSON == "" {
+		return "", nil
+	}
+
+	var permissions []models.PermissionsPolicyItem
+	if err := json.Unmarshal([]byte(permissionsJSON), &permissions); err != nil {
+		return "", fmt.Errorf("invalid permissions JSON: %w", err)
+	}
+
+	var parts []string
+	for _, perm := range permissions {
+		var allowlist string
+		if len(perm.Allowlist) == 0 {
+			allowlist = "()"
+		} else {
+			// Convert allowlist items to policy format
+			items := make([]string, len(perm.Allowlist))
+			for i, item := range perm.Allowlist {
+				if item == "self" {
+					items[i] = "self"
+				} else if item == "*" {
+					items[i] = "*"
+				} else {
+					items[i] = fmt.Sprintf("\"%s\"", item)
+				}
+			}
+			allowlist = fmt.Sprintf("(%s)", strings.Join(items, " "))
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", perm.Feature, allowlist))
+	}
+
+	return strings.Join(parts, ", "), nil
+}
+
+// getDefaultSecurityHeaderProfile returns secure defaults
+func getDefaultSecurityHeaderProfile() *models.SecurityHeaderProfile {
+	return &models.SecurityHeaderProfile{
+		HSTSEnabled:               true,
+		HSTSMaxAge:                31536000,
+		HSTSIncludeSubdomains:     false,
+		HSTSPreload:               false,
+		CSPEnabled:                false, // Off by default to avoid breaking sites
+		XFrameOptions:             "SAMEORIGIN",
+		XContentTypeOptions:       true,
+		ReferrerPolicy:            "strict-origin-when-cross-origin",
+		XSSProtection:             true,
+		CrossOriginOpenerPolicy:   "same-origin",
+		CrossOriginResourcePolicy: "same-origin",
+	}
 }

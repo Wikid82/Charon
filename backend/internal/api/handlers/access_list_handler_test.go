@@ -41,12 +41,12 @@ func TestAccessListHandler_Create(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		payload    map[string]interface{}
+		payload    map[string]any
 		wantStatus int
 	}{
 		{
 			name: "create whitelist successfully",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":        "Office Whitelist",
 				"description": "Allow office IPs only",
 				"type":        "whitelist",
@@ -57,7 +57,7 @@ func TestAccessListHandler_Create(t *testing.T) {
 		},
 		{
 			name: "create geo whitelist successfully",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":          "US Only",
 				"type":          "geo_whitelist",
 				"country_codes": "US,CA",
@@ -67,7 +67,7 @@ func TestAccessListHandler_Create(t *testing.T) {
 		},
 		{
 			name: "create local network only",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":               "Local Network",
 				"type":               "whitelist",
 				"local_network_only": true,
@@ -77,7 +77,7 @@ func TestAccessListHandler_Create(t *testing.T) {
 		},
 		{
 			name: "fail with invalid type",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":    "Invalid",
 				"type":    "invalid_type",
 				"enabled": true,
@@ -86,7 +86,7 @@ func TestAccessListHandler_Create(t *testing.T) {
 		},
 		{
 			name: "fail with missing name",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"type":    "whitelist",
 				"enabled": true,
 			},
@@ -205,13 +205,13 @@ func TestAccessListHandler_Update(t *testing.T) {
 	tests := []struct {
 		name       string
 		id         string
-		payload    map[string]interface{}
+		payload    map[string]any
 		wantStatus int
 	}{
 		{
 			name: "update successfully",
 			id:   "1",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":        "Updated Name",
 				"description": "New description",
 				"enabled":     false,
@@ -223,7 +223,7 @@ func TestAccessListHandler_Update(t *testing.T) {
 		{
 			name: "update non-existent ACL",
 			id:   "9999",
-			payload: map[string]interface{}{
+			payload: map[string]any{
 				"name":     "Test",
 				"type":     "whitelist",
 				"ip_rules": `[]`,
@@ -380,7 +380,7 @@ func TestAccessListHandler_TestIP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, w.Code)
 
 			if w.Code == http.StatusOK {
-				var response map[string]interface{}
+				var response map[string]any
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				assert.NoError(t, err)
 				assert.Contains(t, response, "allowed")
@@ -400,7 +400,7 @@ func TestAccessListHandler_GetTemplates(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response []map[string]interface{}
+	var response []map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, response)

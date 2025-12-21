@@ -27,18 +27,18 @@ func TestSecurityHandler_GetRateLimitPresets(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	presets, ok := response["presets"].([]interface{})
+	presets, ok := response["presets"].([]any)
 	require.True(t, ok, "presets should be an array")
 	require.Len(t, presets, 4, "should have 4 presets")
 
 	// Verify preset structure
 	expectedIDs := []string{"standard", "api", "login", "relaxed"}
 	for i, p := range presets {
-		preset := p.(map[string]interface{})
+		preset := p.(map[string]any)
 		assert.Equal(t, expectedIDs[i], preset["id"])
 		assert.NotEmpty(t, preset["name"])
 		assert.NotEmpty(t, preset["description"])
@@ -60,12 +60,12 @@ func TestSecurityHandler_GetRateLimitPresets_StandardPreset(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/security/rate-limit/presets", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	presets := response["presets"].([]interface{})
-	standardPreset := presets[0].(map[string]interface{})
+	presets := response["presets"].([]any)
+	standardPreset := presets[0].(map[string]any)
 
 	assert.Equal(t, "standard", standardPreset["id"])
 	assert.Equal(t, "Standard Web", standardPreset["name"])
@@ -86,12 +86,12 @@ func TestSecurityHandler_GetRateLimitPresets_LoginPreset(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/security/rate-limit/presets", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	presets := response["presets"].([]interface{})
-	loginPreset := presets[2].(map[string]interface{})
+	presets := response["presets"].([]any)
+	loginPreset := presets[2].(map[string]any)
 
 	assert.Equal(t, "login", loginPreset["id"])
 	assert.Equal(t, "Login Protection", loginPreset["name"])

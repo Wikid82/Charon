@@ -17,7 +17,7 @@
 | Component | Status | Details |
 |-----------|--------|---------|
 | CrowdSec Process | ✅ RUNNING | PID 324, started manually |
-| LAPI Health | ✅ HEALTHY | Accessible at http://127.0.0.1:8085 |
+| LAPI Health | ✅ HEALTHY | Accessible at <http://127.0.0.1:8085> |
 | Bouncer Registration | ✅ REGISTERED | `caddy-bouncer` active, last pull at 20:06:01Z |
 | Bouncer API Connectivity | ✅ CONNECTED | Bouncer successfully querying LAPI |
 | CrowdSec App Config | ✅ CONFIGURED | API key set, ticker_interval: 10s |
@@ -31,7 +31,9 @@
 ## Critical Issue: HTTP Handler Middleware Not Applied
 
 ### Problem
+
 While the CrowdSec bouncer is successfully:
+
 - Running and connected to LAPI
 - Fetching decisions from LAPI
 - Registered with valid API key
@@ -41,6 +43,7 @@ The **Caddy HTTP handler middleware is not applied to routes**, so blocking deci
 ### Evidence
 
 #### 1. CrowdSec LAPI Running and Healthy
+
 ```bash
 $ docker exec charon ps aux | grep crowdsec
 324 root      0:01 /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
@@ -51,6 +54,7 @@ You can successfully interact with Local API (LAPI)
 ```
 
 #### 2. Bouncer Registered and Active
+
 ```bash
 $ docker exec charon sh -c 'cd /app/data/crowdsec && /usr/local/bin/cscli bouncers list'
 ---------------------------------------------------------------------------------------------
@@ -61,6 +65,7 @@ $ docker exec charon sh -c 'cd /app/data/crowdsec && /usr/local/bin/cscli bounce
 ```
 
 #### 3. Decision Created Successfully
+
 ```bash
 $ docker exec charon sh -c 'cd /app/data/crowdsec && /usr/local/bin/cscli decisions add --ip 203.0.113.99 --duration 15m --reason "FINAL QA VALIDATION TEST"'
 level=info msg="Decision successfully added"
@@ -70,6 +75,7 @@ $ docker exec charon sh -c 'cd /app/data/crowdsec && /usr/local/bin/cscli decisi
 ```
 
 #### 4. ❌ BLOCKING TEST FAILED - Traffic NOT Blocked
+
 ```bash
 $ curl -H "X-Forwarded-For: 203.0.113.99" http://localhost:8080/ -v
 > GET / HTTP/1.1
@@ -91,6 +97,7 @@ $ curl -H "X-Forwarded-For: 203.0.113.99" http://localhost:8080/ -v
 **Result:** ❌ FAIL
 
 #### 5. Caddy HTTP Routes Missing CrowdSec Handler
+
 ```bash
 $ docker exec charon curl -s http://localhost:2019/config/apps/http/servers | jq '.[].routes[0].handle'
 [
@@ -108,6 +115,7 @@ $ docker exec charon curl -s http://localhost:2019/config/apps/http/servers | jq
 **No `crowdsec` handler present in the middleware chain.**
 
 #### 6. CrowdSec Headers
+
 No `X-Crowdsec-*` headers were present in the response, confirming the middleware is not processing requests.
 
 ---
@@ -115,10 +123,12 @@ No `X-Crowdsec-*` headers were present in the response, confirming the middlewar
 ## Root Cause Analysis
 
 ### Configuration Gap
+
 1. **CrowdSec App Level**: ✅ Configured with API key and URL
 2. **HTTP Handler Level**: ❌ **NOT configured** - Missing from route middleware chain
 
 The Caddy server has the CrowdSec bouncer module loaded:
+
 ```bash
 $ docker exec charon caddy list-modules | grep crowdsec
 admin.api.crowdsec
@@ -130,19 +140,23 @@ layer4.matchers.crowdsec
 But the `http.handlers.crowdsec` is not applied to any routes in the current configuration.
 
 ### Why This Happened
+
 Looking at the application logs:
+
 ```
 {"bin_path":"/usr/local/bin/crowdsec","data_dir":"/app/data/crowdsec","level":"info","msg":"CrowdSec reconciliation: starting startup check","time":"2025-12-15T19:59:33Z"}
 {"db_mode":"disabled","level":"info","msg":"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled","setting_enabled":false,"time":"2025-12-15T19:59:33Z"}
 ```
 
 And later:
+
 ```
 Initializing CrowdSec configuration...
 CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 ```
 
 **The system initialized CrowdSec configuration but did NOT auto-start it or configure Caddy routes because:**
+
 - The reconciliation logic checked both `SecurityConfig` and `Settings` tables
 - Even though I manually set `crowd_sec_mode='local'` and `enabled=1` in the database, the startup check at 19:59:33 found them disabled
 - The system then initialized configs but left "Agent lifecycle GUI-controlled"
@@ -153,6 +167,7 @@ CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 ## What Works
 
 ✅ **CrowdSec Core Components:**
+
 - LAPI running and healthy
 - Bouncer registered and polling decisions
 - Decision management (add/delete/list) working
@@ -161,6 +176,7 @@ CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 - Configuration files properly structured
 
 ✅ **Infrastructure:**
+
 - Backend tests: 100% pass
 - Code coverage: 85.1% (meets 85% requirement)
 - Pre-commit hooks: All passed
@@ -172,11 +188,13 @@ CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 ## What Doesn't Work
 
 ❌ **Traffic Enforcement:**
+
 - HTTP requests from banned IPs are not blocked
 - CrowdSec middleware not in Caddy route handler chain
 - No automatic configuration of Caddy routes when CrowdSec is enabled
 
 ❌ **Auto-Start Logic:**
+
 - CrowdSec does not auto-start when database is configured to `mode=local, enabled=true`
 - Reconciliation logic may have race condition or query timing issue
 - Manual intervention required to start LAPI process
@@ -186,6 +204,7 @@ CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 ## Production Readiness: NO
 
 ### Blockers
+
 1. **Critical:** Traffic blocking does not work - primary security feature non-functional
 2. **High:** Auto-start logic unreliable - requires manual intervention
 3. **High:** Caddy route configuration not synchronized with CrowdSec state
@@ -193,12 +212,14 @@ CrowdSec configuration initialized. Agent lifecycle is GUI-controlled.
 ### Required Fixes
 
 #### 1. Fix Caddy Route Configuration (CRITICAL)
+
 **File:** `backend/internal/caddy/manager.go` or similar Caddy config generator
 
 **Action Required:**
 When CrowdSec is enabled, the Caddy configuration builder must inject the `crowdsec` HTTP handler into the route middleware chain BEFORE other handlers.
 
 **Expected Structure:**
+
 ```json
 {
   "handle": [
@@ -221,14 +242,17 @@ When CrowdSec is enabled, the Caddy configuration builder must inject the `crowd
 The `trusted_proxies_raw` field must be set at the HTTP handler level (not app level).
 
 #### 2. Fix Auto-Start Logic (HIGH)
+
 **File:** `backend/internal/services/crowdsec_startup.go`
 
 **Issues:**
+
 - Line 110-117: The check `if cfg.CrowdSecMode != "local" && !crowdSecEnabled` is skipping startup even when database shows enabled
 - Possible issue: `db.First(&cfg)` not finding the manually-created record
 - Consider: The `Name` field mismatch (code expects "Default Security Config", DB has "default")
 
 **Recommended Fix:**
+
 ```go
 // At line 43, ensure proper fallback:
 if err := db.First(&cfg).Error; err != nil {
@@ -243,9 +267,11 @@ if err := db.First(&cfg).Error; err != nil {
 ```
 
 #### 3. Add Integration Test for End-to-End Blocking
+
 **File:** `scripts/crowdsec_blocking_integration.sh` (new)
 
 **Test Steps:**
+
 1. Enable CrowdSec in DB
 2. Restart container
 3. Verify LAPI running
@@ -317,6 +343,7 @@ The CrowdSec feature is **non-functional for its primary purpose: blocking traff
 ## Conclusion
 
 CrowdSec infrastructure is **80% complete** but missing the **critical 20%** - actual traffic enforcement. The foundation is solid:
+
 - LAPI works
 - Bouncer communicates
 - Decisions are managed correctly
@@ -326,6 +353,7 @@ CrowdSec infrastructure is **80% complete** but missing the **critical 20%** - a
 **However**, without the HTTP handler middleware properly configured, **zero traffic is being blocked**, making the feature unusable in production.
 
 **Estimated effort to fix:** 4-8 hours
+
 1. Add HTTP handler injection logic (2-4h)
 2. Fix auto-start logic (1-2h)
 3. Add integration test (1-2h)

@@ -11,6 +11,7 @@
 The current pre-commit configuration runs slow hooks (`go-test-coverage` and `frontend-type-check`) on every commit, causing developer friction. These hooks can take 30+ seconds each, blocking rapid iteration.
 
 However, coverage testing is critical and must remain mandatory before task completion. The solution is to:
+
 1. Move slow hooks to manual stage for developer convenience
 2. Make coverage testing an explicit requirement in Definition of Done
 3. Ensure all agent modes verify coverage tests pass before completing tasks
@@ -34,6 +35,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 #### Change 1.1: Move `go-test-coverage` to Manual Stage
 
 **Current Configuration (Lines 20-26)**:
+
 ```yaml
       - id: go-test-coverage
         name: Go Test Coverage
@@ -45,6 +47,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 ```
 
 **New Configuration**:
+
 ```yaml
       - id: go-test-coverage
         name: Go Test Coverage (Manual)
@@ -63,6 +66,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 #### Change 1.2: Move `frontend-type-check` to Manual Stage
 
 **Current Configuration (Lines 87-91)**:
+
 ```yaml
       - id: frontend-type-check
         name: Frontend TypeScript Check
@@ -73,6 +77,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 ```
 
 **New Configuration**:
+
 ```yaml
       - id: frontend-type-check
         name: Frontend TypeScript Check (Manual)
@@ -90,10 +95,12 @@ However, coverage testing is critical and must remain mandatory before task comp
 #### Summary of Pre-commit Changes
 
 **Hooks Moved to Manual**:
+
 - `go-test-coverage` (already manual: ❌)
 - `frontend-type-check` (currently auto: ✅)
 
 **Hooks Remaining in Manual** (No changes):
+
 - `go-test-race` (already manual)
 - `golangci-lint` (already manual)
 - `hadolint` (already manual)
@@ -102,6 +109,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 - `markdownlint` (already manual)
 
 **Hooks Remaining Auto** (Fast execution):
+
 - `end-of-file-fixer`
 - `trailing-whitespace`
 - `check-yaml`
@@ -123,6 +131,7 @@ However, coverage testing is critical and must remain mandatory before task comp
 #### Change 2.1: Expand Definition of Done Section
 
 **Current Section (Lines 108-116)**:
+
 ```markdown
 ## ✅ Task Completion Protocol (Definition of Done)
 
@@ -137,6 +146,7 @@ Before marking an implementation task as complete, perform the following:
 ```
 
 **New Section**:
+
 ```markdown
 ## ✅ Task Completion Protocol (Definition of Done)
 
@@ -198,6 +208,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 #### Change 3.1: Update Verification Section
 
 **Current Section (Lines 32-36)**:
+
 ```markdown
 3. **Verification (Definition of Done)**:
     - Run `go mod tidy`.
@@ -209,6 +220,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 ```
 
 **New Section**:
+
 ```markdown
 3. **Verification (Definition of Done)**:
     - Run `go mod tidy`.
@@ -231,6 +243,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 #### Change 3.2: Update Verification Section
 
 **Current Section (Lines 28-36)**:
+
 ```markdown
 3. **Verification (Quality Gates)**:
     - **Gate 1: Static Analysis (CRITICAL)**:
@@ -246,6 +259,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 ```
 
 **New Section**:
+
 ```markdown
 3. **Verification (Quality Gates)**:
     - **Gate 1: Static Analysis (CRITICAL)**:
@@ -274,6 +288,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 #### Change 3.3: Update Definition of Done Section
 
 **Current Section (Lines 45-47)**:
+
 ```markdown
 ## DEFENITION OF DONE ##
 
@@ -281,6 +296,7 @@ All agent mode files need explicit instructions to run coverage tests before com
 ```
 
 **New Section**:
+
 ```markdown
 ## DEFINITION OF DONE ##
 
@@ -319,6 +335,7 @@ The task is not complete until ALL of the following pass with zero issues:
 #### Change 3.4: Update Definition of Done Section
 
 **Current Section (Lines 57-59)**:
+
 ```markdown
 ## DEFENITION OF DONE ##
 
@@ -326,6 +343,7 @@ The task is not complete until ALL of the following pass with zero issues:
 ```
 
 **New Section**:
+
 ```markdown
 ## DEFINITION OF DONE ##
 
@@ -364,6 +382,7 @@ The task is not complete until ALL of the following pass with zero issues:
 **Location**: After the `<workflow>` section, before `<output_format>` (around line 35)
 
 **New Section**:
+
 ```markdown
 
 <coverage_and_ci>
@@ -393,6 +412,7 @@ The task is not complete until ALL of the following pass with zero issues:
 **Current Output Format (Lines 36-67)** - Add coverage requirements to Phase 3 checklist.
 
 **Modified Section (Phase 3 in output format)**:
+
 ```markdown
 ### 🕵️ Phase 3: QA & Security
 
@@ -416,6 +436,7 @@ The task is not complete until ALL of the following pass with zero issues:
 ### 4.1 Local Testing
 
 **Step 1: Verify Pre-commit Performance**
+
 ```bash
 # Time the pre-commit run (should be <5 seconds)
 time pre-commit run --all-files
@@ -425,6 +446,7 @@ time pre-commit run --all-files
 ```
 
 **Step 2: Verify Manual Hooks Still Work**
+
 ```bash
 # Test manual hook invocation
 pre-commit run go-test-coverage --all-files
@@ -434,6 +456,7 @@ pre-commit run frontend-type-check --all-files
 ```
 
 **Step 3: Verify VS Code Tasks**
+
 ```bash
 # Open VS Code Command Palette (Ctrl+Shift+P)
 # Run: "Tasks: Run Task"
@@ -450,6 +473,7 @@ pre-commit run frontend-type-check --all-files
 ```
 
 **Step 4: Verify Coverage Script Directly**
+
 ```bash
 # From project root
 bash scripts/go-test-coverage.sh
@@ -492,6 +516,7 @@ Check that coverage tests still run in CI:
 ```
 
 **Step 2: Push Test Commit**
+
 ```bash
 # Make a trivial change to trigger CI
 echo "# Test commit for coverage CI verification" >> README.md
@@ -501,6 +526,7 @@ git push
 ```
 
 **Step 3: Verify CI Runs**
+
 - Navigate to GitHub Actions
 - Verify workflows `codecov-upload` and `quality-checks` run successfully
 - Verify coverage tests execute and pass
@@ -511,6 +537,7 @@ git push
 ### 4.3 Agent Mode Testing
 
 **Step 1: Test Backend_Dev Agent**
+
 ```
 # In Copilot chat, invoke:
 @Backend_Dev Implement a simple test function that adds two numbers in internal/utils
@@ -525,6 +552,7 @@ git push
 ```
 
 **Step 2: Test Frontend_Dev Agent**
+
 ```
 # In Copilot chat, invoke:
 @Frontend_Dev Create a simple Button component in src/components/TestButton.tsx
@@ -540,6 +568,7 @@ git push
 ```
 
 **Step 3: Test QA_Security Agent**
+
 ```
 # In Copilot chat, invoke:
 @QA_Security Audit the current codebase for Definition of Done compliance
@@ -554,6 +583,7 @@ git push
 ```
 
 **Step 4: Test Management Agent**
+
 ```
 # In Copilot chat, invoke:
 @Management Implement a simple feature: Add a /health endpoint to the backend
@@ -623,49 +653,49 @@ git push
 Use this checklist to track implementation progress:
 
 - [ ] **Phase 1: Pre-commit Configuration**
-    - [ ] Add `stages: [manual]` to `go-test-coverage` hook
-    - [ ] Change name to "Go Test Coverage (Manual)"
-    - [ ] Add `stages: [manual]` to `frontend-type-check` hook
-    - [ ] Change name to "Frontend TypeScript Check (Manual)"
-    - [ ] Test: Run `pre-commit run --all-files` (should be fast)
-    - [ ] Test: Run `pre-commit run go-test-coverage --all-files` (should execute)
-    - [ ] Test: Run `pre-commit run frontend-type-check --all-files` (should execute)
+  - [ ] Add `stages: [manual]` to `go-test-coverage` hook
+  - [ ] Change name to "Go Test Coverage (Manual)"
+  - [ ] Add `stages: [manual]` to `frontend-type-check` hook
+  - [ ] Change name to "Frontend TypeScript Check (Manual)"
+  - [ ] Test: Run `pre-commit run --all-files` (should be fast)
+  - [ ] Test: Run `pre-commit run go-test-coverage --all-files` (should execute)
+  - [ ] Test: Run `pre-commit run frontend-type-check --all-files` (should execute)
 
 - [ ] **Phase 2: Copilot Instructions**
-    - [ ] Update Definition of Done section in `.github/copilot-instructions.md`
-    - [ ] Add explicit coverage testing requirements (Step 2)
-    - [ ] Add explicit type checking requirements (Step 3)
-    - [ ] Add rationale for manual hooks
-    - [ ] Test: Read through updated instructions for clarity
+  - [ ] Update Definition of Done section in `.github/copilot-instructions.md`
+  - [ ] Add explicit coverage testing requirements (Step 2)
+  - [ ] Add explicit type checking requirements (Step 3)
+  - [ ] Add rationale for manual hooks
+  - [ ] Test: Read through updated instructions for clarity
 
 - [ ] **Phase 3: Agent Mode Files**
-    - [ ] Update `Backend_Dev.agent.md` verification section
-    - [ ] Update `Frontend_Dev.agent.md` verification section
-    - [ ] Update `QA_Security.agent.md` Definition of Done
-    - [ ] Fix typo: "DEFENITION" → "DEFINITION" in `QA_Security.agent.md`
-    - [ ] Update `Manegment.agent.md` Definition of Done
-    - [ ] Fix typo: "DEFENITION" → "DEFINITION" in `Manegment.agent.md`
-    - [ ] Consider renaming `Manegment.agent.md` → `Management.agent.md`
-    - [ ] Add coverage awareness section to `DevOps.agent.md`
-    - [ ] Update `Planning.agent.md` output format (Phase 3 checklist)
-    - [ ] Test: Review all agent mode files for consistency
+  - [ ] Update `Backend_Dev.agent.md` verification section
+  - [ ] Update `Frontend_Dev.agent.md` verification section
+  - [ ] Update `QA_Security.agent.md` Definition of Done
+  - [ ] Fix typo: "DEFENITION" → "DEFINITION" in `QA_Security.agent.md`
+  - [ ] Update `Manegment.agent.md` Definition of Done
+  - [ ] Fix typo: "DEFENITION" → "DEFINITION" in `Manegment.agent.md`
+  - [ ] Consider renaming `Manegment.agent.md` → `Management.agent.md`
+  - [ ] Add coverage awareness section to `DevOps.agent.md`
+  - [ ] Update `Planning.agent.md` output format (Phase 3 checklist)
+  - [ ] Test: Review all agent mode files for consistency
 
 - [ ] **Phase 4: Testing & Verification**
-    - [ ] Test pre-commit performance (should be <5 seconds)
-    - [ ] Test manual hook invocation (should work)
-    - [ ] Test VS Code tasks for coverage (should work)
-    - [ ] Test coverage scripts directly (should work)
-    - [ ] Verify CI workflows still run coverage tests
-    - [ ] Push test commit to verify CI passes
-    - [ ] Test Backend_Dev agent behavior
-    - [ ] Test Frontend_Dev agent behavior
-    - [ ] Test QA_Security agent behavior
-    - [ ] Test Management agent behavior
+  - [ ] Test pre-commit performance (should be <5 seconds)
+  - [ ] Test manual hook invocation (should work)
+  - [ ] Test VS Code tasks for coverage (should work)
+  - [ ] Test coverage scripts directly (should work)
+  - [ ] Verify CI workflows still run coverage tests
+  - [ ] Push test commit to verify CI passes
+  - [ ] Test Backend_Dev agent behavior
+  - [ ] Test Frontend_Dev agent behavior
+  - [ ] Test QA_Security agent behavior
+  - [ ] Test Management agent behavior
 
 - [ ] **Phase 5: Documentation**
-    - [ ] Update `CONTRIBUTING.md` with new workflow (if exists)
-    - [ ] Add note about manual hooks to developer documentation
-    - [ ] Update onboarding docs to mention VS Code tasks for coverage
+  - [ ] Update `CONTRIBUTING.md` with new workflow (if exists)
+  - [ ] Add note about manual hooks to developer documentation
+  - [ ] Update onboarding docs to mention VS Code tasks for coverage
 
 ---
 
@@ -681,14 +711,14 @@ Use this checklist to track implementation progress:
 
 ## 📚 References
 
-- **Pre-commit Documentation**: https://pre-commit.com/#confining-hooks-to-run-at-certain-stages
-- **VS Code Tasks**: https://code.visualstudio.com/docs/editor/tasks
+- **Pre-commit Documentation**: <https://pre-commit.com/#confining-hooks-to-run-at-certain-stages>
+- **VS Code Tasks**: <https://code.visualstudio.com/docs/editor/tasks>
 - **Current Coverage Scripts**:
-    - Backend: `scripts/go-test-coverage.sh`
-    - Frontend: `scripts/frontend-test-coverage.sh`
+  - Backend: `scripts/go-test-coverage.sh`
+  - Frontend: `scripts/frontend-test-coverage.sh`
 - **CI Workflows**:
-    - `.github/workflows/codecov-upload.yml`
-    - `.github/workflows/quality-checks.yml`
+  - `.github/workflows/codecov-upload.yml`
+  - `.github/workflows/quality-checks.yml`
 
 ---
 
@@ -699,6 +729,7 @@ Use this checklist to track implementation progress:
 **Symptom**: CI fails with coverage errors but pre-commit passed locally
 
 **Solution**:
+
 - Add reminder in commit message template
 - Add VS Code task to run all manual checks before push
 - Update CONTRIBUTING.md with explicit workflow
@@ -712,6 +743,7 @@ Use this checklist to track implementation progress:
 **Symptom**: Agents cannot find VS Code tasks to run
 
 **Solution**:
+
 - Verify `.vscode/tasks.json` exists and has correct task names
 - Provide fallback to direct script execution
 - Document both methods in agent instructions
@@ -725,6 +757,7 @@ Use this checklist to track implementation progress:
 **Symptom**: Coverage scripts work manually but fail when invoked by agents
 
 **Solution**:
+
 - Ensure agents execute scripts from project root directory
 - Verify environment variables are set correctly
 - Add explicit directory navigation in agent instructions
@@ -738,6 +771,7 @@ Use this checklist to track implementation progress:
 **Symptom**: CI doesn't run coverage tests after moving to manual stage
 
 **Solution**:
+
 - Verify CI workflows call coverage scripts directly (not via pre-commit)
 - Do NOT rely on pre-commit in CI for coverage tests
 - CI workflows already use direct script calls (verified in Phase 4.2)

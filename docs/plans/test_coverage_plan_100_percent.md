@@ -743,6 +743,7 @@ TestDefaultCrowdsecExecutor_Stop_SignalErrorCleanup(t *testing.T)
 **Status:** ✅ NO CHANGES NEEDED
 
 Current configuration already excludes:
+
 - Test output files (`*.out`, `*.cover`, `coverage/`)
 - Coverage artifacts (`coverage*.txt`, `*.coverage.out`)
 - All test-related temporary files
@@ -752,6 +753,7 @@ Current configuration already excludes:
 **Status:** ✅ NO CHANGES NEEDED
 
 Current configuration already excludes:
+
 - All test files (`*_test.go`, `*.test.ts`)
 - Integration tests (`**/integration/**`)
 - Test utilities (`**/test/**`, `**/__tests__/**`)
@@ -763,6 +765,7 @@ The coverage targets and ignore patterns are comprehensive.
 **Status:** ✅ NO CHANGES NEEDED
 
 Current configuration already excludes:
+
 - Test coverage artifacts (`coverage/`, `*.cover`)
 - Test result files (`backend/test-output.txt`)
 - All test-related files
@@ -782,6 +785,7 @@ Current configuration already excludes:
 ### New Infrastructure Needed
 
 1. **Mock HTTP Server** (for LAPI client tests)
+
    ```go
    // Add to crowdsec_handler_test.go
    type mockLAPIServer struct {
@@ -797,6 +801,7 @@ Current configuration already excludes:
    ```
 
 2. **Mock File System** (for acquisition config tests)
+
    ```go
    // Add to test utilities
    type mockFileOps interface {
@@ -807,11 +812,13 @@ Current configuration already excludes:
    ```
 
 3. **Time Travel Helper** (for LAPI polling timeout tests)
+
    ```go
    // Use testify's Eventually helper or custom sleep mock
    ```
 
 4. **Log Capture Helper** (for verifying log messages)
+
    ```go
    // Capture logrus output to buffer for assertions
    type logCapture struct {
@@ -839,27 +846,28 @@ Current configuration already excludes:
 
 ### Phase 2: Medium-Priority Files (Week 2)
 
-3. **console_enroll.go** (1 day)
+1. **console_enroll.go** (1 day)
    - Implement input validation tests
    - Implement config path resolution tests
    - Implement CAPI registration error tests
 
 ### Phase 3: Low-Priority Files (Week 2)
 
-4. **crowdsec_startup.go** (0.5 days)
+1. **crowdsec_startup.go** (0.5 days)
    - Implement DB error handling tests
    - Implement Settings override path tests
 
-5. **routes.go** (0.5 days)
+2. **routes.go** (0.5 days)
    - Implement service initialization error tests
    - Implement Caddy startup sequence tests
 
-6. **crowdsec_exec.go** (0.5 days)
+3. **crowdsec_exec.go** (0.5 days)
    - Implement Stop signal error test
 
 ### Validation Strategy
 
 1. **Run Tests After Each File**
+
    ```bash
    cd backend && go test -v ./internal/api/handlers -run TestCrowdsec
    cd backend && go test -v ./internal/services -run TestLogWatcher
@@ -867,17 +875,20 @@ Current configuration already excludes:
    ```
 
 2. **Generate Coverage Report**
+
    ```bash
    ./scripts/go-test-coverage.sh
    ```
 
 3. **Verify 100% Coverage**
+
    ```bash
    go tool cover -html=coverage.out -o coverage.html
    # Open coverage.html and verify all target files show 100%
    ```
 
 4. **Run Pre-Commit Hooks**
+
    ```bash
    pre-commit run --all-files
    ```

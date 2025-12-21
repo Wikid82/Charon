@@ -20,6 +20,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   waf-integration:
     name: Coraza WAF Integration

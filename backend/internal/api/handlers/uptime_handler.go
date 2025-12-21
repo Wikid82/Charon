@@ -42,7 +42,7 @@ func (h *UptimeHandler) GetHistory(c *gin.Context) {
 
 func (h *UptimeHandler) Update(c *gin.Context) {
 	id := c.Param("id")
-	var updates map[string]interface{}
+	var updates map[string]any
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		logger.Log().WithError(err).WithField("monitor_id", id).Warn("Invalid JSON payload for monitor update")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

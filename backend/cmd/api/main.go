@@ -134,7 +134,7 @@ func main() {
 
 	// Verify critical security tables exist before starting server
 	// This prevents silent failures in CrowdSec reconciliation
-	securityModels := []interface{}{
+	securityModels := []any{
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},

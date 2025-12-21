@@ -1,4 +1,9 @@
-# Welcome to Charon
+---
+title: Welcome to Charon
+description: Charon documentation home. A modern, user-friendly reverse proxy manager built on Caddy.
+---
+
+## Welcome to Charon
 
 **You're in the right place.** These guides explain everything in plain English, no technical jargon.
 

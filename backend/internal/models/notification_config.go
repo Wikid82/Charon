@@ -29,11 +29,11 @@ func (nc *NotificationConfig) BeforeCreate(tx *gorm.DB) error {
 
 // SecurityEvent represents a security event for notification dispatch.
 type SecurityEvent struct {
-	EventType string                 `json:"event_type"` // waf_block, acl_deny, etc.
-	Severity  string                 `json:"severity"`   // error, warn, info
-	Message   string                 `json:"message"`
-	ClientIP  string                 `json:"client_ip"`
-	Path      string                 `json:"path"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	EventType string         `json:"event_type"` // waf_block, acl_deny, etc.
+	Severity  string         `json:"severity"`   // error, warn, info
+	Message   string         `json:"message"`
+	ClientIP  string         `json:"client_ip"`
+	Path      string         `json:"path"`
+	Timestamp time.Time      `json:"timestamp"`
+	Metadata  map[string]any `json:"metadata"`
 }

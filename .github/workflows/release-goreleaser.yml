@@ -5,6 +5,14 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: '1.25.5'
+  NODE_VERSION: '24.12.0'
+
 permissions:
   contents: write
   packages: write
@@ -26,12 +34,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
-          go-version: '1.25.5'
+          go-version: ${{ env.GO_VERSION }}
 
       - name: Set up Node.js
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
         with:
-          node-version: '24.12.0'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Build Frontend
         working-directory: frontend
@@ -43,7 +51,8 @@ jobs:
           npm run build
 
       - name: Install Cross-Compilation Tools (Zig)
-        uses: goto-bus-stop/setup-zig@v2
+        # Security: Pinned to full SHA for supply chain security
+        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
           version: 0.13.0
 

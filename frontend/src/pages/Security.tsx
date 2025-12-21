@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Shield, ShieldAlert, ShieldCheck, Lock, Activity, ExternalLink, Settings } from 'lucide-react'
 import { getSecurityStatus, type SecurityStatus } from '../api/security'
 import { useSecurityConfig, useUpdateSecurityConfig, useGenerateBreakGlassToken } from '../hooks/useSecurity'
@@ -57,11 +58,11 @@ function SecurityCardSkeleton() {
 }
 
 // Loading skeleton for the entire security page
-function SecurityPageSkeleton() {
+function SecurityPageSkeleton({ t }: { t: (key: string) => string }) {
   return (
     <PageShell
-      title="Security"
-      description="Configure security layers for your reverse proxy"
+      title={t('security.title')}
+      description={t('security.description')}
     >
       <Skeleton className="h-24 w-full rounded-lg" />
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -75,6 +76,7 @@ function SecurityPageSkeleton() {
 }
 
 export default function Security() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { data: status, isLoading } = useQuery({
     queryKey: ['security-status'],
@@ -213,30 +215,30 @@ export default function Security() {
   // Determine contextual message
   const getMessage = () => {
     if (toggleServiceMutation.isPending) {
-      return { message: 'Three heads turn...', submessage: 'Cerberus configuration updating' }
+      return { message: t('security.threeHeadsTurn'), submessage: t('security.cerberusConfigUpdating') }
     }
     if (crowdsecPowerMutation.isPending) {
       return crowdsecPowerMutation.variables
-        ? { message: 'Summoning the guardian...', submessage: 'CrowdSec is starting' }
-        : { message: 'Guardian rests...', submessage: 'CrowdSec is stopping' }
+        ? { message: t('security.summoningGuardian'), submessage: t('security.crowdsecStarting') }
+        : { message: t('security.guardianRests'), submessage: t('security.crowdsecStopping') }
     }
-    return { message: 'Strengthening the guard...', submessage: 'Protective wards activating' }
+    return { message: t('security.strengtheningGuard'), submessage: t('security.wardsActivating') }
   }
 
   const { message, submessage } = getMessage()
 
   if (isLoading) {
-    return <SecurityPageSkeleton />
+    return <SecurityPageSkeleton t={t} />
   }
 
   if (!status) {
     return (
       <PageShell
-        title="Security"
-        description="Configure security layers for your reverse proxy"
+        title={t('security.title')}
+        description={t('security.description')}
       >
-        <Alert variant="error" title="Error Loading Security Status">
-          Failed to load security configuration. Please try refreshing the page.
+        <Alert variant="error" title={t('common.error')}>
+          {t('security.failedToLoadConfiguration')}
         </Alert>
       </PageShell>
     )
@@ -255,14 +257,14 @@ export default function Security() {
         disabled={!status.cerberus?.enabled}
       >
         <Settings className="w-4 h-4 mr-2" />
-        Notifications
+        {t('security.notifications')}
       </Button>
       <Button
         variant="secondary"
         onClick={() => window.open('https://wikid82.github.io/charon/security', '_blank')}
       >
         <ExternalLink className="w-4 h-4 mr-2" />
-        Docs
+        {t('common.docs')}
       </Button>
     </div>
   )
@@ -279,8 +281,8 @@ export default function Security() {
         />
       )}
       <PageShell
-        title="Security"
-        description="Configure security layers for your reverse proxy"
+        title={t('security.title')}
+        description={t('security.description')}
         actions={headerActions}
       >
         {/* Cerberus Status Header */}
@@ -290,26 +292,25 @@ export default function Security() {
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-content-primary">Cerberus Dashboard</h2>
+              <h2 className="text-xl font-semibold text-content-primary">{t('security.cerberusDashboard')}</h2>
               <Badge variant={status.cerberus?.enabled ? 'success' : 'default'}>
-                {status.cerberus?.enabled ? 'Active' : 'Disabled'}
+                {status.cerberus?.enabled ? t('security.cerberusActive') : t('security.cerberusDisabled')}
               </Badge>
             </div>
             <p className="text-sm text-content-secondary mt-1">
               {status.cerberus?.enabled
-                ? 'All security heads are ready for configuration'
-                : 'Enable Cerberus in System Settings to activate security features'}
+                ? t('security.cerberusReadyMessage')
+                : t('security.cerberusDisabledMessage')}
             </p>
           </div>
         </Card>
 
         {/* Cerberus Disabled Alert */}
         {!status.cerberus?.enabled && (
-          <Alert variant="warning" title="Security Features Unavailable">
+          <Alert variant="warning" title={t('security.featuresUnavailable')}>
             <div className="space-y-2">
               <p>
-                Cerberus powers CrowdSec, Coraza WAF, Access Control, and Rate Limiting.
-                Enable the Cerberus toggle in System Settings to activate these features.
+                {t('security.featuresUnavailableMessage')}
               </p>
               <Button
                 size="sm"
@@ -318,7 +319,7 @@ export default function Security() {
                 className="mt-2"
               >
                 <ExternalLink className="w-3 h-3 mr-1.5" />
-                Learn More
+                {t('security.learnMore')}
               </Button>
             </div>
           </Alert>
@@ -328,11 +329,11 @@ export default function Security() {
         {status.cerberus?.enabled && (
           <Card>
             <CardHeader>
-              <CardTitle>Admin Whitelist</CardTitle>
-              <CardDescription>Configure IP addresses that bypass security checks</CardDescription>
+              <CardTitle>{t('security.adminWhitelist')}</CardTitle>
+              <CardDescription>{t('security.adminWhitelistDescription')}</CardDescription>
             </CardHeader>
             <CardContent>
-              <label className="text-sm text-content-secondary">Comma-separated CIDR/IPs</label>
+              <label className="text-sm text-content-secondary">{t('security.commaSeparatedCIDR')}</label>
               <div className="flex gap-2 mt-2">
                 <input
                   className="flex-1 px-3 py-2 rounded-md border border-border bg-surface-elevated text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
@@ -345,7 +346,7 @@ export default function Security() {
                   variant="primary"
                   onClick={() => updateSecurityConfigMutation.mutate({ name: 'default', admin_whitelist: adminWhitelist })}
                 >
-                  Save
+                  {t('common.save')}
                 </Button>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -354,11 +355,11 @@ export default function Security() {
                       variant="secondary"
                       onClick={() => generateBreakGlassMutation.mutate()}
                     >
-                      Generate Token
+                      {t('security.generateToken')}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Generate a break-glass token for emergency access</p>
+                    <p>{t('security.generateTokenTooltip')}</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -375,11 +376,11 @@ export default function Security() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" size="sm">Layer 1</Badge>
-                  <Badge variant="primary" size="sm">IDS</Badge>
+                  <Badge variant="outline" size="sm">{t('security.layer1')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.ids')}</Badge>
                 </div>
                 <Badge variant={(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'success' : 'default'}>
-                  {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'Enabled' : 'Disabled'}
+                  {(crowdsecStatus?.running ?? status.crowdsec.enabled) ? t('common.enabled') : t('common.disabled')}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 mt-3">
@@ -387,20 +388,20 @@ export default function Security() {
                   <ShieldAlert className={`w-5 h-5 ${(crowdsecStatus?.running ?? status.crowdsec.enabled) ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
-                  <CardTitle className="text-base">CrowdSec</CardTitle>
-                  <CardDescription>IP Reputation & Threat Intelligence</CardDescription>
+                  <CardTitle className="text-base">{t('security.crowdsec')}</CardTitle>
+                  <CardDescription>{t('security.crowdsecDescription')}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-content-muted">
                 {(crowdsecStatus?.running ?? status.crowdsec.enabled)
-                  ? 'Protects against: Known attackers, botnets, brute-force'
-                  : 'Intrusion Prevention System powered by community threat intelligence'}
+                  ? t('security.crowdsecProtects')
+                  : t('security.crowdsecDisabledDescription')}
               </p>
               {crowdsecStatus && (
                 <p className="text-xs text-content-muted mt-2">
-                  {crowdsecStatus.running ? `Running (PID ${crowdsecStatus.pid})` : 'Process stopped'}
+                  {crowdsecStatus.running ? t('security.runningPid', { pid: crowdsecStatus.pid }) : t('security.processStopped')}
                 </p>
               )}
             </CardContent>
@@ -417,7 +418,7 @@ export default function Security() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle CrowdSec protection'}</p>
+                  <p>{cerberusDisabled ? t('security.enableCerberusFirst') : t('security.toggleCrowdsec')}</p>
                 </TooltipContent>
               </Tooltip>
               <Button
@@ -426,7 +427,7 @@ export default function Security() {
                 onClick={() => navigate('/security/crowdsec')}
                 disabled={crowdsecControlsDisabled}
               >
-                Configure
+                {t('common.configure')}
               </Button>
             </CardFooter>
           </Card>
@@ -436,11 +437,11 @@ export default function Security() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" size="sm">Layer 2</Badge>
-                  <Badge variant="primary" size="sm">ACL</Badge>
+                  <Badge variant="outline" size="sm">{t('security.layer2')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.acl')}</Badge>
                 </div>
                 <Badge variant={status.acl.enabled ? 'success' : 'default'}>
-                  {status.acl.enabled ? 'Enabled' : 'Disabled'}
+                  {status.acl.enabled ? t('common.enabled') : t('common.disabled')}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 mt-3">
@@ -448,14 +449,14 @@ export default function Security() {
                   <Lock className={`w-5 h-5 ${status.acl.enabled ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
-                  <CardTitle className="text-base">Access Control</CardTitle>
-                  <CardDescription>IP & Geo-based filtering</CardDescription>
+                  <CardTitle className="text-base">{t('security.accessControl')}</CardTitle>
+                  <CardDescription>{t('security.aclDescription')}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-content-muted">
-                Protects against: Unauthorized IPs, geo-based attacks, insider threats
+                {t('security.aclProtects')}
               </p>
             </CardContent>
             <CardFooter className="justify-between pt-4">
@@ -471,7 +472,7 @@ export default function Security() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Access Control'}</p>
+                  <p>{cerberusDisabled ? t('security.enableCerberusFirst') : t('security.toggleAcl')}</p>
                 </TooltipContent>
               </Tooltip>
               <Button
@@ -479,7 +480,7 @@ export default function Security() {
                 size="sm"
                 onClick={() => navigate('/security/access-lists')}
               >
-                {status.acl.enabled ? 'Manage Lists' : 'Configure'}
+                {status.acl.enabled ? t('security.manageLists') : t('common.configure')}
               </Button>
             </CardFooter>
           </Card>
@@ -489,11 +490,11 @@ export default function Security() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" size="sm">Layer 3</Badge>
-                  <Badge variant="primary" size="sm">WAF</Badge>
+                  <Badge variant="outline" size="sm">{t('security.layer3')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.waf')}</Badge>
                 </div>
                 <Badge variant={status.waf.enabled ? 'success' : 'default'}>
-                  {status.waf.enabled ? 'Enabled' : 'Disabled'}
+                  {status.waf.enabled ? t('common.enabled') : t('common.disabled')}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 mt-3">
@@ -501,16 +502,16 @@ export default function Security() {
                   <Shield className={`w-5 h-5 ${status.waf.enabled ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
-                  <CardTitle className="text-base">Coraza WAF</CardTitle>
-                  <CardDescription>Request inspection & filtering</CardDescription>
+                  <CardTitle className="text-base">{t('security.corazaWaf')}</CardTitle>
+                  <CardDescription>{t('security.wafDescription')}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-content-muted">
                 {status.waf.enabled
-                  ? 'Protects against: SQL injection, XSS, RCE, zero-day exploits*'
-                  : 'Web Application Firewall with OWASP Core Rule Set'}
+                  ? t('security.wafProtects')
+                  : t('security.wafDisabledDescription')}
               </p>
             </CardContent>
             <CardFooter className="justify-between pt-4">
@@ -526,7 +527,7 @@ export default function Security() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Coraza WAF'}</p>
+                  <p>{cerberusDisabled ? t('security.enableCerberusFirst') : t('security.toggleWaf')}</p>
                 </TooltipContent>
               </Tooltip>
               <Button
@@ -534,7 +535,7 @@ export default function Security() {
                 size="sm"
                 onClick={() => navigate('/security/waf')}
               >
-                Configure
+                {t('common.configure')}
               </Button>
             </CardFooter>
           </Card>
@@ -544,11 +545,11 @@ export default function Security() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" size="sm">Layer 4</Badge>
-                  <Badge variant="primary" size="sm">Rate</Badge>
+                  <Badge variant="outline" size="sm">{t('security.layer4')}</Badge>
+                  <Badge variant="primary" size="sm">{t('security.rate')}</Badge>
                 </div>
                 <Badge variant={status.rate_limit.enabled ? 'success' : 'default'}>
-                  {status.rate_limit.enabled ? 'Enabled' : 'Disabled'}
+                  {status.rate_limit.enabled ? t('common.enabled') : t('common.disabled')}
                 </Badge>
               </div>
               <div className="flex items-center gap-3 mt-3">
@@ -556,14 +557,14 @@ export default function Security() {
                   <Activity className={`w-5 h-5 ${status.rate_limit.enabled ? 'text-success' : 'text-content-muted'}`} />
                 </div>
                 <div>
-                  <CardTitle className="text-base">Rate Limiting</CardTitle>
-                  <CardDescription>Request volume control</CardDescription>
+                  <CardTitle className="text-base">{t('security.rateLimiting')}</CardTitle>
+                  <CardDescription>{t('security.rateLimitDescription')}</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1">
               <p className="text-sm text-content-muted">
-                Protects against: DDoS attacks, credential stuffing, API abuse
+                {t('security.rateLimitProtects')}
               </p>
             </CardContent>
             <CardFooter className="justify-between pt-4">
@@ -579,7 +580,7 @@ export default function Security() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{cerberusDisabled ? 'Enable Cerberus first' : 'Toggle Rate Limiting'}</p>
+                  <p>{cerberusDisabled ? t('security.enableCerberusFirst') : t('security.toggleRateLimit')}</p>
                 </TooltipContent>
               </Tooltip>
               <Button
@@ -587,7 +588,7 @@ export default function Security() {
                 size="sm"
                 onClick={() => navigate('/security/rate-limiting')}
               >
-                Configure
+                {t('common.configure')}
               </Button>
             </CardFooter>
           </Card>

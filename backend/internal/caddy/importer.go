@@ -44,7 +44,7 @@ type CaddyHTTP struct {
 type CaddyServer struct {
 	Listen                []string      `json:"listen,omitempty"`
 	Routes                []*CaddyRoute `json:"routes,omitempty"`
-	TLSConnectionPolicies interface{}   `json:"tls_connection_policies,omitempty"`
+	TLSConnectionPolicies any           `json:"tls_connection_policies,omitempty"`
 }
 
 // CaddyRoute represents a single route with matchers and handlers.
@@ -60,10 +60,10 @@ type CaddyMatcher struct {
 
 // CaddyHandler represents a handler in the route.
 type CaddyHandler struct {
-	Handler   string      `json:"handler"`
-	Upstreams interface{} `json:"upstreams,omitempty"`
-	Headers   interface{} `json:"headers,omitempty"`
-	Routes    interface{} `json:"routes,omitempty"` // For subroute handlers
+	Handler   string `json:"handler"`
+	Upstreams any    `json:"upstreams,omitempty"`
+	Headers   any    `json:"headers,omitempty"`
+	Routes    any    `json:"routes,omitempty"` // For subroute handlers
 }
 
 // ParsedHost represents a single host detected during Caddyfile import.
@@ -139,21 +139,21 @@ func (i *Importer) extractHandlers(handles []*CaddyHandler) []*CaddyHandler {
 		}
 
 		// It's a subroute; extract handlers from its first route
-		routes, ok := handler.Routes.([]interface{})
+		routes, ok := handler.Routes.([]any)
 		if !ok || len(routes) == 0 {
 			continue
 		}
-		subroute, ok := routes[0].(map[string]interface{})
+		subroute, ok := routes[0].(map[string]any)
 		if !ok {
 			continue
 		}
-		subhandles, ok := subroute["handle"].([]interface{})
+		subhandles, ok := subroute["handle"].([]any)
 		if !ok {
 			continue
 		}
 		// Convert the subhandles to CaddyHandler objects
 		for _, sh := range subhandles {
-			shMap, ok := sh.(map[string]interface{})
+			shMap, ok := sh.(map[string]any)
 			if !ok {
 				continue
 			}
@@ -227,9 +227,9 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 
 					for _, handler := range handlers {
 						if handler.Handler == "reverse_proxy" {
-							upstreams, _ := handler.Upstreams.([]interface{})
+							upstreams, _ := handler.Upstreams.([]any)
 							if len(upstreams) > 0 {
-								if upstream, ok := upstreams[0].(map[string]interface{}); ok {
+								if upstream, ok := upstreams[0].(map[string]any); ok {
 									dial, _ := upstream["dial"].(string)
 									if dial != "" {
 										hostStr, portStr, err := net.SplitHostPort(dial)
@@ -258,8 +258,8 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 							}
 
 							// Check for websocket support
-							if headers, ok := handler.Headers.(map[string]interface{}); ok {
-								if upgrade, ok := headers["Upgrade"].([]interface{}); ok {
+							if headers, ok := handler.Headers.(map[string]any); ok {
+								if upgrade, ok := headers["Upgrade"].([]any); ok {
 									for _, v := range upgrade {
 										if v == "websocket" {
 											host.WebsocketSupport = true
@@ -286,7 +286,7 @@ func (i *Importer) ExtractHosts(caddyJSON []byte) (*ImportResult, error) {
 					}
 
 					// Store raw JSON for this route
-					routeJSON, _ := json.Marshal(map[string]interface{}{
+					routeJSON, _ := json.Marshal(map[string]any{
 						"server": serverName,
 						"route":  routeIdx,
 						"data":   route,

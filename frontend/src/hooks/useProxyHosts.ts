@@ -5,6 +5,7 @@ import {
   updateProxyHost,
   deleteProxyHost,
   bulkUpdateACL,
+  bulkUpdateSecurityHeaders,
   ProxyHost
 } from '../api/proxyHosts';
 
@@ -49,6 +50,14 @@ export function useProxyHosts() {
     },
   });
 
+  const bulkUpdateSecurityHeadersMutation = useMutation({
+    mutationFn: ({ hostUUIDs, securityHeaderProfileId }: { hostUUIDs: string[]; securityHeaderProfileId: number | null }) =>
+      bulkUpdateSecurityHeaders(hostUUIDs, securityHeaderProfileId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    },
+  });
+
   return {
     hosts: query.data || [],
     loading: query.isLoading,
@@ -59,10 +68,12 @@ export function useProxyHosts() {
     deleteHost: (uuid: string, deleteUptime?: boolean) => deleteMutation.mutateAsync(deleteUptime !== undefined ? { uuid, deleteUptime } : uuid),
     bulkUpdateACL: (hostUUIDs: string[], accessListID: number | null) =>
       bulkUpdateACLMutation.mutateAsync({ hostUUIDs, accessListID }),
+    bulkUpdateSecurityHeaders: (hostUUIDs: string[], securityHeaderProfileId: number | null) =>
+      bulkUpdateSecurityHeadersMutation.mutateAsync({ hostUUIDs, securityHeaderProfileId }),
     isCreating: createMutation.isPending,
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
-    isBulkUpdating: bulkUpdateACLMutation.isPending,
+    isBulkUpdating: bulkUpdateACLMutation.isPending || bulkUpdateSecurityHeadersMutation.isPending,
   };
 }
 

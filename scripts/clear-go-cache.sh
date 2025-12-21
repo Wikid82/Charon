@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh utility-clear-go-cache
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh utility-clear-go-cache" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Clear Go caches and gopls cache
 echo "Clearing Go build and module caches..."
 go clean -cache -testcache -modcache || true

@@ -27,7 +27,7 @@ import (
 // mockAuthMiddleware adds a mock user to the context for testing
 func mockAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set("user", map[string]interface{}{"id": 1, "username": "testuser"})
+		c.Set("user", map[string]any{"id": 1, "username": "testuser"})
 		c.Next()
 	}
 }
@@ -468,3 +468,227 @@ func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 }
 
 // Note: mockCertificateService removed — helper tests now use real service instances or testify mocks inlined where required.
+
+// Test Delete with invalid ID format
+func TestDeleteCertificate_InvalidID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/invalid", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+// Test Delete with ID = 0
+func TestDeleteCertificate_ZeroID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/0", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", w.Code)
+	}
+}
+
+// Test Delete with low disk space
+func TestDeleteCertificate_LowDiskSpace(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-low-space", Name: "low-space-cert", Provider: "custom", Domains: "lowspace.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+
+	// Mock BackupService with low disk space
+	mockBackupService := &mockBackupService{
+		availableSpaceFunc: func() (int64, error) {
+			return 50 * 1024 * 1024, nil // Only 50MB available
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBackupService, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInsufficientStorage {
+		t.Fatalf("expected 507 Insufficient Storage, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// Test Delete with disk space check failure (warning but continue)
+func TestDeleteCertificate_DiskSpaceCheckError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-space-err", Name: "space-err-cert", Provider: "custom", Domains: "spaceerr.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+
+	// Mock BackupService with space check error but backup succeeds
+	mockBackupService := &mockBackupService{
+		availableSpaceFunc: func() (int64, error) {
+			return 0, fmt.Errorf("failed to check disk space")
+		},
+		createFunc: func() (string, error) {
+			return "backup.tar.gz", nil
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBackupService, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Should succeed even if space check fails (with warning)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// Test Delete when IsCertificateInUse fails
+func TestDeleteCertificate_UsageCheckError(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+
+	// Only migrate SSLCertificate, not ProxyHost - this will cause usage check to fail
+	if err := db.AutoMigrate(&models.SSLCertificate{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create certificate
+	cert := models.SSLCertificate{UUID: "test-cert-usage-err", Name: "usage-err-cert", Provider: "custom", Domains: "usageerr.example.com"}
+	if err := db.Create(&cert).Error; err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	h := NewCertificateHandler(svc, nil, nil)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 Internal Server Error, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// Test notification rate limiting
+func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.NotificationProvider{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Create two certificates
+	cert1 := models.SSLCertificate{UUID: "test-cert-rate-1", Name: "rate-cert-1", Provider: "custom", Domains: "rate1.example.com"}
+	cert2 := models.SSLCertificate{UUID: "test-cert-rate-2", Name: "rate-cert-2", Provider: "custom", Domains: "rate2.example.com"}
+	if err := db.Create(&cert1).Error; err != nil {
+		t.Fatalf("failed to create cert1: %v", err)
+	}
+	if err := db.Create(&cert2).Error; err != nil {
+		t.Fatalf("failed to create cert2: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	svc := services.NewCertificateService("/tmp", db)
+	ns := services.NewNotificationService(db)
+
+	mockBackupService := &mockBackupService{
+		createFunc: func() (string, error) {
+			return "backup.tar.gz", nil
+		},
+	}
+
+	h := NewCertificateHandler(svc, mockBackupService, ns)
+	r.DELETE("/api/certificates/:id", h.Delete)
+
+	// Delete first certificate
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert1.ID), http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for first delete, got %d", w.Code)
+	}
+
+	// Delete second certificate immediately (different ID, so should not be rate limited)
+	req = httptest.NewRequest(http.MethodDelete, "/api/certificates/"+toStr(cert2.ID), http.NoBody)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for second delete, got %d", w.Code)
+	}
+}

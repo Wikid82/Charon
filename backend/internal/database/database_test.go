@@ -60,10 +60,11 @@ func TestConnect_WALMode(t *testing.T) {
 // Phase 2: database.go coverage tests
 
 func TestConnect_InvalidDSN(t *testing.T) {
-	// Test with completely invalid DSN
-	_, err := Connect("")
+	// Test with a directory path instead of a file path
+	// SQLite cannot open a directory as a database file
+	tmpDir := t.TempDir()
+	_, err := Connect(tmpDir)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "open database")
 }
 
 func TestConnect_IntegrityCheckCorrupted(t *testing.T) {

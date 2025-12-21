@@ -1,11 +1,13 @@
 import client from './client';
 
+/** Represents a log file on the server. */
 export interface LogFile {
   name: string;
   size: number;
   mod_time: string;
 }
 
+/** Parsed Caddy access log entry. */
 export interface CaddyAccessLog {
   level: string;
   ts: number;
@@ -23,6 +25,7 @@ export interface CaddyAccessLog {
   size: number;
 }
 
+/** Paginated log response. */
 export interface LogResponse {
   filename: string;
   logs: CaddyAccessLog[];
@@ -31,6 +34,7 @@ export interface LogResponse {
   offset: number;
 }
 
+/** Filter options for log queries. */
 export interface LogFilter {
   search?: string;
   host?: string;
@@ -41,11 +45,23 @@ export interface LogFilter {
   sort?: 'asc' | 'desc';
 }
 
+/**
+ * Fetches the list of available log files.
+ * @returns Promise resolving to array of LogFile objects
+ * @throws {AxiosError} If the request fails
+ */
 export const getLogs = async (): Promise<LogFile[]> => {
   const response = await client.get<LogFile[]>('/logs');
   return response.data;
 };
 
+/**
+ * Fetches paginated and filtered log entries from a specific file.
+ * @param filename - The log file name to read
+ * @param filter - Optional filter and pagination options
+ * @returns Promise resolving to LogResponse with entries and metadata
+ * @throws {AxiosError} If the request fails or file not found
+ */
 export const getLogContent = async (filename: string, filter: LogFilter = {}): Promise<LogResponse> => {
   const params = new URLSearchParams();
   if (filter.search) params.append('search', filter.search);
@@ -60,6 +76,10 @@ export const getLogContent = async (filename: string, filter: LogFilter = {}): P
   return response.data;
 };
 
+/**
+ * Initiates a log file download by redirecting the browser.
+ * @param filename - The log file name to download
+ */
 export const downloadLog = (filename: string) => {
   // Direct window location change to trigger download
   // We need to use the base URL from the client config if possible,
@@ -67,6 +87,7 @@ export const downloadLog = (filename: string) => {
   window.location.href = `/api/v1/logs/${filename}/download`;
 };
 
+/** Live log entry from WebSocket stream. */
 export interface LiveLogEntry {
   level: string;
   timestamp: string;
@@ -75,6 +96,7 @@ export interface LiveLogEntry {
   data?: Record<string, unknown>;
 }
 
+/** Filter options for live log streaming. */
 export interface LiveLogFilter {
   level?: string;
   source?: string;
@@ -114,8 +136,14 @@ export interface SecurityLogFilter {
 }
 
 /**
- * Connects to the live logs WebSocket endpoint.
- * Returns a function to close the connection.
+ * Connects to the live logs WebSocket endpoint for real-time log streaming.
+ * Returns a cleanup function to close the connection.
+ * @param filters - LiveLogFilter options for level and source filtering
+ * @param onMessage - Callback invoked for each received LiveLogEntry
+ * @param onOpen - Optional callback when WebSocket connection is established
+ * @param onError - Optional callback on WebSocket error
+ * @param onClose - Optional callback when WebSocket connection closes
+ * @returns Function to close the WebSocket connection
  */
 export const connectLiveLogs = (
   filters: LiveLogFilter,

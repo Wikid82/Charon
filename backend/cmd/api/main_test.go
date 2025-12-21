@@ -107,7 +107,7 @@ func TestMigrateCommand_Succeeds(t *testing.T) {
 		t.Fatalf("reconnect db: %v", err)
 	}
 
-	securityModels := []interface{}{
+	securityModels := []any{
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},
@@ -155,7 +155,7 @@ func TestStartupVerification_MissingTables(t *testing.T) {
 	}
 
 	// Simulate startup verification logic from main.go
-	securityModels := []interface{}{
+	securityModels := []any{
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityAudit{},

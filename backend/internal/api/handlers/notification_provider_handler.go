@@ -104,7 +104,7 @@ func (h *NotificationProviderHandler) Templates(c *gin.Context) {
 
 // Preview renders the template for a provider and returns the resulting JSON object or an error.
 func (h *NotificationProviderHandler) Preview(c *gin.Context) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := c.ShouldBindJSON(&raw); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -115,13 +115,13 @@ func (h *NotificationProviderHandler) Preview(c *gin.Context) {
 	if b, err := json.Marshal(raw); err == nil {
 		_ = json.Unmarshal(b, &provider)
 	}
-	var payload map[string]interface{}
-	if d, ok := raw["data"].(map[string]interface{}); ok {
+	var payload map[string]any
+	if d, ok := raw["data"].(map[string]any); ok {
 		payload = d
 	}
 
 	if payload == nil {
-		payload = map[string]interface{}{}
+		payload = map[string]any{}
 	}
 
 	// Add some defaults for preview

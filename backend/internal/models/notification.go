@@ -18,11 +18,11 @@ const (
 
 type Notification struct {
 	ID        string           `gorm:"primaryKey" json:"id"`
-	Type      NotificationType `json:"type"`
+	Type      NotificationType `json:"type" gorm:"index"`
 	Title     string           `json:"title"`
 	Message   string           `json:"message"`
-	Read      bool             `json:"read"`
-	CreatedAt time.Time        `json:"created_at"`
+	Read      bool             `json:"read" gorm:"index"`
+	CreatedAt time.Time        `json:"created_at" gorm:"index"`
 }
 
 func (n *Notification) BeforeCreate(tx *gorm.DB) (err error) {

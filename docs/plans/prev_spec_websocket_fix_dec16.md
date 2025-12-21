@@ -249,6 +249,7 @@ docker logs charon 2>&1 | grep -i "cerberus.*websocket" | tail -10
 ### What the User Observed
 
 The user reported recurring 401 auth failures in Docker logs:
+
 ```
 01:03:10 AUTH 172.20.0.1 GET / → 401 [401] 133.6ms
 { "auth_failure": true }
@@ -304,6 +305,7 @@ case "http", "https":
 ```
 
 Key behaviors:
+
 - Runs every 60 seconds (`interval: 60`)
 - Checks the **public URL** of each proxy host
 - Uses `Go-http-client/2.0` User-Agent (visible in logs)
@@ -409,6 +411,7 @@ if (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == 401 |
 ```
 
 **Rationale:** A 401 response proves:
+
 - The service is running
 - The network path is functional
 - The application is responding
@@ -422,6 +425,7 @@ This is industry-standard practice for uptime monitoring of auth-protected servi
 ### Option A: Do Nothing (Recommended)
 
 The current behavior is correct:
+
 - Docker health checks work ✅
 - Uptime monitoring works ✅
 - Plex is correctly marked as "up" despite 401 ✅

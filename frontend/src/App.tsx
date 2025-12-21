@@ -31,6 +31,7 @@ const RateLimiting = lazy(() => import('./pages/RateLimiting'))
 const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
+const SecurityHeaders = lazy(() => import('./pages/SecurityHeaders'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="security/crowdsec" element={<CrowdSecConfig />} />
               <Route path="security/rate-limiting" element={<RateLimiting />} />
               <Route path="security/waf" element={<WafConfig />} />
+              <Route path="security/headers" element={<SecurityHeaders />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="notifications" element={<Notifications />} />

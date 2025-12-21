@@ -1,4 +1,9 @@
-# 🔧 GitHub Setup Guide
+---
+title: GitHub Setup Guide
+description: Configure GitHub Actions for automatic Docker builds and documentation deployment for Charon.
+---
+
+## GitHub Setup Guide
 
 This guide will help you set up GitHub Actions for automatic Docker builds and documentation deployment.
 

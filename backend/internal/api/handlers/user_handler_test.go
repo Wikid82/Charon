@@ -438,7 +438,7 @@ func TestUserHandler_ListUsers_Admin(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var users []map[string]interface{}
+	var users []map[string]any
 	json.Unmarshal(w.Body.Bytes(), &users)
 	assert.Len(t, users, 2)
 }
@@ -453,7 +453,7 @@ func TestUserHandler_CreateUser_NonAdmin(t *testing.T) {
 	})
 	r.POST("/users", handler.CreateUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email":    "new@example.com",
 		"name":     "New User",
 		"password": "password123",
@@ -477,7 +477,7 @@ func TestUserHandler_CreateUser_Admin(t *testing.T) {
 	})
 	r.POST("/users", handler.CreateUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email":    "newuser@example.com",
 		"name":     "New User",
 		"password": "password123",
@@ -523,7 +523,7 @@ func TestUserHandler_CreateUser_DuplicateEmail(t *testing.T) {
 	})
 	r.POST("/users", handler.CreateUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email":    "existing@example.com",
 		"name":     "New User",
 		"password": "password123",
@@ -551,7 +551,7 @@ func TestUserHandler_CreateUser_WithPermittedHosts(t *testing.T) {
 	})
 	r.POST("/users", handler.CreateUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email":           "withhosts@example.com",
 		"name":            "User With Hosts",
 		"password":        "password123",
@@ -649,7 +649,7 @@ func TestUserHandler_UpdateUser_NonAdmin(t *testing.T) {
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
 
-	body := map[string]interface{}{"name": "Updated"}
+	body := map[string]any{"name": "Updated"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -669,7 +669,7 @@ func TestUserHandler_UpdateUser_InvalidID(t *testing.T) {
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
 
-	body := map[string]interface{}{"name": "Updated"}
+	body := map[string]any{"name": "Updated"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/invalid", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -712,7 +712,7 @@ func TestUserHandler_UpdateUser_NotFound(t *testing.T) {
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
 
-	body := map[string]interface{}{"name": "Updated"}
+	body := map[string]any{"name": "Updated"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/999", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -736,7 +736,7 @@ func TestUserHandler_UpdateUser_Success(t *testing.T) {
 	})
 	r.PUT("/users/:id", handler.UpdateUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name":    "Updated Name",
 		"enabled": true,
 	}
@@ -855,7 +855,7 @@ func TestUserHandler_UpdateUserPermissions_NonAdmin(t *testing.T) {
 	})
 	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
 
-	body := map[string]interface{}{"permission_mode": "allow_all"}
+	body := map[string]any{"permission_mode": "allow_all"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/1/permissions", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -875,7 +875,7 @@ func TestUserHandler_UpdateUserPermissions_InvalidID(t *testing.T) {
 	})
 	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
 
-	body := map[string]interface{}{"permission_mode": "allow_all"}
+	body := map[string]any{"permission_mode": "allow_all"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/invalid/permissions", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -925,7 +925,7 @@ func TestUserHandler_UpdateUserPermissions_NotFound(t *testing.T) {
 	})
 	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
 
-	body := map[string]interface{}{"permission_mode": "allow_all"}
+	body := map[string]any{"permission_mode": "allow_all"}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/users/999/permissions", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -957,7 +957,7 @@ func TestUserHandler_UpdateUserPermissions_Success(t *testing.T) {
 	})
 	r.PUT("/users/:id/permissions", handler.UpdateUserPermissions)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"permission_mode": "deny_all",
 		"permitted_hosts": []uint{host.ID},
 	}
@@ -1069,7 +1069,7 @@ func TestUserHandler_ValidateInvite_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "valid@example.com", resp["email"])
 }
@@ -1249,7 +1249,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 	})
 	r.POST("/users/invite", handler.InviteUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email": "newinvite@example.com",
 		"role":  "user",
 	}
@@ -1261,7 +1261,7 @@ func TestUserHandler_InviteUser_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.NotEmpty(t, resp["invite_token"])
 	// email_sent is false because no SMTP is configured
@@ -1303,7 +1303,7 @@ func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
 	})
 	r.POST("/users/invite", handler.InviteUser)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"email":           "invitee-perms@example.com",
 		"permission_mode": "deny_all",
 		"permitted_hosts": []uint{host.ID},

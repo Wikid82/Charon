@@ -127,13 +127,13 @@ describe('CrowdSecConfig coverage', () => {
 
     vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('boom'))
     renderWithQueryClient(<CrowdSecConfig />)
-    expect(await screen.findByText(/Failed to load security status/)).toBeInTheDocument()
+    expect(await screen.findByText(/Error loading CrowdSec status/)).toBeInTheDocument()
   })
 
   it('handles missing status and missing crowdsec sections', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockRejectedValueOnce(new Error('data is undefined'))
     renderWithQueryClient(<CrowdSecConfig />)
-    expect(await screen.findByText(/Failed to load security status/)).toBeInTheDocument()
+    expect(await screen.findByText(/Error loading CrowdSec status/)).toBeInTheDocument()
 
     cleanup()
 
@@ -152,7 +152,7 @@ describe('CrowdSecConfig coverage', () => {
   it('shows info banner directing to Security Dashboard', async () => {
     await renderPage()
     expect(screen.getByText(/CrowdSec is controlled via the toggle on the/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Security Dashboard/i })).toHaveAttribute('href', '/security')
+    expect(screen.getByRole('link', { name: /Security/i })).toHaveAttribute('href', '/security')
   })
 
   it('guards import without a file and shows error on import failure', async () => {

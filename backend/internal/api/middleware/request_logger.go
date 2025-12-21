@@ -1,8 +1,9 @@
 package middleware
 
 import (
-	"github.com/Wikid82/charon/backend/internal/util"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +15,7 @@ func RequestLogger() gin.HandlerFunc {
 		c.Next()
 		latency := time.Since(start)
 		entry := GetRequestLogger(c)
-		entry.WithFields(map[string]interface{}{
+		entry.WithFields(map[string]any{
 			"status":  c.Writer.Status(),
 			"method":  c.Request.Method,
 			"path":    SanitizePath(c.Request.URL.Path),

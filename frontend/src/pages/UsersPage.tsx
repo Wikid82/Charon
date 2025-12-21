@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -37,6 +38,7 @@ interface InviteModalProps {
 }
 
 function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'user' | 'admin'>('user')
@@ -66,14 +68,14 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
         expiresAt: data.expires_at,
       })
       if (data.email_sent) {
-        toast.success('Invitation email sent')
+        toast.success(t('users.inviteSent'))
       } else {
-        toast.success('User invited - copy the invite link below')
+        toast.success(t('users.inviteCreated'))
       }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to invite user')
+      toast.error(err.response?.data?.error || t('users.inviteFailed'))
     },
   })
 
@@ -81,7 +83,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     if (inviteResult?.token) {
       const link = `${window.location.origin}/accept-invite?token=${inviteResult.token}`
       navigator.clipboard.writeText(link)
-      toast.success('Invite link copied to clipboard')
+      toast.success(t('users.inviteLinkCopied'))
     }
   }
 
@@ -108,7 +110,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
-            Invite User
+            {t('users.inviteUser')}
           </h3>
           <button onClick={handleClose} className="text-gray-400 hover:text-white">
             <X className="h-5 w-5" />
@@ -121,15 +123,15 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
               <div className="bg-green-900/20 border border-green-800 rounded-lg p-4">
                 <div className="flex items-center gap-2 text-green-400 mb-2">
                   <Check className="h-5 w-5" />
-                  <span className="font-medium">User Invited Successfully</span>
+                  <span className="font-medium">{t('users.inviteSuccess')}</span>
                 </div>
                 {inviteResult.emailSent ? (
                   <p className="text-sm text-gray-300">
-                    An invitation email has been sent to the user.
+                    {t('users.inviteEmailSent')}
                   </p>
                 ) : (
                   <p className="text-sm text-gray-300">
-                    Email was not sent. Share the invite link manually.
+                    {t('users.inviteEmailNotSent')}
                   </p>
                 )}
               </div>
@@ -137,7 +139,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
               {!inviteResult.emailSent && (
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-300">
-                    Invite Link
+                    {t('users.inviteLink')}
                   </label>
                   <div className="flex gap-2">
                     <Input
@@ -146,24 +148,24 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                       readOnly
                       className="flex-1 text-sm"
                     />
-                    <Button onClick={copyInviteLink} aria-label="Copy invite link" title="Copy invite link">
+                    <Button onClick={copyInviteLink} aria-label={t('users.copyInviteLink')} title={t('users.copyInviteLink')}>
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
                   <p className="text-xs text-gray-500">
-                    Expires: {new Date(inviteResult.expiresAt).toLocaleString()}
+                    {t('users.expires')}: {new Date(inviteResult.expiresAt).toLocaleString()}
                   </p>
                 </div>
               )}
 
               <Button onClick={handleClose} className="w-full">
-                Done
+                {t('users.done')}
               </Button>
             </div>
           ) : (
             <>
               <Input
-                label="Email Address"
+                label={t('users.emailAddress')}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -172,15 +174,15 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
               <div className="w-full">
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                  Role
+                  {t('users.role')}
                 </label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
+                  <option value="user">{t('users.roleUser')}</option>
+                  <option value="admin">{t('users.roleAdmin')}</option>
                 </select>
               </div>
 
@@ -188,30 +190,30 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                 <>
                   <div className="w-full">
                     <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                      Permission Mode
+                      {t('users.permissionMode')}
                     </label>
                     <select
                       value={permissionMode}
                       onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
                       className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="allow_all">Allow All (Blacklist)</option>
-                      <option value="deny_all">Deny All (Whitelist)</option>
+                      <option value="allow_all">{t('users.allowAllBlacklist')}</option>
+                      <option value="deny_all">{t('users.denyAllWhitelist')}</option>
                     </select>
                     <p className="mt-1 text-xs text-gray-500">
                       {permissionMode === 'allow_all'
-                        ? 'User can access all hosts EXCEPT those selected below'
-                        : 'User can ONLY access hosts selected below'}
+                        ? t('users.allowAllDescription')
+                        : t('users.denyAllDescription')}
                     </p>
                   </div>
 
                   <div className="w-full">
                     <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                      {permissionMode === 'allow_all' ? 'Blocked Hosts' : 'Allowed Hosts'}
+                      {permissionMode === 'allow_all' ? t('users.blockedHosts') : t('users.allowedHosts')}
                     </label>
                     <div className="max-h-48 overflow-y-auto border border-gray-700 rounded-lg">
                       {proxyHosts.length === 0 ? (
-                        <p className="p-3 text-sm text-gray-500">No proxy hosts configured</p>
+                        <p className="p-3 text-sm text-gray-500">{t('users.noProxyHosts')}</p>
                       ) : (
                         proxyHosts.map((host) => (
                           <label
@@ -242,7 +244,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
               <div className="flex gap-3 pt-4 border-t border-gray-700">
                 <Button variant="secondary" onClick={handleClose} className="flex-1">
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   onClick={() => inviteMutation.mutate()}
@@ -251,7 +253,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                   className="flex-1"
                 >
                   <Mail className="h-4 w-4 mr-2" />
-                  Send Invite
+                  {t('users.sendInvite')}
                 </Button>
               </div>
             </>
@@ -270,6 +272,7 @@ interface PermissionsModalProps {
 }
 
 function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModalProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('allow_all')
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
@@ -293,12 +296,12 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('Permissions updated')
+      toast.success(t('users.permissionsUpdated'))
       onClose()
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to update permissions')
+      toast.error(err.response?.data?.error || t('users.permissionsUpdateFailed'))
     },
   })
 
@@ -316,7 +319,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            Edit Permissions - {user.name || user.email}
+            {t('users.editPermissions')} - {user.name || user.email}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
             <X className="h-5 w-5" />
@@ -326,30 +329,30 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
         <div className="p-4 space-y-4">
           <div className="w-full">
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Permission Mode
+              {t('users.permissionMode')}
             </label>
             <select
               value={permissionMode}
               onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="allow_all">Allow All (Blacklist)</option>
-              <option value="deny_all">Deny All (Whitelist)</option>
+              <option value="allow_all">{t('users.allowAllBlacklist')}</option>
+              <option value="deny_all">{t('users.denyAllWhitelist')}</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {permissionMode === 'allow_all'
-                ? 'User can access all hosts EXCEPT those selected below'
-                : 'User can ONLY access hosts selected below'}
+                ? t('users.allowAllDescription')
+                : t('users.denyAllDescription')}
             </p>
           </div>
 
           <div className="w-full">
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              {permissionMode === 'allow_all' ? 'Blocked Hosts' : 'Allowed Hosts'}
+              {permissionMode === 'allow_all' ? t('users.blockedHosts') : t('users.allowedHosts')}
             </label>
             <div className="max-h-64 overflow-y-auto border border-gray-700 rounded-lg">
               {proxyHosts.length === 0 ? (
-                <p className="p-3 text-sm text-gray-500">No proxy hosts configured</p>
+                <p className="p-3 text-sm text-gray-500">{t('users.noProxyHosts')}</p>
               ) : (
                 proxyHosts.map((host) => (
                   <label
@@ -378,14 +381,14 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
 
           <div className="flex gap-3 pt-4 border-t border-gray-700">
             <Button variant="secondary" onClick={onClose} className="flex-1">
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={() => updatePermissionsMutation.mutate()}
               isLoading={updatePermissionsMutation.isPending}
               className="flex-1"
             >
-              Save Permissions
+              {t('users.savePermissions')}
             </Button>
           </div>
         </div>
@@ -395,6 +398,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
 }
 
 export default function UsersPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false)
@@ -416,11 +420,11 @@ export default function UsersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('User updated')
+      toast.success(t('users.userUpdated'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to update user')
+      toast.error(err.response?.data?.error || t('users.userUpdateFailed'))
     },
   })
 
@@ -428,11 +432,11 @@ export default function UsersPage() {
     mutationFn: deleteUser,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('User deleted')
+      toast.success(t('users.userDeleted'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to delete user')
+      toast.error(err.response?.data?.error || t('users.userDeleteFailed'))
     },
   })
 
@@ -454,11 +458,11 @@ export default function UsersPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Users className="h-6 w-6 text-blue-500" />
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">User Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('users.title')}</h1>
         </div>
         <Button onClick={() => setInviteModalOpen(true)}>
           <UserPlus className="h-4 w-4 mr-2" />
-          Invite User
+          {t('users.inviteUser')}
         </Button>
       </div>
 
@@ -467,12 +471,12 @@ export default function UsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-800">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">User</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Role</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Permissions</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Enabled</th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">Actions</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnUser')}</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnRole')}</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.status')}</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnPermissions')}</th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.enabled')}</th>
+                <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -480,7 +484,7 @@ export default function UsersPage() {
                 <tr key={user.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                   <td className="py-3 px-4">
                     <div>
-                      <p className="text-sm font-medium text-white">{user.name || '(No name)'}</p>
+                      <p className="text-sm font-medium text-white">{user.name || t('users.noName')}</p>
                       <p className="text-xs text-gray-500">{user.email}</p>
                     </div>
                   </td>
@@ -499,23 +503,23 @@ export default function UsersPage() {
                     {user.invite_status === 'pending' ? (
                       <span className="inline-flex items-center gap-1 text-yellow-400 text-xs">
                         <Clock className="h-3 w-3" />
-                        Pending Invite
+                        {t('users.pendingInvite')}
                       </span>
                     ) : user.invite_status === 'expired' ? (
                       <span className="inline-flex items-center gap-1 text-red-400 text-xs">
                         <AlertCircle className="h-3 w-3" />
-                        Invite Expired
+                        {t('users.inviteExpired')}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-green-400 text-xs">
                         <Check className="h-3 w-3" />
-                        Active
+                        {t('common.active')}
                       </span>
                     )}
                   </td>
                   <td className="py-3 px-4">
                     <span className="text-xs text-gray-400">
-                      {user.permission_mode === 'deny_all' ? 'Whitelist' : 'Blacklist'}
+                      {user.permission_mode === 'deny_all' ? t('users.whitelist') : t('users.blacklist')}
                     </span>
                   </td>
                   <td className="py-3 px-4">
@@ -536,19 +540,19 @@ export default function UsersPage() {
                         <button
                           onClick={() => openPermissions(user)}
                           className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded"
-                          title="Edit Permissions"
+                          title={t('users.editPermissions')}
                         >
                           <Settings className="h-4 w-4" />
                         </button>
                       )}
                       <button
                         onClick={() => {
-                          if (confirm('Are you sure you want to delete this user?')) {
+                          if (confirm(t('users.deleteConfirm'))) {
                             deleteMutation.mutate(user.id)
                           }
                         }}
                         className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded"
-                        title="Delete User"
+                        title={t('users.deleteUser')}
                         disabled={user.role === 'admin'}
                       >
                         <Trash2 className="h-4 w-4" />

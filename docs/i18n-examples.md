@@ -1,8 +1,13 @@
-# i18n Implementation Examples
+---
+title: i18n Implementation Examples
+description: Developer guide for implementing internationalization in Charon React components using react-i18next.
+---
+
+## i18n Implementation Examples
 
 This document shows examples of how to use translations in Charon components.
 
-## Basic Usage
+### Basic Usage
 
 ### Using the `useTranslation` Hook
 

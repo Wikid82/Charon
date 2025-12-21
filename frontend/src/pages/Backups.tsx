@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from '../utils/toast'
 import { getBackups, createBackup, restoreBackup, deleteBackup, BackupFile } from '../api/backups'
@@ -31,6 +32,7 @@ const formatSize = (bytes: number): string => {
 }
 
 export default function Backups() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [interval, setInterval] = useState('7')
   const [retention, setRetention] = useState('30')
@@ -61,10 +63,10 @@ export default function Backups() {
     mutationFn: createBackup,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.success('Backup created successfully')
+      toast.success(t('backups.createSuccess'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to create backup: ${error.message}`)
+      toast.error(t('backups.createFailed', { error: error.message }))
     },
   })
 
@@ -72,10 +74,10 @@ export default function Backups() {
     mutationFn: restoreBackup,
     onSuccess: () => {
       setRestoreConfirm(null)
-      toast.success('Backup restored successfully. Please restart the container.')
+      toast.success(t('backups.restoreSuccess'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to restore backup: ${error.message}`)
+      toast.error(t('backups.restoreFailed', { error: error.message }))
     },
   })
 
@@ -84,10 +86,10 @@ export default function Backups() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       setDeleteConfirm(null)
-      toast.success('Backup deleted successfully')
+      toast.success(t('backups.deleteSuccess'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to delete backup: ${error.message}`)
+      toast.error(t('backups.deleteFailed', { error: error.message }))
     },
   })
 
@@ -98,10 +100,10 @@ export default function Backups() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success('Backup settings saved')
+      toast.success(t('backups.settingsSaved'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to save settings: ${error.message}`)
+      toast.error(t('backups.settingsFailed', { error: error.message }))
     },
   })
 
@@ -114,7 +116,7 @@ export default function Backups() {
   const columns: Column<BackupFile>[] = [
     {
       key: 'filename',
-      header: 'Filename',
+      header: t('backups.filename'),
       sortable: true,
       cell: (backup) => (
         <span className="font-medium text-content-primary">{backup.filename}</span>
@@ -122,7 +124,7 @@ export default function Backups() {
     },
     {
       key: 'size',
-      header: 'Size',
+      header: t('backups.size'),
       sortable: true,
       cell: (backup) => (
         <Badge variant="outline" size="sm">{formatSize(backup.size)}</Badge>
@@ -130,7 +132,7 @@ export default function Backups() {
     },
     {
       key: 'time',
-      header: 'Created At',
+      header: t('backups.createdAt'),
       sortable: true,
       cell: (backup) => (
         <span className="text-content-secondary">
@@ -140,26 +142,26 @@ export default function Backups() {
     },
     {
       key: 'type',
-      header: 'Type',
+      header: t('common.type'),
       cell: (backup) => {
         const isAuto = backup.filename.includes('auto')
         return (
           <Badge variant={isAuto ? 'default' : 'primary'} size="sm">
-            {isAuto ? 'Auto' : 'Manual'}
+            {isAuto ? t('backups.auto') : t('backups.manual')}
           </Badge>
         )
       },
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('common.actions'),
       cell: (backup) => (
         <div className="flex items-center justify-end gap-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => handleDownload(backup.filename)}
-            title="Download"
+            title={t('backups.download')}
           >
             <Download className="w-4 h-4" />
           </Button>
@@ -167,7 +169,7 @@ export default function Backups() {
             variant="ghost"
             size="sm"
             onClick={() => setRestoreConfirm(backup)}
-            title="Restore"
+            title={t('backups.restore')}
             disabled={restoreMutation.isPending}
           >
             <RotateCcw className="w-4 h-4" />
@@ -176,7 +178,7 @@ export default function Backups() {
             variant="ghost"
             size="sm"
             onClick={() => setDeleteConfirm(backup)}
-            title="Delete"
+            title={t('common.delete')}
             disabled={deleteMutation.isPending}
           >
             <Trash2 className="w-4 h-4 text-error" />
@@ -190,32 +192,32 @@ export default function Backups() {
   const headerActions = (
     <Button onClick={() => createMutation.mutate()} isLoading={createMutation.isPending}>
       <Plus className="w-4 h-4 mr-2" />
-      Create Backup
+      {t('backups.createBackup')}
     </Button>
   )
 
   return (
     <PageShell
-      title="Backups"
-      description="Manage database backups"
+      title={t('backups.title')}
+      description={t('backups.description')}
       actions={headerActions}
     >
       {/* Settings Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Configuration</CardTitle>
+          <CardTitle>{t('backups.configuration')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <Input
-              label="Backup Interval (Days)"
+              label={t('backups.intervalDays')}
               type="number"
               value={interval}
               onChange={(e) => setInterval(e.target.value)}
               min="1"
             />
             <Input
-              label="Retention Period (Days)"
+              label={t('backups.retentionDays')}
               type="number"
               value={retention}
               onChange={(e) => setRetention(e.target.value)}
@@ -226,7 +228,7 @@ export default function Backups() {
               isLoading={saveSettingsMutation.isPending}
             >
               <Save className="w-4 h-4 mr-2" />
-              Save Settings
+              {t('backups.saveSettings')}
             </Button>
           </div>
         </CardContent>
@@ -238,10 +240,10 @@ export default function Backups() {
       ) : !backups || backups.length === 0 ? (
         <EmptyState
           icon={<Archive className="h-12 w-12" />}
-          title="No Backups"
-          description="Create your first backup to protect your configuration"
+          title={t('backups.noBackups')}
+          description={t('backups.noBackupsDescription')}
           action={{
-            label: 'Create Backup',
+            label: t('backups.createBackup'),
             onClick: () => createMutation.mutate(),
           }}
         />
@@ -253,10 +255,10 @@ export default function Backups() {
           emptyState={
             <EmptyState
               icon={<Archive className="h-12 w-12" />}
-              title="No Backups"
-              description="Create your first backup to protect your configuration"
+              title={t('backups.noBackups')}
+              description={t('backups.noBackupsDescription')}
               action={{
-                label: 'Create Backup',
+                label: t('backups.createBackup'),
                 onClick: () => createMutation.mutate(),
               }}
             />
@@ -268,22 +270,21 @@ export default function Backups() {
       <Dialog open={restoreConfirm !== null} onOpenChange={() => setRestoreConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Restore Backup</DialogTitle>
+            <DialogTitle>{t('backups.restoreBackup')}</DialogTitle>
           </DialogHeader>
           <p className="text-content-secondary py-4">
-            Are you sure you want to restore this backup? Current data will be overwritten.
-            You will need to restart the container after restoration.
+            {t('backups.restoreConfirmMessage')}
           </p>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setRestoreConfirm(null)} disabled={restoreMutation.isPending}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
               onClick={() => restoreConfirm && restoreMutation.mutate(restoreConfirm.filename)}
               isLoading={restoreMutation.isPending}
             >
-              Restore
+              {t('backups.restore')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -293,21 +294,21 @@ export default function Backups() {
       <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Backup</DialogTitle>
+            <DialogTitle>{t('backups.deleteBackup')}</DialogTitle>
           </DialogHeader>
           <p className="text-content-secondary py-4">
-            Are you sure you want to delete &quot;{deleteConfirm?.filename}&quot;? This action cannot be undone.
+            {t('backups.deleteConfirmMessage', { filename: deleteConfirm?.filename })}
           </p>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.filename)}
               isLoading={deleteMutation.isPending}
             >
-              Delete
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

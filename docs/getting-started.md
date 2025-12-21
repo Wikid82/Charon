@@ -1,4 +1,9 @@
-# Getting Started with Charon
+---
+title: Getting Started with Charon
+description: Get your first website up and running in minutes. A beginner-friendly guide to setting up Charon reverse proxy.
+---
+
+## Getting Started with Charon
 
 **Welcome!** Let's get your first website up and running. No experience needed.
 
@@ -80,6 +85,7 @@ Run the migration command if:
 - ✅ CrowdSec features aren't working after upgrade
 
 **Skip this step if:**
+
 - ❌ This is a fresh installation (migrations run automatically)
 - ❌ You're not using persistent storage
 
@@ -164,9 +170,22 @@ Let's say you have an app running at `192.168.1.100:3000` and you want it availa
    - **Forward To:** `192.168.1.100`
    - **Port:** `3000`
    - **Scheme:** `http` (or `https` if your app already has SSL)
+   - **Enable Standard Proxy Headers:** ✅ (recommended — allows your app to see the real client IP)
 4. **Click "Save"**
 
 **Done!** When someone visits `myapp.example.com`, they'll see your app.
+
+### What Are Standard Proxy Headers?
+
+By default (and recommended), Charon adds special headers to requests so your app knows:
+
+- **The real client IP address** (instead of seeing Charon's IP)
+- **Whether the original connection was HTTPS** (for proper security and redirects)
+- **The original hostname** (for virtual host routing)
+
+**When to disable:** Only turn this off for legacy applications that don't understand these headers.
+
+**Learn more:** See [Standard Proxy Headers](features.md#-standard-proxy-headers) in the features guide.
 
 ---
 
