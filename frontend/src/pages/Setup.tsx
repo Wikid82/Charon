@@ -127,6 +127,7 @@ const Setup: FC = () => {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className={emailValid === false ? 'border-red-500 focus:ring-red-500' : emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
+                autoComplete="email"
               />
               {emailValid === false && (
                 <p className="mt-1 text-xs text-red-500">{t('setup.invalidEmail')}</p>
@@ -142,6 +143,7 @@ const Setup: FC = () => {
                 placeholder="••••••••"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                autoComplete="new-password"
               />
               <PasswordStrengthMeter password={formData.password} />
             </div>

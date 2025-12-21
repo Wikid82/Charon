@@ -285,6 +285,69 @@ Absolutely. Charon can even detect them automatically:
 
 ---
 
+## Common Development Warnings
+
+### Expected Browser Console Warnings
+
+When developing locally, you may encounter these browser warnings. They are **normal and safe to ignore** in development mode:
+
+#### COOP Warning on HTTP Non-Localhost IPs
+
+```
+Cross-Origin-Opener-Policy policy would block the window.closed call.
+```
+
+**When you'll see this:**
+
+- Accessing Charon via HTTP (not HTTPS)
+- Using a non-localhost IP address (e.g., `http://192.168.1.100:8080`)
+- Testing from a different device on your local network
+
+**Why it appears:**
+
+- COOP header is disabled in development mode for convenience
+- Browsers enforce stricter security checks on HTTP connections to non-localhost IPs
+- This protection is enabled automatically in production HTTPS mode
+
+**What to do:** Nothing! This is expected behavior. The warning disappears when you deploy to production with HTTPS.
+
+**Learn more:** See [COOP Behavior](security.md#coop-cross-origin-opener-policy-behavior) in the security documentation.
+
+#### 401 Errors During Authentication Checks
+
+```
+GET /api/auth/me → 401 Unauthorized
+```
+
+**When you'll see this:**
+
+- Opening Charon before logging in
+- Session expired or cookies cleared
+- Browser making auth validation requests
+
+**Why it appears:**
+
+- Charon checks authentication status on page load
+- 401 responses are the expected way to indicate "not authenticated"
+- The frontend handles this gracefully by showing the login page
+
+**What to do:** Nothing! This is normal application behavior. Once you log in, these errors stop appearing.
+
+**Learn more:** See [Authentication Flow](README.md#authentication-flow) for details on how Charon validates user sessions.
+
+### Development Mode Behavior
+
+**Features that behave differently in development:**
+
+- **Security Headers:** COOP, HSTS disabled on HTTP
+- **Cookies:** `Secure` flag not set (allows HTTP cookies)
+- **CORS:** More permissive for local testing
+- **Logging:** More verbose debugging output
+
+**Production mode automatically enables full security** when accessed over HTTPS.
+
+---
+
 ## What's Next?
 
 Now that you have the basics:

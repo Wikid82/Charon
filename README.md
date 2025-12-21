@@ -168,6 +168,61 @@ This ensures security features (especially CrowdSec) work correctly.
 
 ---
 
+## Authentication Flow
+
+### How Authentication Works
+
+Charon uses a **three-tier authentication system** to validate user sessions:
+
+1. **Authorization Header** (`Authorization: Bearer <token>`) — Checked first
+2. **HTTP Cookie** (`authToken`) — Checked if no header present
+3. **Query Parameter** (`?token=<token>`) — Fallback for WebSocket connections
+
+### Expected 401 Responses
+
+When you first access Charon or your session expires, you'll see this in the browser console:
+
+```
+GET /api/auth/me → 401 Unauthorized
+```
+
+**This is normal and expected behavior.** Here's why:
+
+- The frontend checks authentication status on page load
+- If you're not logged in, the API returns 401
+- The frontend receives this response and shows the login page
+- Once you log in, the 401 errors disappear
+
+**Development tip:** These 401 responses are not errors—they're the API's way of saying "authentication required." Modern SPAs (Single Page Applications) expect and handle these responses gracefully.
+
+### Authentication Verification
+
+After logging in, Charon validates your session on every API request:
+
+```
+GET /api/auth/me → 200 OK
+```
+
+**Response includes:**
+
+- User ID and username
+- Role and permissions
+- Session expiration time
+
+**Token refresh:** Sessions automatically extend on activity. The default session timeout is 24 hours.
+
+### Security Considerations
+
+- ✅ All authentication tokens use cryptographically secure random generation
+- ✅ Tokens are hashed before storage in the database
+- ✅ Sessions expire after inactivity
+- ✅ HTTPS enforces `Secure` cookie attributes in production
+- ✅ `HttpOnly` flag prevents JavaScript access to auth cookies
+
+**Learn more:** See [Security Features](https://wikid82.github.io/charon/security) for complete authentication and authorization documentation.
+
+---
+
 ## Agent Skills
 
 Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable, executable development tasks. Skills are self-documenting task definitions that can be executed by both humans and AI assistants like GitHub Copilot.
