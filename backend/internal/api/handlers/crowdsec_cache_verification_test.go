@@ -47,17 +47,17 @@ func TestListPresetsShowsCachedStatus(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(resp.Body.Bytes(), &result)
 	require.NoError(t, err)
 
-	presets := result["presets"].([]interface{})
+	presets := result["presets"].([]any)
 	require.NotEmpty(t, presets, "Should have at least one preset")
 
 	// Find our cached preset
 	found := false
 	for _, p := range presets {
-		preset := p.(map[string]interface{})
+		preset := p.(map[string]any)
 		if preset["slug"] == "test/cached" {
 			found = true
 			require.True(t, preset["cached"].(bool), "Preset should be marked as cached")

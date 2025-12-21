@@ -15,6 +15,13 @@ on:
       - 'backend/**'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25.5'
+
 permissions:
   contents: write
   deployments: write
@@ -29,7 +36,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6
         with:
-          go-version: '1.25.5'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: backend/go.sum
 
       - name: Run Benchmark
@@ -40,7 +47,8 @@ jobs:
         # Only store results on pushes to main - PRs just run benchmarks without storage
         # This avoids gh-pages branch errors and permission issues on fork PRs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: benchmark-action/github-action-benchmark@v1
+        # Security: Pinned to full SHA for supply chain security
+        uses: benchmark-action/github-action-benchmark@4e0b38bc48375986542b13c0d8976b7b80c60c00 # v1
         with:
           name: Go Benchmark
           tool: 'go'

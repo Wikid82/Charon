@@ -9,6 +9,15 @@
 # Usage: ./scripts/db-recovery.sh [--force]
 #   --force: Skip confirmation prompts
 #
+
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh utility-db-recovery
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh utility-db-recovery" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
 # Exit codes:
 #   0 - Success (database healthy or recovered)
 #   1 - Failure (recovery failed or prerequisites missing)

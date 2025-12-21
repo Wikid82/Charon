@@ -160,7 +160,7 @@ func (s *ConsoleEnrollmentService) Enroll(ctx context.Context, req ConsoleEnroll
 	}
 	// If already enrolled or pending acceptance, skip unless Force is set
 	if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
-		logger.Log().WithFields(map[string]interface{}{
+		logger.Log().WithFields(map[string]any{
 			"status":     rec.Status,
 			"agent_name": rec.AgentName,
 			"tenant":     rec.Tenant,

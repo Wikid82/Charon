@@ -11,6 +11,7 @@
 Successfully implemented app-level CrowdSec configuration for Caddy, moving from inline handler configuration to the proper `apps.crowdsec` section as required by the caddy-crowdsec-bouncer plugin.
 
 **Key Changes:**
+
 - ✅ Added `CrowdSecApp` struct to `backend/internal/caddy/types.go`
 - ✅ Populated `config.Apps.CrowdSec` in `GenerateConfig` when enabled
 - ✅ Simplified handler to minimal `{"handler": "crowdsec"}`
@@ -92,10 +93,12 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 ### 4. Test Updates
 
 **Files Updated:**
+
 - `backend/internal/caddy/config_crowdsec_test.go` - All handler tests updated to expect minimal structure
 - `backend/internal/caddy/config_generate_additional_test.go` - Config generation test updated to check app-level config
 
 **Key Test Changes:**
+
 - Handlers no longer have inline `lapi_url`, `api_key` fields
 - Tests verify `config.Apps.CrowdSec` is populated correctly
 - Tests verify handler is minimal `{"handler": "crowdsec"}`
@@ -171,6 +174,7 @@ cd backend && go test ./internal/caddy/... -run "CrowdSec" -v
 ```
 
 **Results:**
+
 - ✅ `TestBuildCrowdSecHandler_Disabled`
 - ✅ `TestBuildCrowdSecHandler_EnabledWithoutConfig`
 - ✅ `TestBuildCrowdSecHandler_EnabledWithEmptyAPIURL`
@@ -204,7 +208,8 @@ To verify in a running container:
 ### 1. Enable CrowdSec
 
 Via Security dashboard UI:
-1. Navigate to http://localhost:8080/security
+
+1. Navigate to <http://localhost:8080/security>
 2. Toggle "CrowdSec" ON
 3. Click "Save"
 
@@ -215,6 +220,7 @@ docker exec charon curl -s http://localhost:2019/config/ | jq '.apps.crowdsec'
 ```
 
 **Expected Output:**
+
 ```json
 {
   "api_url": "http://127.0.0.1:8085",
@@ -232,6 +238,7 @@ docker exec charon curl -s http://localhost:2019/config/ | \
 ```
 
 **Expected Output:**
+
 ```json
 {
   "handler": "crowdsec"
@@ -249,11 +256,13 @@ docker exec charon cscli bouncers list
 ### 5. Test Blocking
 
 Add test ban:
+
 ```bash
 docker exec charon cscli decisions add --ip 10.255.255.250 --duration 5m --reason "app-level test"
 ```
 
 Test request:
+
 ```bash
 curl -H "X-Forwarded-For: 10.255.255.250" http://localhost/ -v
 ```
@@ -261,15 +270,17 @@ curl -H "X-Forwarded-For: 10.255.255.250" http://localhost/ -v
 **Expected:** 403 Forbidden with `X-Crowdsec-Decision` header
 
 Cleanup:
+
 ```bash
 docker exec charon cscli decisions delete --ip 10.255.255.250
 ```
 
 ### 6. Check Security Logs
 
-Navigate to http://localhost:8080/security/logs
+Navigate to <http://localhost:8080/security/logs>
 
 **Expected:** Blocked entry with:
+
 - `source: "crowdsec"`
 - `blocked: true`
 - `X-Crowdsec-Decision: "ban"`
@@ -287,6 +298,7 @@ Can be overridden via `SecurityConfig.CrowdSecAPIURL` in database.
 ### API Key
 
 Read from environment variables in order:
+
 1. `CROWDSEC_API_KEY`
 2. `CROWDSEC_BOUNCER_API_KEY`
 3. `CERBERUS_SECURITY_CROWDSEC_API_KEY`
@@ -314,6 +326,7 @@ Maintains persistent connection to LAPI for real-time decision updates (no polli
 ### 1. Proper Plugin Integration
 
 App-level configuration is the correct way to configure Caddy plugins that need global state. The bouncer plugin can now:
+
 - Maintain a single LAPI connection across all routes
 - Share decision cache across all virtual hosts
 - Properly initialize streaming mode
@@ -321,6 +334,7 @@ App-level configuration is the correct way to configure Caddy plugins that need 
 ### 2. Performance
 
 Single LAPI connection instead of per-route connections:
+
 - Reduced memory footprint
 - Lower LAPI load
 - Faster startup time
@@ -328,12 +342,14 @@ Single LAPI connection instead of per-route connections:
 ### 3. Maintainability
 
 Clear separation of concerns:
+
 - App config: Global CrowdSec settings
 - Handler config: Which routes use CrowdSec (minimal reference)
 
 ### 4. Consistency
 
 Matches other Caddy apps (HTTP, TLS) structure:
+
 ```json
 {
   "apps": {
@@ -353,6 +369,7 @@ Matches other Caddy apps (HTTP, TLS) structure:
 **Cause:** CrowdSec not enabled in SecurityConfig
 
 **Solution:**
+
 ```bash
 # Check current mode
 docker exec charon curl http://localhost:8080/api/v1/admin/security/config
@@ -363,11 +380,13 @@ docker exec charon curl http://localhost:8080/api/v1/admin/security/config
 ### Bouncer Not Registering
 
 **Possible Causes:**
+
 1. LAPI not running: `docker exec charon ps aux | grep crowdsec`
 2. API key missing: `docker exec charon env | grep CROWDSEC`
 3. Network issue: `docker exec charon curl http://127.0.0.1:8085/health`
 
 **Debug:**
+
 ```bash
 # Check Caddy logs
 docker logs charon 2>&1 | grep -i "crowdsec"
@@ -381,6 +400,7 @@ docker exec charon tail -f /app/data/crowdsec/log/crowdsec.log
 **Cause:** Using old Docker image
 
 **Solution:**
+
 ```bash
 # Rebuild
 docker build -t charon:local .

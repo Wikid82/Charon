@@ -340,8 +340,8 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     const bulkDeleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement
     await userEvent.click(bulkDeleteButton)
 
-    // Confirm in bulk delete modal
-    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Hosts/)).toBeTruthy())
+    // Confirm in bulk delete modal - text uses pluralized form "Proxy Host(s)"
+    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Host/)).toBeTruthy())
     const deletePermBtn = screen.getByRole('button', { name: /Delete Permanently/i })
     await userEvent.click(deletePermBtn)
 
@@ -404,8 +404,8 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     const bulkDeleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement
     await userEvent.click(bulkDeleteButton)
 
-    // Confirm in modal
-    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Hosts/)).toBeTruthy())
+    // Confirm in modal - text uses pluralized form "Proxy Host(s)"
+    await waitFor(() => expect(screen.getByText(/Delete 2 Proxy Host/)).toBeTruthy())
     const deletePermBtn = screen.getByRole('button', { name: /Delete Permanently/i })
     await userEvent.click(deletePermBtn)
 

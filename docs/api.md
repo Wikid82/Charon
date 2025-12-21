@@ -1,4 +1,9 @@
-# API Documentation
+---
+title: API Documentation
+description: Complete REST API reference for Charon. Includes endpoints for proxy hosts, certificates, security, and more.
+---
+
+## API Documentation
 
 Charon REST API documentation. All endpoints return JSON and use standard HTTP status codes.
 
@@ -341,6 +346,7 @@ GET /proxy-hosts
     "block_exploits": true,
     "websocket_support": false,
     "enabled": true,
+    "enable_standard_headers": true,
     "remote_server_id": null,
     "created_at": "2025-01-18T10:00:00Z",
     "updated_at": "2025-01-18T10:00:00Z"
@@ -370,6 +376,7 @@ GET /proxy-hosts/:uuid
   "ssl_forced": true,
   "websocket_support": false,
   "enabled": true,
+  "enable_standard_headers": true,
   "created_at": "2025-01-18T10:00:00Z",
   "updated_at": "2025-01-18T10:00:00Z"
 }
@@ -405,6 +412,7 @@ Content-Type: application/json
   "block_exploits": true,
   "websocket_support": false,
   "enabled": true,
+  "enable_standard_headers": true,
   "remote_server_id": null
 }
 ```
@@ -425,6 +433,9 @@ Content-Type: application/json
 - `block_exploits` - Default: `true`
 - `websocket_support` - Default: `false`
 - `enabled` - Default: `true`
+- `enable_standard_headers` - Default: `true` (for new hosts), `false` (for existing hosts migrated from older versions)
+  - When `true`: Adds X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-Port headers
+  - When `false`: Old behavior (headers only added for WebSocket or application-specific needs)
 - `remote_server_id` - Default: `null`
 
 **Response 201:**
@@ -435,6 +446,7 @@ Content-Type: application/json
   "domain": "new.example.com",
   "forward_scheme": "http",
   "forward_host": "localhost",
+  "enable_standard_headers": true,
   "forward_port": 3000,
   "created_at": "2025-01-18T10:05:00Z",
   "updated_at": "2025-01-18T10:05:00Z"

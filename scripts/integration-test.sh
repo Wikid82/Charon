@@ -2,6 +2,15 @@
 set -e
 set -o pipefail
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh integration-test-all
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh integration-test-all" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Fail entire script if it runs longer than 4 minutes (240 seconds)
 # This prevents CI hangs from indefinite waits
 TIMEOUT=${INTEGRATION_TEST_TIMEOUT:-240}

@@ -1,6 +1,11 @@
-# CrowdSec Control Migration Guide
+---
+title: CrowdSec Control Migration Guide
+description: Migration guide for upgrading Charon from environment variable to GUI-controlled CrowdSec configuration.
+---
 
-## What Changed in Version 2.0
+## CrowdSec Control Migration Guide
+
+### What Changed in Version 2.0
 
 **Before (v1.x):** CrowdSec was controlled by environment variables like `CHARON_SECURITY_CROWDSEC_MODE`.
 

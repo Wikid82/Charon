@@ -13,6 +13,7 @@
 **Critical Blocker:** The caddy-crowdsec-bouncer plugin rejects ALL field name variants tested in JSON configuration, completely preventing traffic blocking functionality.
 
 **Current Status:**
+
 - ✅ CrowdSec LAPI running correctly (port 8085) ✅ Bouncer API key generated
 - ❌ **ZERO bouncers registered** (`cscli bouncers list` empty)
 - ❌ **Plugin rejects config:** "json: unknown field" errors for `api_url`, `lapi_url`, `crowdsec_lapi_url`
@@ -46,6 +47,7 @@ func buildWAFHandler(...) (Handler, error) {
 ```
 
 **Generated JSON (verified working):**
+
 ```json
 {
   "handle": [
@@ -75,6 +77,7 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
 ```
 
 **Critical Observations:**
+
 1. **No version pinning:** Building from `main` branch (unstable)
 2. **Plugin source:** `github.com/hslatman/caddy-crowdsec-bouncer`
 3. **Build method:** xcaddy (builds custom Caddy with plugins)
@@ -86,7 +89,7 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
 
 ### 1.3 Evidence from Caddyfile Documentation
 
-**Source:** Plugin README (https://github.com/hslatman/caddy-crowdsec-bouncer)
+**Source:** Plugin README (<https://github.com/hslatman/caddy-crowdsec-bouncer>)
 
 ```caddyfile
 {
@@ -101,11 +104,13 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
 ```
 
 **Critical Observations:**
+
 1. This is **app-level configuration** (inside global options block `{ }`)
 2. **NOT handler-level** (not inside route handlers)
 3. **Caddyfile directive names ≠ JSON field names** (common Caddy pattern)
 
 **Primary Hypothesis:** CrowdSec requires app-level configuration structure:
+
 ```json
 {
   "apps": {
@@ -129,14 +134,15 @@ Handler becomes minimal reference: `{"handler": "crowdsec"}`
 ```go
 // Apps contains all Caddy app modules.
 type Apps struct {
-	HTTP *HTTPApp `json:"http,omitempty"`
-	TLS  *TLSApp  `json:"tls,omitempty"`
+ HTTP *HTTPApp `json:"http,omitempty"`
+ TLS  *TLSApp  `json:"tls,omitempty"`
 }
 ```
 
 **Problem:** Our `Apps` struct only supports `http` and `tls`, not `crowdsec`.
 
 **If app-level config is required (Hypothesis 1):**
+
 - Must extend `Apps` struct with `CrowdSec *CrowdSecApp`
 - Define the CrowdSecApp configuration schema
 - Generate app config at same level as HTTP/TLS
@@ -163,6 +169,7 @@ type SomeHandler struct {
 ```
 
 **Examples in our build:**
+
 - **caddy-security:** Has app-level config for OAuth/SAML, handlers reference it
 - **CrowdSec bouncer:** Likely follows same pattern (hypothesis)
 
@@ -177,6 +184,7 @@ type SomeHandler struct {
 **Estimated Time:** 30-45 minutes
 
 #### Theory
+
 Plugin expects configuration in the `apps` section of Caddy JSON config, with handler being just a reference/trigger.
 
 #### Expected JSON Structure
@@ -198,6 +206,7 @@ Plugin expects configuration in the `apps` section of Caddy JSON config, with ha
 ```
 
 Handler becomes:
+
 ```json
 {
   "handler": "crowdsec"
@@ -328,30 +337,37 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 #### Verification Steps
 
 1. **Run unit tests:**
+
    ```bash
    cd backend
    go test ./internal/caddy/... -v -run TestCrowdSec
    ```
 
 2. **Rebuild Docker image:**
+
    ```bash
    docker build --no-cache -t charon:local .
    docker compose -f docker-compose.override.yml up -d
    ```
 
 3. **Check Caddy logs for errors:**
+
    ```bash
    docker logs charon 2>&1 | grep -i "json: unknown field"
    ```
+
    Expected: No errors
 
 4. **Verify bouncer registration:**
+
    ```bash
    docker exec charon cscli bouncers list
    ```
+
    Expected: `caddy-bouncer` appears with recent `last_pull` timestamp
 
 5. **Test blocking:**
+
    ```bash
    # Add test block
    docker exec charon cscli decisions add --ip 1.2.3.4 --duration 1h --reason "Test"
@@ -359,6 +375,7 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
    # Test request (simulate from blocked IP)
    curl -H "X-Forwarded-For: 1.2.3.4" http://localhost/
    ```
+
    Expected: 403 Forbidden
 
 6. **Check Security Logs in UI:**
@@ -375,6 +392,7 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 #### Rollback Plan
 
 If this hypothesis fails:
+
 1. Revert changes to `types.go` and `config.go`
 2. Restore original `buildCrowdSecHandler()` implementation
 3. Proceed to Hypothesis 2
@@ -388,6 +406,7 @@ If this hypothesis fails:
 **Estimated Time:** 15 minutes
 
 #### Theory
+
 Plugin accepts inline handler config, but with different/undocumented field names.
 
 #### Variants to Test Sequentially
@@ -424,9 +443,11 @@ Handler{
 ```
 
 #### Implementation
+
 Test each variant by modifying `buildCrowdSecHandler()`, rebuild, check Caddy logs.
 
 #### Success Criteria
+
 Any variant that doesn't produce "json: unknown field" error.
 
 ---
@@ -438,6 +459,7 @@ Any variant that doesn't produce "json: unknown field" error.
 **Estimated Time:** 20 minutes
 
 #### Theory
+
 Configuration goes under `apps.http.crowdsec` instead of separate `apps.crowdsec`.
 
 #### Expected Structure
@@ -478,6 +500,7 @@ Populate in `GenerateConfig()` before creating servers.
 **Estimated Time:** 2-4 hours
 
 #### Theory
+
 Latest plugin version (from `main` branch) broke JSON API compatibility.
 
 #### Investigation Steps
@@ -488,6 +511,7 @@ Latest plugin version (from `main` branch) broke JSON API compatibility.
    - Review pull requests for API changes
 
 2. **Clone and analyze source:**
+
    ```bash
    git clone https://github.com/hslatman/caddy-crowdsec-bouncer /tmp/plugin
    cd /tmp/plugin
@@ -501,11 +525,13 @@ Latest plugin version (from `main` branch) broke JSON API compatibility.
 
 3. **Test with older version:**
    Modify Dockerfile to pin specific version:
+
    ```dockerfile
    --with github.com/hslatman/caddy-crowdsec-bouncer@v0.4.0
    ```
 
 #### Success Criteria
+
 Find exact JSON schema from source code or older version that works.
 
 ---
@@ -517,6 +543,7 @@ Find exact JSON schema from source code or older version that works.
 ### Steps
 
 1. **Create test Caddyfile:**
+
    ```bash
    docker exec charon sh -c 'cat > /tmp/test.caddyfile << "EOF"
    {
@@ -534,6 +561,7 @@ Find exact JSON schema from source code or older version that works.
    ```
 
 2. **Convert to JSON:**
+
    ```bash
    docker exec charon caddy adapt --config /tmp/test.caddyfile --pretty
    ```
@@ -569,6 +597,7 @@ docker exec charon cscli bouncers list
 ```
 
 **Expected output:**
+
 ```
 ┌──────────────┬──────────────────────────┬─────────┬───────────────────────┬───────────┐
 │     Name     │         API Key          │ Revoked │     Last Pull         │  Type     │
@@ -605,6 +634,7 @@ docker exec charon cscli decisions delete --ip 1.2.3.4
 ## 5. Success Metrics
 
 ### Blockers Resolved
+
 - ✅ Bouncer appears in `cscli bouncers list` with recent `last_pull`
 - ✅ No "json: unknown field" errors in Caddy logs
 - ✅ Blocked IPs receive 403 Forbidden responses
@@ -612,6 +642,7 @@ docker exec charon cscli decisions delete --ip 1.2.3.4
 - ✅ Response headers include `X-Crowdsec-Decision` for blocked requests
 
 ### Production Ready Checklist
+
 - ✅ All unit tests pass (`go test ./internal/caddy/... -v`)
 - ✅ Integration test passes (`scripts/crowdsec_integration.sh`)
 - ✅ Pre-commit hooks pass (`pre-commit run --all-files`)
@@ -664,7 +695,7 @@ After successful implementation:
    - Document blocker in GitHub issue (link to this plan)
 
 2. **Contact Plugin Maintainer:**
-   - Open issue: https://github.com/hslatman/caddy-crowdsec-bouncer/issues
+   - Open issue: <https://github.com/hslatman/caddy-crowdsec-bouncer/issues>
    - Title: "JSON Configuration Schema Undocumented - Request Examples"
    - Include: Our tested field names, error messages, Caddy version
    - Ask: Exact JSON schema or working example
@@ -685,18 +716,21 @@ After successful implementation:
 ## 8. External Resources
 
 ### Plugin Resources
-- **GitHub Repo:** https://github.com/hslatman/caddy-crowdsec-bouncer
-- **Issues:** https://github.com/hslatman/caddy-crowdsec-bouncer/issues
+
+- **GitHub Repo:** <https://github.com/hslatman/caddy-crowdsec-bouncer>
+- **Issues:** <https://github.com/hslatman/caddy-crowdsec-bouncer/issues>
 - **Latest Release:** Check for version tags and changelog
 
 ### Caddy Documentation
-- **JSON Config:** https://caddyserver.com/docs/json/
-- **App Modules:** https://caddyserver.com/docs/json/apps/
-- **HTTP Handlers:** https://caddyserver.com/docs/json/apps/http/servers/routes/handle/
+
+- **JSON Config:** <https://caddyserver.com/docs/json/>
+- **App Modules:** <https://caddyserver.com/docs/json/apps/>
+- **HTTP Handlers:** <https://caddyserver.com/docs/json/apps/http/servers/routes/handle/>
 
 ### CrowdSec Documentation
-- **Bouncer API:** https://docs.crowdsec.net/docs/next/bouncers/intro/
-- **Local API (LAPI):** https://docs.crowdsec.net/docs/next/local_api/intro/
+
+- **Bouncer API:** <https://docs.crowdsec.net/docs/next/bouncers/intro/>
+- **Local API (LAPI):** <https://docs.crowdsec.net/docs/next/local_api/intro/>
 
 ---
 
@@ -737,6 +771,7 @@ After successful implementation:
 **Confidence:** 70% success rate
 
 **After Resolution:**
+
 - Update all documentation
 - Run full integration test suite
 - Mark issue #17 as complete

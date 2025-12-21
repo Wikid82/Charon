@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -14,6 +15,7 @@ import type { SMTPConfigRequest } from '../api/smtp'
 import { Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
 
 export default function SMTPSettings() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [host, setHost] = useState('')
   const [port, setPort] = useState(587)
@@ -53,11 +55,11 @@ export default function SMTPSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['smtp-config'] })
-      toast.success('SMTP settings saved successfully')
+      toast.success(t('smtp.settingsSaved'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to save SMTP settings')
+      toast.error(err.response?.data?.error || t('smtp.saveFailed'))
     },
   })
 
@@ -65,14 +67,14 @@ export default function SMTPSettings() {
     mutationFn: testSMTPConnection,
     onSuccess: (data) => {
       if (data.success) {
-        toast.success(data.message || 'SMTP connection successful')
+        toast.success(data.message || t('smtp.connectionSuccess'))
       } else {
-        toast.error(data.error || 'SMTP connection failed')
+        toast.error(data.error || t('smtp.connectionFailed'))
       }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to test SMTP connection')
+      toast.error(err.response?.data?.error || t('smtp.testFailed'))
     },
   })
 
@@ -80,15 +82,15 @@ export default function SMTPSettings() {
     mutationFn: async () => sendTestEmail({ to: testEmail }),
     onSuccess: (data) => {
       if (data.success) {
-        toast.success(data.message || 'Test email sent successfully')
+        toast.success(data.message || t('smtp.testEmailSent'))
         setTestEmail('')
       } else {
-        toast.error(data.error || 'Failed to send test email')
+        toast.error(data.error || t('smtp.testEmailFailed'))
       }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
-      toast.error(err.response?.data?.error || 'Failed to send test email')
+      toast.error(err.response?.data?.error || t('smtp.testEmailFailed'))
     },
   })
 
@@ -124,25 +126,25 @@ export default function SMTPSettings() {
         <div className="p-2 bg-brand-500/10 rounded-lg">
           <Mail className="h-6 w-6 text-brand-500" />
         </div>
-        <h2 className="text-xl font-semibold text-content-primary">Email (SMTP) Settings</h2>
+        <h2 className="text-xl font-semibold text-content-primary">{t('smtp.title')}</h2>
       </div>
 
       <p className="text-sm text-content-secondary">
-        Configure SMTP settings to enable email notifications and user invitations.
+        {t('smtp.description')}
       </p>
 
       {/* SMTP Configuration Form */}
       <Card>
         <CardHeader>
-          <CardTitle>SMTP Configuration</CardTitle>
+          <CardTitle>{t('smtp.configuration')}</CardTitle>
           <CardDescription>
-            Enter your SMTP server details to enable email functionality.
+            {t('smtp.configDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="smtp-host" required>SMTP Host</Label>
+              <Label htmlFor="smtp-host" required>{t('smtp.host')}</Label>
               <Input
                 id="smtp-host"
                 type="text"
@@ -152,7 +154,7 @@ export default function SMTPSettings() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="smtp-port" required>Port</Label>
+              <Label htmlFor="smtp-port" required>{t('smtp.port')}</Label>
               <Input
                 id="smtp-port"
                 type="number"
@@ -165,7 +167,7 @@ export default function SMTPSettings() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="smtp-username">Username</Label>
+              <Label htmlFor="smtp-username">{t('smtp.username')}</Label>
               <Input
                 id="smtp-username"
                 type="text"
@@ -175,20 +177,20 @@ export default function SMTPSettings() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="smtp-password">Password</Label>
+              <Label htmlFor="smtp-password">{t('smtp.password')}</Label>
               <Input
                 id="smtp-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                helperText="Use app-specific password for Gmail"
+                helperText={t('smtp.passwordHelper')}
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="smtp-from" required>From Address</Label>
+            <Label htmlFor="smtp-from" required>{t('smtp.fromAddress')}</Label>
             <Input
               id="smtp-from"
               type="email"
@@ -199,15 +201,15 @@ export default function SMTPSettings() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="smtp-encryption">Encryption</Label>
+            <Label htmlFor="smtp-encryption">{t('smtp.encryption')}</Label>
             <Select value={encryption} onValueChange={(value) => setEncryption(value as 'none' | 'ssl' | 'starttls')}>
               <SelectTrigger id="smtp-encryption">
-                <SelectValue placeholder="Select encryption" />
+                <SelectValue placeholder={t('smtp.selectEncryption')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="starttls">STARTTLS (Recommended)</SelectItem>
-                <SelectItem value="ssl">SSL/TLS</SelectItem>
-                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="starttls">{t('smtp.starttls')}</SelectItem>
+                <SelectItem value="ssl">{t('smtp.sslTls')}</SelectItem>
+                <SelectItem value="none">{t('smtp.none')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -219,13 +221,13 @@ export default function SMTPSettings() {
             isLoading={testConnectionMutation.isPending}
             disabled={!host || !fromAddress}
           >
-            Test Connection
+            {t('smtp.testConnection')}
           </Button>
           <Button
             onClick={() => saveMutation.mutate()}
             isLoading={saveMutation.isPending}
           >
-            Save Settings
+            {t('smtp.saveSettings')}
           </Button>
         </CardFooter>
       </Card>
@@ -237,14 +239,14 @@ export default function SMTPSettings() {
             {smtpConfig?.configured ? (
               <>
                 <CheckCircle2 className="h-5 w-5 text-success" />
-                <span className="font-medium text-content-primary">SMTP Configured</span>
-                <Badge variant="success" size="sm">Active</Badge>
+                <span className="font-medium text-content-primary">{t('smtp.configured')}</span>
+                <Badge variant="success" size="sm">{t('smtp.active')}</Badge>
               </>
             ) : (
               <>
                 <XCircle className="h-5 w-5 text-warning" />
-                <span className="font-medium text-content-primary">SMTP Not Configured</span>
-                <Badge variant="warning" size="sm">Inactive</Badge>
+                <span className="font-medium text-content-primary">{t('smtp.notConfigured')}</span>
+                <Badge variant="warning" size="sm">{t('smtp.inactive')}</Badge>
               </>
             )}
           </div>
@@ -255,9 +257,9 @@ export default function SMTPSettings() {
       {smtpConfig?.configured && (
         <Card>
           <CardHeader>
-            <CardTitle>Send Test Email</CardTitle>
+            <CardTitle>{t('smtp.sendTestEmail')}</CardTitle>
             <CardDescription>
-              Send a test email to verify your SMTP configuration is working correctly.
+              {t('smtp.testEmailDescription')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -276,7 +278,7 @@ export default function SMTPSettings() {
                 disabled={!testEmail}
               >
                 <Send className="h-4 w-4 mr-2" />
-                Send Test
+                {t('smtp.sendTest')}
               </Button>
             </div>
           </CardContent>
@@ -284,9 +286,8 @@ export default function SMTPSettings() {
       )}
 
       {/* Help Alert */}
-      <Alert variant="info" title="Need Help?">
-        If you're using Gmail, you'll need to enable 2-factor authentication and create an app-specific password.
-        For other providers, check their SMTP documentation for the correct settings.
+      <Alert variant="info" title={t('smtp.needHelp')}>
+        {t('smtp.helpText')}
       </Alert>
     </div>
   )

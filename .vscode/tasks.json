@@ -50,35 +50,35 @@
         {
             "label": "Test: Backend Unit Tests",
             "type": "shell",
-            "command": "cd backend && go test ./...",
+            "command": ".github/skills/scripts/skill-runner.sh test-backend-unit",
             "group": "test",
             "problemMatcher": ["$go"]
         },
         {
             "label": "Test: Backend with Coverage",
             "type": "shell",
-            "command": "scripts/go-test-coverage.sh",
+            "command": ".github/skills/scripts/skill-runner.sh test-backend-coverage",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Test: Frontend",
             "type": "shell",
-            "command": "cd frontend && npm run test",
+            "command": ".github/skills/scripts/skill-runner.sh test-frontend-unit",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Test: Frontend with Coverage",
             "type": "shell",
-            "command": "scripts/frontend-test-coverage.sh",
+            "command": ".github/skills/scripts/skill-runner.sh test-frontend-coverage",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Lint: Pre-commit (All Files)",
             "type": "shell",
-            "command": "source .venv/bin/activate && pre-commit run --all-files",
+            "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -145,49 +145,49 @@
         {
             "label": "Security: Trivy Scan",
             "type": "shell",
-            "command": "docker run --rm -v $(pwd):/app aquasec/trivy:latest fs --scanners vuln,secret,misconfig /app",
+            "command": ".github/skills/scripts/skill-runner.sh security-scan-trivy",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Security: Go Vulnerability Check",
             "type": "shell",
-            "command": "cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...",
+            "command": ".github/skills/scripts/skill-runner.sh security-scan-go-vuln",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Docker: Start Dev Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.dev.yml up -d",
+            "command": ".github/skills/scripts/skill-runner.sh docker-start-dev",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: Stop Dev Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.dev.yml down",
+            "command": ".github/skills/scripts/skill-runner.sh docker-stop-dev",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: Start Local Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.local.yml up -d",
+            "command": "docker compose -f .docker/compose/docker-compose.local.yml up -d",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: Stop Local Environment",
             "type": "shell",
-            "command": "docker compose -f docker-compose.local.yml down",
+            "command": "docker compose -f .docker/compose/docker-compose.local.yml down",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: View Logs",
             "type": "shell",
-            "command": "docker compose logs -f",
+            "command": "docker compose -f .docker/compose/docker-compose.yml logs -f",
             "group": "none",
             "problemMatcher": [],
             "isBackground": true
@@ -195,14 +195,14 @@
         {
             "label": "Docker: Prune Unused Resources",
             "type": "shell",
-            "command": "docker system prune -f",
+            "command": ".github/skills/scripts/skill-runner.sh docker-prune",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Integration: Run All",
             "type": "shell",
-            "command": "scripts/integration-test.sh",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-all",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -213,56 +213,56 @@
         {
             "label": "Integration: Coraza WAF",
             "type": "shell",
-            "command": "scripts/coraza_integration.sh",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-coraza",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec",
             "type": "shell",
-            "command": "scripts/crowdsec_integration.sh",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec Decisions",
             "type": "shell",
-            "command": "scripts/crowdsec_decision_integration.sh",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec Startup",
             "type": "shell",
-            "command": "scripts/crowdsec_startup_test.sh",
+            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Utility: Check Version Match Tag",
             "type": "shell",
-            "command": "scripts/check-version-match-tag.sh",
+            "command": ".github/skills/scripts/skill-runner.sh utility-version-check",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Utility: Clear Go Cache",
             "type": "shell",
-            "command": "scripts/clear-go-cache.sh",
+            "command": ".github/skills/scripts/skill-runner.sh utility-clear-go-cache",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Utility: Bump Beta Version",
             "type": "shell",
-            "command": "scripts/bump_beta.sh",
+            "command": ".github/skills/scripts/skill-runner.sh utility-bump-beta",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Utility: Database Recovery",
             "type": "shell",
-            "command": "scripts/db-recovery.sh",
+            "command": ".github/skills/scripts/skill-runner.sh utility-db-recovery",
             "group": "none",
             "problemMatcher": [],
             "presentation": {

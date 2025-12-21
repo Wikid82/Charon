@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Plus, Pencil, Trash2, Server, LayoutGrid, LayoutList } from 'lucide-react'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import type { RemoteServer } from '../api/remoteServers'
@@ -22,6 +23,7 @@ import {
 } from '../components/ui'
 
 export default function RemoteServers() {
+  const { t } = useTranslation()
   const { servers, loading, error, createServer, updateServer, deleteServer } = useRemoteServers()
   const [showForm, setShowForm] = useState(false)
   const [editingServer, setEditingServer] = useState<RemoteServer | undefined>()
@@ -62,7 +64,7 @@ export default function RemoteServers() {
   const columns: Column<RemoteServer>[] = [
     {
       key: 'name',
-      header: 'Name',
+      header: t('remoteServers.columnName'),
       sortable: true,
       cell: (server) => (
         <span className="font-medium text-content-primary">{server.name}</span>
@@ -70,7 +72,7 @@ export default function RemoteServers() {
     },
     {
       key: 'provider',
-      header: 'Provider',
+      header: t('remoteServers.columnProvider'),
       sortable: true,
       cell: (server) => (
         <Badge variant="outline" size="sm">{server.provider}</Badge>
@@ -78,31 +80,31 @@ export default function RemoteServers() {
     },
     {
       key: 'host',
-      header: 'Host',
+      header: t('remoteServers.columnHost'),
       cell: (server) => (
         <span className="font-mono text-sm text-content-secondary">{server.host}</span>
       ),
     },
     {
       key: 'port',
-      header: 'Port',
+      header: t('remoteServers.columnPort'),
       cell: (server) => (
         <span className="font-mono text-sm text-content-secondary">{server.port}</span>
       ),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('common.status'),
       sortable: true,
       cell: (server) => (
         <Badge variant={server.enabled ? 'success' : 'default'} size="sm">
-          {server.enabled ? 'Enabled' : 'Disabled'}
+          {server.enabled ? t('common.enabled') : t('common.disabled')}
         </Badge>
       ),
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('common.actions'),
       cell: (server) => (
         <div className="flex items-center justify-end gap-2">
           <Button
@@ -112,7 +114,7 @@ export default function RemoteServers() {
               e.stopPropagation()
               handleEdit(server)
             }}
-            title="Edit"
+            title={t('common.edit')}
           >
             <Pencil className="h-4 w-4" />
           </Button>
@@ -123,7 +125,7 @@ export default function RemoteServers() {
               e.stopPropagation()
               setDeleteConfirm(server)
             }}
-            title="Delete"
+            title={t('common.delete')}
           >
             <Trash2 className="h-4 w-4 text-error" />
           </Button>
@@ -143,7 +145,7 @@ export default function RemoteServers() {
               ? 'bg-brand-500 text-white'
               : 'text-content-muted hover:text-content-primary'
           }`}
-          title="Grid view"
+          title={t('remoteServers.gridView')}
         >
           <LayoutGrid className="w-4 h-4" />
         </button>
@@ -154,14 +156,14 @@ export default function RemoteServers() {
               ? 'bg-brand-500 text-white'
               : 'text-content-muted hover:text-content-primary'
           }`}
-          title="List view"
+          title={t('remoteServers.listView')}
         >
           <LayoutList className="w-4 h-4" />
         </button>
       </div>
       <Button onClick={handleAdd}>
         <Plus className="w-4 h-4 mr-2" />
-        Add Server
+        {t('remoteServers.addServer')}
       </Button>
     </div>
   )
@@ -169,8 +171,8 @@ export default function RemoteServers() {
   if (loading) {
     return (
       <PageShell
-        title="Remote Servers"
-        description="Manage backend servers for your proxy hosts"
+        title={t('remoteServers.title')}
+        description={t('remoteServers.description')}
         actions={headerActions}
       >
         {viewMode === 'grid' ? (
@@ -188,12 +190,12 @@ export default function RemoteServers() {
 
   return (
     <PageShell
-      title="Remote Servers"
-      description="Manage backend servers for your proxy hosts"
+      title={t('remoteServers.title')}
+      description={t('remoteServers.description')}
       actions={headerActions}
     >
       {error && (
-        <Alert variant="error" title="Error">
+        <Alert variant="error" title={t('common.error')}>
           {error}
         </Alert>
       )}
@@ -201,10 +203,10 @@ export default function RemoteServers() {
       {servers.length === 0 ? (
         <EmptyState
           icon={<Server className="h-12 w-12" />}
-          title="No Remote Servers"
-          description="Add servers to quickly select backends when creating proxy hosts"
+          title={t('remoteServers.noServers')}
+          description={t('remoteServers.noServersDescription')}
           action={{
-            label: 'Add Server',
+            label: t('remoteServers.addServer'),
             onClick: handleAdd,
           }}
         />
@@ -219,21 +221,21 @@ export default function RemoteServers() {
                     <Badge variant="outline" size="sm">{server.provider}</Badge>
                   </div>
                   <Badge variant={server.enabled ? 'success' : 'default'} size="sm">
-                    {server.enabled ? 'Enabled' : 'Disabled'}
+                    {server.enabled ? t('common.enabled') : t('common.disabled')}
                   </Badge>
                 </div>
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-content-muted">Host:</span>
+                    <span className="text-content-muted">{t('remoteServers.host')}:</span>
                     <span className="text-content-primary font-mono">{server.host}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-content-muted">Port:</span>
+                    <span className="text-content-muted">{t('remoteServers.port')}:</span>
                     <span className="text-content-primary font-mono">{server.port}</span>
                   </div>
                   {server.username && (
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-content-muted">User:</span>
+                      <span className="text-content-muted">{t('remoteServers.user')}:</span>
                       <span className="text-content-primary font-mono">{server.username}</span>
                     </div>
                   )}
@@ -247,7 +249,7 @@ export default function RemoteServers() {
                   onClick={() => handleEdit(server)}
                 >
                   <Pencil className="w-4 h-4 mr-2" />
-                  Edit
+                  {t('common.edit')}
                 </Button>
                 <Button
                   variant="danger"
@@ -256,7 +258,7 @@ export default function RemoteServers() {
                   onClick={() => setDeleteConfirm(server)}
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete
+                  {t('common.delete')}
                 </Button>
               </div>
             </Card>
@@ -270,10 +272,10 @@ export default function RemoteServers() {
           emptyState={
             <EmptyState
               icon={<Server className="h-12 w-12" />}
-              title="No Remote Servers"
-              description="Add servers to quickly select backends when creating proxy hosts"
+              title={t('remoteServers.noServers')}
+              description={t('remoteServers.noServersDescription')}
               action={{
-                label: 'Add Server',
+                label: t('remoteServers.addServer'),
                 onClick: handleAdd,
               }}
             />
@@ -285,21 +287,21 @@ export default function RemoteServers() {
       <Dialog open={deleteConfirm !== null} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Remote Server</DialogTitle>
+            <DialogTitle>{t('remoteServers.deleteServer')}</DialogTitle>
           </DialogHeader>
           <p className="text-content-secondary py-4">
-            Are you sure you want to delete &quot;{deleteConfirm?.name}&quot;? This action cannot be undone.
+            {t('remoteServers.deleteConfirm', { name: deleteConfirm?.name })}
           </p>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setDeleteConfirm(null)} disabled={isDeleting}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
               disabled={isDeleting}
             >
-              {isDeleting ? 'Deleting...' : 'Delete'}
+              {isDeleting ? t('remoteServers.deleting') : t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

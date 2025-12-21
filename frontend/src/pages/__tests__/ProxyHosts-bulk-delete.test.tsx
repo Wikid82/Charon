@@ -516,9 +516,9 @@ describe('ProxyHosts - Bulk Delete with Backup', () => {
     const selectAll = screen.getByLabelText('Select all rows');
     await userEvent.click(selectAll);
 
-    // Should show "(all)" indicator - format is "<strong>3</strong> hosts selected (all)"
+    // Should show "(all)" indicator - format is "<strong>3</strong> host(s) selected (all)"
     await waitFor(() => {
-      expect(screen.getByText(/hosts?\s*selected/)).toBeTruthy();
+      expect(screen.getByText(/host\(s\) selected/)).toBeTruthy();
       expect(screen.getByText(/\(all\)/)).toBeTruthy();
     });
   });

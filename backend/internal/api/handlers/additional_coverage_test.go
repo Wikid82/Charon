@@ -48,7 +48,7 @@ func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"session_uuid": "../../../etc/passwd",
 	})
 
@@ -70,7 +70,7 @@ func TestImportHandler_Commit_SessionNotFound(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"session_uuid": "nonexistent-session",
 	})
 
@@ -160,7 +160,7 @@ func TestSecurityHandler_UpdateConfig_ApplyCaddyError(t *testing.T) {
 	// Create handler with nil caddy manager (ApplyConfig will be called but is nil)
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":     "test",
 		"waf_mode": "block",
 	})
@@ -242,7 +242,7 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 	// Drop table to cause upsert to fail
 	db.Migrator().DropTable(&models.SecurityRuleSet{})
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":    "test-ruleset",
 		"enabled": true,
 	})
@@ -267,7 +267,7 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 	// Drop decisions table to cause log to fail
 	db.Migrator().DropTable(&models.SecurityDecision{})
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"ip":     "192.168.1.1",
 		"action": "ban",
 	})
@@ -381,7 +381,7 @@ func TestImportHandler_UploadMulti_MissingCaddyfile(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"files": []map[string]string{
 			{"filename": "sites/example.com", "content": "example.com {}"},
 		},
@@ -404,7 +404,7 @@ func TestImportHandler_UploadMulti_EmptyContent(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"files": []map[string]string{
 			{"filename": "Caddyfile", "content": ""},
 		},
@@ -427,7 +427,7 @@ func TestImportHandler_UploadMulti_PathTraversal(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"files": []map[string]string{
 			{"filename": "Caddyfile", "content": "example.com {}"},
 			{"filename": "../../../etc/passwd", "content": "bad content"},
@@ -676,7 +676,7 @@ func TestRemoteServerHandler_TestConnectionCustom_Unreachable2(t *testing.T) {
 	svc := services.NewRemoteServerService(db)
 	h := NewRemoteServerHandler(svc, nil)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"host": "192.0.2.1", // TEST-NET - not routable
 		"port": 65535,
 	})
@@ -870,7 +870,7 @@ func TestImportHandler_UploadMulti_ValidCaddyfile(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"files": []map[string]string{
 			{"filename": "Caddyfile", "content": "example.com { reverse_proxy localhost:8080 }"},
 		},
@@ -894,7 +894,7 @@ func TestImportHandler_UploadMulti_SubdirFile(t *testing.T) {
 
 	h := NewImportHandler(db, "", t.TempDir(), "")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"files": []map[string]string{
 			{"filename": "Caddyfile", "content": "import sites/*"},
 			{"filename": "sites/example.com", "content": "example.com {}"},

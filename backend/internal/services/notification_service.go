@@ -77,7 +77,7 @@ func (s *NotificationService) MarkAllAsRead() error {
 
 // External Notifications (Shoutrrr & Custom Webhooks)
 
-func (s *NotificationService) SendExternal(ctx context.Context, eventType, title, message string, data map[string]interface{}) {
+func (s *NotificationService) SendExternal(ctx context.Context, eventType, title, message string, data map[string]any) {
 	var providers []models.NotificationProvider
 	if err := s.DB.Where("enabled = ?", true).Find(&providers).Error; err != nil {
 		logger.Log().WithError(err).Error("Failed to fetch notification providers")
@@ -86,7 +86,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 
 	// Prepare data for templates
 	if data == nil {
-		data = make(map[string]interface{})
+		data = make(map[string]any)
 	}
 	data["Title"] = title
 	data["Message"] = message
@@ -144,7 +144,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
-func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.NotificationProvider, data map[string]interface{}) error {
+func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
 	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
@@ -174,7 +174,7 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 
 	// Parse template and add helper funcs
 	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
-		"toJSON": func(v interface{}) string {
+		"toJSON": func(v any) string {
 			b, _ := json.Marshal(v)
 			return string(b)
 		},
@@ -355,7 +355,7 @@ func validateWebhookURL(raw string) (*neturl.URL, error) {
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
 	if provider.Type == "webhook" {
-		data := map[string]interface{}{
+		data := map[string]any{
 			"Title":   "Test Notification",
 			"Message": "This is a test notification from Charon",
 			"Status":  "TEST",
@@ -404,7 +404,7 @@ func (s *NotificationService) DeleteTemplate(id string) error {
 
 // RenderTemplate renders a provider template with provided data and returns
 // the rendered JSON string and the parsed object for previewing/validation.
-func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]interface{}) (resp string, parsed interface{}, err error) {
+func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data map[string]any) (resp string, parsed any, err error) {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
 	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
@@ -427,7 +427,7 @@ func (s *NotificationService) RenderTemplate(p models.NotificationProvider, data
 
 	// Parse and execute template with helper funcs
 	tmpl, err := template.New("webhook").Funcs(template.FuncMap{
-		"toJSON": func(v interface{}) string {
+		"toJSON": func(v any) string {
 			b, _ := json.Marshal(v)
 			return string(b)
 		},
@@ -460,7 +460,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 	// Validate custom template before creating
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
 		// Provide a minimal preview payload
-		payload := map[string]interface{}{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
 		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}
@@ -471,7 +471,7 @@ func (s *NotificationService) CreateProvider(provider *models.NotificationProvid
 func (s *NotificationService) UpdateProvider(provider *models.NotificationProvider) error {
 	// Validate custom template before saving
 	if strings.ToLower(strings.TrimSpace(provider.Template)) == "custom" && strings.TrimSpace(provider.Config) != "" {
-		payload := map[string]interface{}{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
+		payload := map[string]any{"Title": "Preview", "Message": "Preview", "Time": time.Now().Format(time.RFC3339), "EventType": "preview"}
 		if _, _, err := s.RenderTemplate(*provider, payload); err != nil {
 			return fmt.Errorf("invalid custom template: %w", err)
 		}

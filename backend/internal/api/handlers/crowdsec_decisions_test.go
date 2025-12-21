@@ -49,14 +49,14 @@ func TestListDecisions_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 1)
 
-	decision := decisions[0].(map[string]interface{})
+	decision := decisions[0].(map[string]any)
 	assert.Equal(t, "192.168.1.100", decision["value"])
 	assert.Equal(t, "ban", decision["type"])
 	assert.Equal(t, "ip", decision["scope"])
@@ -88,11 +88,11 @@ func TestListDecisions_EmptyList(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 0)
 	assert.Equal(t, float64(0), resp["total"])
 }
@@ -120,11 +120,11 @@ func TestListDecisions_CscliError(t *testing.T) {
 	// Should return 200 with empty list and error message
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 0)
 	assert.Contains(t, resp["error"], "cscli not available")
 }
@@ -183,7 +183,7 @@ func TestBanIP_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -232,7 +232,7 @@ func TestBanIP_DefaultDuration(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -344,7 +344,7 @@ func TestUnbanIP_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
@@ -406,25 +406,25 @@ func TestListDecisions_MultipleDecisions(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	decisions := resp["decisions"].([]interface{})
+	decisions := resp["decisions"].([]any)
 	assert.Len(t, decisions, 3)
 	assert.Equal(t, float64(3), resp["total"])
 
 	// Verify each decision
-	d1 := decisions[0].(map[string]interface{})
+	d1 := decisions[0].(map[string]any)
 	assert.Equal(t, "192.168.1.100", d1["value"])
 	assert.Equal(t, "cscli", d1["origin"])
 
-	d2 := decisions[1].(map[string]interface{})
+	d2 := decisions[1].(map[string]any)
 	assert.Equal(t, "10.0.0.50", d2["value"])
 	assert.Equal(t, "crowdsec", d2["origin"])
 	assert.Equal(t, "ssh-bf", d2["scenario"])
 
-	d3 := decisions[2].(map[string]interface{})
+	d3 := decisions[2].(map[string]any)
 	assert.Equal(t, "172.16.0.0/24", d3["value"])
 	assert.Equal(t, "range", d3["scope"])
 }

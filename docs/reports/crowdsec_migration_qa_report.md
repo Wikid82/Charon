@@ -40,12 +40,14 @@ Health check: healthy
 **Result**: ✅ **PASSED**
 
 **Log Output**:
+
 ```json
 {"level":"info","msg":"Running database migrations for security tables...","time":"2025-12-14T22:24:32-05:00"}
 {"level":"info","msg":"Migration completed successfully","time":"2025-12-14T22:24:32-05:00"}
 ```
 
 **Verified Tables Created**:
+
 - ✅ SecurityConfig
 - ✅ SecurityDecision
 - ✅ SecurityAudit
@@ -72,11 +74,13 @@ Container restarted successfully and came back healthy within 10 seconds.
 **Result**: ⚠️ **PARTIAL**
 
 **Log Evidence**:
+
 ```json
 {"bin_path":"crowdsec","data_dir":"/app/data/crowdsec","level":"info","msg":"CrowdSec reconciliation: starting startup check","time":"2025-12-14T22:24:40-05:00"}
 ```
 
 **Issue Identified**:
+
 - ✅ Reconciliation **starts** (log message present)
 - ❌ No subsequent log messages (expected: "skipped", "already running", or "starting CrowdSec")
 - ❌ Appears to hit an early return condition without logging
@@ -90,6 +94,7 @@ Container restarted successfully and came back healthy within 10 seconds.
 **Result**: ❌ **FAILED**
 
 **Process List**:
+
 ```
 PID   USER     TIME  COMMAND
   1   root     0:00  {docker-entrypoi} /bin/sh /docker-entrypoint.sh
@@ -99,6 +104,7 @@ PID   USER     TIME  COMMAND
 ```
 
 **Observation**: No CrowdSec process running. This is expected behavior if:
+
 1. No SecurityConfig record exists (first boot scenario)
 2. SecurityConfig exists but `CrowdSecMode != "local"`
 3. Runtime setting `security.crowdsec.enabled` is not true
@@ -112,6 +118,7 @@ PID   USER     TIME  COMMAND
 ⏸️ **Deferred to Manual QA Session**
 
 **Reason**: CrowdSec is not auto-starting due to missing SecurityConfig record, which is expected behavior for a fresh installation. Frontend testing would require:
+
 1. First-time setup flow to create SecurityConfig record
 2. Or API call to create SecurityConfig with mode=local
 3. Then restart to verify auto-start
@@ -129,6 +136,7 @@ PID   USER     TIME  COMMAND
 **Result**: ✅ **PASSED**
 
 **Hooks Passed**:
+
 - ✅ fix end of files
 - ✅ trim trailing whitespace
 - ✅ check yaml
@@ -147,6 +155,7 @@ PID   USER     TIME  COMMAND
 **Result**: ✅ **PASSED**
 
 **Coverage**:
+
 ```
 ok   github.com/Wikid82/charon/backend/cmd/api       (cached)
 ok   github.com/Wikid82/charon/backend/internal/database   (cached)
@@ -160,6 +169,7 @@ ok   github.com/Wikid82/charon/backend/internal/version    (cached)
 ```
 
 **Specific Migration Tests**:
+
 - ✅ TestMigrateCommand_Succeeds
 - ✅ TestStartupVerification_MissingTables
 - ✅ TestResetPasswordCommand_Succeeds
@@ -171,14 +181,16 @@ ok   github.com/Wikid82/charon/backend/internal/version    (cached)
 **Result**: ✅ **PASSED**
 
 **Summary**:
+
 - Test Files: 76 passed (87 total)
 - Tests: 772 passed | 2 skipped (774 total)
 - Duration: 150.09s
 
 **CrowdSec-Related Tests**:
-- ✅ src/pages/__tests__/CrowdSecConfig.test.tsx (3 tests)
-- ✅ src/pages/__tests__/CrowdSecConfig.coverage.test.tsx (2 tests)
-- ✅ src/api/__tests__/crowdsec.test.ts (9 tests)
+
+- ✅ src/pages/**tests**/CrowdSecConfig.test.tsx (3 tests)
+- ✅ src/pages/**tests**/CrowdSecConfig.coverage.test.tsx (2 tests)
+- ✅ src/api/**tests**/crowdsec.test.ts (9 tests)
 - ✅ Security page toggle tests (6 tests)
 
 ### 4.4 Code Quality Check
@@ -233,10 +245,13 @@ No debug print statements found in codebase.
 ## Regression Testing
 
 ### Database Schema
+
 ✅ No impact on existing tables (only adds new security tables)
 
 ### Existing Functionality
+
 ✅ All tests pass - no regressions in:
+
 - Proxy hosts management
 - Certificate management
 - Access lists
@@ -267,6 +282,7 @@ No debug print statements found in codebase.
 The migration fix is **production-ready** with one caveat: the auto-start behavior cannot be fully tested without creating a SecurityConfig record first. The implementation is correct - it's designed to skip auto-start on fresh installations.
 
 **Recommended Next Steps**:
+
 1. ✅ **Merge Migration Fix**: Code is solid, tests pass, no regressions
 2. 📝 **Document Migration Process**: Add migration steps to docs/troubleshooting/
 3. 🔍 **Improve Logging**: Upgrade reconciliation decision logs from Debug to Info
@@ -280,18 +296,21 @@ The migration fix is **production-ready** with one caveat: the auto-start behavi
 ## Appendix: Test Evidence
 
 ### Migration Command Output
+
 ```json
 {"level":"info","msg":"Running database migrations for security tables...","time":"2025-12-14T22:24:32-05:00"}
 {"level":"info","msg":"Migration completed successfully","time":"2025-12-14T22:24:32-05:00"}
 ```
 
 ### Container Health
+
 ```
 CONTAINER ID   IMAGE          STATUS
 beb6279c831b   charon:local   Up 3 minutes (healthy)
 ```
 
 ### Unit Test Results
+
 ```
 --- PASS: TestResetPasswordCommand_Succeeds (0.09s)
 --- PASS: TestMigrateCommand_Succeeds (0.03s)
@@ -300,6 +319,7 @@ PASS
 ```
 
 ### Pre-commit Summary
+
 ```
 Prevent committing data/backups files....................................Passed
 Frontend TypeScript Check................................................Passed

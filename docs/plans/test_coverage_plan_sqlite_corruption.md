@@ -7,6 +7,7 @@
 ## Executive Summary
 
 Codecov reports 72.16% patch coverage with 27 lines missing across 4 files:
+
 1. `backup_service.go` - 60.71% (6 missing, 5 partials)
 2. `database.go` - 28.57% (5 missing, 5 partials)
 3. `db_health_handler.go` - 86.95% (2 missing, 1 partial)
@@ -19,12 +20,15 @@ Codecov reports 72.16% patch coverage with 27 lines missing across 4 files:
 ## 1. backup_service.go (Target: 85%+)
 
 ### Current Coverage: 60.71%
+
 **Missing**: 6 lines | **Partial**: 5 lines
 
 ### Uncovered Code Paths
 
 #### A. NewBackupService Constructor Error Paths
+
 **Lines**: 36-37, 49-50
+
 ```go
 if err := os.MkdirAll(backupDir, 0o755); err != nil {
     logger.Log().WithError(err).Error("Failed to create backup directory")
@@ -36,12 +40,15 @@ if err != nil {
 ```
 
 **Analysis**:
+
 - Constructor logs errors but doesn't return them
 - Tests never trigger these error paths
 - No verification that logging actually occurs
 
 #### B. RunScheduledBackup Error Branching
+
 **Lines**: 61-71 (partial coverage on conditionals)
+
 ```go
 if name, err := s.CreateBackup(); err != nil {
     logger.Log().WithError(err).Error("Scheduled backup failed")
@@ -57,13 +64,16 @@ if name, err := s.CreateBackup(); err != nil {
 ```
 
 **Analysis**:
+
 - Test only covers success path
 - Failure path (backup creation fails) not tested
 - Cleanup failure path not tested
 - No verification of deleted = 0 branch
 
 #### C. CleanupOldBackups Edge Cases
+
 **Lines**: 98-103
+
 ```go
 if err := s.DeleteBackup(backup.Filename); err != nil {
     logger.Log().WithError(err).WithField("filename", backup.Filename).Warn("Failed to delete old backup")
@@ -74,11 +84,14 @@ logger.Log().WithField("filename", backup.Filename).Debug("Deleted old backup")
 ```
 
 **Analysis**:
+
 - Tests don't cover partial deletion failure (some succeed, some fail)
 - Logger.Debug() call never exercised
 
 #### D. GetLastBackupTime Error Path
+
 **Lines**: 112-113
+
 ```go
 if err != nil {
     return time.Time{}, err
@@ -88,7 +101,9 @@ if err != nil {
 **Analysis**: Error path when ListBackups fails (directory read error) not tested
 
 #### E. CreateBackup Caddy Directory Warning
+
 **Lines**: 186-188
+
 ```go
 if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
     logger.Log().WithError(err).Warn("Warning: could not backup caddy dir")
@@ -98,7 +113,9 @@ if err := s.addDirToZip(w, caddyDir, "caddy"); err != nil {
 **Analysis**: Warning path never triggered (tests always have valid caddy dirs)
 
 #### F. addToZip Error Handling
+
 **Lines**: 192-202 (partial coverage)
+
 ```go
 file, err := os.Open(srcPath)
 if err != nil {
@@ -115,6 +132,7 @@ defer func() {
 ```
 
 **Analysis**:
+
 - File not found path returns nil (silent skip) - not tested
 - File close error in defer not tested
 - File open error (other than not found) not tested
@@ -122,10 +140,13 @@ defer func() {
 ### Required Tests
 
 #### Test 1: NewBackupService_BackupDirCreationError
+
 ```go
 func TestNewBackupService_BackupDirCreationError(t *testing.T)
 ```
+
 **Setup**:
+
 - Create parent directory as read-only (chmod 0444)
 - Attempt to initialize service
 **Assert**:
@@ -133,10 +154,13 @@ func TestNewBackupService_BackupDirCreationError(t *testing.T)
 - Verify logging occurred (use test logger hook or check it doesn't panic)
 
 #### Test 2: NewBackupService_CronScheduleError
+
 ```go
 func TestNewBackupService_CronScheduleError(t *testing.T)
 ```
+
 **Setup**:
+
 - Use invalid cron expression (requires modifying code or mocking cron)
 - Alternative: Just verify current code doesn't panic
 **Assert**:
@@ -144,10 +168,13 @@ func TestNewBackupService_CronScheduleError(t *testing.T)
 - Cron error is logged
 
 #### Test 3: RunScheduledBackup_CreateBackupFails
+
 ```go
 func TestRunScheduledBackup_CreateBackupFails(t *testing.T)
 ```
+
 **Setup**:
+
 - Delete database file after service creation
 - Call RunScheduledBackup()
 **Assert**:
@@ -156,10 +183,13 @@ func TestRunScheduledBackup_CreateBackupFails(t *testing.T)
 - CleanupOldBackups is NOT called
 
 #### Test 4: RunScheduledBackup_CleanupFails
+
 ```go
 func TestRunScheduledBackup_CleanupFails(t *testing.T)
 ```
+
 **Setup**:
+
 - Create valid backup
 - Make backup directory read-only before cleanup
 - Call RunScheduledBackup()
@@ -169,10 +199,13 @@ func TestRunScheduledBackup_CleanupFails(t *testing.T)
 - Service continues running
 
 #### Test 5: RunScheduledBackup_CleanupDeletesZero
+
 ```go
 func TestRunScheduledBackup_CleanupDeletesZero(t *testing.T)
 ```
+
 **Setup**:
+
 - Create only 1 backup (below DefaultBackupRetention)
 - Call RunScheduledBackup()
 **Assert**:
@@ -180,10 +213,13 @@ func TestRunScheduledBackup_CleanupDeletesZero(t *testing.T)
 - No deletion log message (only when deleted > 0)
 
 #### Test 6: CleanupOldBackups_PartialFailure
+
 ```go
 func TestCleanupOldBackups_PartialFailure(t *testing.T)
 ```
+
 **Setup**:
+
 - Create 10 backups
 - Make 3 of them read-only (chmod 0444 on parent dir or file)
 - Call CleanupOldBackups(3)
@@ -193,10 +229,13 @@ func TestCleanupOldBackups_PartialFailure(t *testing.T)
 - Continues with other deletions
 
 #### Test 7: GetLastBackupTime_ListBackupsError
+
 ```go
 func TestGetLastBackupTime_ListBackupsError(t *testing.T)
 ```
+
 **Setup**:
+
 - Set BackupDir to a file instead of directory
 - Call GetLastBackupTime()
 **Assert**:
@@ -204,10 +243,13 @@ func TestGetLastBackupTime_ListBackupsError(t *testing.T)
 - Returns zero time
 
 #### Test 8: CreateBackup_CaddyDirMissing
+
 ```go
 func TestCreateBackup_CaddyDirMissing(t *testing.T)
 ```
+
 **Setup**:
+
 - Create DB but no caddy directory
 - Call CreateBackup()
 **Assert**:
@@ -215,10 +257,13 @@ func TestCreateBackup_CaddyDirMissing(t *testing.T)
 - Zip contains DB but not caddy/
 
 #### Test 9: CreateBackup_CaddyDirUnreadable
+
 ```go
 func TestCreateBackup_CaddyDirUnreadable(t *testing.T)
 ```
+
 **Setup**:
+
 - Create caddy dir with no read permissions (chmod 0000)
 - Call CreateBackup()
 **Assert**:
@@ -226,10 +271,13 @@ func TestCreateBackup_CaddyDirUnreadable(t *testing.T)
 - Backup still succeeds with DB only
 
 #### Test 10: addToZip_FileNotFound
+
 ```go
 func TestBackupService_addToZip_FileNotFound(t *testing.T)
 ```
+
 **Setup**:
+
 - Directly call addToZip with non-existent file path
 - Mock zip.Writer
 **Assert**:
@@ -237,10 +285,13 @@ func TestBackupService_addToZip_FileNotFound(t *testing.T)
 - No error logged
 
 #### Test 11: addToZip_FileOpenError
+
 ```go
 func TestBackupService_addToZip_FileOpenError(t *testing.T)
 ```
+
 **Setup**:
+
 - Create file with no read permissions (chmod 0000)
 - Call addToZip
 **Assert**:
@@ -248,10 +299,13 @@ func TestBackupService_addToZip_FileOpenError(t *testing.T)
 - Does NOT return nil
 
 #### Test 12: addToZip_FileCloseError
+
 ```go
 func TestBackupService_addToZip_FileCloseError(t *testing.T)
 ```
+
 **Setup**:
+
 - Mock file.Close() to return error (requires refactoring or custom closer)
 - Alternative: Test with actual bad file descriptor scenario
 **Assert**:
@@ -263,12 +317,15 @@ func TestBackupService_addToZip_FileCloseError(t *testing.T)
 ## 2. database.go (Target: 85%+)
 
 ### Current Coverage: 28.57%
+
 **Missing**: 5 lines | **Partial**: 5 lines
 
 ### Uncovered Code Paths
 
 #### A. Connect Error Paths
+
 **Lines**: 36-37, 42-43
+
 ```go
 if err != nil {
     return nil, fmt.Errorf("open database: %w", err)
@@ -280,12 +337,15 @@ if err != nil {
 ```
 
 **Analysis**:
+
 - Test `TestConnect_Error` only tests invalid directory
 - Doesn't test GORM connection failure
 - Doesn't test sqlDB.DB() failure
 
 #### B. Journal Mode Verification Warning
+
 **Lines**: 49-50
+
 ```go
 if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
     logger.Log().WithError(err).Warn("Failed to verify SQLite journal mode")
@@ -295,7 +355,9 @@ if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
 **Analysis**: Error path not tested (PRAGMA query fails)
 
 #### C. Integrity Check on Startup Warnings
+
 **Lines**: 57-58, 63-65
+
 ```go
 if err := db.Raw("PRAGMA quick_check").Scan(&quickCheckResult).Error; err != nil {
     logger.Log().WithError(err).Warn("Failed to run SQLite integrity check on startup")
@@ -309,6 +371,7 @@ if err := db.Raw("PRAGMA quick_check").Scan(&quickCheckResult).Error; err != nil
 ```
 
 **Analysis**:
+
 - PRAGMA failure path not tested
 - Corruption detected path (quickCheckResult != "ok") not tested
 - Only success path tested in TestConnect_WALMode
@@ -316,10 +379,13 @@ if err := db.Raw("PRAGMA quick_check").Scan(&quickCheckResult).Error; err != nil
 ### Required Tests
 
 #### Test 13: Connect_InvalidDSN
+
 ```go
 func TestConnect_InvalidDSN(t *testing.T)
 ```
+
 **Setup**:
+
 - Use completely invalid DSN (e.g., empty string or malformed path)
 - Call Connect()
 **Assert**:
@@ -327,10 +393,13 @@ func TestConnect_InvalidDSN(t *testing.T)
 - Database is nil
 
 #### Test 14: Connect_PRAGMAJournalModeError
+
 ```go
 func TestConnect_PRAGMAJournalModeError(t *testing.T)
 ```
+
 **Setup**:
+
 - Create corrupted database file (invalid SQLite header)
 - Call Connect() - it may succeed connection but fail PRAGMA
 **Assert**:
@@ -339,10 +408,13 @@ func TestConnect_PRAGMAJournalModeError(t *testing.T)
 - Function still returns database (doesn't fail on PRAGMA)
 
 #### Test 15: Connect_IntegrityCheckError
+
 ```go
 func TestConnect_IntegrityCheckError(t *testing.T)
 ```
+
 **Setup**:
+
 - Mock or create scenario where PRAGMA quick_check query fails
 - Alternative: Use read-only database with corrupted WAL file
 **Assert**:
@@ -350,10 +422,13 @@ func TestConnect_IntegrityCheckError(t *testing.T)
 - Connection still returns successfully (non-blocking)
 
 #### Test 16: Connect_IntegrityCheckCorrupted
+
 ```go
 func TestConnect_IntegrityCheckCorrupted(t *testing.T)
 ```
+
 **Setup**:
+
 - Create SQLite DB and intentionally corrupt it (truncate file, modify header)
 - Call Connect()
 **Assert**:
@@ -362,10 +437,13 @@ func TestConnect_IntegrityCheckCorrupted(t *testing.T)
 - Connection still returns (non-fatal during startup)
 
 #### Test 17: Connect_PRAGMAVerification
+
 ```go
 func TestConnect_PRAGMAVerification(t *testing.T)
 ```
+
 **Setup**:
+
 - Create normal database
 - Verify all PRAGMA settings applied correctly
 **Assert**:
@@ -375,10 +453,13 @@ func TestConnect_PRAGMAVerification(t *testing.T)
 - Info log message contains "WAL mode enabled"
 
 #### Test 18: Connect_CorruptedDatabase_FullIntegrationScenario
+
 ```go
 func TestConnect_CorruptedDatabase_FullIntegrationScenario(t *testing.T)
 ```
+
 **Setup**:
+
 - Create valid DB with tables/data
 - Corrupt the database file (overwrite with random bytes in middle)
 - Attempt Connect()
@@ -393,12 +474,15 @@ func TestConnect_CorruptedDatabase_FullIntegrationScenario(t *testing.T)
 ## 3. db_health_handler.go (Target: 90%+)
 
 ### Current Coverage: 86.95%
+
 **Missing**: 2 lines | **Partial**: 1 line
 
 ### Uncovered Code Paths
 
 #### A. Corrupted Database Response
+
 **Lines**: 69-71
+
 ```go
 } else {
     response.Status = "corrupted"
@@ -409,7 +493,9 @@ func TestConnect_CorruptedDatabase_FullIntegrationScenario(t *testing.T)
 **Analysis**: All tests use healthy in-memory databases; corruption path never tested
 
 #### B. Backup Service GetLastBackupTime Error
+
 **Lines**: 56-58 (partial coverage)
+
 ```go
 if h.backupService != nil {
     if lastBackup, err := h.backupService.GetLastBackupTime(); err == nil && !lastBackup.IsZero() {
@@ -423,10 +509,13 @@ if h.backupService != nil {
 ### Required Tests
 
 #### Test 19: DBHealthHandler_Check_CorruptedDatabase
+
 ```go
 func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T)
 ```
+
 **Setup**:
+
 - Create file-based SQLite database
 - Corrupt the database file (truncate or write invalid data)
 - Create handler with corrupted DB
@@ -438,10 +527,13 @@ func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T)
 - response.IntegrityResult contains error details
 
 #### Test 20: DBHealthHandler_Check_BackupServiceError
+
 ```go
 func TestDBHealthHandler_Check_BackupServiceError(t *testing.T)
 ```
+
 **Setup**:
+
 - Create handler with backup service
 - Make backup directory unreadable (trigger GetLastBackupTime error)
 - Call Check endpoint
@@ -451,10 +543,13 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T)
 - Response status remains "healthy" (independent of backup error)
 
 #### Test 21: DBHealthHandler_Check_BackupTimeZero
+
 ```go
 func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T)
 ```
+
 **Setup**:
+
 - Create handler with backup service but empty backup directory
 - Call Check endpoint
 **Assert**:
@@ -467,12 +562,15 @@ func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T)
 ## 4. errors.go (Target: 90%+)
 
 ### Current Coverage: 86.95%
+
 **Missing**: 2 lines | **Partial**: 1 line
 
 ### Uncovered Code Paths
 
 #### A. LogCorruptionError with Empty Context
+
 **Lines**: Not specifically visible, but likely the context iteration logic
+
 ```go
 for key, value := range context {
     entry = entry.WithField(key, value)
@@ -482,7 +580,9 @@ for key, value := range context {
 **Analysis**: Tests call with nil and with context, but may not cover empty map {}
 
 #### B. CheckIntegrity Error Path Details
+
 **Lines**: Corruption message path
+
 ```go
 return false, result
 ```
@@ -492,10 +592,13 @@ return false, result
 ### Required Tests
 
 #### Test 22: LogCorruptionError_EmptyContext
+
 ```go
 func TestLogCorruptionError_EmptyContext(t *testing.T)
 ```
+
 **Setup**:
+
 - Call LogCorruptionError with empty map {}
 - Verify doesn't panic
 **Assert**:
@@ -503,10 +606,13 @@ func TestLogCorruptionError_EmptyContext(t *testing.T)
 - Error is logged with base fields only
 
 #### Test 23: CheckIntegrity_ActualCorruption
+
 ```go
 func TestCheckIntegrity_ActualCorruption(t *testing.T)
 ```
+
 **Setup**:
+
 - Create SQLite database
 - Insert data
 - Corrupt the database file (overwrite bytes)
@@ -518,10 +624,13 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T)
 - Message includes specific SQLite error
 
 #### Test 24: CheckIntegrity_PRAGMAError
+
 ```go
 func TestCheckIntegrity_PRAGMAError(t *testing.T)
 ```
+
 **Setup**:
+
 - Close database connection
 - Call CheckIntegrity on closed DB
 **Assert**:
@@ -534,6 +643,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 ## Implementation Priority
 
 ### Phase 1: Critical Coverage Gaps (Target: +10% coverage)
+
 1. **Test 19**: DBHealthHandler_Check_CorruptedDatabase (closes 503 status path)
 2. **Test 16**: Connect_IntegrityCheckCorrupted (closes database.go corruption path)
 3. **Test 23**: CheckIntegrity_ActualCorruption (closes errors.go corruption path)
@@ -542,34 +652,38 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 **Impact**: Covers all "corrupted database" scenarios - the core feature functionality
 
 ### Phase 2: Error Path Coverage (Target: +8% coverage)
-5. **Test 7**: GetLastBackupTime_ListBackupsError
-6. **Test 20**: DBHealthHandler_Check_BackupServiceError
-7. **Test 14**: Connect_PRAGMAJournalModeError
-8. **Test 15**: Connect_IntegrityCheckError
+
+1. **Test 7**: GetLastBackupTime_ListBackupsError
+2. **Test 20**: DBHealthHandler_Check_BackupServiceError
+3. **Test 14**: Connect_PRAGMAJournalModeError
+4. **Test 15**: Connect_IntegrityCheckError
 
 **Impact**: Covers error handling paths that log warnings but don't fail
 
 ### Phase 3: Edge Cases (Target: +5% coverage)
-9. **Test 5**: RunScheduledBackup_CleanupDeletesZero
-10. **Test 21**: DBHealthHandler_Check_BackupTimeZero
-11. **Test 6**: CleanupOldBackups_PartialFailure
-12. **Test 8**: CreateBackup_CaddyDirMissing
+
+1. **Test 5**: RunScheduledBackup_CleanupDeletesZero
+2. **Test 21**: DBHealthHandler_Check_BackupTimeZero
+3. **Test 6**: CleanupOldBackups_PartialFailure
+4. **Test 8**: CreateBackup_CaddyDirMissing
 
 **Impact**: Handles edge cases and partial failures
 
 ### Phase 4: Constructor & Initialization (Target: +2% coverage)
-13. **Test 1**: NewBackupService_BackupDirCreationError
-14. **Test 2**: NewBackupService_CronScheduleError
-15. **Test 17**: Connect_PRAGMAVerification
+
+1. **Test 1**: NewBackupService_BackupDirCreationError
+2. **Test 2**: NewBackupService_CronScheduleError
+3. **Test 17**: Connect_PRAGMAVerification
 
 **Impact**: Tests initialization edge cases
 
 ### Phase 5: Deep Coverage (Final +3%)
-16. **Test 10**: addToZip_FileNotFound
-17. **Test 11**: addToZip_FileOpenError
-18. **Test 9**: CreateBackup_CaddyDirUnreadable
-19. **Test 22**: LogCorruptionError_EmptyContext
-20. **Test 24**: CheckIntegrity_PRAGMAError
+
+1. **Test 10**: addToZip_FileNotFound
+2. **Test 11**: addToZip_FileOpenError
+3. **Test 9**: CreateBackup_CaddyDirUnreadable
+4. **Test 22**: LogCorruptionError_EmptyContext
+5. **Test 24**: CheckIntegrity_PRAGMAError
 
 **Impact**: Achieves 90%+ coverage with comprehensive edge case testing
 
@@ -578,6 +692,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T)
 ## Testing Utilities Needed
 
 ### 1. Database Corruption Helper
+
 ```go
 // helper_test.go
 func corruptSQLiteDB(t *testing.T, dbPath string) {
@@ -595,6 +710,7 @@ func corruptSQLiteDB(t *testing.T, dbPath string) {
 ```
 
 ### 2. Directory Permission Helper
+
 ```go
 func makeReadOnly(t *testing.T, path string) func() {
     t.Helper()
@@ -611,6 +727,7 @@ func makeReadOnly(t *testing.T, path string) func() {
 ```
 
 ### 3. Test Logger Hook
+
 ```go
 type TestLoggerHook struct {
     Entries []*logrus.Entry
@@ -641,6 +758,7 @@ func (h *TestLoggerHook) HasMessage(msg string) bool {
 ```
 
 ### 4. Mock Backup Service
+
 ```go
 type MockBackupService struct {
     GetLastBackupTimeErr    error
@@ -671,6 +789,7 @@ go tool cover -html=coverage.out -o coverage.html
 ```
 
 **Target Output**:
+
 ```
 backup_service.go:       87.5%
 database.go:             88.2%

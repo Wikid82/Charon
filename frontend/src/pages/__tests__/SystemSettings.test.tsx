@@ -9,16 +9,7 @@ import * as featureFlagsApi from '../../api/featureFlags'
 import client from '../../api/client'
 import { LanguageProvider } from '../../context/LanguageContext'
 
-// Mock i18next
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: {
-      changeLanguage: vi.fn(),
-      language: 'en',
-    },
-  }),
-}))
+// Note: react-i18next mock is provided globally by src/test/setup.ts
 
 // Mock API modules
 vi.mock('../../api/settings', () => ({

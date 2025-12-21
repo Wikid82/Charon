@@ -58,12 +58,14 @@ Detailed coverage analysis for each CrowdSec module:
 ### Coverage Details
 
 #### `api/presets.ts` - ✅ 100% Coverage
+
 - All API endpoints tested
 - Error handling verified
 - Request/response validation complete
 - Preset retrieval, filtering, and management tested
 
 #### `api/consoleEnrollment.ts` - ✅ 100% Coverage
+
 - Console status endpoint tested
 - Enrollment flow validated
 - Error scenarios covered
@@ -72,6 +74,7 @@ Detailed coverage analysis for each CrowdSec module:
 - Partial enrollment status tested
 
 #### `data/crowdsecPresets.ts` - ✅ 100% Coverage
+
 - All 30 presets validated
 - Preset structure verification
 - Field validation complete
@@ -79,6 +82,7 @@ Detailed coverage analysis for each CrowdSec module:
 - Category validation complete
 
 #### `utils/crowdsecExport.ts` - ✅ 100% Coverage (90.9% branches)
+
 - Export functionality complete
 - JSON generation tested
 - Filename handling validated
@@ -87,6 +91,7 @@ Detailed coverage analysis for each CrowdSec module:
 - Note: Branch coverage at 90.9% is acceptable (single uncovered edge case)
 
 #### `hooks/useConsoleEnrollment.ts` - ✅ 100% Coverage
+
 - React Query integration tested
 - Console status hook validated
 - Enrollment mutation tested
@@ -108,6 +113,7 @@ Detailed coverage analysis for each CrowdSec module:
 ```
 
 **Tests Include:**
+
 - API endpoint validation
 - Preset retrieval
 - Preset filtering
@@ -123,6 +129,7 @@ Detailed coverage analysis for each CrowdSec module:
 ```
 
 **Tests Include:**
+
 - Console status retrieval
 - Enrollment flow
 - Error scenarios
@@ -139,6 +146,7 @@ Detailed coverage analysis for each CrowdSec module:
 ```
 
 **Tests Include:**
+
 - All 30 presets validated
 - Preset structure verification
 - Category validation
@@ -154,6 +162,7 @@ Detailed coverage analysis for each CrowdSec module:
 ```
 
 **Tests Include:**
+
 - Export functionality
 - JSON generation
 - Filename handling
@@ -170,6 +179,7 @@ Detailed coverage analysis for each CrowdSec module:
 ```
 
 **Tests Include:**
+
 - React Query integration
 - Status fetching
 - Enrollment mutation
@@ -216,6 +226,7 @@ source .venv/bin/activate && pre-commit run --files \
 ```
 
 **Results:**
+
 - ✅ Backend unit tests: Passed
 - ✅ Go Vet: Skipped (no files)
 - ✅ Version check: Skipped (no files)
@@ -228,6 +239,7 @@ source .venv/bin/activate && pre-commit run --files \
 ### Backend Tests Still Pass
 
 All backend tests continue to pass, confirming no regressions:
+
 - Coverage: 82.8% of statements
 - All CrowdSec reconciliation tests passing
 - Startup integration tests passing
@@ -240,7 +252,7 @@ All backend tests continue to pass, confirming no regressions:
 
 Comprehensive analysis of test results to detect the persistent CrowdSec bug:
 
-#### Tests Executed to Find Bugs:
+#### Tests Executed to Find Bugs
 
 1. **Console Status Tests**
    - ✅ All status retrieval scenarios pass
@@ -277,6 +289,7 @@ Comprehensive analysis of test results to detect the persistent CrowdSec bug:
 4. **Data-dependent** - Requires specific CrowdSec configuration or state
 
 **Recommendation:** If a CrowdSec bug is still occurring in production:
+
 - Check backend integration tests
 - Review backend CrowdSec service logs
 - Examine real API responses vs mocked responses
@@ -288,21 +301,24 @@ Comprehensive analysis of test results to detect the persistent CrowdSec bug:
 
 ### Test Coverage Quality: Excellent
 
-#### Strengths:
+#### Strengths
+
 1. **Comprehensive Scenarios** - All code paths tested
 2. **Error Handling** - Network failures, API errors, validation errors all covered
 3. **Edge Cases** - Empty states, partial data, invalid data tested
 4. **Integration** - React Query hooks properly tested with mocked dependencies
 5. **Mocking Strategy** - Clean mocks that accurately simulate real behavior
 
-#### Test Patterns Used:
+#### Test Patterns Used
+
 - ✅ Vitest for unit testing
 - ✅ Mock Service Worker (MSW) for API mocking
 - ✅ React Testing Library for hook testing
 - ✅ Comprehensive assertion patterns
 - ✅ Proper test isolation
 
-#### No Flaky Tests Detected:
+#### No Flaky Tests Detected
+
 - All tests run deterministically
 - No timing-related failures
 - No race conditions in tests
@@ -345,6 +361,7 @@ All tests passing with 100% coverage. No bugs detected. No remediation needed.
 ### ✅ AUDIT STATUS: APPROVED
 
 **Summary:**
+
 - ✅ All 5 required test files created and passing
 - ✅ 162 CrowdSec-specific tests passing (100% pass rate)
 - ✅ 100% code coverage achieved for all CrowdSec modules
@@ -356,6 +373,7 @@ All tests passing with 100% coverage. No bugs detected. No remediation needed.
 **Approval:** The CrowdSec frontend implementation is approved for completion with 100% test coverage. All acceptance criteria met.
 
 **Next Steps:**
+
 - ✅ Frontend tests complete - no further action required
 - ⚠️ If CrowdSec bug persists, investigate backend or integration layer
 - 📝 Update implementation summary with test coverage results

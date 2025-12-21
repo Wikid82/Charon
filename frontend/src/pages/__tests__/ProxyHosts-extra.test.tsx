@@ -170,7 +170,10 @@ describe('ProxyHosts page extra tests', () => {
       await userEvent.click(selectAllBtn)
     }
 
-    await waitFor(() => expect(screen.getByText(/hosts selected \(all\)/)).toBeInTheDocument())
+    // Text is split across elements: "<strong>2</strong> host(s) selected (all)"
+    // Check for presence of both parts separately
+    await waitFor(() => expect(screen.getByText(/host\(s\) selected/)).toBeInTheDocument())
+    expect(screen.getByText(/\(all\)/)).toBeInTheDocument()
   })
 
   it('shows loader when fetching', async () => {

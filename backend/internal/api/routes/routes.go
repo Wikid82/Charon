@@ -45,6 +45,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.RemoteServer{},
 		&models.SSLCertificate{},
 		&models.AccessList{},
+		&models.SecurityHeaderProfile{},
 		&models.User{},
 		&models.Setting{},
 		&models.ImportSession{},
@@ -277,6 +278,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			logger.Log().WithError(err).Warn("Failed to ensure uptime feature flag default")
 		}
 
+		// Ensure security header presets exist
+		secHeadersSvc := services.NewSecurityHeadersService(db)
+		if err := secHeadersSvc.EnsurePresetsExist(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to initialize security header presets")
+		}
+
 		// Start background checker (every 1 minute)
 		go func() {
 			// Wait a bit for server to start
@@ -421,6 +428,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.PUT("/access-lists/:id", accessListHandler.Update)
 		protected.DELETE("/access-lists/:id", accessListHandler.Delete)
 		protected.POST("/access-lists/:id/test", accessListHandler.TestIP)
+
+		// Security Headers
+		securityHeadersHandler := handlers.NewSecurityHeadersHandler(db, caddyManager)
+		securityHeadersHandler.RegisterRoutes(protected)
 
 		// Certificate routes
 		// Use cfg.CaddyConfigDir + "/data" for cert service so we scan the actual Caddy storage

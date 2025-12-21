@@ -1,4 +1,9 @@
-# Security Features
+---
+title: Security Features
+description: Comprehensive security documentation for Charon's Cerberus security suite including CrowdSec, WAF, and access control lists.
+---
+
+## Security Features
 
 Charon includes **Cerberus**, a security system that protects your websites. It's **enabled by default** so your sites are protected from the start.
 

@@ -142,20 +142,20 @@ func TestSecurityHandler_GetStatus_RespectsSettingsTable(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
 
 			// Check WAF enabled
-			waf := response["waf"].(map[string]interface{})
+			waf := response["waf"].(map[string]any)
 			assert.Equal(t, tt.expectedWAF, waf["enabled"].(bool), "WAF enabled mismatch")
 
 			// Check Rate Limit enabled
-			rateLimit := response["rate_limit"].(map[string]interface{})
+			rateLimit := response["rate_limit"].(map[string]any)
 			assert.Equal(t, tt.expectedRate, rateLimit["enabled"].(bool), "Rate Limit enabled mismatch")
 
 			// Check CrowdSec enabled
-			crowdsec := response["crowdsec"].(map[string]interface{})
+			crowdsec := response["crowdsec"].(map[string]any)
 			assert.Equal(t, tt.expectedCrowd, crowdsec["enabled"].(bool), "CrowdSec enabled mismatch")
 		})
 	}
@@ -185,11 +185,11 @@ func TestSecurityHandler_GetStatus_WAFModeFromSettings(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	waf := response["waf"].(map[string]interface{})
+	waf := response["waf"].(map[string]any)
 	// When enabled via settings, mode should reflect "enabled" state
 	assert.True(t, waf["enabled"].(bool))
 }
@@ -218,10 +218,10 @@ func TestSecurityHandler_GetStatus_RateLimitModeFromSettings(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
-	rateLimit := response["rate_limit"].(map[string]interface{})
+	rateLimit := response["rate_limit"].(map[string]any)
 	assert.True(t, rateLimit["enabled"].(bool))
 }

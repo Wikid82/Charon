@@ -1,4 +1,9 @@
-# What Can Charon Do?
+---
+title: What Can Charon Do?
+description: Complete feature guide for Charon reverse proxy manager. Learn about SSL certificates, security, Docker integration, and more.
+---
+
+## What Can Charon Do?
 
 Here's everything Charon can do for you, explained simply.
 
@@ -82,6 +87,171 @@ You can re-enable features at any time without losing anything.
 **Note:** Both features default to enabled when you first install Charon. This gives you full functionality out of the box.
 
 ---
+
+## \ud83d\udce8 Standard Proxy Headers
+
+**What it does:** Automatically adds industry-standard HTTP headers to requests forwarded to your backend applications, providing them with information about the original client connection.
+
+**Why you care:** Your backend applications need to know the real client IP address and original protocol (HTTP vs HTTPS) for proper logging, security decisions, and functionality. Without these headers, your apps only see Charon's IP address.
+
+**What you do:** Enable the checkbox when creating/editing a proxy host, or use bulk apply to enable on multiple hosts at once.
+
+### What Headers Are Added?
+
+When enabled, Charon adds these four standard headers to every proxied request:
+
+| Header | Purpose | Example Value |
+|--------|---------|---------------|
+| `X-Real-IP` | The actual client IP address (not Charon's IP) | `203.0.113.42` |
+| `X-Forwarded-Proto` | Original protocol used by the client | `https` |
+| `X-Forwarded-Host` | Original Host header from the client | `example.com` |
+| `X-Forwarded-Port` | Original port the client connected to | `443` |
+| `X-Forwarded-For` | Chain of proxy IPs (managed by Caddy) | `203.0.113.42, 10.0.0.1` |
+
+**Note:** `X-Forwarded-For` is handled natively by Caddy's reverse proxy and is not explicitly set by Charon to prevent duplication.
+
+### Why These Headers Matter
+
+**Client IP Detection:**
+
+- Security logs show the real attacker IP, not Charon's internal IP
+- Rate limiting works correctly per-client instead of limiting all traffic
+- GeoIP-based features work with the client's location
+- Analytics tools track real user locations
+
+**HTTPS Enforcement:**
+
+- Backend apps know if the original connection was secure
+- Redirect logic works correctly (e.g., "redirect to HTTPS")
+- Session cookies can be marked `Secure` appropriately
+- Mixed content warnings are prevented
+
+**Virtual Host Routing:**
+
+- Backend apps can route requests based on the original hostname
+- Multi-tenant applications can identify the correct tenant
+- URL generation produces correct absolute URLs
+
+**Example Use Cases:**
+
+```python
+# Python/Flask: Get real client IP
+from flask import request
+client_ip = request.headers.get('X-Real-IP', request.remote_addr)
+logger.info(f"Request from {client_ip}")
+
+# Check if original connection was HTTPS
+is_secure = request.headers.get('X-Forwarded-Proto') == 'https'
+if not is_secure:
+    return redirect(request.url.replace('http://', 'https://'))
+```
+
+```javascript
+// Node.js/Express: Get real client IP
+app.use((req, res, next) => {
+  const clientIp = req.headers['x-real-ip'] || req.ip;
+  console.log(`Request from ${clientIp}`);
+  next();
+});
+
+// Trust proxy to correctly handle X-Forwarded-* headers
+app.set('trust proxy', true);
+```
+
+```go
+// Go: Get real client IP
+clientIP := r.Header.Get("X-Real-IP")
+if clientIP == "" {
+    clientIP = r.RemoteAddr
+}
+
+// Check original protocol
+isHTTPS := r.Header.Get("X-Forwarded-Proto") == "https"
+```
+
+### Default Behavior
+
+- **New proxy hosts**: Standard headers are **enabled by default** (best practice)
+- **Existing hosts**: Standard headers are **disabled by default** (backward compatible)
+- **Migration**: Use the info banner or bulk apply to enable on existing hosts
+
+### When to Enable
+
+✅ **Enable if your backend application:**
+
+- Needs accurate client IP addresses for security/logging
+- Enforces HTTPS or redirects based on protocol
+- Uses IP-based rate limiting or access control
+- Serves multiple virtual hosts/tenants
+- Generates absolute URLs or redirects
+
+### When to Disable
+
+❌ **Disable if your backend application:**
+
+- Is a legacy app that doesn't understand proxy headers
+- Has custom IP detection logic that conflicts with standard headers
+- Explicitly doesn't trust X-Forwarded-* headers (security policy)
+- Already receives these headers from another source
+
+### Security Considerations
+
+**Trusted Proxies:**
+Charon configures Caddy with `trusted_proxies` to prevent IP spoofing. Headers are only trusted when coming from Charon itself, not from external clients.
+
+**Header Injection:**
+Caddy overwrites any existing X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-Port headers sent by clients, preventing header injection attacks.
+
+**Backend Configuration:**
+Your backend application must be configured to trust proxy headers. Most frameworks have a "trust proxy" setting:
+
+- Express.js: `app.set('trust proxy', true)`
+- Django: `USE_X_FORWARDED_HOST = True`
+- Flask: Use `ProxyFix` middleware
+- Laravel: Set `trusted_proxies`
+
+### How to Enable
+
+**For a single host:**
+
+1. Go to **Proxy Hosts** → Click **Edit** on the desired host
+2. Scroll to the **Standard Proxy Headers** section
+3. Check **"Enable Standard Proxy Headers"**
+4. Click **Save**
+
+**For multiple hosts (bulk apply):**
+
+1. Go to **Proxy Hosts**
+2. Select checkboxes for the hosts you want to update
+3. Click **"Bulk Apply"** at the top
+4. Toggle **"Standard Proxy Headers"** to **ON**
+5. Check **"Apply to selected hosts"** for this setting
+6. Click **"Apply Changes"**
+
+**Bulk Apply also supports:**
+- Applying or removing security header profiles across multiple hosts
+- Enabling/disabling Forward Auth, WAF, or Access Lists in bulk
+- Updating SSL certificate assignments for multiple hosts at once
+
+**Info Banner:**
+Existing hosts without standard headers show an info banner explaining the feature and providing a quick-enable button.
+
+### Troubleshooting
+
+**Problem:** Backend still sees Charon's IP address
+
+- **Solution:** Ensure the feature is enabled in the proxy host settings
+- **Check:** Verify your backend is configured to trust proxy headers
+
+**Problem:** Application breaks after enabling headers
+
+- **Solution:** Disable the feature and check your backend logs
+- **Common cause:** Backend has strict header validation or conflicting logic
+
+**Problem:** HTTPS redirects create loops
+
+- **Solution:** Update your backend to check `X-Forwarded-Proto` instead of the connection protocol
+- **Example:** Use `X-Forwarded-Proto == 'https'` for HTTPS detection
 
 ## \ud83d\udd10 SSL Certificates (The Green Lock)
 
@@ -489,6 +659,7 @@ Your uptime history will be preserved.
 **What you do:** Click "Logs" in the sidebar.
 
 ---
+
 ## 🗄️ Database Maintenance
 
 **What it does:** Keeps your configuration database healthy and recoverable.
@@ -535,6 +706,7 @@ The script will:
 **Learn more:** See the [Database Maintenance Guide](database-maintenance.md) for detailed documentation.
 
 ---
+
 ## 🔴 Live Security Logs & Notifications
 
 **What it does:** Stream security events in real-time and get notified about critical threats.
@@ -815,6 +987,650 @@ Charon features a modern, accessible design system built on Tailwind CSS v4 with
 - Native dark mode with system preference detection
 - Consistent color tokens across light and dark themes
 - Smooth theme transitions without flash
+
+---
+
+## 🛡️ HTTP Security Headers
+
+**What it does:** Automatically injects enterprise-level HTTP security headers into your proxy responses with zero manual configuration.
+
+**Why you care:** Prevents common web vulnerabilities (XSS, clickjacking, MIME-sniffing) and improves your security posture without touching code.
+
+**What you do:** Apply a preset (Basic/Strict/Paranoid) or create custom header profiles for specific needs.
+
+### Why Security Headers Matter
+
+Modern browsers support powerful security features through HTTP headers, but they're disabled by default.
+Security headers tell browsers to enable protections like:
+
+- **Preventing XSS attacks** — Content-Security-Policy blocks unauthorized scripts
+- **Stopping clickjacking** — X-Frame-Options prevents embedding your site in malicious iframes
+- **HTTPS enforcement** — HSTS ensures browsers always use secure connections
+- **Blocking MIME-sniffing** — X-Content-Type-Options prevents browsers from guessing file types
+- **Restricting browser features** — Permissions-Policy disables unused APIs (geolocation, camera, mic)
+
+Without these headers, browsers operate in "permissive mode" that prioritizes compatibility over security.
+
+### Quick Start with Presets
+
+**What it does:** Three pre-configured security profiles that cover common use cases.
+
+**Available presets:**
+
+#### Basic (Production Safe)
+
+**Best for:** Public websites, blogs, marketing pages, most production sites
+
+**What it includes:**
+
+- HSTS with 1-year max-age (forces HTTPS)
+- X-Frame-Options: DENY (prevents clickjacking)
+- X-Content-Type-Options: nosniff (blocks MIME-sniffing)
+- Referrer-Policy: strict-origin-when-cross-origin (safe referrer handling)
+
+**What it excludes:**
+
+- Content-Security-Policy (CSP) — Disabled to avoid breaking sites
+- Cross-Origin headers — Not needed for most sites
+
+**Use when:** You want essential security without risk of breaking functionality.
+
+#### Strict (High Security)
+
+**Best for:** Web apps handling sensitive data (dashboards, admin panels, SaaS tools)
+
+**What it includes:**
+
+- All "Basic" headers
+- Content-Security-Policy with safe defaults:
+  - `default-src 'self'` — Only load resources from your domain
+  - `script-src 'self'` — Only execute your own scripts
+  - `style-src 'self' 'unsafe-inline'` — Your styles plus inline CSS (common need)
+  - `img-src 'self' data: https:` — Your images plus data URIs and HTTPS images
+- Permissions-Policy: camera=(), microphone=(), geolocation=() (blocks sensitive features)
+- Referrer-Policy: no-referrer (maximum privacy)
+
+**Use when:** You need strong security and can test/adjust CSP for your app.
+
+#### Paranoid (Maximum Security)
+
+**Best for:** High-risk applications, financial services, government sites, APIs
+
+**What it includes:**
+
+- All "Strict" headers
+- Stricter CSP:
+  - `default-src 'none'` — Block everything by default
+  - `script-src 'self'` — Only your scripts
+  - `style-src 'self'` — Only your stylesheets (no inline CSS)
+  - `img-src 'self'` — Only your images
+  - `connect-src 'self'` — Only your API endpoints
+- Cross-Origin-Opener-Policy: same-origin (isolates window context)
+- Cross-Origin-Resource-Policy: same-origin (blocks cross-origin embedding)
+- Cross-Origin-Embedder-Policy: require-corp (enforces cross-origin isolation)
+- No 'unsafe-inline' or 'unsafe-eval' — Maximum CSP strictness
+
+**Use when:** Security is paramount and you can invest time in thorough testing.
+
+**How to use presets:**
+
+**Option 1: Assign directly to a host**
+
+1. Go to **Proxy Hosts**, edit or create a host
+2. Find the **"Security Headers"** dropdown
+3. Select a preset (Basic, Strict, or Paranoid)
+4. Save the host — Caddy applies the headers immediately
+
+**Option 2: Bulk apply to multiple hosts**
+
+1. Go to **Proxy Hosts**
+2. Select checkboxes for the hosts you want to update
+3. Click **"Bulk Apply"** at the top
+4. In the **"Security Headers"** section, select a profile
+5. Check **"Apply to selected hosts"** for this setting
+6. Click **"Apply Changes"** — all selected hosts receive the profile
+
+**Option 3: Clone and customize**
+
+1. Go to **Security → HTTP Headers**
+2. Find the preset you want (e.g., "Strict")
+3. Click **"Clone"**
+4. Customize the copied profile
+5. Assign your custom profile to proxy hosts (individually or via bulk apply)
+
+### Reusable Header Profiles
+
+**What it does:** Create named profiles with multiple header configurations that can be assigned to proxy hosts via dropdown selection.
+
+**Why you care:** Define security policies once, apply to any website. Update one profile to affect all hosts using it.
+
+**Profile types:**
+
+- **System Profiles (Read-Only)** — Pre-configured presets (Basic, Strict, Paranoid) you can view or clone but not edit
+- **Custom Profiles** — Your own profiles that you can edit, delete, and customize freely
+
+**Profile workflow:**
+
+1. **Create Profile** — Go to Security → HTTP Headers, create a new profile or apply a preset
+2. **Assign to Host** — Edit a proxy host, select the profile from the "Security Headers" dropdown
+3. **Caddy Applies** — Charon automatically configures Caddy to inject the headers for that host
+4. **View/Clone** — Browse presets, clone them to create customized versions
+
+**Profile features:**
+
+- **Name & Description** — Organize profiles by purpose ("Blog Security", "Admin Panel Headers")
+- **Multi-select Headers** — Choose which headers to include
+- **Header-specific Options** — Configure each header's behavior
+- **Security Score** — Real-time score (0-100) shows strength of configuration
+- **Validation** — Warns about unsafe combinations or missing critical headers
+
+### Supported Headers
+
+#### HSTS (HTTP Strict Transport Security)
+
+**What it does:** Forces browsers to always use HTTPS for your domain.
+
+**Options:**
+
+- **Max-Age** — How long browsers remember the policy (seconds)
+  - Recommended: 31536000 (1 year)
+  - Minimum: 300 (5 minutes) for testing
+- **Include Subdomains** — Apply HSTS to all subdomains
+- **Preload** — Submit to browser HSTS preload list (permanent, irreversible)
+
+**Warning:** Preload is a one-way decision. Once preloaded, removing HSTS requires contacting browsers manually.
+Only enable preload if you're certain ALL subdomains will support HTTPS forever.
+
+**Example:**
+
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
+
+#### Content-Security-Policy (CSP)
+
+**What it does:** Controls what resources browsers can load (scripts, styles, images, etc.).
+The most powerful security header but also the easiest to misconfigure.
+
+**Interactive CSP Builder:**
+
+Charon includes a visual CSP builder that prevents common mistakes:
+
+- **Directive Categories** — Organized by resource type (scripts, styles, images, fonts, etc.)
+- **Source Suggestions** — Common values like `'self'`, `'none'`, `https:`, `data:`
+- **Validation** — Warns about unsafe combinations (`'unsafe-inline'`, `'unsafe-eval'`)
+- **Preview** — See the final CSP string in real-time
+
+**Common directives:**
+
+- `default-src` — Fallback for all resource types
+- `script-src` — JavaScript sources (most important for XSS prevention)
+- `style-src` — CSS sources
+- `img-src` — Image sources
+- `connect-src` — XHR/WebSocket/fetch destinations
+- `font-src` — Web font sources
+- `frame-src` — iframe sources
+
+**Testing strategy:**
+
+1. Start with `Content-Security-Policy-Report-Only` mode (logs violations, doesn't block)
+2. Review violations in browser console
+3. Adjust CSP to allow legitimate resources
+4. Switch to enforcing mode when ready
+
+**Best practices:**
+
+- Avoid `'unsafe-inline'` and `'unsafe-eval'` — These disable XSS protection
+- Use `'nonce-'` or `'hash-'` for inline scripts/styles when needed
+- Start with `default-src 'self'` and add specific exceptions
+
+#### X-Frame-Options
+
+**What it does:** Prevents your site from being embedded in iframes (clickjacking protection).
+
+**Options:**
+
+- **DENY** — No one can embed your site (safest)
+- **SAMEORIGIN** — Only your domain can embed your site
+
+**When to use SAMEORIGIN:** If you embed your own pages in iframes (dashboards, admin tools).
+
+**Example:**
+
+```
+X-Frame-Options: DENY
+```
+
+#### X-Content-Type-Options
+
+**What it does:** Prevents browsers from MIME-sniffing responses away from declared content-type.
+
+**Value:** Always `nosniff` (no configuration needed)
+
+**Why it matters:** Without this, browsers might execute uploaded images as JavaScript if they contain script-like content.
+
+**Example:**
+
+```
+X-Content-Type-Options: nosniff
+```
+
+#### Referrer-Policy
+
+**What it does:** Controls how much referrer information browsers send with requests.
+
+**Options:**
+
+- `no-referrer` — Never send referrer (maximum privacy)
+- `no-referrer-when-downgrade` — Only send on HTTPS → HTTPS
+- `origin` — Only send origin (<https://example.com>), not full URL
+- `origin-when-cross-origin` — Full URL for same-origin, origin for cross-origin
+- `same-origin` — Only send referrer for same-origin requests
+- `strict-origin` — Send origin unless downgrading HTTPS → HTTP
+- `strict-origin-when-cross-origin` — Full URL for same-origin, origin for cross-origin (recommended)
+- `unsafe-url` — Always send full URL (not recommended)
+
+**Recommended:** `strict-origin-when-cross-origin` balances privacy and analytics needs.
+
+**Example:**
+
+```
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+#### Permissions-Policy
+
+**What it does:** Controls which browser features and APIs your site can use (formerly Feature-Policy).
+
+**Interactive Builder:**
+
+Charon provides a visual interface to configure permissions:
+
+- **Common Features** — Camera, microphone, geolocation, payment, USB, etc.
+- **Toggle Access** — Allow for your site, all origins, or block completely
+- **Delegation** — Allow specific domains to use features
+
+**Common policies:**
+
+- `camera=()` — Block camera access completely
+- `microphone=()` — Block microphone access
+- `geolocation=(self)` — Allow geolocation only on your domain
+- `payment=(self "https://secure-payment.com")` — Allow payment API for specific domains
+
+**Best practice:** Block all features you don't use. This reduces attack surface and prevents third-party scripts from accessing sensitive APIs.
+
+**Example:**
+
+```
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+```
+
+#### Cross-Origin-Opener-Policy (COOP)
+
+**What it does:** Isolates your document's window context from cross-origin documents.
+
+**Options:**
+
+- `unsafe-none` — No isolation (default browser behavior)
+- `same-origin-allow-popups` — Isolate except for popups you open
+- `same-origin` — Full isolation (recommended for high-security)
+
+**Use case:** Prevents cross-origin pages from accessing your window object (Spectre mitigation).
+
+**Example:**
+
+```
+Cross-Origin-Opener-Policy: same-origin
+```
+
+#### Cross-Origin-Resource-Policy (CORP)
+
+**What it does:** Prevents other origins from embedding your resources.
+
+**Options:**
+
+- `same-site` — Only same-site can embed
+- `same-origin` — Only exact origin can embed (strictest)
+- `cross-origin` — Anyone can embed (default)
+
+**Use case:** Protect images, scripts, styles from being hotlinked or embedded by other sites.
+
+**Example:**
+
+```
+Cross-Origin-Resource-Policy: same-origin
+```
+
+#### Cross-Origin-Embedder-Policy (COEP)
+
+**What it does:** Requires all cross-origin resources to explicitly opt-in to being loaded.
+
+**Options:**
+
+- `unsafe-none` — No restrictions (default)
+- `require-corp` — Cross-origin resources must have CORP header (strict)
+
+**Use case:** Enables SharedArrayBuffer and high-precision timers (needed for WebAssembly, advanced web apps).
+
+**Warning:** Can break third-party resources (CDNs, ads) that don't send CORP headers.
+
+**Example:**
+
+```
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+#### X-XSS-Protection
+
+**What it does:** Legacy XSS filter for older browsers (mostly obsolete).
+
+**Options:**
+
+- `0` — Disable filter (recommended for CSP-protected sites)
+- `1` — Enable filter
+- `1; mode=block` — Enable filter and block rendering if XSS detected
+
+**Modern approach:** Use Content-Security-Policy instead. This header is deprecated in modern browsers.
+
+**Example:**
+
+```
+X-XSS-Protection: 0
+```
+
+#### Cache-Control
+
+**What it does:** Controls caching behavior for security-sensitive pages.
+
+**Security-relevant values:**
+
+- `no-store` — Never cache (for sensitive data)
+- `no-cache, no-store, must-revalidate` — Full cache prevention
+- `private` — Only browser cache, not CDNs
+
+**Use case:** Prevent sensitive data (user dashboards, financial info) from being cached.
+
+**Example:**
+
+```
+Cache-Control: no-cache, no-store, must-revalidate, private
+```
+
+### Security Score Calculator
+
+**What it does:** Analyzes your header configuration and assigns a 0-100 security score with actionable improvement suggestions.
+
+**Scoring categories:**
+
+| Header Category | Weight | Max Points |
+|----------------|--------|------------|
+| HSTS | Critical | 20 |
+| Content-Security-Policy | Critical | 25 |
+| X-Frame-Options | High | 15 |
+| X-Content-Type-Options | Medium | 10 |
+| Referrer-Policy | Medium | 10 |
+| Permissions-Policy | Medium | 10 |
+| Cross-Origin Policies | Low | 10 |
+
+**Score interpretation:**
+
+- **🔴 0-49 (Poor)** — Missing critical headers, vulnerable to common attacks
+- **🟡 50-74 (Fair)** — Basic protection, but missing important headers
+- **🟢 75-89 (Good)** — Strong security posture, minor improvements possible
+- **🟢 90-100 (Excellent)** — Maximum security, best practices followed
+
+**What you see:**
+
+- **Overall Score** — Large, color-coded number (0-100)
+- **Category Breakdown** — Points earned per header category
+- **Improvement Suggestions** — Specific actions to increase score
+- **Real-time Preview** — Score updates as you change configuration
+
+**How to use it:**
+
+1. Create or edit a security header profile
+2. Review the score in the right sidebar
+3. Click suggestion links to fix issues
+4. Watch score improve in real-time
+
+### User Workflows
+
+#### Workflow 1: Quick Protection (Basic Preset)
+
+**Goal:** Add essential security headers to a production site without breaking anything.
+
+**Steps:**
+
+1. Go to **Proxy Hosts**, edit your host
+2. Scroll to **"Security Headers"** section
+3. Select **"Basic (Production Safe)"** from the dropdown
+4. Review the security score preview (Score: 65/100)
+5. Save
+
+**Result:** Essential headers applied immediately via Caddy, security score ~60-70, zero breakage risk.
+
+#### Workflow 2: Custom Headers for SaaS Dashboard
+
+**Goal:** Create strict CSP for a web app while allowing third-party analytics and fonts.
+
+**Steps:**
+
+1. Go to **Security → HTTP Headers** → Click **"Create Profile"**
+2. Name it "Dashboard Security"
+3. Enable these headers:
+   - HSTS (1 year, include subdomains)
+   - CSP (use interactive builder):
+     - `default-src 'self'`
+     - `script-src 'self' https://cdn.analytics.com`
+     - `style-src 'self' 'unsafe-inline'` (for React inline styles)
+     - `font-src 'self' https://fonts.googleapis.com`
+     - `img-src 'self' data: https:`
+     - `connect-src 'self' https://api.analytics.com`
+   - X-Frame-Options: DENY
+   - X-Content-Type-Options: nosniff
+   - Referrer-Policy: strict-origin-when-cross-origin
+   - Permissions-Policy: camera=(), microphone=(), geolocation=()
+4. Review security score (target: 80+)
+5. Save the profile
+6. Go to **Proxy Hosts**, edit your dashboard host
+7. Select "Dashboard Security" from the **"Security Headers"** dropdown
+8. Save — test in browser console for CSP violations
+9. Edit profile as needed based on violations
+
+**Result:** Strong security with functional third-party integrations, score 80-85.
+
+#### Workflow 3: Maximum Security for API
+
+**Goal:** Apply paranoid security for a backend API that serves JSON only.
+
+**SGo to **Proxy Hosts**, edit your API host
+2. Select **"Paranoid (Maximum Security)"** from the **"Security Headers"** dropdown
+3. Review the configuration preview:
+
+- HSTS with preload
+- Strict CSP (`default-src 'none'`)
+- All cross-origin headers set to `same-origin`
+- No unsafe directives
+
+1. Save
+2. Test API endpoints (should work—APIs don't need CSP for HTML)
+3. Assign to API proxy host
+4. Test API endpoints (should work—APIs don't need CSP for HTML)
+5. Verify security score (90+)
+
+**Result:** Maximum security, score 90-100, suitable for high-risk environments.
+
+### API Endpoints
+
+Charon exposes HTTP Security Headers via REST API for automation:
+
+```
+GET    /api/v1/security/headers/profiles           # List all profiles
+POST   /api/v1/security/headers/profiles           # Create profile
+GET    /api/v1/security/headers/profiles/:id       # Get profile details
+PUT    /api/v1/security/headers/profiles/:id       # Update profile
+DELETE /api/v1/security/headers/profiles/:id       # Delete profile
+GET    /api/v1/security/headers/presets            # List available presets
+POST   /api/v1/security/headers/presets/apply      # Apply preset to create profile
+POST   /api/v1/security/headers/score              # Calculate security score
+```
+
+**Example: Create profile via API**
+
+```bash
+curl -X POST https://charon.example.com/api/v1/security/headers/profiles \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "API Headers",
+    "description": "Security headers for backend API",
+    "hsts_enabled": true,
+    "hsts_max_age": 31536000,
+    "hsts_include_subdomains": true,
+    "csp_enabled": true,
+    "csp_default_src": "'\''none'\''",
+    "x_frame_options": "DENY",
+    "x_content_type_options": true,
+    "referrer_policy": "no-referrer"
+  }'
+```
+
+**Example: Calculate security score**
+
+```bash
+curl -X POST https://charon.example.com/api/v1/security/headers/score \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hsts_enabled": true,
+    "hsts_max_age": 31536000,
+    "csp_enabled": true,
+    "csp_default_src": "'\''self'\''"
+  }'
+```
+
+### Implementation Details
+
+**Backend components:**
+
+- **Model:** [`backend/internal/models/security_header_profile.go`](https://github.com/Wikid82/Charon/blob/main/backend/internal/models/security_header_profile.go)
+- **Handlers:** [`backend/internal/api/handlers/security_headers_handler.go`](https://github.com/Wikid82/Charon/blob/main/backend/internal/api/handlers/security_headers_handler.go)
+- **Services:**
+  - [`backend/internal/services/security_headers_service.go`](https://github.com/Wikid82/Charon/blob/main/backend/internal/services/security_headers_service.go)
+  - [`backend/internal/services/security_score.go`](https://github.com/Wikid82/Charon/blob/main/backend/internal/services/security_score.go)
+- **Caddy Integration:** [`backend/internal/caddy/config.go`](https://github.com/Wikid82/Charon/blob/main/backend/internal/caddy/config.go) (`buildSecurityHeadersHandler`)
+
+**Frontend components:**
+
+- **Profile List:** [`frontend/src/pages/SecurityHeaders.tsx`](https://github.com/Wikid82/Charon/blob/main/frontend/src/pages/SecurityHeaders.tsx)
+- **Profile Form:** [`frontend/src/pages/SecurityHeaderProfileForm.tsx`](https://github.com/Wikid82/Charon/blob/main/frontend/src/pages/SecurityHeaderProfileForm.tsx)
+- **API Client:** [`frontend/src/api/securityHeaders.ts`](https://github.com/Wikid82/Charon/blob/main/frontend/src/api/securityHeaders.ts)
+- **React Query Hooks:** [`frontend/src/hooks/useSecurityHeaders.ts`](https://github.com/Wikid82/Charon/blob/main/frontend/src/hooks/useSecurityHeaders.ts)
+
+**Caddy integration:**
+
+Charon translates security header profiles into Caddy's `header` directive configuration:
+
+```caddyfile
+reverse_proxy {
+    header_up Host {upstream_hostport}
+    header_up X-Forwarded-Host {host}
+    header_up X-Forwarded-Proto {scheme}
+
+    # Security headers injected here
+    header_down Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    header_down Content-Security-Policy "default-src 'self'; script-src 'self'"
+    header_down X-Frame-Options "DENY"
+    # ... etc
+}
+```
+
+### Best Practices
+
+**Start conservatively:**
+
+- Begin with "Basic" preset for production sites
+- Test "Strict" in staging environment first
+- Only use "Paranoid" if you can invest time in thorough testing
+
+**Content-Security-Policy:**
+
+- Use `Content-Security-Policy-Report-Only` initially
+- Monitor browser console for violations
+- Avoid `'unsafe-inline'` and `'unsafe-eval'` when possible
+- Consider using nonces or hashes for inline scripts/styles
+- Test with your specific frontend framework (React, Vue, Angular)
+
+**HSTS:**
+
+- Start with short `max-age` (300 seconds) for testing
+- Increase to 1 year (31536000) when confident
+- Be extremely cautious with `preload`—it's permanent
+- Ensure ALL subdomains support HTTPS before `includeSubDomains`
+
+**Testing workflow:**
+
+1. Apply headers in development/staging first
+2. Open browser DevTools → Console → Check for violations
+3. Use [Security Headers](https://securityheaders.com/) scanner
+4. Test with real user workflows (login, forms, uploads)
+5. Monitor for errors after deployment
+6. Adjust CSP based on real-world violations
+
+**Common CSP pitfalls:**
+
+- Inline event handlers (`onclick`, `onerror`) blocked by default
+- Third-party libraries (analytics, ads) need explicit allowance
+- `data:` URIs for images/fonts need `data:` in `img-src`/`font-src`
+- Webpack/Vite injected scripts need `'unsafe-inline'` or nonce support
+
+**Rate of change:**
+
+- Security headers can break functionality if misconfigured
+- Roll out changes gradually (one host, then multiple, then all)
+- Keep "Basic" profiles stable, experiment in custom profiles
+- Document any special exceptions (why `'unsafe-inline'` is needed)
+
+### Security Considerations
+
+**CSP can break functionality:**
+
+- Modern SPAs often use inline styles/scripts
+- Third-party widgets (chat, analytics) need allowances
+- Always test CSP changes thoroughly before production
+
+**HSTS preload is permanent:**
+
+- Once preloaded, you cannot easily undo it
+- Affects all subdomains forever
+- Only enable if 100% committed to HTTPS forever
+
+**Cross-origin isolation:**
+
+- COOP/COEP/CORP can break embedded content
+- May break iframes, popups, and third-party resources
+- Test with all integrations (SSO, OAuth, embedded videos)
+
+**Default headers are secure but may need tuning:**
+
+- "Basic" preset is safe for 95% of sites
+- "Strict" preset may need CSP adjustments for your stack
+- "Paranoid" preset requires significant testing
+
+**Security vs. Compatibility:**
+
+- Stricter headers improve security but increase breakage risk
+- Balance depends on your threat model
+- Enterprise apps → prefer security
+- Public websites → prefer compatibility
+
+**Header priority:**
+
+1. HSTS (most important—enforces HTTPS)
+2. X-Frame-Options (prevents clickjacking)
+3. X-Content-Type-Options (prevents MIME confusion)
+4. Content-Security-Policy (strongest but hardest to configure)
+5. Other headers (defense-in-depth)
 
 ---
 

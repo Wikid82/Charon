@@ -13,6 +13,7 @@
 The backend test coverage improvements have been successfully implemented and validated. All critical systems pass with flying colors. One pre-existing flaky frontend test was identified but does not block the release of backend improvements.
 
 **Key Achievements:**
+
 - ✅ Backend coverage: **85.4%** (target: ≥85%)
 - ✅ All backend tests passing
 - ✅ All pre-commit hooks passing
@@ -25,6 +26,7 @@ The backend test coverage improvements have been successfully implemented and va
 ## Test Results
 
 ### Backend Tests
+
 - **Status:** ✅ **PASS**
 - **Coverage:** **85.4%** (exceeds 85% requirement)
 - **Total Tests:** 100% passing across all packages
@@ -38,6 +40,7 @@ The backend test coverage improvements have been successfully implemented and va
   - `routes.go`: 69.23% → 82.1%
 
 **Coverage Breakdown by Package:**
+
 - `internal/api/handlers`: ✅ PASS
 - `internal/services`: ✅ 83.4% coverage
 - `internal/util`: ✅ 100.0% coverage
@@ -46,6 +49,7 @@ The backend test coverage improvements have been successfully implemented and va
 - `cmd/seed`: ✅ 62.5% (utility binary)
 
 ### Frontend Tests
+
 - **Status:** ⚠️ **PASS** (1 flaky test)
 - **Coverage:** **Not measured** (script runs tests but doesn't report coverage percentage)
 - **Total Tests:** 955 passed, 2 skipped, **1 failed**
@@ -53,6 +57,7 @@ The backend test coverage improvements have been successfully implemented and va
 - **Duration:** 73.92s
 
 **Failed Test:**
+
 ```
 FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
   > "shows 'No proxy hosts configured' when no hosts"
@@ -62,6 +67,7 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 **Analysis:** This is a **pre-existing flaky test** in `ProxyHosts-extra.test.tsx` that times out intermittently. It is **NOT related to the backend test coverage improvements** being audited. The test should be investigated separately but does not block this PR.
 
 **All Security-Related Frontend Tests:** ✅ **PASS**
+
 - Security.audit.test.tsx: ✅ 18 tests passed
 - Security.test.tsx: ✅ 18 tests passed
 - Security.errors.test.tsx: ✅ 13 tests passed
@@ -74,6 +80,7 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 ## Linting & Code Quality
 
 ### Pre-commit Hooks
+
 - **Status:** ✅ **PASS**
 - **Hooks Executed:**
   - ✅ Fix end of files
@@ -93,21 +100,25 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 **Issues Found:** None
 
 ### Go Vet
+
 - **Status:** ✅ **PASS**
 - **Warnings:** 0
 - **Errors:** 0
 
 ### ESLint (Frontend)
+
 - **Status:** ✅ **PASS**
 - **Errors:** 0
 - **Warnings:** 12 (acceptable)
 
 **Warning Summary:**
+
 - 1× unused variable (`onclick` in mobile test)
 - 11× `@typescript-eslint/no-explicit-any` warnings (in tests)
 - All warnings are in test files and do not affect production code
 
 ### TypeScript Check
+
 - **Status:** ✅ **PASS**
 - **Type Errors:** 0
 - **Compilation:** Clean
@@ -122,6 +133,7 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 - **Severity Filter:** HIGH, CRITICAL
 
 **Results:**
+
 - **CRITICAL:** 0
 - **HIGH:** 0
 - **MEDIUM:** Not reported (filtered out)
@@ -136,12 +148,14 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 ## Build Verification
 
 ### Backend Build
+
 - **Status:** ✅ **PASS**
 - **Command:** `go build ./...`
 - **Output:** Clean compilation, no errors
 - **Duration:** < 5s
 
 ### Frontend Build
+
 - **Status:** ✅ **PASS**
 - **Command:** `npm run build`
 - **Output:**
@@ -151,6 +165,7 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
   - Largest bundle: 251.10 kB (index--SKFgTXE.js, gzipped: 81.36 kB)
 
 **Bundle Analysis:**
+
 - Total assets: 70+ files
 - Gzip compression: Effective (avg 30-35% of original size)
 - Code splitting: Proper (separate chunks for pages/features)
@@ -160,10 +175,13 @@ FAIL  src/pages/__tests__/ProxyHosts-extra.test.tsx
 ## Regression Analysis
 
 ### Regressions Found
+
 **Status:** ✅ **NO REGRESSIONS**
 
 ### Test Compatibility
+
 All 6 modified test files integrate seamlessly with existing test suite:
+
 - ✅ `crowdsec_handler_test.go` - All tests pass
 - ✅ `log_watcher_test.go` - All tests pass
 - ✅ `console_enroll_test.go` - All tests pass
@@ -172,6 +190,7 @@ All 6 modified test files integrate seamlessly with existing test suite:
 - ✅ `routes_test.go` - All tests pass
 
 ### Behavioral Verification
+
 - ✅ CrowdSec reconciliation logic works correctly
 - ✅ Log watcher handles EOF retries properly
 - ✅ Console enrollment validation functions as expected
@@ -200,17 +219,20 @@ All 6 modified test files integrate seamlessly with existing test suite:
 ### Notes on Coverage Changes
 
 **Positive Improvements:**
+
 - `log_watcher.go` saw the most significant improvement (+41.95%), now at **98.2%** coverage
 - `crowdsec_handler.go` improved significantly (+17.38%)
 - `routes.go` improved substantially (+12.87%)
 
 **Minor Regression:**
+
 - `crowdsec_exec.go` decreased by 11.85% (92.85% → 81.0%)
   - **Analysis:** This appears to be due to refactoring or test reorganization
   - **Recommendation:** Review if additional edge cases need testing
   - **Impact:** Overall backend coverage still meets 85% requirement
 
 **Stable:**
+
 - `crowdsec_startup.go` maintained high coverage (~94%)
 - Overall backend coverage maintained at **85.4%**
 
@@ -219,6 +241,7 @@ All 6 modified test files integrate seamlessly with existing test suite:
 ## Code Quality Observations
 
 ### Strengths
+
 1. ✅ **Comprehensive Error Handling:** Tests cover happy paths AND error conditions
 2. ✅ **Edge Case Coverage:** Timeout scenarios, invalid inputs, and race conditions tested
 3. ✅ **Concurrent Safety:** Tests verify thread-safe operations (log watcher, uptime service)
@@ -226,6 +249,7 @@ All 6 modified test files integrate seamlessly with existing test suite:
 5. ✅ **Security Hardening:** No vulnerabilities introduced
 
 ### Areas for Future Improvement
+
 1. ⚠️ **Frontend Test Stability:** Investigate `ProxyHosts-extra.test.tsx` timeout
 2. ℹ️ **ESLint Warnings:** Consider reducing `any` types in test files
 3. ℹ️ **Coverage Target:** `crowdsec_exec.go` could use a few more edge case tests to restore 90%+ coverage
@@ -237,6 +261,7 @@ All 6 modified test files integrate seamlessly with existing test suite:
 ### Ready for Commit: ✅ **YES**
 
 **Justification:**
+
 - All backend tests pass with 85.4% coverage (meets requirement)
 - All quality gates pass (pre-commit, linting, builds, security)
 - No regressions detected in backend functionality
@@ -271,6 +296,7 @@ All 6 modified test files integrate seamlessly with existing test suite:
 This test coverage improvement represents **high-quality engineering work** that significantly enhances the reliability and maintainability of Charon's backend codebase. The improvements focus on critical security components (CrowdSec, log watching, console enrollment, startup verification) which are essential for production stability.
 
 **Key Highlights:**
+
 - **85.4% overall backend coverage** meets industry standards for enterprise applications
 - **98.2% coverage on log_watcher.go** demonstrates exceptional thoroughness
 - **Zero security vulnerabilities** confirms safe deployment

@@ -1,8 +1,13 @@
-# Troubleshooting WebSocket Issues
+---
+title: Troubleshooting WebSocket Issues
+description: Resolve WebSocket connection problems in Charon. Proxy configuration, timeouts, and connection stability.
+---
+
+## Troubleshooting WebSocket Issues
 
 WebSocket connections are used in Charon for real-time features like live log streaming. If you're experiencing issues with WebSocket connections (e.g., logs not updating in real-time), this guide will help you diagnose and resolve the problem.
 
-## Quick Diagnostics
+### Quick Diagnostics
 
 ### Check WebSocket Connection Status
 
@@ -11,6 +16,7 @@ WebSocket connections are used in Charon for real-time features like live log st
 3. Check if there are active connections displayed
 
 The WebSocket status card shows:
+
 - Total number of active WebSocket connections
 - Breakdown by type (General Logs vs Security Logs)
 - Oldest connection age
@@ -19,6 +25,7 @@ The WebSocket status card shows:
 ### Browser Console Check
 
 Open your browser's Developer Tools (F12) and check the Console tab for:
+
 - WebSocket connection errors
 - Connection refused messages
 - Authentication failures
@@ -69,6 +76,7 @@ location /api/v1/cerberus/logs/ws {
 ```
 
 Key requirements:
+
 - `proxy_http_version 1.1` — Required for WebSocket support
 - `Upgrade` and `Connection` headers — Required for WebSocket upgrade
 - Long `proxy_read_timeout` — Prevents connection from timing out
@@ -97,6 +105,7 @@ Key requirements:
 ```
 
 Required modules:
+
 ```bash
 a2enmod proxy proxy_http proxy_wstunnel
 ```
@@ -113,6 +122,7 @@ Charon sends WebSocket ping frames every 30 seconds to keep connections alive. I
 
 1. **Check proxy timeout settings** (see above)
 2. **Check firewall idle timeout:**
+
    ```bash
    # Linux iptables
    iptables -L -v -n | grep ESTABLISHED
@@ -138,11 +148,13 @@ Charon sends WebSocket ping frames every 30 seconds to keep connections alive. I
 #### Install CA Certificates (Docker)
 
 Add to your Dockerfile:
+
 ```dockerfile
 RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificates
 ```
 
 Or for existing containers:
+
 ```bash
 docker exec -it charon apt-get update && apt-get install -y ca-certificates
 ```
@@ -152,11 +164,13 @@ docker exec -it charon apt-get update && apt-get install -y ca-certificates
 **Warning:** This compromises security. Only use in development environments.
 
 Set environment variable:
+
 ```bash
 docker run -e FF_IGNORE_CERT_ERRORS=1 charon:latest
 ```
 
 Or in docker-compose.yml:
+
 ```yaml
 services:
   charon:
@@ -181,6 +195,7 @@ services:
 #### Linux (iptables)
 
 Allow WebSocket traffic:
+
 ```bash
 # Allow HTTP/HTTPS
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
@@ -196,6 +211,7 @@ iptables-save > /etc/iptables/rules.v4
 #### Docker
 
 Ensure ports are exposed:
+
 ```yaml
 services:
   charon:
@@ -244,6 +260,7 @@ The Charon frontend automatically handles reconnection for security logs but not
 **Cause:** Very old browsers don't support WebSocket protocol.
 
 **Supported Browsers:**
+
 - Chrome 16+ ✅
 - Firefox 11+ ✅
 - Safari 7+ ✅
@@ -281,6 +298,7 @@ Charon WebSocket endpoints support three authentication methods:
 3. **Authorization Header** — Not supported for browser WebSocket connections
 
 If you're accessing WebSocket from a script or tool:
+
 ```javascript
 const ws = new WebSocket('wss://charon.example.com/api/v1/logs/live?token=YOUR_TOKEN');
 ```
@@ -313,6 +331,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 ```
 
 Response example:
+
 ```json
 {
   "total_active": 2,
@@ -333,6 +352,7 @@ Response example:
    - `/api/v1/cerberus/logs/ws`
 
 Check:
+
 - Status should be `101 Switching Protocols`
 - Messages tab shows incoming log entries
 - No errors in Frames tab
@@ -342,6 +362,7 @@ Check:
 If none of the above solutions work:
 
 1. **Check Charon logs:**
+
    ```bash
    docker logs charon | grep -i websocket
    ```
