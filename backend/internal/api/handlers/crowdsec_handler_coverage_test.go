@@ -253,12 +253,12 @@ func TestCrowdsec_ListFiles_EmptyDir(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	// Files may be nil or empty array when dir is empty
 	files := resp["files"]
 	if files != nil {
-		assert.Len(t, files.([]interface{}), 0)
+		assert.Len(t, files.([]any), 0)
 	}
 }
 
@@ -279,7 +279,7 @@ func TestCrowdsec_ListFiles_NonExistent(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	// Should return empty array (nil) for non-existent dir
 	// The files key should exist
@@ -329,7 +329,7 @@ func TestCrowdsec_ReadFile_NestedPath(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "nested content", resp["content"])
 }
@@ -398,9 +398,9 @@ func TestCrowdsec_ListPresets_Success(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	presets, ok := resp["presets"].([]interface{})
+	presets, ok := resp["presets"].([]any)
 	assert.True(t, ok)
 	assert.Greater(t, len(presets), 0)
 }

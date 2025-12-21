@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Gauge, Info } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -10,6 +11,7 @@ import { toast } from '../utils/toast'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 
 export default function RateLimiting() {
+  const { t } = useTranslation()
   const { data: status, isLoading: statusLoading } = useSecurityStatus()
   const { data: configData, isLoading: configLoading } = useSecurityConfig()
   const updateConfigMutation = useUpdateSecurityConfig()
@@ -36,10 +38,10 @@ export default function RateLimiting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['securityStatus'] })
-      toast.success('Rate limiting setting updated')
+      toast.success(t('rateLimiting.settingUpdated'))
     },
     onError: (err: Error) => {
-      toast.error(`Failed to update: ${err.message}`)
+      toast.error(`${t('common.failedToUpdate')}: ${err.message}`)
     },
   })
 
@@ -59,7 +61,7 @@ export default function RateLimiting() {
   const isApplyingConfig = toggleMutation.isPending || updateConfigMutation.isPending
 
   if (statusLoading || configLoading) {
-    return <div className="p-8 text-center text-white">Loading...</div>
+    return <div className="p-8 text-center text-white">{t('common.loading')}</div>
   }
 
   const enabled = status?.rate_limit?.enabled ?? false
@@ -68,8 +70,8 @@ export default function RateLimiting() {
     <>
       {isApplyingConfig && (
         <ConfigReloadOverlay
-          message="Adjusting the gates..."
-          submessage="Rate limiting configuration updating"
+          message={t('rateLimiting.adjustingGates')}
+          submessage={t('rateLimiting.configurationUpdating')}
           type="cerberus"
         />
       )}
@@ -78,10 +80,10 @@ export default function RateLimiting() {
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Gauge className="w-7 h-7 text-blue-400" />
-            Rate Limiting Configuration
+            {t('rateLimiting.title')}
           </h1>
           <p className="text-gray-400 mt-1">
-            Control request rates to protect your services from abuse
+            {t('rateLimiting.description')}
           </p>
         </div>
 
@@ -91,11 +93,10 @@ export default function RateLimiting() {
             <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="text-sm font-semibold text-blue-300 mb-1">
-                About Rate Limiting
+                {t('rateLimiting.aboutTitle')}
               </h3>
               <p className="text-sm text-blue-200/90">
-                Rate limiting helps protect your services from abuse, brute-force attacks, and
-                excessive resource consumption. Configure limits per client IP address.
+                {t('rateLimiting.aboutDescription')}
               </p>
             </div>
           </div>
@@ -107,9 +108,13 @@ export default function RateLimiting() {
             <div className="flex items-center gap-4">
               <div className="text-green-400 text-2xl">✓</div>
               <div>
-                <h3 className="text-sm font-semibold text-green-300">Currently Active</h3>
+                <h3 className="text-sm font-semibold text-green-300">{t('rateLimiting.currentlyActive')}</h3>
                 <p className="text-sm text-green-200/90">
-                  {config.rate_limit_requests} requests/sec • Burst: {config.rate_limit_burst} • Window: {config.rate_limit_window_sec}s
+                  {t('rateLimiting.activeSummary', {
+                    requests: config.rate_limit_requests,
+                    burst: config.rate_limit_burst,
+                    window: config.rate_limit_window_sec
+                  })}
                 </p>
               </div>
             </div>
@@ -120,11 +125,11 @@ export default function RateLimiting() {
         <Card>
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-white">Enable Rate Limiting</h2>
+              <h2 className="text-lg font-semibold text-white">{t('rateLimiting.enableRateLimiting')}</h2>
               <p className="text-sm text-gray-400 mt-1">
                 {enabled
-                  ? 'Rate limiting is active and protecting your services'
-                  : 'Enable to start limiting request rates'}
+                  ? t('rateLimiting.activeDescription')
+                  : t('rateLimiting.disabledDescription')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -144,36 +149,36 @@ export default function RateLimiting() {
         {/* Configuration Section - Only visible when enabled */}
         {enabled && (
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Configuration</h2>
+            <h2 className="text-lg font-semibold text-white mb-4">{t('rateLimiting.configuration')}</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input
-                label="Requests per Second"
+                label={t('rateLimiting.requestsPerSecond')}
                 type="number"
                 min={1}
                 max={1000}
                 value={rps}
                 onChange={(e) => setRps(parseInt(e.target.value, 10) || 1)}
-                helperText="Maximum requests allowed per second per client"
+                helperText={t('rateLimiting.requestsPerSecondHelper')}
                 data-testid="rate-limit-rps"
               />
               <Input
-                label="Burst"
+                label={t('rateLimiting.burst')}
                 type="number"
                 min={1}
                 max={100}
                 value={burst}
                 onChange={(e) => setBurst(parseInt(e.target.value, 10) || 1)}
-                helperText="Allow short bursts above the rate limit"
+                helperText={t('rateLimiting.burstHelper')}
                 data-testid="rate-limit-burst"
               />
               <Input
-                label="Window (seconds)"
+                label={t('rateLimiting.windowSeconds')}
                 type="number"
                 min={1}
                 max={3600}
                 value={window}
                 onChange={(e) => setWindow(parseInt(e.target.value, 10) || 1)}
-                helperText="Time window for rate calculations"
+                helperText={t('rateLimiting.windowSecondsHelper')}
                 data-testid="rate-limit-window"
               />
             </div>
@@ -183,7 +188,7 @@ export default function RateLimiting() {
                 isLoading={updateConfigMutation.isPending}
                 data-testid="save-rate-limit-btn"
               >
-                Save Configuration
+                {t('rateLimiting.saveConfiguration')}
               </Button>
             </div>
           </Card>
@@ -194,9 +199,9 @@ export default function RateLimiting() {
           <Card>
             <div className="text-center py-8">
               <div className="text-gray-500 mb-4 text-4xl">⏱️</div>
-              <h3 className="text-lg font-semibold text-white mb-2">Rate Limiting Disabled</h3>
+              <h3 className="text-lg font-semibold text-white mb-2">{t('rateLimiting.disabledTitle')}</h3>
               <p className="text-gray-400 mb-4">
-                Enable rate limiting to configure request limits and protect your services
+                {t('rateLimiting.disabledMessage')}
               </p>
             </div>
           </Card>

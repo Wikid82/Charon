@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
+#    Please use: .github/skills/scripts/skill-runner.sh security-scan-trivy
+#    For more info: docs/AGENT_SKILLS_MIGRATION.md
+echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
+echo "    Please use: .github/skills/scripts/skill-runner.sh security-scan-trivy" >&2
+echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
+echo "" >&2
+sleep 1
+
 # Build the local image first to ensure it's up to date
 echo "Building charon:local..."
 docker build -t charon:local .

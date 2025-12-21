@@ -9,11 +9,13 @@
 ## 📋 Executive Summary
 
 **Issue 1: Re-enrollment with NEW key didn't work**
+
 - **Root Cause:** `force` parameter is correctly sent by frontend, but backend has LAPI availability check that may time out
 - **Status:** ✅ Working as designed - re-enrollment requires `force=true` and uses `--overwrite` flag
 - **User Issue:** User needed to use SAME key because new key was invalid or enrollment was already pending
 
 **Issue 2: Live Log Viewer shows "Disconnected"**
+
 - **Root Cause:** WebSocket endpoint is `/api/v1/cerberus/logs/ws` (security logs), NOT `/api/v1/logs/live` (app logs)
 - **Status:** ✅ Working as designed - different endpoints for different log types
 - **User Issue:** Frontend defaults to wrong mode or wrong endpoint
@@ -23,6 +25,7 @@
 ## � Issue 1: Re-Enrollment Investigation (December 16, 2025)
 
 ### User Report
+>
 > "Re-enrollment with NEW key didn't work - I had to use the SAME enrollment token from the first time."
 
 ### Investigation Findings
@@ -32,6 +35,7 @@
 **File:** `frontend/src/pages/CrowdSecConfig.tsx`
 
 **Re-enrollment Button** (Line 588):
+
 ```tsx
 <Button
   variant="secondary"
@@ -45,6 +49,7 @@
 ```
 
 **Submission Function** (Line 278):
+
 ```tsx
 const submitConsoleEnrollment = async (force = false) => {
   // ... validation ...
@@ -58,6 +63,7 @@ const submitConsoleEnrollment = async (force = false) => {
 ```
 
 **API Call** (`frontend/src/api/consoleEnrollment.ts`):
+
 ```typescript
 export interface ConsoleEnrollPayload {
   enrollment_key: string
@@ -79,6 +85,7 @@ export async function enrollConsole(payload: ConsoleEnrollPayload): Promise<Cons
 **File:** `backend/internal/crowdsec/console_enroll.go`
 
 **Force Parameter Handling** (Line 167-169):
+
 ```go
 // Add overwrite flag if force is requested
 if req.Force {
@@ -87,18 +94,22 @@ if req.Force {
 ```
 
 **Command Execution** (Line 178):
+
 ```go
 logger.Log().WithField("tenant", tenant).WithField("agent", agent).WithField("force", req.Force).WithField("correlation_id", rec.LastCorrelationID).WithField("config", configPath).Info("starting crowdsec console enrollment")
 out, cmdErr := s.exec.ExecuteWithEnv(cmdCtx, "cscli", args, nil)
 ```
 
 **Docker Logs Evidence:**
+
 ```
 {"agent":"Charon","config":"/app/data/crowdsec/config/config.yaml","correlation_id":"de557798-3081-4bc2-9dbf-10e035f09eaf","force":true,"level":"info","msg":"starting crowdsec console enrollment","tenant":"5e045b3c-5196-406b-99cd-503bc64c7b0d","time":"2025-12-15T22:43:10-05:00"}
 ```
+
 ✅ Shows `"force":true` in the log
 
 **Error in Logs:**
+
 ```
 Error: cscli console enroll: could not enroll instance: API error: the attachment key provided is not valid (hint: get your enrollement key from console, crowdsec login or machine id are not valid values)
 ```
@@ -108,6 +119,7 @@ Error: cscli console enroll: could not enroll instance: API error: the attachmen
 #### LAPI Availability Check
 
 **Critical Code** (Line 223-244):
+
 ```go
 func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error {
     maxRetries := 3
@@ -142,6 +154,7 @@ func (s *ConsoleEnrollmentService) checkLAPIAvailable(ctx context.Context) error
 ```
 
 **Frontend LAPI Check:**
+
 ```tsx
 const lapiStatusQuery = useQuery<CrowdSecStatus>({
   queryKey: ['crowdsec-lapi-status'],
@@ -163,11 +176,13 @@ const lapiStatusQuery = useQuery<CrowdSecStatus>({
 3. ❌ **The new enrollment key was INVALID** according to CrowdSec API
 
 **Evidence from logs:**
+
 ```
 Error: cscli console enroll: could not enroll instance: API error: the attachment key provided is not valid
 ```
 
 **Why the SAME key worked:**
+
 - The original key was still valid in CrowdSec's system
 - Using the same key with `--overwrite` flag allowed re-enrollment to the same account
 
@@ -176,6 +191,7 @@ Error: cscli console enroll: could not enroll instance: API error: the attachmen
 ✅ **No bug found.** The implementation is correct. User's new enrollment key was rejected by CrowdSec API.
 
 **User Action Required:**
+
 1. Generate a new enrollment key from app.crowdsec.net
 2. Ensure the key is copied completely (no spaces/newlines)
 3. Try re-enrollment again
@@ -185,6 +201,7 @@ Error: cscli console enroll: could not enroll instance: API error: the attachmen
 ## 🔍 Issue 2: Live Log Viewer "Disconnected" (December 16, 2025)
 
 ### User Report
+>
 > "Live Log Viewer shows 'Disconnected' and no logs appear. I only need SECURITY logs (CrowdSec/Cerberus), not application logs."
 
 ### Investigation Findings
@@ -194,6 +211,7 @@ Error: cscli console enroll: could not enroll instance: API error: the attachmen
 **File:** `frontend/src/components/LiveLogViewer.tsx`
 
 **Mode Toggle** (Line 350-366):
+
 ```tsx
 <div className="flex bg-gray-800 rounded-md p-0.5">
   <button
@@ -214,6 +232,7 @@ Error: cscli console enroll: could not enroll instance: API error: the attachmen
 ```
 
 **WebSocket Connection Logic** (Line 155-213):
+
 ```tsx
 useEffect(() => {
   // ... close existing connection ...
@@ -243,12 +262,14 @@ useEffect(() => {
 #### WebSocket Endpoints
 
 **Application Logs:**
+
 ```typescript
 // frontend/src/api/logs.ts:95-135
 const wsUrl = `${protocol}//${window.location.host}/api/v1/logs/live?${params.toString()}`;
 ```
 
 **Security Logs:**
+
 ```typescript
 // frontend/src/api/logs.ts:153-174
 const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${params.toString()}`;
@@ -257,6 +278,7 @@ const wsUrl = `${protocol}//${window.location.host}/api/v1/cerberus/logs/ws?${pa
 #### Backend WebSocket Handlers
 
 **Application Logs Handler:**
+
 ```go
 // backend/internal/api/handlers/logs_ws.go
 func LogsWebSocketHandler(c *gin.Context) {
@@ -267,6 +289,7 @@ func LogsWebSocketHandler(c *gin.Context) {
 ```
 
 **Security Logs Handler:**
+
 ```go
 // backend/internal/api/handlers/cerberus_logs_ws.go
 func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
@@ -276,6 +299,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 ```
 
 **LogWatcher Implementation:**
+
 ```go
 // backend/internal/services/log_watcher.go
 func NewLogWatcher(logPath string) *LogWatcher {
@@ -295,6 +319,7 @@ func NewLogWatcher(logPath string) *LogWatcher {
 ✅ **Result:** Access log has MANY recent entries (20+ lines shown, JSON format, proper structure)
 
 **Sample Entry:**
+
 ```json
 {
   "level":"info",
@@ -362,9 +387,11 @@ docker logs charon 2>&1 | grep -i "cerberus.*logs" | tail -10
 ```
 
 **Result from earlier grep:**
+
 ```
 [GIN-debug] GET /api/v1/cerberus/logs/ws  --> ... .LiveLogs-fm (10 handlers)
 ```
+
 ✅ Route is registered
 
 **No connection attempt logs found** → Connections are NOT reaching backend
@@ -419,6 +446,7 @@ export const connectSecurityLogs = (
 **File:** `backend/internal/api/middleware/auth.go` (assumed location)
 
 Ensure the auth middleware checks for token in:
+
 1. `Authorization` header
 2. Cookie (if using session auth)
 3. **Query parameter `token`** (for WebSocket compatibility)
@@ -815,6 +843,7 @@ docker exec charon ls /app/data/crowdsec/config/config.yaml
 **File:** `backend/internal/crowdsec/console_enroll.go` lines 162-165
 
 **Current:**
+
 ```go
 if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
     return s.statusFromModel(rec), nil
@@ -822,6 +851,7 @@ if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcc
 ```
 
 **Fixed:**
+
 ```go
 if (rec.Status == consoleStatusEnrolled || rec.Status == consoleStatusPendingAcceptance) && !req.Force {
     logger.Log().WithField("status", rec.Status).WithField("agent", rec.AgentName).WithField("tenant", rec.Tenant).Info("enrollment skipped: already enrolled or pending - use force=true to re-enroll")
@@ -842,6 +872,7 @@ type ConsoleEnrollmentStatus struct {
 ```
 
 And in the idempotency return:
+
 ```go
 status := s.statusFromModel(rec)
 status.Skipped = true
@@ -853,6 +884,7 @@ return status, nil
 **File:** `frontend/src/pages/CrowdSecConfig.tsx`
 
 When `consoleStatusQuery.data?.status === 'enrolled'` or `'pending_acceptance'`:
+
 - Show "You are already enrolled" message
 - Show "Force Re-Enrollment" button with checkbox
 - Explain that acceptance on crowdsec.net may be required
@@ -860,6 +892,7 @@ When `consoleStatusQuery.data?.status === 'enrolled'` or `'pending_acceptance'`:
 #### Fix 4: Migrate Stale "enrolled" Status to "pending_acceptance"
 
 Either:
+
 1. Add a database migration to change all `enrolled` to `pending_acceptance`
 2. Or have users click "Force Re-Enroll" once
 
@@ -869,6 +902,7 @@ Until fix is deployed, user can re-enroll using the Force option:
 
 1. In the UI: Check "Force re-enrollment" checkbox before clicking Enroll
 2. Or via curl:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/admin/crowdsec/console/enroll \
   -H "Authorization: Bearer <token>" \
@@ -936,6 +970,7 @@ The button is disabled when:
 | `!enrollmentToken.trim()` | Enrollment token input is empty |
 
 **⚠️ CRITICAL FINDING:** The LAPI ready check can block enrollment:
+
 - If `lapiStatusQuery.data` exists AND `lapi_ready` is `false`, button is DISABLED
 - This can happen if CrowdSec process is running but LAPI hasn't fully initialized
 
@@ -975,6 +1010,7 @@ const validateConsoleEnrollment = (options?) => {
 ```
 
 **Validation will SILENTLY block** the request if:
+
 1. `enrollmentToken` is empty
 2. `consoleAgentName` is empty
 3. `consoleTenant` is empty (for non-force enrollment)
@@ -997,6 +1033,7 @@ const validateConsoleEnrollment = (options?) => {
 #### 1. **LAPI Not Ready Check** ⚠️ HIGH PROBABILITY
 
 The condition `(lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready)` will disable the button if:
+
 - The status query has completed (data exists)
 - But `lapi_ready` is `false`
 
@@ -1075,6 +1112,7 @@ export async function enrollConsole(payload: ConsoleEnrollPayload): Promise<Cons
 ## ✅ RESOLVED Issue A: CrowdSec Console Enrollment Not Working
 
 ### Symptoms
+
 - User submits enrollment with valid key
 - Charon shows "Enrollment submitted" success message
 - No engine appears in CrowdSec.net dashboard
@@ -1092,7 +1130,9 @@ The code incorrectly set `status = enrolled` when it should have been `status = 
 ### Fixes Applied (December 16, 2025)
 
 #### Fix A1: Backend Status Semantics
+
 **File**: `backend/internal/crowdsec/console_enroll.go`
+
 - Added `consoleStatusPendingAcceptance = "pending_acceptance"` constant
 - Changed success status from `enrolled` to `pending_acceptance`
 - Fixed idempotency check to also skip re-enrollment when status is `pending_acceptance`
@@ -1100,20 +1140,26 @@ The code incorrectly set `status = enrolled` when it should have been `status = 
 - Updated log message to say "pending acceptance on crowdsec.net"
 
 #### Fix A2: Frontend User Guidance
+
 **File**: `frontend/src/pages/CrowdSecConfig.tsx`
+
 - Updated success toast to say "Accept the enrollment on app.crowdsec.net to complete registration"
 - Added `isConsolePendingAcceptance` variable
 - Updated `canRotateKey` to include `pending_acceptance` status
 - Added info box with link to app.crowdsec.net when status is `pending_acceptance`
 
 #### Fix A3: Test Updates
+
 **Files**: `backend/internal/crowdsec/console_enroll_test.go`, `backend/internal/api/handlers/crowdsec_handler_test.go`
+
 - Updated all tests expecting `enrolled` to expect `pending_acceptance`
 - Updated test for idempotency to verify second call is blocked for `pending_acceptance`
 - Changed `EnrolledAt` assertion to `LastAttemptAt` (enrollment is not complete yet)
 
 ### Verification
+
 All backend tests pass:
+
 - `TestConsoleEnrollSuccess` ✅
 - `TestConsoleEnrollIdempotentWhenAlreadyEnrolled` ✅
 - `TestConsoleEnrollNormalizesFullCommand` ✅
@@ -1128,6 +1174,7 @@ Frontend type-check passes ✅
 ## NEW Issue B: Live Log Viewer Shows "Disconnected"
 
 ### Symptoms
+
 - Live Log Viewer component shows "Disconnected" status badge
 - No logs appear (even when there should be logs)
 - WebSocket connection may not be establishing
@@ -1171,6 +1218,7 @@ protected.GET("/logs/live", handlers.LogsWebSocketHandler)
 **Problem**: WebSocket connections may fail silently if auth token isn't being passed. The browser's native WebSocket API doesn't automatically include HTTP-only cookies or Authorization headers.
 
 **Verification Steps:**
+
 1. Check browser DevTools Network tab for WebSocket connection
 2. Look for 401/403 responses
 3. Check if `token` query parameter is being sent
@@ -1304,6 +1352,7 @@ const handleClose = () => {
 ## Testing Checklist
 
 ### Enrollment Testing
+
 - [ ] Submit enrollment with valid key
 - [ ] Verify success message mentions acceptance step
 - [ ] Verify UI shows guidance to accept on crowdsec.net
@@ -1311,6 +1360,7 @@ const handleClose = () => {
 - [ ] Verify engine appears in dashboard
 
 ### Live Logs Testing
+
 - [ ] Open Live Log Viewer page
 - [ ] Verify WebSocket connects (check Network tab)
 - [ ] Verify "Connected" badge shows
@@ -1336,12 +1386,14 @@ const handleClose = () => {
 ## Issue 1: CrowdSec Card Toggle Broken on Cerberus Dashboard
 
 ### Symptoms
+
 - CrowdSec card shows "Active" but toggle doesn't work properly
 - Shows "on and active" but CrowdSec is NOT actually on
 
 ### Root Cause Analysis
 
 **Files Involved:**
+
 - [frontend/src/pages/Security.tsx](frontend/src/pages/Security.tsx#L69-L110) - `crowdsecPowerMutation`
 - [frontend/src/api/crowdsec.ts](frontend/src/api/crowdsec.ts#L5-L18) - `startCrowdsec`, `stopCrowdsec`, `statusCrowdsec`
 - [backend/internal/api/handlers/security_handler.go](backend/internal/api/handlers/security_handler.go#L61-L137) - `GetStatus()`
@@ -1358,6 +1410,7 @@ const handleClose = () => {
    - It calls `startCrowdsec()` / `stopCrowdsec()` which updates `security_configs.CrowdSecMode`
 
 3. **State Priority Mismatch**: In [security_handler.go#L100-L108](backend/internal/api/handlers/security_handler.go#L100-L108):
+
    ```go
    // CrowdSec enabled override (from settings table)
    if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
@@ -1368,6 +1421,7 @@ const handleClose = () => {
        }
    }
    ```
+
    The `settings` table overrides `security_configs`, but the `Start()` handler updates `security_configs`.
 
 4. **Process State Not Verified**: The frontend shows "Active" based on `status.crowdsec.enabled` from the API, but this is computed from DB settings, NOT from actual process status. The `crowdsecStatus` state (line 43-44) fetches real process status but this is a **separate query** displayed below the card.
@@ -1375,9 +1429,11 @@ const handleClose = () => {
 ### The Fix
 
 **Backend ([security_handler.go](backend/internal/api/handlers/security_handler.go)):**
+
 - `GetStatus()` should check actual CrowdSec process status via the `CrowdsecExecutor.Status()` call, not just DB state
 
 **Frontend ([Security.tsx](frontend/src/pages/Security.tsx)):**
+
 - The toggle's `checked` state should use `crowdsecStatus?.running` (actual process state) instead of `status.crowdsec.enabled` (DB setting)
 - Or sync both states properly after toggle
 
@@ -1386,18 +1442,21 @@ const handleClose = () => {
 ## Issue 2: Live Log Viewer Shows "Disconnected" But Logs Appear
 
 ### Symptoms
+
 - Shows "Disconnected" status badge but logs ARE appearing
 - Navigating away and back causes logs to disappear
 
 ### Root Cause Analysis
 
 **Files Involved:**
+
 - [frontend/src/components/LiveLogViewer.tsx](frontend/src/components/LiveLogViewer.tsx#L146-L240)
 - [frontend/src/api/logs.ts](frontend/src/api/logs.ts#L95-L174) - `connectLiveLogs`, `connectSecurityLogs`
 
 **The Problem:**
 
 1. **Connection State Race Condition**: In [LiveLogViewer.tsx#L165-L240](frontend/src/components/LiveLogViewer.tsx#L165-L240):
+
    ```tsx
    useEffect(() => {
      // Close existing connection
@@ -1425,12 +1484,14 @@ const handleClose = () => {
 **[LiveLogViewer.tsx](frontend/src/components/LiveLogViewer.tsx):**
 
 1. **Fix State Race**: Use a ref to track connection state transitions:
+
    ```tsx
    const connectionIdRef = useRef(0);
    // In effect: increment connectionId, check it in callbacks
    ```
 
 2. **Remove `isPaused` from Dependencies**: Pausing should NOT close/reopen the WebSocket. Instead, just skip adding messages when paused:
+
    ```tsx
    // Current (wrong): connection is in dependency array
    // Fixed: only filter/process messages based on isPaused flag
@@ -1446,12 +1507,14 @@ const handleClose = () => {
 ## Issue 3: DEPRECATED CrowdSec Mode Toggle Still in UI
 
 ### Symptoms
+
 - CrowdSec config page shows "Disabled/Local/External" mode toggle
 - This is confusing because CrowdSec should run based SOLELY on the Feature Flag in System Settings
 
 ### Root Cause Analysis
 
 **Files Involved:**
+
 - [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L68-L100) - Mode toggle UI
 - [frontend/src/pages/SystemSettings.tsx](frontend/src/pages/SystemSettings.tsx#L89-L107) - Feature flag toggle
 - [backend/internal/models/security_config.go](backend/internal/models/security_config.go#L15) - `CrowdSecMode` field
@@ -1464,6 +1527,7 @@ const handleClose = () => {
    - Mode Toggle: `CrowdSecMode` in SecurityConfig (CrowdSec Config page)
 
 2. **Deprecated UI Still Present**: In [CrowdSecConfig.tsx#L68-L100](frontend/src/pages/CrowdSecConfig.tsx#L68-L100):
+
    ```tsx
    <Card>
      <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1487,12 +1551,15 @@ const handleClose = () => {
    ```
 
 3. **`isLocalMode` Derived from Wrong Source**: Line 28:
+
    ```tsx
    const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
    ```
+
    This checks `mode` from `security_configs.CrowdSecMode`, not the feature flag.
 
 4. **`handleModeToggle` Updates Wrong Setting**: Lines 72-77:
+
    ```tsx
    const handleModeToggle = (nextEnabled: boolean) => {
      const mode = nextEnabled ? 'local' : 'disabled'
@@ -1503,10 +1570,12 @@ const handleClose = () => {
 ### The Fix
 
 **[CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx):**
+
 1. **Remove the Mode Toggle Card entirely** (lines 68-100)
 2. **Add a notice**: "CrowdSec is controlled via the toggle on the Security Dashboard or System Settings"
 
 **Backend Cleanup (optional future work):**
+
 - Remove `CrowdSecMode` field from SecurityConfig model
 - Migrate all state to use only `security.crowdsec.enabled` setting
 
@@ -1515,12 +1584,14 @@ const handleClose = () => {
 ## Issue 4: Enrollment Shows "CrowdSec is not running"
 
 ### Symptoms
+
 - CrowdSec enrollment shows error even when enabled
 - Red warning box: "CrowdSec is not running"
 
 ### Root Cause Analysis
 
 **Files Involved:**
+
 - [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L30-L45) - `lapiStatusQuery`
 - [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx#L172-L196) - Warning display logic
 - [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go#L252-L275) - `Status()`
@@ -1528,6 +1599,7 @@ const handleClose = () => {
 **The Problem:**
 
 1. **LAPI Status Query Uses Wrong Condition**: In [CrowdSecConfig.tsx#L30-L40](frontend/src/pages/CrowdSecConfig.tsx#L30-L40):
+
    ```tsx
    const lapiStatusQuery = useQuery<CrowdSecStatus>({
      queryKey: ['crowdsec-lapi-status'],
@@ -1537,9 +1609,11 @@ const handleClose = () => {
      retry: false,
    })
    ```
+
    The query is `enabled` only when `consoleEnrollmentEnabled` (feature flag for console enrollment).
 
 2. **Warning Shows When Process Not Running**: In [CrowdSecConfig.tsx#L172-L196](frontend/src/pages/CrowdSecConfig.tsx#L172-L196):
+
    ```tsx
    {lapiStatusQuery.data && !lapiStatusQuery.data.running && initialCheckComplete && (
      <div className="..." data-testid="lapi-not-running-warning">
@@ -1548,6 +1622,7 @@ const handleClose = () => {
      </div>
    )}
    ```
+
    This shows when `lapiStatusQuery.data.running === false`.
 
 3. **Status Check May Return Stale Data**: The `Status()` backend handler checks:
@@ -1580,9 +1655,11 @@ const handleClose = () => {
 ### Phase 1: Backend Fixes (Priority: High)
 
 #### 1.1 Unify State Source
+
 **File**: [backend/internal/api/handlers/security_handler.go](backend/internal/api/handlers/security_handler.go)
 
 **Change**: Modify `GetStatus()` to include actual process status:
+
 ```go
 // Add after line 137:
 // Check actual CrowdSec process status
@@ -1597,9 +1674,11 @@ if h.crowdsecExecutor != nil {
 Add `crowdsecExecutor` field to `SecurityHandler` struct and inject it during initialization.
 
 #### 1.2 Consistent Mode Updates
+
 **File**: [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go)
 
 **Change**: In `Start()` and `Stop()`, also update the `settings` table:
+
 ```go
 // In Start(), after updating SecurityConfig (line ~165):
 if h.DB != nil {
@@ -1617,9 +1696,11 @@ if h.DB != nil {
 ### Phase 2: Frontend Fixes (Priority: High)
 
 #### 2.1 Fix CrowdSec Toggle State
+
 **File**: [frontend/src/pages/Security.tsx](frontend/src/pages/Security.tsx)
 
 **Change 1**: Use actual process status for toggle (around line 203):
+
 ```tsx
 // Replace: checked={status.crowdsec.enabled}
 // With:
@@ -1629,9 +1710,11 @@ checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
 **Change 2**: After successful toggle, refetch both status and process status
 
 #### 2.2 Fix LiveLogViewer Connection State
+
 **File**: [frontend/src/components/LiveLogViewer.tsx](frontend/src/components/LiveLogViewer.tsx)
 
 **Change 1**: Remove `isPaused` from useEffect dependencies (line 237):
+
 ```tsx
 // Change from:
 }, [currentMode, filters, securityFilters, isPaused, maxLogs, showBlockedOnly]);
@@ -1640,6 +1723,7 @@ checked={crowdsecStatus?.running ?? status.crowdsec.enabled}
 ```
 
 **Change 2**: Handle pause inside message handler (line 192):
+
 ```tsx
 const handleMessage = (entry: SecurityLogEntry) => {
   // isPaused check stays here, not in effect
@@ -1649,20 +1733,24 @@ const handleMessage = (entry: SecurityLogEntry) => {
 ```
 
 **Change 3**: Add ref for isPaused:
+
 ```tsx
 const isPausedRef = useRef(isPaused);
 useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 ```
 
 #### 2.3 Remove Deprecated Mode Toggle
+
 **File**: [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx)
 
 **Change**: Remove the entire "CrowdSec Mode" Card (lines 291-311 in current render):
+
 ```tsx
 // DELETE: The entire <Card> block containing "CrowdSec Mode"
 ```
 
 Add informational banner instead:
+
 ```tsx
 {/* Replace mode toggle with info banner */}
 <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4">
@@ -1675,9 +1763,11 @@ Add informational banner instead:
 ```
 
 #### 2.4 Fix Enrollment Warning
+
 **File**: [frontend/src/pages/CrowdSecConfig.tsx](frontend/src/pages/CrowdSecConfig.tsx)
 
 **Change**: Add "Start CrowdSec" button to the warning (around line 185):
+
 ```tsx
 <Button
   variant="primary"
@@ -1699,11 +1789,13 @@ Add informational banner instead:
 ### Phase 3: Remove Deprecated Mode (Priority: Medium)
 
 #### 3.1 Backend Model Cleanup (Future)
+
 **File**: [backend/internal/models/security_config.go](backend/internal/models/security_config.go)
 
 Mark `CrowdSecMode` as deprecated with migration path.
 
 #### 3.2 Settings Migration
+
 Create migration to ensure all users have `security.crowdsec.enabled` setting derived from `CrowdSecMode`.
 
 ---
@@ -1711,12 +1803,14 @@ Create migration to ensure all users have `security.crowdsec.enabled` setting de
 ## Files to Modify Summary
 
 ### Backend
+
 | File | Changes |
 |------|---------|
 | `backend/internal/api/handlers/security_handler.go` | Add process status check to `GetStatus()` |
 | `backend/internal/api/handlers/crowdsec_handler.go` | Sync `settings` table in `Start()`/`Stop()` |
 
 ### Frontend
+
 | File | Changes |
 |------|---------|
 | `frontend/src/pages/Security.tsx` | Use `crowdsecStatus?.running` for toggle state |

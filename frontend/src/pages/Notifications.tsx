@@ -1,4 +1,5 @@
 import { useState, type FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, NotificationProvider, getExternalTemplates, previewExternalTemplate, ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, NotificationTemplate } from '../api/notifications';
 import { Card } from '../components/ui/Card';
@@ -11,6 +12,7 @@ const ProviderForm: FC<{
   onClose: () => void;
   onSubmit: (data: Partial<NotificationProvider>) => void;
 }> = ({ initialData, onClose, onSubmit }) => {
+  const { t } = useTranslation();
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: initialData || {
       type: 'discord',
@@ -79,16 +81,16 @@ const ProviderForm: FC<{
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.providerName')}</label>
         <input
-          {...register('name', { required: 'Name is required' })}
+          {...register('name', { required: t('errors.required') as string })}
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         />
         {errors.name && <span className="text-red-500 text-xs">{errors.name.message as string}</span>}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.type')}</label>
         <select
           {...register('type')}
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
@@ -97,41 +99,41 @@ const ProviderForm: FC<{
           <option value="slack">Slack</option>
           <option value="gotify">Gotify</option>
           <option value="telegram">Telegram</option>
-          <option value="generic">Generic Webhook (Shoutrrr)</option>
-          <option value="webhook">Custom Webhook (JSON)</option>
+          <option value="generic">{t('notificationProviders.genericWebhook')}</option>
+          <option value="webhook">{t('notificationProviders.customWebhook')}</option>
         </select>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">URL / Webhook</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.urlWebhook')}</label>
         <input
-          {...register('url', { required: 'URL is required' })}
+          {...register('url', { required: t('notificationProviders.urlRequired') as string })}
           placeholder="https://discord.com/api/webhooks/..."
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         />
         {type !== 'webhook' && (
           <p className="text-xs text-gray-500 mt-1">
-            For Shoutrrr format, see <a href="https://containrrr.dev/shoutrrr/" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">documentation</a>.
+            {t('notificationProviders.shoutrrrHelp')} <a href="https://containrrr.dev/shoutrrr/" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{t('common.docs')}</a>.
           </p>
         )}
       </div>
 
       {type === 'webhook' && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">JSON Payload Template</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.jsonPayloadTemplate')}</label>
           <div className="flex gap-2 mb-2 mt-1">
             <Button type="button" size="sm" variant={template === 'minimal' ? 'primary' : 'secondary'} onClick={() => setTemplate('{"message": "{{.Message}}", "title": "{{.Title}}", "time": "{{.Time}}", "event": "{{.EventType}}"}', 'minimal')}>
-              Minimal Template
+              {t('notificationProviders.minimalTemplate')}
             </Button>
             <Button type="button" size="sm" variant={template === 'detailed' ? 'primary' : 'secondary'} onClick={() => setTemplate(`{"title": "{{.Title}}", "message": "{{.Message}}", "time": "{{.Time}}", "event": "{{.EventType}}", "host": "{{.HostName}}", "host_ip": "{{.HostIP}}", "service_count": {{.ServiceCount}}, "services": {{.Services}}}`, 'detailed')}>
-              Detailed Template
+              {t('notificationProviders.detailedTemplate')}
             </Button>
             <Button type="button" size="sm" variant={template === 'custom' ? 'primary' : 'secondary'} onClick={() => setValue('template', 'custom')}>
-              Custom
+              {t('notificationProviders.customTemplate')}
             </Button>
           </div>
           <div className="mt-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.template')}</label>
             <select {...register('template')} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
               {/* Built-in template options */}
               {builtins?.map((t: NotificationTemplate) => (
@@ -150,33 +152,33 @@ const ProviderForm: FC<{
             placeholder='{"text": "{{.Message}}"}'
           />
           <p className="text-xs text-gray-500 mt-1">
-            Available variables: .Title, .Message, .Status, .Name, .Latency, .Time
+            {t('notificationProviders.availableVariables')}
           </p>
         </div>
       )}
 
       <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-4">
-        <h4 className="text-sm font-medium text-gray-900 dark:text-white">Notification Events</h4>
+        <h4 className="text-sm font-medium text-gray-900 dark:text-white">{t('notificationProviders.notificationEvents')}</h4>
         <div className="grid grid-cols-2 gap-2">
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_proxy_hosts')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Proxy Hosts</label>
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.proxyHosts')}</label>
           </div>
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_remote_servers')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Remote Servers</label>
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.remoteServers')}</label>
           </div>
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_domains')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Domains</label>
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.domainsNotify')}</label>
           </div>
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_certs')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Certificates</label>
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.certificates')}</label>
           </div>
           <div className="flex items-center">
             <input type="checkbox" {...register('notify_uptime')} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Uptime</label>
+            <label className="ml-2 block text-sm text-gray-700 dark:text-gray-300">{t('notificationProviders.uptime')}</label>
           </div>
         </div>
       </div>
@@ -187,11 +189,11 @@ const ProviderForm: FC<{
           {...register('enabled')}
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
-        <label className="ml-2 block text-sm text-gray-900 dark:text-gray-300">Enabled</label>
+        <label className="ml-2 block text-sm text-gray-900 dark:text-gray-300">{t('common.enabled')}</label>
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
         <Button
           type="button"
           variant="secondary"
@@ -199,7 +201,7 @@ const ProviderForm: FC<{
           disabled={testMutation.isPending}
           className="min-w-[80px]"
         >
-          Preview
+          {t('notificationProviders.preview')}
         </Button>
         <Button
           type="button"
@@ -211,14 +213,14 @@ const ProviderForm: FC<{
           {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
            testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
            testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> :
-           "Test"}
+           t('common.test')}
         </Button>
-        <Button type="submit">Save</Button>
+        <Button type="submit">{t('common.save')}</Button>
       </div>
-      {previewError && <div className="mt-2 text-sm text-red-600">Preview Error: {previewError}</div>}
+      {previewError && <div className="mt-2 text-sm text-red-600">{t('notificationProviders.previewError')}: {previewError}</div>}
       {previewContent && (
         <div className="mt-2">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preview Result</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.previewResult')}</label>
           <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs overflow-auto whitespace-pre-wrap">{previewContent}</pre>
         </div>
       )}
@@ -231,6 +233,7 @@ const TemplateForm: FC<{
   onClose: () => void;
   onSubmit: (data: Partial<ExternalTemplate>) => void;
   }> = ({ initialData, onClose, onSubmit }) => {
+    const { t } = useTranslation();
     const { register, handleSubmit, watch } = useForm({
     defaultValues: initialData || { template: 'custom', config: '' }
   });
@@ -254,34 +257,34 @@ const TemplateForm: FC<{
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.name')}</label>
         <input {...register('name', { required: true })} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('common.description')}</label>
         <input {...register('description')} className="mt-1 block w-full rounded-md" />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Template Type</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.templateType')}</label>
         <select {...register('template')} className="mt-1 block w-full rounded-md">
-          <option value="minimal">Minimal</option>
-          <option value="detailed">Detailed</option>
-          <option value="custom">Custom</option>
+          <option value="minimal">{t('notificationProviders.minimal')}</option>
+          <option value="detailed">{t('notificationProviders.detailed')}</option>
+          <option value="custom">{t('notificationProviders.custom')}</option>
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Config (JSON/template)</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.configJson')}</label>
         <textarea {...register('config')} rows={6} className="mt-1 block w-full font-mono text-xs rounded-md" />
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button type="button" variant="secondary" onClick={handlePreview}>Preview</Button>
-        <Button type="submit">Save</Button>
+        <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
+        <Button type="button" variant="secondary" onClick={handlePreview}>{t('notificationProviders.preview')}</Button>
+        <Button type="submit">{t('common.save')}</Button>
       </div>
       {previewErr && <div className="text-sm text-red-600">{previewErr}</div>}
       {preview && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Preview</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.preview')}</label>
           <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs overflow-auto whitespace-pre-wrap">{preview}</pre>
         </div>
       )}
@@ -290,6 +293,7 @@ const TemplateForm: FC<{
 };
 
 const Notifications: FC = () => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -343,34 +347,34 @@ const Notifications: FC = () => {
 
   const testMutation = useMutation({
     mutationFn: testProvider,
-    onSuccess: () => alert('Test notification sent!'),
-    onError: (err: Error) => alert(`Failed to send test: ${err.message}`),
+    onSuccess: () => alert(t('notificationProviders.testSent')),
+    onError: (err: Error) => alert(`${t('notificationProviders.testFailed')}: ${err.message}`),
   });
 
-  if (isLoading) return <div>Loading...</div>;
+  if (isLoading) return <div>{t('common.loading')}</div>;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <Bell className="w-6 h-6" />
-          Notification Providers
+          {t('notificationProviders.title')}
         </h1>
         <Button onClick={() => setIsAdding(true)}>
           <Plus className="w-4 h-4 mr-2" />
-          Add Provider
+          {t('notificationProviders.addProvider')}
         </Button>
       </div>
 
       {/* External Templates Management */}
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">External Templates</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('notificationProviders.externalTemplates')}</h2>
         <div className="flex items-center gap-2">
           <Button onClick={() => setManagingTemplates(!managingTemplates)} variant="secondary" size="sm">
-            {managingTemplates ? 'Hide' : 'Manage Templates'}
+            {managingTemplates ? t('notificationProviders.hideTemplates') : t('notificationProviders.manageTemplates')}
           </Button>
           <Button onClick={() => { setEditingTemplateId(null); setManagingTemplates(true); }}>
-            <Plus className="w-4 h-4 mr-2" />New Template
+            <Plus className="w-4 h-4 mr-2" />{t('notificationProviders.newTemplate')}
           </Button>
         </div>
       </div>
@@ -394,7 +398,7 @@ const Notifications: FC = () => {
           {/* Create new when editingTemplateId is null and Manage Templates open -> show form */}
           {editingTemplateId === null && (
             <Card className="p-4">
-              <h3 className="font-medium mb-2">Create Template</h3>
+              <h3 className="font-medium mb-2">{t('notificationProviders.createTemplate')}</h3>
               <TemplateForm
                 onClose={() => setManagingTemplates(false)}
                 onSubmit={(data) => createTemplateMutation.mutate(data as Partial<ExternalTemplate>)}
@@ -404,25 +408,25 @@ const Notifications: FC = () => {
 
           {/* List of templates */}
           <div className="grid gap-3">
-            {externalTemplates?.map((t: ExternalTemplate) => (
-              <Card key={t.id} className="p-4 flex justify-between items-start">
+            {externalTemplates?.map((t_template: ExternalTemplate) => (
+              <Card key={t_template.id} className="p-4 flex justify-between items-start">
                 <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white">{t.name}</h4>
-                  <p className="text-sm text-gray-500 mt-1">{t.description}</p>
-                  <pre className="mt-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded max-h-44 overflow-auto">{t.config}</pre>
+                  <h4 className="font-medium text-gray-900 dark:text-white">{t_template.name}</h4>
+                  <p className="text-sm text-gray-500 mt-1">{t_template.description}</p>
+                  <pre className="mt-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded max-h-44 overflow-auto">{t_template.config}</pre>
                 </div>
                 <div className="flex flex-col gap-2 ml-4">
-                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t.id)}>
+                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t_template.id)}>
                     <Edit2 className="w-4 h-4" />
                   </Button>
-                  <Button size="sm" variant="danger" onClick={() => { if (confirm('Delete template?')) deleteTemplateMutation.mutate(t.id); }}>
+                  <Button size="sm" variant="danger" onClick={() => { if (confirm(t('notificationProviders.deleteTemplateConfirm'))) deleteTemplateMutation.mutate(t_template.id); }}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </Card>
             ))}
             {externalTemplates?.length === 0 && (
-              <div className="text-sm text-gray-500">No external templates. Use the form above to create one.</div>
+              <div className="text-sm text-gray-500">{t('notificationProviders.noExternalTemplates')}</div>
             )}
           </div>
         </div>
@@ -430,7 +434,7 @@ const Notifications: FC = () => {
 
       {isAdding && (
         <Card className="p-6 mb-6 border-blue-500 border-2">
-          <h3 className="text-lg font-medium mb-4">Add New Provider</h3>
+          <h3 className="text-lg font-medium mb-4">{t('notificationProviders.addNewProvider')}</h3>
           <ProviderForm
             onClose={() => setIsAdding(false)}
             onSubmit={(data) => createMutation.mutate(data)}
@@ -470,7 +474,7 @@ const Notifications: FC = () => {
                     size="sm"
                     onClick={() => testMutation.mutate(provider)}
                     isLoading={testMutation.isPending}
-                    title="Send Test Notification"
+                    title={t('notificationProviders.sendTest')}
                   >
                     <Send className="w-4 h-4" />
                   </Button>
@@ -481,7 +485,7 @@ const Notifications: FC = () => {
                     variant="danger"
                     size="sm"
                     onClick={() => {
-                      if (confirm('Are you sure?')) deleteMutation.mutate(provider.id);
+                      if (confirm(t('notificationProviders.deleteConfirm'))) deleteMutation.mutate(provider.id);
                     }}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -494,7 +498,7 @@ const Notifications: FC = () => {
 
         {providers?.length === 0 && !isAdding && (
           <div className="text-center py-12 text-gray-500 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-            No notification providers configured.
+            {t('notificationProviders.noProviders')}
           </div>
         )}
       </div>

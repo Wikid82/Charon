@@ -138,7 +138,7 @@ func TestUptimeHandler_Update(t *testing.T) {
 		}
 		db.Create(&monitor)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"interval":    60,
 			"max_retries": 5,
 		}
@@ -172,7 +172,7 @@ func TestUptimeHandler_Update(t *testing.T) {
 	t.Run("not_found", func(t *testing.T) {
 		r, _ := setupUptimeHandlerTest(t)
 
-		updates := map[string]interface{}{
+		updates := map[string]any{
 			"interval": 60,
 		}
 		body, _ := json.Marshal(updates)
@@ -226,7 +226,7 @@ func TestUptimeHandler_DeleteAndSync(t *testing.T) {
 		monitor := models.UptimeMonitor{ID: "mon-enable", Name: "ToToggle", Type: "http", URL: "http://example.com", Enabled: true}
 		db.Create(&monitor)
 
-		updates := map[string]interface{}{"enabled": false}
+		updates := map[string]any{"enabled": false}
 		body, _ := json.Marshal(updates)
 		req, _ := http.NewRequest("PUT", "/api/v1/uptime/mon-enable", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")

@@ -232,7 +232,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		}
 	}
 
-	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"name":  req.Name,
 		"email": req.Email,
 	}).Error; err != nil {
@@ -600,7 +600,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	updates := make(map[string]interface{})
+	updates := make(map[string]any)
 
 	if req.Name != "" {
 		updates["name"] = req.Name
@@ -813,7 +813,7 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
-	if err := h.DB.Model(&user).Updates(map[string]interface{}{
+	if err := h.DB.Model(&user).Updates(map[string]any{
 		"name":           req.Name,
 		"password_hash":  user.PasswordHash,
 		"enabled":        true,

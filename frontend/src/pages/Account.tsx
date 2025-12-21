@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Button } from '../components/ui/Button'
@@ -16,6 +17,7 @@ import { isValidEmail } from '../utils/validation'
 import { useAuth } from '../hooks/useAuth'
 
 export default function Account() {
+  const { t } = useTranslation()
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -93,10 +95,10 @@ export default function Account() {
     mutationFn: updateProfile,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] })
-      toast.success('Profile updated successfully')
+      toast.success(t('account.profileUpdated'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to update profile: ${error.message}`)
+      toast.error(t('account.profileUpdateFailed', { error: error.message }))
     },
   })
 
@@ -105,10 +107,10 @@ export default function Account() {
       updateSetting(variables.key, variables.value, variables.category),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success('Certificate email updated')
+      toast.success(t('account.certEmailUpdated'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to update certificate email: ${error.message}`)
+      toast.error(t('account.certEmailUpdateFailed', { error: error.message }))
     },
   })
 
@@ -116,10 +118,10 @@ export default function Account() {
     mutationFn: regenerateApiKey,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] })
-      toast.success('API Key regenerated successfully')
+      toast.success(t('account.apiKeyRegenerated'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to regenerate API key: ${error.message}`)
+      toast.error(t('account.apiKeyRegenerateFailed', { error: error.message }))
     },
   })
 
@@ -216,20 +218,20 @@ export default function Account() {
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
     if (newPassword !== confirmPassword) {
-      toast.error('New passwords do not match')
+      toast.error(t('account.passwordsDoNotMatch'))
       return
     }
 
     setLoading(true)
     try {
       await changePassword(oldPassword, newPassword)
-      toast.success('Password updated successfully')
+      toast.success(t('account.passwordUpdated'))
       setOldPassword('')
       setNewPassword('')
       setConfirmPassword('')
     } catch (err) {
       const error = err as Error
-      toast.error(error.message || 'Failed to update password')
+      toast.error(error.message || t('account.passwordUpdateFailed'))
     } finally {
       setLoading(false)
     }
@@ -238,7 +240,7 @@ export default function Account() {
   const copyApiKey = () => {
     if (profile?.api_key) {
       navigator.clipboard.writeText(profile.api_key)
-      toast.success('API Key copied to clipboard')
+      toast.success(t('account.apiKeyCopied'))
     }
   }
 
@@ -265,7 +267,7 @@ export default function Account() {
         <div className="p-2 bg-brand-500/10 rounded-lg">
           <User className="h-6 w-6 text-brand-500" />
         </div>
-        <h1 className="text-2xl font-bold text-content-primary">Account Settings</h1>
+        <h1 className="text-2xl font-bold text-content-primary">{t('account.title')}</h1>
       </div>
 
       {/* Profile Settings */}
@@ -273,14 +275,14 @@ export default function Account() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <User className="h-5 w-5 text-brand-500" />
-            <CardTitle>Profile</CardTitle>
+            <CardTitle>{t('account.profile')}</CardTitle>
           </div>
-          <CardDescription>Update your personal information.</CardDescription>
+          <CardDescription>{t('account.profileDescription')}</CardDescription>
         </CardHeader>
         <form onSubmit={handleUpdateProfile}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="profile-name" required>Name</Label>
+              <Label htmlFor="profile-name" required>{t('common.name')}</Label>
               <Input
                 id="profile-name"
                 value={name}
@@ -289,20 +291,20 @@ export default function Account() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-email" required>Email</Label>
+              <Label htmlFor="profile-email" required>{t('auth.email')}</Label>
               <Input
                 id="profile-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                error={emailValid === false ? 'Please enter a valid email address' : undefined}
+                error={emailValid === false ? t('errors.invalidEmail') : undefined}
               />
             </div>
           </CardContent>
           <CardFooter className="justify-end">
             <Button type="submit" isLoading={updateProfileMutation.isPending} disabled={emailValid === false}>
-              Save Profile
+              {t('account.saveProfile')}
             </Button>
           </CardFooter>
         </form>
@@ -313,10 +315,10 @@ export default function Account() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-info" />
-            <CardTitle>Certificate Email</CardTitle>
+            <CardTitle>{t('account.certificateEmail')}</CardTitle>
           </div>
           <CardDescription>
-            This email is used for Let's Encrypt notifications and recovery.
+            {t('account.certificateEmailDescription')}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleUpdateCertEmail}>
@@ -333,27 +335,27 @@ export default function Account() {
                 }}
               />
               <Label htmlFor="useUserEmail" className="cursor-pointer">
-                Use my account email ({profile?.email})
+                {t('account.useAccountEmail', { email: profile?.email })}
               </Label>
             </div>
 
             {!useUserEmail && (
               <div className="space-y-2">
-                <Label htmlFor="cert-email" required>Custom Email</Label>
+                <Label htmlFor="cert-email" required>{t('account.customEmail')}</Label>
                 <Input
                   id="cert-email"
                   type="email"
                   value={certEmail}
                   onChange={(e) => setCertEmail(e.target.value)}
                   required={!useUserEmail}
-                  error={certEmailValid === false ? 'Please enter a valid email address' : undefined}
+                  error={certEmailValid === false ? t('errors.invalidEmail') : undefined}
                 />
               </div>
             )}
           </CardContent>
           <CardFooter className="justify-end">
             <Button type="submit" isLoading={updateSettingMutation.isPending} disabled={!useUserEmail && certEmailValid === false}>
-              Save Certificate Email
+              {t('account.saveCertificateEmail')}
             </Button>
           </CardFooter>
         </form>
@@ -364,14 +366,14 @@ export default function Account() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-success" />
-            <CardTitle>Change Password</CardTitle>
+            <CardTitle>{t('account.changePassword')}</CardTitle>
           </div>
-          <CardDescription>Update your account password for security.</CardDescription>
+          <CardDescription>{t('account.changePasswordDescription')}</CardDescription>
         </CardHeader>
         <form onSubmit={handlePasswordChange}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="current-password" required>Current Password</Label>
+              <Label htmlFor="current-password" required>{t('account.currentPassword')}</Label>
               <Input
                 id="current-password"
                 type="password"
@@ -381,7 +383,7 @@ export default function Account() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-password" required>New Password</Label>
+              <Label htmlFor="new-password" required>{t('account.newPassword')}</Label>
               <Input
                 id="new-password"
                 type="password"
@@ -392,20 +394,20 @@ export default function Account() {
               <PasswordStrengthMeter password={newPassword} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password" required>Confirm New Password</Label>
+              <Label htmlFor="confirm-password" required>{t('account.confirmNewPassword')}</Label>
               <Input
                 id="confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                error={confirmPassword && newPassword !== confirmPassword ? 'Passwords do not match' : undefined}
+                error={confirmPassword && newPassword !== confirmPassword ? t('account.passwordsDoNotMatch') : undefined}
               />
             </div>
           </CardContent>
           <CardFooter className="justify-end">
             <Button type="submit" isLoading={loading}>
-              Update Password
+              {t('account.updatePassword')}
             </Button>
           </CardFooter>
         </form>
@@ -416,10 +418,10 @@ export default function Account() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Key className="h-5 w-5 text-warning" />
-            <CardTitle>API Key</CardTitle>
+            <CardTitle>{t('account.apiKey')}</CardTitle>
           </div>
           <CardDescription>
-            Use this key to authenticate with the API programmatically. Keep it secret!
+            {t('account.apiKeyDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -429,7 +431,7 @@ export default function Account() {
               readOnly
               className="font-mono text-sm"
             />
-            <Button type="button" variant="secondary" onClick={copyApiKey} title="Copy to clipboard">
+            <Button type="button" variant="secondary" onClick={copyApiKey} title={t('account.copyToClipboard')}>
               <Copy className="h-4 w-4" />
             </Button>
             <Button
@@ -437,7 +439,7 @@ export default function Account() {
               variant="secondary"
               onClick={() => regenerateMutation.mutate()}
               isLoading={regenerateMutation.isPending}
-              title="Regenerate API Key"
+              title={t('account.regenerateApiKey')}
             >
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -445,8 +447,8 @@ export default function Account() {
         </CardContent>
       </Card>
 
-      <Alert variant="warning" title="Security Notice">
-        Never share your API key or password with anyone. If you believe your credentials have been compromised, regenerate your API key immediately.
+      <Alert variant="warning" title={t('account.securityNotice')}>
+        {t('account.securityNoticeMessage')}
       </Alert>
 
       {/* Password Prompt Modal */}
@@ -456,20 +458,20 @@ export default function Account() {
             <CardHeader>
               <div className="flex items-center gap-3 text-brand-500">
                 <Shield className="h-6 w-6" />
-                <CardTitle>Confirm Password</CardTitle>
+                <CardTitle>{t('account.confirmPassword')}</CardTitle>
               </div>
               <CardDescription>
-                Please enter your current password to confirm these changes.
+                {t('account.confirmPasswordDescription')}
               </CardDescription>
             </CardHeader>
             <form onSubmit={handlePasswordPromptSubmit}>
               <CardContent>
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-current-password" required>Current Password</Label>
+                  <Label htmlFor="confirm-current-password" required>{t('account.currentPassword')}</Label>
                   <Input
                     id="confirm-current-password"
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder={t('account.enterPassword')}
                     value={confirmPasswordForUpdate}
                     onChange={(e) => setConfirmPasswordForUpdate(e.target.value)}
                     required
@@ -479,7 +481,7 @@ export default function Account() {
               </CardContent>
               <CardFooter className="flex-col gap-3">
                 <Button type="submit" className="w-full" isLoading={updateProfileMutation.isPending}>
-                  Confirm & Update
+                  {t('account.confirmAndUpdate')}
                 </Button>
                 <Button
                   type="button"
@@ -491,7 +493,7 @@ export default function Account() {
                   variant="ghost"
                   className="w-full"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </CardFooter>
             </form>
@@ -506,22 +508,21 @@ export default function Account() {
             <CardHeader>
               <div className="flex items-center gap-3 text-warning">
                 <AlertTriangle className="h-6 w-6" />
-                <CardTitle>Update Certificate Email?</CardTitle>
+                <CardTitle>{t('account.updateCertEmailTitle')}</CardTitle>
               </div>
               <CardDescription>
-                You are changing your account email to <strong className="text-content-primary">{email}</strong>.
-                Do you want to use this new email for SSL certificates as well?
+                {t('account.updateCertEmailDescription', { email })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="flex-col gap-3">
               <Button onClick={() => confirmEmailUpdate(true)} className="w-full">
-                Yes, update certificate email too
+                {t('account.yesUpdateCertEmail')}
               </Button>
               <Button onClick={() => confirmEmailUpdate(false)} variant="secondary" className="w-full">
-                No, keep using {previousEmail || certEmail}
+                {t('account.noKeepEmail', { email: previousEmail || certEmail })}
               </Button>
               <Button onClick={() => setShowEmailConfirmModal(false)} variant="ghost" className="w-full">
-                Cancel
+                {t('common.cancel')}
               </Button>
             </CardFooter>
           </Card>

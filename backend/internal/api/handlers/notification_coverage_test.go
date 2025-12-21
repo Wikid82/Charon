@@ -338,9 +338,9 @@ func TestNotificationProviderHandler_Preview_WithData(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationProviderHandler(svc)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"template": "minimal",
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"Title":   "Custom Title",
 			"Message": "Custom Message",
 		},
@@ -363,7 +363,7 @@ func TestNotificationProviderHandler_Preview_InvalidTemplate(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationProviderHandler(svc)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"template": "custom",
 		"config":   "{{.Invalid",
 	}
@@ -524,7 +524,7 @@ func TestNotificationTemplateHandler_Preview_TemplateNotFound(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"template_id": "nonexistent",
 	}
 	body, _ := json.Marshal(payload)
@@ -553,9 +553,9 @@ func TestNotificationTemplateHandler_Preview_WithStoredTemplate(t *testing.T) {
 	}
 	require.NoError(t, svc.CreateTemplate(tmpl))
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"template_id": tmpl.ID,
-		"data": map[string]interface{}{
+		"data": map[string]any{
 			"Title": "Test Title",
 		},
 	}
@@ -577,7 +577,7 @@ func TestNotificationTemplateHandler_Preview_InvalidTemplate(t *testing.T) {
 	svc := services.NewNotificationService(db)
 	h := NewNotificationTemplateHandler(svc)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"template": "{{.Invalid",
 	}
 	body, _ := json.Marshal(payload)

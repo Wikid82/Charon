@@ -123,7 +123,7 @@ func TestBackupLifecycle(t *testing.T) {
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
-	var list []interface{}
+	var list []any
 	json.Unmarshal(resp.Body.Bytes(), &list)
 	require.Empty(t, list)
 
@@ -158,7 +158,7 @@ func TestBackupHandler_Errors(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
-	var list []interface{}
+	var list []any
 	json.Unmarshal(resp.Body.Bytes(), &list)
 	require.Empty(t, list)
 

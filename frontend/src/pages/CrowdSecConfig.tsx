@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useNavigate, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -18,6 +19,7 @@ import { CROWDSEC_PRESETS, CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 
 export default function CrowdSecConfig() {
+  const { t } = useTranslation()
   const { data: status, isLoading, error } = useQuery({ queryKey: ['security-status'], queryFn: getSecurityStatus })
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'alpha' | 'type' | 'source'>('alpha')
@@ -519,10 +521,10 @@ export default function CrowdSecConfig() {
 
   const { message, submessage } = getMessage()
 
-  if (isLoading) return <div className="p-8 text-center text-white">Loading CrowdSec configuration...</div>
-  if (error) return <div className="p-8 text-center text-red-500">Failed to load security status: {(error as Error).message}</div>
-  if (!status) return <div className="p-8 text-center text-gray-400">No security status available</div>
-  if (!status.crowdsec) return <div className="p-8 text-center text-red-500">CrowdSec configuration not found in security status</div>
+  if (isLoading) return <div className="p-8 text-center text-white">{t('crowdsecConfig.loading')}</div>
+  if (error) return <div className="p-8 text-center text-red-500">{t('crowdsecConfig.loadError')}: {(error as Error).message}</div>
+  if (!status) return <div className="p-8 text-center text-gray-400">{t('crowdsecConfig.noStatus')}</div>
+  if (!status.crowdsec) return <div className="p-8 text-center text-red-500">{t('crowdsecConfig.noConfig')}</div>
 
   return (
     <>
@@ -534,12 +536,11 @@ export default function CrowdSecConfig() {
         />
       )}
       <div className="space-y-6">
-      <h1 className="text-2xl font-bold">CrowdSec Configuration</h1>
+      <h1 className="text-2xl font-bold">{t('crowdsecConfig.title')}</h1>
       <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-4">
         <p className="text-sm text-blue-200">
-          <strong>Note:</strong> CrowdSec is controlled via the toggle on the{' '}
-          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">Security Dashboard</Link>.
-          Enable or disable CrowdSec there, then configure presets and enrollment here.
+          <strong>{t('crowdsecConfig.note')}:</strong> {t('crowdsecConfig.noteText')}{' '}
+          <Link to="/security" className="text-blue-400 hover:text-blue-300 underline">{t('navigation.security')}</Link>.
         </p>
       </div>
 
@@ -548,21 +549,21 @@ export default function CrowdSecConfig() {
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="space-y-1">
-                <h3 className="text-md font-semibold">CrowdSec Console Enrollment</h3>
-                <p className="text-sm text-gray-400">Register this engine with the CrowdSec console using an enrollment key. This flow is opt-in.</p>
+                <h3 className="text-md font-semibold">{t('crowdsecConfig.consoleEnrollment.title')}</h3>
+                <p className="text-sm text-gray-400">{t('crowdsecConfig.consoleEnrollment.description')}</p>
                 <p className="text-xs text-gray-500">
-                  Enrollment shares heartbeat metadata with crowdsec.net; secrets and configuration files are not sent.
-                  <a className="text-blue-400 hover:underline ml-1" href={consoleDocsHref} target="_blank" rel="noreferrer">View docs</a>
+                  {t('crowdsecConfig.consoleEnrollment.privacyNote')}
+                  <a className="text-blue-400 hover:underline ml-1" href={consoleDocsHref} target="_blank" rel="noreferrer">{t('common.docs')}</a>
                 </p>
               </div>
               <div className="text-right text-sm text-gray-300 space-y-1">
-                <p className="font-semibold text-white capitalize" data-testid="console-status-label">Status: {consoleStatusLabel}</p>
-                <p className="text-xs text-gray-500">Last heartbeat: {consoleStatusQuery.data?.last_heartbeat_at ? new Date(consoleStatusQuery.data.last_heartbeat_at).toLocaleString() : '—'}</p>
+                <p className="font-semibold text-white capitalize" data-testid="console-status-label">{t('common.status')}: {consoleStatusLabel}</p>
+                <p className="text-xs text-gray-500">{t('crowdsecConfig.consoleEnrollment.lastHeartbeat')}: {consoleStatusQuery.data?.last_heartbeat_at ? new Date(consoleStatusQuery.data.last_heartbeat_at).toLocaleString() : '—'}</p>
               </div>
             </div>
 
             {consoleStatusQuery.data?.last_error && (
-              <p className="text-xs text-yellow-300" data-testid="console-status-error">Last error: {sanitizeSecret(consoleStatusQuery.data.last_error)}</p>
+              <p className="text-xs text-yellow-300" data-testid="console-status-error">{t('crowdsecConfig.consoleEnrollment.lastError')}: {sanitizeSecret(consoleStatusQuery.data.last_error)}</p>
             )}
             {consoleErrors.submit && (
               <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.submit}</p>
@@ -574,12 +575,11 @@ export default function CrowdSecConfig() {
                 <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-yellow-200 font-medium mb-2">
-                    CrowdSec Local API is initializing...
+                    {t('crowdsecConfig.lapiInitializing')}
                   </p>
                   <p className="text-xs text-yellow-300 mb-3">
-                    The CrowdSec process is running but the Local API (LAPI) is still starting up.
-                    This typically takes 5-10 seconds after enabling CrowdSec.
-                    {lapiStatusQuery.isRefetching && ' Checking again in 5 seconds...'}
+                    {t('crowdsecConfig.lapiInitializingDesc')}
+                    {lapiStatusQuery.isRefetching && ` ${t('crowdsecConfig.checkingAgain')}`}
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -601,10 +601,10 @@ export default function CrowdSecConfig() {
                 <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm text-red-200 font-medium mb-2">
-                    CrowdSec is not running
+                    {t('crowdsecConfig.notRunning')}
                   </p>
                   <p className="text-xs text-red-300 mb-3">
-                    The CrowdSec process is not currently running. Enable CrowdSec from the Security Dashboard to use console enrollment features.
+                    {t('crowdsecConfig.notRunningDesc')}
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -613,17 +613,17 @@ export default function CrowdSecConfig() {
                       onClick={async () => {
                         try {
                           await startCrowdsec();
-                          toast.info('Starting CrowdSec...');
+                          toast.info(t('crowdsecConfig.starting'));
                           // Refetch status after a delay to allow startup
                           setTimeout(() => {
                             lapiStatusQuery.refetch();
                           }, 3000);
                         } catch {
-                          toast.error('Failed to start CrowdSec');
+                          toast.error(t('crowdsecConfig.startFailed'));
                         }
                       }}
                     >
-                      Start CrowdSec
+                      {t('crowdsecConfig.startCrowdsec')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -638,7 +638,7 @@ export default function CrowdSecConfig() {
                       size="sm"
                       onClick={() => navigate('/security')}
                     >
-                      Go to Security Dashboard
+                      {t('crowdsecConfig.goToSecurity')}
                     </Button>
                   </div>
                 </div>
@@ -647,18 +647,18 @@ export default function CrowdSecConfig() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input
-                label="crowdsec.net enroll token"
+                label={t('crowdsecConfig.consoleEnrollment.enrollToken')}
                 type="password"
                 value={enrollmentToken}
                 onChange={(e) => setEnrollmentToken(e.target.value)}
-                placeholder="Paste token or cscli console enroll <token>"
-                helperText="Token is not displayed after submit. You may paste the full cscli command string."
+                placeholder={t('crowdsecConfig.consoleEnrollment.tokenPlaceholder')}
+                helperText={t('crowdsecConfig.consoleEnrollment.tokenHelper')}
                 error={consoleErrors.token}
                 errorTestId="console-enroll-error"
                 data-testid="console-enrollment-token"
               />
               <Input
-                label="Agent name"
+                label={t('crowdsecConfig.consoleEnrollment.agentName')}
                 value={consoleAgentName}
                 onChange={(e) => setConsoleAgentName(e.target.value)}
                 error={consoleErrors.agent}
@@ -666,10 +666,10 @@ export default function CrowdSecConfig() {
                 data-testid="console-agent-name"
               />
               <Input
-                label="Tenant / Organization"
+                label={t('crowdsecConfig.consoleEnrollment.tenant')}
                 value={consoleTenant}
                 onChange={(e) => setConsoleTenant(e.target.value)}
-                helperText="Shown in the console when grouping agents."
+                helperText={t('crowdsecConfig.consoleEnrollment.tenantHelper')}
                 error={consoleErrors.tenant}
                 errorTestId="console-enroll-error"
                 data-testid="console-tenant"
@@ -685,7 +685,7 @@ export default function CrowdSecConfig() {
                 disabled={isConsolePending}
                 data-testid="console-ack-checkbox"
               />
-              <span className="text-sm text-gray-400">I understand this enrolls the engine with the CrowdSec console and shares heartbeat metadata.</span>
+              <span className="text-sm text-gray-400">{t('crowdsecConfig.consoleEnrollment.ackText')}</span>
             </div>
             {consoleErrors.ack && <p className="text-sm text-red-400" data-testid="console-enroll-error">{consoleErrors.ack}</p>}
 
@@ -697,13 +697,13 @@ export default function CrowdSecConfig() {
                 data-testid="console-enroll-btn"
                 title={
                   lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
-                    ? 'CrowdSec LAPI must be ready to enroll'
+                    ? t('crowdsecConfig.consoleEnrollment.lapiMustBeReady')
                     : !enrollmentToken.trim()
-                    ? 'Enrollment token is required'
+                    ? t('crowdsecConfig.consoleEnrollment.tokenRequired')
                     : undefined
                 }
               >
-                Enroll
+                {t('crowdsecConfig.consoleEnrollment.enroll')}
               </Button>
               <Button
                 variant="secondary"
@@ -713,11 +713,11 @@ export default function CrowdSecConfig() {
                 data-testid="console-rotate-btn"
                 title={
                   lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
-                    ? 'CrowdSec LAPI must be ready to rotate key'
+                    ? t('crowdsecConfig.consoleEnrollment.lapiMustBeReadyRotate')
                     : undefined
                 }
               >
-                Rotate key
+                {t('crowdsecConfig.consoleEnrollment.rotateKey')}
               </Button>
               {isConsoleDegraded && (
                 <Button
@@ -728,11 +728,11 @@ export default function CrowdSecConfig() {
                   data-testid="console-retry-btn"
                   title={
                     lapiStatusQuery.data && !lapiStatusQuery.data.lapi_ready
-                      ? 'CrowdSec LAPI must be ready to retry enrollment'
+                      ? t('crowdsecConfig.consoleEnrollment.lapiMustBeReadyRetry')
                       : undefined
                   }
                 >
-                  Retry enrollment
+                  {t('crowdsecConfig.consoleEnrollment.retryEnrollment')}
                 </Button>
               )}
             </div>
@@ -741,8 +741,7 @@ export default function CrowdSecConfig() {
             {isConsolePendingAcceptance && (
               <div className="bg-blue-900/30 border border-blue-500 rounded-lg p-4" data-testid="pending-acceptance-info">
                 <p className="text-sm text-blue-200">
-                  <strong>Action Required:</strong> Your enrollment request has been sent.
-                  To complete registration, accept the enrollment request on{' '}
+                  <strong>{t('crowdsecConfig.consoleEnrollment.actionRequired')}:</strong> {t('crowdsecConfig.consoleEnrollment.pendingAcceptanceText')}{' '}
                   <a
                     href="https://app.crowdsec.net"
                     target="_blank"
@@ -751,7 +750,7 @@ export default function CrowdSecConfig() {
                   >
                     app.crowdsec.net
                   </a>.
-                  Your CrowdSec engine will appear in the console after acceptance.
+                  {t('crowdsecConfig.consoleEnrollment.pendingAcceptanceNote')}
                 </p>
               </div>
             )}
@@ -762,9 +761,9 @@ export default function CrowdSecConfig() {
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-100">Re-enroll Console</h3>
+                      <h3 className="text-lg font-semibold text-gray-100">{t('crowdsecConfig.reenroll.title')}</h3>
                       <p className="text-sm text-gray-400 mt-1">
-                        Need to connect to a different CrowdSec account or reset your enrollment?
+                        {t('crowdsecConfig.reenroll.description')}
                       </p>
                     </div>
                   </div>
@@ -778,7 +777,7 @@ export default function CrowdSecConfig() {
                         className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm"
                       >
                         <ExternalLink className="w-4 h-4" />
-                        Get new enrollment key from CrowdSec Console
+                        {t('crowdsecConfig.reenroll.getNewKey')}
                       </a>
                       <Button
                         variant="secondary"
@@ -786,7 +785,7 @@ export default function CrowdSecConfig() {
                         onClick={() => setShowReenrollForm(true)}
                         data-testid="show-reenroll-form-btn"
                       >
-                        Re-enroll with new key
+                        {t('crowdsecConfig.reenroll.withNewKey')}
                       </Button>
                     </div>
                   ) : (
@@ -795,36 +794,36 @@ export default function CrowdSecConfig() {
                       <div className="space-y-3">
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-1">
-                            New Enrollment Key
+                            {t('crowdsecConfig.reenroll.newEnrollmentKey')}
                           </label>
                           <Input
                             type="text"
                             value={enrollmentToken}
                             onChange={(e) => setEnrollmentToken(e.target.value)}
-                            placeholder="Paste your new enrollment key"
+                            placeholder={t('crowdsecConfig.reenroll.keyPlaceholder')}
                             data-testid="reenroll-token-input"
                           />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Agent Name
+                            {t('crowdsecConfig.consoleEnrollment.agentName')}
                           </label>
                           <Input
                             type="text"
                             value={consoleAgentName}
                             onChange={(e) => setConsoleAgentName(e.target.value)}
-                            placeholder="e.g., Charon-Home"
+                            placeholder={t('crowdsecConfig.reenroll.agentPlaceholder')}
                           />
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Tenant / Organization (optional)
+                            {t('crowdsecConfig.reenroll.tenantOptional')}
                           </label>
                           <Input
                             type="text"
                             value={consoleTenant}
                             onChange={(e) => setConsoleTenant(e.target.value)}
-                            placeholder="Your organization name"
+                            placeholder={t('crowdsecConfig.reenroll.orgPlaceholder')}
                           />
                         </div>
                       </div>
@@ -837,13 +836,13 @@ export default function CrowdSecConfig() {
                           isLoading={enrollConsoleMutation.isPending}
                           data-testid="reenroll-submit-btn"
                         >
-                          {enrollConsoleMutation.isPending ? 'Re-enrolling...' : 'Re-enroll'}
+                          {enrollConsoleMutation.isPending ? t('crowdsecConfig.reenroll.reenrolling') : t('crowdsecConfig.reenroll.reenroll')}
                         </Button>
                         <Button
                           variant="ghost"
                           onClick={() => setShowReenrollForm(false)}
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </Button>
                       </div>
                     </div>
@@ -853,7 +852,7 @@ export default function CrowdSecConfig() {
                   <div className="pt-3 border-t border-gray-700">
                     <button
                       onClick={() => {
-                        if (window.confirm('Clear enrollment state? You will need to re-enroll with a new key.')) {
+                        if (window.confirm(t('crowdsecConfig.reenroll.clearConfirm'))) {
                           clearEnrollmentMutation.mutate()
                         }
                       }}
@@ -861,7 +860,7 @@ export default function CrowdSecConfig() {
                       disabled={clearEnrollmentMutation.isPending}
                       data-testid="clear-enrollment-btn"
                     >
-                      {clearEnrollmentMutation.isPending ? 'Clearing...' : 'Clear enrollment state'}
+                      {clearEnrollmentMutation.isPending ? t('crowdsecConfig.reenroll.clearing') : t('crowdsecConfig.reenroll.clearState')}
                     </button>
                   </div>
                 </div>
@@ -870,21 +869,21 @@ export default function CrowdSecConfig() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-400">
               <div>
-                <p className="text-xs text-gray-500">Agent</p>
+                <p className="text-xs text-gray-500">{t('crowdsecConfig.consoleEnrollment.agent')}</p>
                 <p className="text-white">{consoleStatusQuery.data?.agent_name || consoleAgentName || '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Tenant</p>
+                <p className="text-xs text-gray-500">{t('crowdsecConfig.consoleEnrollment.tenantLabel')}</p>
                 <p className="text-white">{consoleStatusQuery.data?.tenant || consoleTenant || '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Enrollment token</p>
+                <p className="text-xs text-gray-500">{t('crowdsecConfig.consoleEnrollment.enrollmentToken')}</p>
                 <p className="text-white" data-testid="console-token-state">{consoleTokenState}</p>
               </div>
               <div className="md:col-span-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                <span>Last attempt: {consoleStatusQuery.data?.last_attempt_at ? new Date(consoleStatusQuery.data.last_attempt_at).toLocaleString() : '—'}</span>
-                <span>Enrolled at: {consoleStatusQuery.data?.enrolled_at ? new Date(consoleStatusQuery.data.enrolled_at).toLocaleString() : '—'}</span>
-                {consoleStatusQuery.data?.correlation_id && <span>Correlation ID: {consoleStatusQuery.data.correlation_id}</span>}
+                <span>{t('crowdsecConfig.consoleEnrollment.lastAttempt')}: {consoleStatusQuery.data?.last_attempt_at ? new Date(consoleStatusQuery.data.last_attempt_at).toLocaleString() : '—'}</span>
+                <span>{t('crowdsecConfig.consoleEnrollment.enrolledAt')}: {consoleStatusQuery.data?.enrolled_at ? new Date(consoleStatusQuery.data.enrolled_at).toLocaleString() : '—'}</span>
+                {consoleStatusQuery.data?.correlation_id && <span>{t('crowdsecConfig.consoleEnrollment.correlationId')}: {consoleStatusQuery.data.correlation_id}</span>}
               </div>
             </div>
           </div>
@@ -894,21 +893,21 @@ export default function CrowdSecConfig() {
       <Card>
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h3 className="text-md font-semibold">Configuration Packages</h3>
+            <h3 className="text-md font-semibold">{t('crowdsecConfig.packages.title')}</h3>
             <div className="flex gap-2">
               <Button
                 variant="secondary"
                 onClick={handleExport}
                 disabled={importMutation.isPending || backupMutation.isPending}
               >
-                Export
+                {t('crowdsecConfig.packages.export')}
               </Button>
               <Button onClick={handleImport} disabled={!file || importMutation.isPending || backupMutation.isPending} data-testid="import-btn">
-                {importMutation.isPending ? 'Importing...' : 'Import'}
+                {importMutation.isPending ? t('crowdsecConfig.packages.importing') : t('crowdsecConfig.packages.import')}
               </Button>
             </div>
           </div>
-          <p className="text-sm text-gray-400">Import or export CrowdSec configuration packages. A backup is created before imports.</p>
+          <p className="text-sm text-gray-400">{t('crowdsecConfig.packages.description')}</p>
           <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="import-file" accept=".tar.gz,.zip" />
         </div>
       </Card>
@@ -916,8 +915,8 @@ export default function CrowdSecConfig() {
       <Card>
         <div className="space-y-4">
           <div className="space-y-1">
-            <h3 className="text-md font-semibold">CrowdSec Presets</h3>
-            <p className="text-sm text-gray-400">Select a curated preset, preview it, then apply with an automatic backup.</p>
+            <h3 className="text-md font-semibold">{t('crowdsecConfig.presets.title')}</h3>
+            <p className="text-sm text-gray-400">{t('crowdsecConfig.presets.description')}</p>
           </div>
 
           <div className="flex gap-2">
@@ -925,7 +924,7 @@ export default function CrowdSecConfig() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search presets..."
+                placeholder={t('crowdsecConfig.presets.searchPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -936,8 +935,8 @@ export default function CrowdSecConfig() {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
-              <option value="alpha">Name (A-Z)</option>
-              <option value="source">Source</option>
+              <option value="alpha">{t('crowdsecConfig.presets.sortAlpha')}</option>
+              <option value="source">{t('crowdsecConfig.presets.sortSource')}</option>
             </select>
           </div>
 
@@ -957,7 +956,7 @@ export default function CrowdSecConfig() {
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         preset.source === 'charon-curated' ? 'bg-purple-900/50 text-purple-300' : 'bg-blue-900/50 text-blue-300'
                       }`}>
-                        {preset.source === 'charon-curated' ? 'Curated' : 'Hub'}
+                        {preset.source === 'charon-curated' ? t('crowdsecConfig.presets.curated') : t('crowdsecConfig.presets.hub')}
                       </span>
                     )}
                   </div>
@@ -965,7 +964,7 @@ export default function CrowdSecConfig() {
                 </div>
               ))
             ) : (
-              <div className="p-4 text-center text-gray-500 text-sm">No presets found matching "{searchQuery}"</div>
+              <div className="p-4 text-center text-gray-500 text-sm">{t('crowdsecConfig.presets.noResults', { query: searchQuery })}</div>
             )}
           </div>
 
@@ -976,7 +975,7 @@ export default function CrowdSecConfig() {
               disabled={!selectedPreset || pullPresetMutation.isPending}
               isLoading={pullPresetMutation.isPending}
             >
-              Pull Preview
+              {t('crowdsecConfig.presets.pullPreview')}
             </Button>
             <Button
               onClick={handleApplyPreset}
@@ -984,7 +983,7 @@ export default function CrowdSecConfig() {
               isLoading={isApplyingPreset}
               data-testid="apply-preset-btn"
             >
-              Apply Preset
+              {t('crowdsecConfig.presets.applyPreset')}
             </Button>
           </div>
 
@@ -998,17 +997,17 @@ export default function CrowdSecConfig() {
 
           {hubUnavailable && (
             <div className="flex flex-wrap gap-2 items-center text-sm text-red-300" data-testid="preset-hub-unavailable">
-              <span>Hub unreachable. Retry pull or load cached copy if available.</span>
+              <span>{t('crowdsecConfig.presets.hubUnreachable')}</span>
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={() => selectedPreset && pullPresetMutation.mutate(selectedPreset.slug)}
                 disabled={pullPresetMutation.isPending}
               >
-                Retry
+                {t('crowdsecConfig.presets.retry')}
               </Button>
               {selectedPreset?.cached && (
-                <Button size="sm" variant="secondary" onClick={loadCachedPreview}>Use cached preview</Button>
+                <Button size="sm" variant="secondary" onClick={loadCachedPreview}>{t('crowdsecConfig.presets.useCached')}</Button>
               )}
             </div>
           )}
@@ -1021,57 +1020,57 @@ export default function CrowdSecConfig() {
                 {selectedPreset.warning && (
                   <p className="text-xs text-yellow-300" data-testid="preset-warning">{selectedPreset.warning}</p>
                 )}
-                <p className="text-xs text-gray-500">Target file: {selectedPath ?? 'Select a file below (used for local fallback)'} </p>
+                <p className="text-xs text-gray-500">{t('crowdsecConfig.presets.targetFile')}: {selectedPath ?? t('crowdsecConfig.presets.selectFileBelow')} </p>
               </div>
               {presetMeta && (
                 <div className="text-xs text-gray-400 flex flex-wrap gap-3" data-testid="preset-meta">
-                  <span>Cache key: {presetMeta.cacheKey || '—'}</span>
-                  <span>Etag: {presetMeta.etag || '—'}</span>
-                  <span>Source: {presetMeta.source || selectedPreset.source || '—'}</span>
-                  <span>Fetched: {presetMeta.retrievedAt ? new Date(presetMeta.retrievedAt).toLocaleString() : '—'}</span>
+                  <span>{t('crowdsecConfig.presets.cacheKey')}: {presetMeta.cacheKey || '—'}</span>
+                  <span>{t('crowdsecConfig.presets.etag')}: {presetMeta.etag || '—'}</span>
+                  <span>{t('crowdsecConfig.presets.source')}: {presetMeta.source || selectedPreset.source || '—'}</span>
+                  <span>{t('crowdsecConfig.presets.fetched')}: {presetMeta.retrievedAt ? new Date(presetMeta.retrievedAt).toLocaleString() : '—'}</span>
                 </div>
               )}
               <div>
-                <p className="text-xs text-gray-400 mb-2">Preset preview (YAML)</p>
+                <p className="text-xs text-gray-400 mb-2">{t('crowdsecConfig.presets.previewYaml')}</p>
                 <pre
                   className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-sm text-gray-200 whitespace-pre-wrap"
                   data-testid="preset-preview"
                 >
-                  {presetPreview || selectedPreset.content || 'Preview unavailable. Pull from hub or use cached copy.'}
+                  {presetPreview || selectedPreset.content || t('crowdsecConfig.presets.previewUnavailable')}
                 </pre>
               </div>
 
               {applyInfo && (
                 <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3 text-xs text-gray-200" data-testid="preset-apply-info">
-                  <p>Status: {applyInfo.status || 'applied'}</p>
-                  {applyInfo.backup && <p>Backup: {applyInfo.backup}</p>}
-                  {applyInfo.reloadHint && <p>Reload: Required</p>}
-                  {applyInfo.usedCscli !== undefined && <p>Method: {applyInfo.usedCscli ? 'cscli' : 'filesystem'}</p>}
+                  <p>{t('common.status')}: {applyInfo.status || t('crowdsecConfig.presets.applied')}</p>
+                  {applyInfo.backup && <p>{t('crowdsecConfig.presets.backup')}: {applyInfo.backup}</p>}
+                  {applyInfo.reloadHint && <p>{t('crowdsecConfig.presets.reload')}: {t('crowdsecConfig.presets.required')}</p>}
+                  {applyInfo.usedCscli !== undefined && <p>{t('crowdsecConfig.presets.method')}: {applyInfo.usedCscli ? 'cscli' : t('crowdsecConfig.presets.filesystem')}</p>}
                 </div>
               )}
 
               <div className="flex flex-wrap gap-2 items-center text-xs text-gray-400">
                 {selectedPreset.cached && (
                   <Button size="sm" variant="secondary" onClick={loadCachedPreview}>
-                    Load cached preview
+                    {t('crowdsecConfig.presets.loadCached')}
                   </Button>
                 )}
                 {selectedPresetRequiresHub && hubUnavailable && (
-                  <span className="text-red-300">Apply disabled while hub is offline.</span>
+                  <span className="text-red-300">{t('crowdsecConfig.presets.applyDisabled')}</span>
                 )}
               </div>
             </div>
           )}
 
           {presetCatalog.length === 0 && (
-            <p className="text-sm text-gray-500">No presets available. Ensure Cerberus is enabled.</p>
+            <p className="text-sm text-gray-500">{t('crowdsecConfig.presets.noPresets')}</p>
           )}
         </div>
       </Card>
 
       <Card>
         <div className="space-y-4">
-          <h3 className="text-md font-semibold">Edit Configuration Files</h3>
+          <h3 className="text-md font-semibold">{t('crowdsecConfig.files.title')}</h3>
           <div className="flex items-center gap-2">
             <select
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
@@ -1079,17 +1078,17 @@ export default function CrowdSecConfig() {
               onChange={(e) => handleReadFile(e.target.value)}
               data-testid="crowdsec-file-select"
             >
-              <option value="">Select a file...</option>
+              <option value="">{t('crowdsecConfig.files.selectFile')}</option>
               {listMutation.data?.files?.map((f) => (
                 <option value={f} key={f}>{f}</option>
               ))}
             </select>
-            <Button variant="secondary" onClick={() => listMutation.refetch()}>Refresh</Button>
+            <Button variant="secondary" onClick={() => listMutation.refetch()}>{t('crowdsecConfig.files.refresh')}</Button>
           </div>
           <textarea value={fileContent ?? ''} onChange={(e) => setFileContent(e.target.value)} rows={12} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white" />
           <div className="flex gap-2">
-            <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>Save</Button>
-            <Button variant="secondary" onClick={() => { setSelectedPath(null); setFileContent(null) }}>Close</Button>
+            <Button onClick={handleSaveFile} isLoading={writeMutation.isPending || backupMutation.isPending}>{t('common.save')}</Button>
+            <Button variant="secondary" onClick={() => { setSelectedPath(null); setFileContent(null) }}>{t('common.close')}</Button>
           </div>
         </div>
       </Card>
@@ -1100,7 +1099,7 @@ export default function CrowdSecConfig() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-red-400" />
-              <h3 className="text-md font-semibold">Banned IPs</h3>
+              <h3 className="text-md font-semibold">{t('crowdsecConfig.bannedIps.title')}</h3>
             </div>
             <Button
               onClick={() => setShowBanModal(true)}
@@ -1108,29 +1107,29 @@ export default function CrowdSecConfig() {
               size="sm"
             >
               <ShieldOff className="h-4 w-4 mr-1" />
-              Ban IP
+              {t('crowdsecConfig.bannedIps.banIp')}
             </Button>
           </div>
 
           {status.crowdsec.mode === 'disabled' ? (
-            <p className="text-sm text-gray-500">Enable CrowdSec to manage banned IPs</p>
+            <p className="text-sm text-gray-500">{t('crowdsecConfig.bannedIps.enableFirst')}</p>
           ) : decisionsQuery.isLoading ? (
-            <p className="text-sm text-gray-400">Loading banned IPs...</p>
+            <p className="text-sm text-gray-400">{t('crowdsecConfig.bannedIps.loading')}</p>
           ) : decisionsQuery.error ? (
-            <p className="text-sm text-red-400">Failed to load banned IPs</p>
+            <p className="text-sm text-red-400">{t('crowdsecConfig.bannedIps.loadFailed')}</p>
           ) : !decisionsQuery.data?.decisions?.length ? (
-            <p className="text-sm text-gray-500">No banned IPs</p>
+            <p className="text-sm text-gray-500">{t('crowdsecConfig.bannedIps.none')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-700">
-                    <th className="text-left py-2 px-3 text-gray-400 font-medium">IP</th>
-                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Reason</th>
-                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Duration</th>
-                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Banned At</th>
-                    <th className="text-left py-2 px-3 text-gray-400 font-medium">Source</th>
-                    <th className="text-right py-2 px-3 text-gray-400 font-medium">Actions</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.ip')}</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.reason')}</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.duration')}</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.bannedAt')}</th>
+                    <th className="text-left py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.source')}</th>
+                    <th className="text-right py-2 px-3 text-gray-400 font-medium">{t('crowdsecConfig.bannedIps.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1150,7 +1149,7 @@ export default function CrowdSecConfig() {
                           onClick={() => setConfirmUnban(decision)}
                         >
                           <Trash2 className="h-3 w-3 mr-1" />
-                          Unban
+                          {t('crowdsecConfig.bannedIps.unban')}
                         </Button>
                       </td>
                     </tr>
@@ -1170,34 +1169,34 @@ export default function CrowdSecConfig() {
           <div className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full">
             <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <ShieldOff className="h-5 w-5 text-red-400" />
-              Ban IP Address
+              {t('crowdsecConfig.banModal.title')}
             </h3>
             <div className="space-y-4">
               <Input
-                label="IP Address"
+                label={t('crowdsecConfig.banModal.ipLabel')}
                 placeholder="192.168.1.100"
                 value={banForm.ip}
                 onChange={(e) => setBanForm({ ...banForm, ip: e.target.value })}
               />
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Duration</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t('crowdsecConfig.banModal.durationLabel')}</label>
                 <select
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white"
                   value={banForm.duration}
                   onChange={(e) => setBanForm({ ...banForm, duration: e.target.value })}
                 >
-                  <option value="1h">1 hour</option>
-                  <option value="4h">4 hours</option>
-                  <option value="24h">24 hours</option>
-                  <option value="7d">7 days</option>
-                  <option value="30d">30 days</option>
-                  <option value="permanent">Permanent</option>
+                  <option value="1h">{t('crowdsecConfig.banModal.duration1h')}</option>
+                  <option value="4h">{t('crowdsecConfig.banModal.duration4h')}</option>
+                  <option value="24h">{t('crowdsecConfig.banModal.duration24h')}</option>
+                  <option value="7d">{t('crowdsecConfig.banModal.duration7d')}</option>
+                  <option value="30d">{t('crowdsecConfig.banModal.duration30d')}</option>
+                  <option value="permanent">{t('crowdsecConfig.banModal.durationPermanent')}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Reason</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">{t('crowdsecConfig.banModal.reasonLabel')}</label>
                 <textarea
-                  placeholder="Reason for banning this IP..."
+                  placeholder={t('crowdsecConfig.banModal.reasonPlaceholder')}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
                   value={banForm.reason}
@@ -1207,7 +1206,7 @@ export default function CrowdSecConfig() {
             </div>
             <div className="flex gap-3 justify-end mt-6">
               <Button variant="secondary" onClick={() => setShowBanModal(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="danger"
@@ -1215,7 +1214,7 @@ export default function CrowdSecConfig() {
                 isLoading={banMutation.isPending}
                 disabled={!banForm.ip.trim()}
               >
-                Ban IP
+                {t('crowdsecConfig.banModal.submit')}
               </Button>
             </div>
           </div>
@@ -1227,20 +1226,20 @@ export default function CrowdSecConfig() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setConfirmUnban(null)} />
           <div className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full">
-            <h3 className="text-xl font-semibold text-white mb-4">Confirm Unban</h3>
+            <h3 className="text-xl font-semibold text-white mb-4">{t('crowdsecConfig.unbanModal.title')}</h3>
             <p className="text-gray-300 mb-6">
-              Are you sure you want to unban <span className="font-mono text-white">{confirmUnban.ip}</span>?
+              {t('crowdsecConfig.unbanModal.confirm')} <span className="font-mono text-white">{confirmUnban.ip}</span>?
             </p>
             <div className="flex gap-3 justify-end">
               <Button variant="secondary" onClick={() => setConfirmUnban(null)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="danger"
                 onClick={() => unbanMutation.mutate(confirmUnban.ip)}
                 isLoading={unbanMutation.isPending}
               >
-                Unban
+                {t('crowdsecConfig.unbanModal.submit')}
               </Button>
             </div>
           </div>

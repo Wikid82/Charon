@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ShieldCheck } from 'lucide-react'
 import CertificateList from '../components/CertificateList'
@@ -18,6 +19,7 @@ import {
 } from '../components/ui'
 
 export default function Certificates() {
+  const { t } = useTranslation()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [name, setName] = useState('')
   const [certFile, setCertFile] = useState<File | null>(null)
@@ -35,10 +37,10 @@ export default function Certificates() {
       setName('')
       setCertFile(null)
       setKeyFile(null)
-      toast.success('Certificate uploaded successfully')
+      toast.success(t('certificates.uploadSuccess'))
     },
     onError: (error: Error) => {
-      toast.error(`Failed to upload certificate: ${error.message}`)
+      toast.error(`${t('certificates.uploadFailed')}: ${error.message}`)
     },
   })
 
@@ -51,19 +53,18 @@ export default function Certificates() {
   const headerActions = (
     <Button onClick={() => setIsModalOpen(true)}>
       <Plus className="w-4 h-4 mr-2" />
-      Add Certificate
+      {t('certificates.addCertificate')}
     </Button>
   )
 
   return (
     <PageShell
-      title="SSL Certificates"
-      description="Manage SSL/TLS certificates for your proxy hosts"
+      title={t('certificates.title')}
+      description={t('certificates.description')}
       actions={headerActions}
     >
       <Alert variant="info" icon={ShieldCheck}>
-        <strong>Note:</strong> You can delete custom certificates and staging certificates.
-        Production Let&apos;s Encrypt certificates are automatically renewed and should not be deleted unless switching environments.
+        <strong>{t('certificates.note')}:</strong> {t('certificates.noteText')}
       </Alert>
 
       <CertificateList />
@@ -72,18 +73,18 @@ export default function Certificates() {
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Upload Certificate</DialogTitle>
+            <DialogTitle>{t('certificates.uploadCertificate')}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 py-4">
             <Input
-              label="Friendly Name"
+              label={t('certificates.friendlyName')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. My Custom Cert"
               required
             />
             <div>
-              <Label htmlFor="cert-file">Certificate (PEM)</Label>
+              <Label htmlFor="cert-file">{t('certificates.certificatePem')}</Label>
               <input
                 id="cert-file"
                 type="file"
@@ -94,7 +95,7 @@ export default function Certificates() {
               />
             </div>
             <div>
-              <Label htmlFor="key-file">Private Key (PEM)</Label>
+              <Label htmlFor="key-file">{t('certificates.privateKeyPem')}</Label>
               <input
                 id="key-file"
                 type="file"
@@ -106,10 +107,10 @@ export default function Certificates() {
             </div>
             <DialogFooter className="pt-4">
               <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" isLoading={uploadMutation.isPending}>
-                Upload
+                {t('common.upload')}
               </Button>
             </DialogFooter>
           </form>

@@ -25,11 +25,11 @@ var upgrader = websocket.Upgrader{
 
 // LogEntry represents a structured log entry sent over WebSocket.
 type LogEntry struct {
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
-	Timestamp string                 `json:"timestamp"`
-	Source    string                 `json:"source"`
-	Fields    map[string]interface{} `json:"fields"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
+	Timestamp string         `json:"timestamp"`
+	Source    string         `json:"source"`
+	Fields    map[string]any `json:"fields"`
 }
 
 // LogsWSHandler handles WebSocket connections for live log streaming.

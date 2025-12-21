@@ -1,11 +1,12 @@
 import { useMemo, useState, type FC, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMonitors, getMonitorHistory, updateMonitor, deleteMonitor, checkMonitor, UptimeMonitor } from '../api/uptime';
 import { Activity, ArrowUp, ArrowDown, Settings, X, Pause, RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast'
 import { formatDistanceToNow } from 'date-fns';
 
-const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void }> = ({ monitor, onEdit }) => {
+const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
   const { data: history } = useQuery({
     queryKey: ['uptimeHistory', monitor.id],
     queryFn: () => getMonitorHistory(monitor.id, 60),
@@ -20,10 +21,10 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['monitors'] })
-      toast.success('Monitor deleted')
+      toast.success(t('uptime.monitorDeleted'))
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete monitor')
+      toast.error(err instanceof Error ? err.message : t('uptime.failedToDeleteMonitor'))
     }
   })
 
@@ -35,7 +36,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       queryClient.invalidateQueries({ queryKey: ['monitors'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to update monitor')
+      toast.error(err instanceof Error ? err.message : t('uptime.failedToUpdateMonitor'))
     }
   })
 
@@ -44,7 +45,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       return await checkMonitor(id)
     },
     onSuccess: () => {
-      toast.success('Health check triggered')
+      toast.success(t('uptime.healthCheckTriggered'))
       // Refetch monitor and history after a short delay to get updated results
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['monitors'] })
@@ -52,7 +53,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
       }, 2000)
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to trigger check')
+      toast.error(err instanceof Error ? err.message : t('uptime.failedToTriggerCheck'))
     }
   })
 
@@ -80,7 +81,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                 : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
           }`}>
             {isPaused ? <Pause className="w-4 h-4 mr-1" /> : isUp ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
-            {isPaused ? 'PAUSED' : monitor.status.toUpperCase()}
+            {isPaused ? t('uptime.paused') : monitor.status.toUpperCase()}
           </div>
           <button
             onClick={async () => {
@@ -92,7 +93,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
             }}
             disabled={checkMutation.isPending}
             className="p-1 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
-            title="Trigger immediate health check"
+            title={t('uptime.triggerHealthCheck')}
           >
             <RefreshCw size={16} className={checkMutation.isPending ? 'animate-spin' : ''} />
           </button>
@@ -100,7 +101,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
             <button
               onClick={() => setShowMenu(prev => !prev)}
               className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
-              title="Monitor settings"
+              title={t('uptime.monitorSettings')}
               aria-haspopup="menu"
               aria-expanded={showMenu}
             >
@@ -113,14 +114,14 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                   onClick={() => { setShowMenu(false); onEdit(monitor) }}
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900"
                 >
-                  Configure
+                  {t('common.configure')}
                 </button>
                 <button
                   onClick={async () => {
                     setShowMenu(false)
                     try {
                       await toggleMutation.mutateAsync({ id: monitor.id, enabled: !monitor.enabled })
-                      toast.success(`${monitor.enabled ? 'Paused' : 'Unpaused'}`)
+                      toast.success(monitor.enabled ? t('uptime.paused') : t('uptime.unpaused'))
                     } catch {
                       // handled in onError
                     }
@@ -128,12 +129,12 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                   className="w-full text-left px-4 py-2 text-sm text-yellow-600 hover:bg-gray-100 dark:hover:bg-gray-900 flex items-center gap-2"
                 >
                   <Pause className="w-4 h-4 mr-1" />
-                  {monitor.enabled ? 'Pause' : 'Unpause'}
+                  {monitor.enabled ? t('uptime.pause') : t('uptime.unpause')}
                 </button>
                 <button
                   onClick={async () => {
                     setShowMenu(false)
-                    const confirmDelete = confirm('Delete this monitor? This cannot be undone.')
+                    const confirmDelete = confirm(t('uptime.deleteConfirmation'))
                     if (!confirmDelete) return
                     try {
                       await deleteMutation.mutateAsync(monitor.id)
@@ -143,7 +144,7 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
                   }}
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-900"
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
               </div>
             )}
@@ -163,21 +164,21 @@ const MonitorCard: FC<{ monitor: UptimeMonitor; onEdit: (monitor: UptimeMonitor)
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Latency</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('uptime.latency')}</div>
           <div className="text-lg font-mono font-medium text-gray-900 dark:text-white">
             {monitor.latency}ms
           </div>
         </div>
         <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Last Check</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('uptime.lastCheck')}</div>
           <div className="text-sm font-medium text-gray-900 dark:text-white">
-            {monitor.last_check ? formatDistanceToNow(new Date(monitor.last_check), { addSuffix: true }) : 'Never'}
+            {monitor.last_check ? formatDistanceToNow(new Date(monitor.last_check), { addSuffix: true }) : t('uptime.never')}
           </div>
         </div>
       </div>
 
       {/* Heartbeat Bar (Last 60 checks / 1 Hour) */}
-      <div className="flex gap-[2px] h-8 items-end relative" title="Last 60 checks (1 Hour)">
+      <div className="flex gap-[2px] h-8 items-end relative" title={t('uptime.last60Checks')}>
         {/* Fill with empty bars if not enough history to keep alignment right-aligned */}
         {Array.from({ length: Math.max(0, 60 - (history?.length || 0)) }).map((_, i) => (
            <div key={`empty-${i}`} className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-sm h-full opacity-50" />
@@ -199,14 +200,14 @@ Message: ${beat.message}`}
           />
         ))}
         {(!history || history.length === 0) && (
-            <div className="absolute w-full text-center text-xs text-gray-400">No history available</div>
+            <div className="absolute w-full text-center text-xs text-gray-400">{t('uptime.noHistoryAvailable')}</div>
         )}
       </div>
     </div>
   );
 };
 
-const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({ monitor, onClose }) => {
+const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void; t: (key: string) => string }> = ({ monitor, onClose, t }) => {
     const queryClient = useQueryClient();
     const [name, setName] = useState(monitor.name || '')
     const [maxRetries, setMaxRetries] = useState(monitor.max_retries || 3);
@@ -229,7 +230,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-gray-800 rounded-lg border border-gray-700 max-w-md w-full p-6 shadow-xl">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white">Configure Monitor</h2>
+                    <h2 className="text-xl font-bold text-white">{t('uptime.configureMonitor')}</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white">
                         <X size={24} />
                     </button>
@@ -238,7 +239,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
                 <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label htmlFor="monitor-name" className="block text-sm font-medium text-gray-300 mb-1">
-                    Name
+                    {t('common.name')}
                   </label>
                   <input
                     id="monitor-name"
@@ -250,7 +251,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
                 </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Max Retries
+                            {t('uptime.maxRetries')}
                         </label>
                         <input
                             type="number"
@@ -264,13 +265,13 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                         <p className="text-xs text-gray-500 mt-1">
-                            Number of consecutive failures before sending an alert.
+                            {t('uptime.maxRetriesHelper')}
                         </p>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1">
-                            Check Interval (seconds)
+                            {t('uptime.checkInterval')}
                         </label>
                         <input
                             type="number"
@@ -291,14 +292,14 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
                             onClick={onClose}
                             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
                         >
-                            Cancel
+                            {t('common.cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={mutation.isPending}
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         >
-                            {mutation.isPending ? 'Saving...' : 'Save Changes'}
+                            {mutation.isPending ? t('common.saving') : t('uptime.saveChanges')}
                         </button>
                     </div>
                 </form>
@@ -308,6 +309,7 @@ const EditMonitorModal: FC<{ monitor: UptimeMonitor; onClose: () => void }> = ({
 };
 
 const Uptime: FC = () => {
+  const { t } = useTranslation();
   const { data: monitors, isLoading } = useQuery({
     queryKey: ['monitors'],
     queryFn: getMonitors,
@@ -329,7 +331,7 @@ const Uptime: FC = () => {
   const otherMonitors = useMemo(() => sortedMonitors.filter(m => !m.proxy_host_id && !m.remote_server_id), [sortedMonitors]);
 
   if (isLoading) {
-    return <div className="p-8 text-center">Loading monitors...</div>;
+    return <div className="p-8 text-center">{t('uptime.loadingMonitors')}</div>;
   }
 
   return (
@@ -337,25 +339,25 @@ const Uptime: FC = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <Activity className="w-6 h-6" />
-          Uptime Monitoring
+          {t('uptime.title')}
         </h1>
         <div className="text-sm text-gray-500">
-          Auto-refreshing every 30s
+          {t('uptime.autoRefreshing')}
         </div>
       </div>
 
       {sortedMonitors.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          No monitors found. Add a Proxy Host or Remote Server to start monitoring.
+          {t('uptime.noMonitorsFound')}
         </div>
       ) : (
         <>
           {proxyHostMonitors.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Proxy Hosts</h2>
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.proxyHosts')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {proxyHostMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
                 ))}
               </div>
             </div>
@@ -363,10 +365,10 @@ const Uptime: FC = () => {
 
           {remoteServerMonitors.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Remote Servers</h2>
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.remoteServers')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {remoteServerMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
                 ))}
               </div>
             </div>
@@ -374,10 +376,10 @@ const Uptime: FC = () => {
 
           {otherMonitors.length > 0 && (
             <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">Other Monitors</h2>
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.otherMonitors')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {otherMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
                 ))}
               </div>
             </div>
@@ -386,7 +388,7 @@ const Uptime: FC = () => {
       )}
 
       {editingMonitor && (
-        <EditMonitorModal monitor={editingMonitor} onClose={() => setEditingMonitor(null)} />
+        <EditMonitorModal monitor={editingMonitor} onClose={() => setEditingMonitor(null)} t={t} />
       )}
     </div>
   );

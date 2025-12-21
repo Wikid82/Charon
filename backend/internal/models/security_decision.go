@@ -9,11 +9,11 @@ import (
 type SecurityDecision struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	UUID      string    `json:"uuid" gorm:"uniqueIndex"`
-	Source    string    `json:"source"` // e.g., crowdsec, waf, ratelimit, manual
-	Action    string    `json:"action"` // allow, block, challenge
-	IP        string    `json:"ip"`
-	Host      string    `json:"host"` // optional
-	RuleID    string    `json:"rule_id"`
+	Source    string    `json:"source" gorm:"index"` // e.g., crowdsec, waf, ratelimit, manual
+	Action    string    `json:"action" gorm:"index"` // allow, block, challenge
+	IP        string    `json:"ip" gorm:"index"`
+	Host      string    `json:"host" gorm:"index"` // optional
+	RuleID    string    `json:"rule_id" gorm:"index"`
 	Details   string    `json:"details" gorm:"type:text"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at" gorm:"index"`
 }

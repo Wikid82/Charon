@@ -54,12 +54,12 @@ func TestWebSocketStatusHandler_GetConnections(t *testing.T) {
 	// Verify response
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
 	assert.Equal(t, float64(2), response["count"])
-	connections, ok := response["connections"].([]interface{})
+	connections, ok := response["connections"].([]any)
 	require.True(t, ok)
 	assert.Len(t, connections, 2)
 }
@@ -81,12 +81,12 @@ func TestWebSocketStatusHandler_GetConnectionsEmpty(t *testing.T) {
 	// Verify response
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	require.NoError(t, err)
 
 	assert.Equal(t, float64(0), response["count"])
-	connections, ok := response["connections"].([]interface{})
+	connections, ok := response["connections"].([]any)
 	require.True(t, ok)
 	assert.Len(t, connections, 0)
 }

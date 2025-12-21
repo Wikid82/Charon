@@ -153,7 +153,7 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "smtp.example.com", resp["host"])
 	assert.Equal(t, float64(587), resp["port"])
@@ -174,7 +174,7 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["configured"])
 }
@@ -206,7 +206,7 @@ func TestSettingsHandler_UpdateSMTPConfig_NonAdmin(t *testing.T) {
 	})
 	router.PUT("/settings/smtp", handler.UpdateSMTPConfig)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"host":         "smtp.example.com",
 		"port":         587,
 		"from_address": "test@example.com",
@@ -251,7 +251,7 @@ func TestSettingsHandler_UpdateSMTPConfig_Success(t *testing.T) {
 	})
 	router.PUT("/settings/smtp", handler.UpdateSMTPConfig)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"host":         "smtp.example.com",
 		"port":         587,
 		"username":     "user@example.com",
@@ -287,7 +287,7 @@ func TestSettingsHandler_UpdateSMTPConfig_KeepExistingPassword(t *testing.T) {
 	router.PUT("/settings/smtp", handler.UpdateSMTPConfig)
 
 	// Send masked password (simulating frontend sending back masked value)
-	body := map[string]interface{}{
+	body := map[string]any{
 		"host":         "smtp.example.com",
 		"port":         587,
 		"password":     "********", // Masked
@@ -342,7 +342,7 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
 }
@@ -406,7 +406,7 @@ func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
 }

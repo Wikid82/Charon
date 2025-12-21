@@ -61,18 +61,18 @@ func TestExtractHandlers_Subroute(t *testing.T) {
 		t.Fatal("Upstreams should not be nil")
 	}
 
-	upstreams, ok := handlers[1].Upstreams.([]interface{})
+	upstreams, ok := handlers[1].Upstreams.([]any)
 	if !ok {
-		t.Fatal("Upstreams should be []interface{}")
+		t.Fatal("Upstreams should be []any")
 	}
 
 	if len(upstreams) == 0 {
 		t.Fatal("Upstreams should not be empty")
 	}
 
-	upstream, ok := upstreams[0].(map[string]interface{})
+	upstream, ok := upstreams[0].(map[string]any)
 	if !ok {
-		t.Fatal("First upstream should be map[string]interface{}")
+		t.Fatal("First upstream should be map[string]any")
 	}
 
 	dial, ok := upstream["dial"].(string)

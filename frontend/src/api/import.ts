@@ -1,5 +1,6 @@
 import client from './client';
 
+/** Represents an active import session. */
 export interface ImportSession {
   id: string;
   state: 'pending' | 'reviewing' | 'completed' | 'failed' | 'transient';
@@ -8,6 +9,7 @@ export interface ImportSession {
   source_file?: string;
 }
 
+/** Preview of a Caddyfile import with hosts and conflicts. */
 export interface ImportPreview {
   session: ImportSession;
   preview: {
@@ -35,21 +37,39 @@ export interface ImportPreview {
   }>;
 }
 
+/**
+ * Uploads a Caddyfile content for import preview.
+ * @param content - The Caddyfile content as a string
+ * @returns Promise resolving to ImportPreview with parsed hosts
+ * @throws {AxiosError} If parsing fails or content is invalid
+ */
 export const uploadCaddyfile = async (content: string): Promise<ImportPreview> => {
   const { data } = await client.post<ImportPreview>('/import/upload', { content });
   return data;
 };
 
+/**
+ * Uploads multiple Caddyfile contents for batch import.
+ * @param contents - Array of Caddyfile content strings
+ * @returns Promise resolving to combined ImportPreview
+ * @throws {AxiosError} If parsing fails
+ */
 export const uploadCaddyfilesMulti = async (contents: string[]): Promise<ImportPreview> => {
   const { data } = await client.post<ImportPreview>('/import/upload-multi', { contents });
   return data;
 };
 
+/**
+ * Gets the current import preview for the active session.
+ * @returns Promise resolving to ImportPreview
+ * @throws {AxiosError} If no active session or request fails
+ */
 export const getImportPreview = async (): Promise<ImportPreview> => {
   const { data } = await client.get<ImportPreview>('/import/preview');
   return data;
 };
 
+/** Result of committing an import operation. */
 export interface ImportCommitResult {
   created: number;
   updated: number;
@@ -57,6 +77,14 @@ export interface ImportCommitResult {
   errors: string[];
 }
 
+/**
+ * Commits the import, creating/updating proxy hosts.
+ * @param sessionUUID - The import session UUID
+ * @param resolutions - Map of conflict resolutions (domain -> 'keep'|'replace'|'skip')
+ * @param names - Map of custom names for imported hosts
+ * @returns Promise resolving to ImportCommitResult with counts
+ * @throws {AxiosError} If commit fails
+ */
 export const commitImport = async (
   sessionUUID: string,
   resolutions: Record<string, string>,
@@ -70,10 +98,18 @@ export const commitImport = async (
   return data;
 };
 
+/**
+ * Cancels the current import session.
+ * @throws {AxiosError} If cancellation fails
+ */
 export const cancelImport = async (): Promise<void> => {
   await client.post('/import/cancel');
 };
 
+/**
+ * Gets the current import session status.
+ * @returns Promise resolving to object with pending status and optional session
+ */
 export const getImportStatus = async (): Promise<{ has_pending: boolean; session?: ImportSession }> => {
   // Note: Assuming there might be a status endpoint or we infer from preview.
   // If no dedicated status endpoint exists in backend, we might rely on preview returning 404 or empty.

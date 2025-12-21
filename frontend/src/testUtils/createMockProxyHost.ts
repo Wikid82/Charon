@@ -10,6 +10,7 @@ export const createMockProxyHost = (overrides: Partial<ProxyHost> = {}): ProxyHo
   enabled: true,
   ssl_forced: false,
   websocket_support: false,
+  enable_standard_headers: true,
   http2_support: false,
   hsts_enabled: false,
   hsts_subdomains: false,

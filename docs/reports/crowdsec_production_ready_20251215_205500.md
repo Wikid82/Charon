@@ -13,6 +13,7 @@
 ## Executive Summary
 
 ### What Was Fixed
+
 1. **Environment Variable Configuration**: `FEATURE_CERBERUS_ENABLED=true` successfully added to docker-compose files
 2. **Caddy App-Level Configuration**: `apps.crowdsec` properly configured with streaming mode enabled
 3. **Handler Injection**: CrowdSec handler successfully injected into 14 of 15 routes (93%)
@@ -20,6 +21,7 @@
 5. **Trusted Proxies**: Properly configured for Docker network architecture
 
 ### Current State
+
 - **Architecture**: ✅ VALIDATED - App-level config with per-route handler injection
 - **Feature Flag**: ✅ ENABLED - Container environment confirmed
 - **Route Protection**: ✅ ACTIVE - 14/15 routes protected (93% coverage)
@@ -33,6 +35,7 @@
 The infrastructure is **architecturally sound** and ready for production deployment. However, CrowdSec LAPI is not running because the CrowdSec binary was not included in the Docker image build. This is an **operational gap**, not an architectural flaw.
 
 **Current Behavior:**
+
 - Caddy bouncer attempts to connect every 10 seconds
 - Routes are protected with CrowdSec handler in place
 - No actual blocking occurs (LAPI unavailable)
@@ -82,7 +85,8 @@ Frontend Lint (Fix)......................................................Passed
 **Test:** `crowdsec_startup_test.sh`
 **Result:** FAILED (5 passed, 1 failed)
 
-#### Detailed Results:
+#### Detailed Results
+
 1. ✅ **No fatal 'no datasource enabled' error** - PASS
 2. ❌ **LAPI health check (port 8085)** - FAIL (expected - binary not installed)
 3. ✅ **Acquisition config exists** - PASS (acquis.yaml present with datasource)
@@ -126,6 +130,7 @@ Frontend Lint (Fix)......................................................Passed
 ```
 
 **Analysis:**
+
 - ✅ Streaming mode enabled for real-time decision updates
 - ✅ Trusted proxies configured for Docker networks
 - ✅ 10-second polling interval (optimal)
@@ -156,6 +161,7 @@ Frontend Lint (Fix)......................................................Passed
 ```
 
 **Analysis:**
+
 - ✅ CrowdSec handler is first in chain
 - ✅ Correct middleware order maintained
 - ✅ No duplicate handlers
@@ -182,6 +188,7 @@ This is the **correct and optimal** order for security middleware.
 **Issue:** CrowdSec binary is not present in the Docker image
 
 **Impact:**
+
 - LAPI not running
 - No actual blocking occurs
 - Bouncer retries every 10 seconds
@@ -190,6 +197,7 @@ This is the **correct and optimal** order for security middleware.
 **Root Cause:** Docker image does not include CrowdSec installation
 
 **Resolution Required:**
+
 ```dockerfile
 # Add to Dockerfile
 RUN curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash
@@ -201,6 +209,7 @@ RUN apt-get install -y crowdsec
 **Issue:** Traditional curl-based blocking tests fail in embedded LAPI architecture
 
 **Impact:**
+
 - Cannot validate blocking behavior via external curl commands
 - Integration tests show false negatives
 
@@ -213,6 +222,7 @@ RUN apt-get install -y crowdsec
 **Issue:** `cscli bouncers list` returns empty
 
 **Impact:**
+
 - Cannot verify bouncer-LAPI communication via CLI
 - No visible evidence of bouncer registration
 
@@ -249,8 +259,9 @@ RUN apt-get install -y crowdsec
 **Status:** NOT TESTED (requires running production services)
 
 **Manual Testing Required:**
-1. Access http://localhost:8080 → Verify UI loads
-2. Access http://localhost:8080/security/logs → Verify logs visible
+
+1. Access <http://localhost:8080> → Verify UI loads
+2. Access <http://localhost:8080/security/logs> → Verify logs visible
 3. Trigger a test request → Verify it appears in logs
 4. Check Caddy logs → Verify CrowdSec handler executing
 
@@ -261,6 +272,7 @@ RUN apt-get install -y crowdsec
 ### Immediate Actions (Before Production Deploy)
 
 1. **Install CrowdSec in Docker Image**
+
    ```dockerfile
    # Add to Dockerfile (after base image)
    RUN apt-get update && \
@@ -271,6 +283,7 @@ RUN apt-get install -y crowdsec
    ```
 
 2. **Install Core Collections**
+
    ```bash
    # Add to docker-entrypoint.sh
    cscli collections install crowdsecurity/base-http-scenarios
@@ -279,18 +292,21 @@ RUN apt-get install -y crowdsec
    ```
 
 3. **Rebuild Docker Image**
+
    ```bash
    docker build --no-cache -t charon:latest .
    docker-compose up -d
    ```
 
 4. **Verify LAPI Health**
+
    ```bash
    docker exec charon curl -s http://127.0.0.1:8085/health
    # Expected: {"health":"OK"}
    ```
 
 5. **Verify Bouncer Registration**
+
    ```bash
    docker exec charon cscli bouncers list
    # Expected: caddy-bouncer with last pull time
@@ -299,14 +315,16 @@ RUN apt-get install -y crowdsec
 ### Post-Deployment Monitoring (First 24 Hours)
 
 1. **Monitor Caddy Logs**
+
    ```bash
    docker logs -f charon | grep crowdsec
    ```
+
    - Should see successful LAPI connections
    - Should NOT see "connection refused" errors
 
 2. **Monitor Security Logs**
-   - Access http://localhost:8080/security/logs
+   - Access <http://localhost:8080/security/logs>
    - Verify "NORMAL" traffic appears
    - Verify GeoIP lookups working
    - Verify timestamp accuracy
@@ -317,6 +335,7 @@ RUN apt-get install -y crowdsec
    - Check for any unexpected 403 errors
 
 4. **Trigger Test Block (Optional)**
+
    ```bash
    # Add a test decision via LAPI (when running)
    docker exec charon cscli decisions add --ip 1.2.3.4 --duration 5m --reason "Test block"
@@ -325,6 +344,7 @@ RUN apt-get install -y crowdsec
 ### Long-Term Improvements
 
 1. **Add Health Check Endpoint**
+
    ```go
    // In handlers/
    func GetCrowdSecHealth(c *gin.Context) {
@@ -357,6 +377,7 @@ RUN apt-get install -y crowdsec
 **✅ CONDITIONALLY APPROVED FOR PRODUCTION**
 
 **Conditions:**
+
 1. CrowdSec binary MUST be installed in Docker image
 2. LAPI health check MUST pass before deployment
 3. At least one collection MUST be installed
@@ -365,6 +386,7 @@ RUN apt-get install -y crowdsec
 **Justification:**
 
 The **architecture is production-ready**. The Caddy integration is correctly implemented with:
+
 - App-level configuration (apps.crowdsec)
 - Per-route handler injection (14/15 routes)
 - Correct middleware ordering
@@ -372,6 +394,7 @@ The **architecture is production-ready**. The Caddy integration is correctly imp
 - Trusted proxies configured
 
 The only gap is **operational**: the CrowdSec binary is not installed in the Docker image. This is a straightforward fix that requires:
+
 1. Adding CrowdSec to Dockerfile
 2. Rebuilding the image
 3. Verifying LAPI starts
@@ -383,6 +406,7 @@ Once the binary is installed and LAPI is running, the entire system will functio
 **MEDIUM-HIGH (75%)**
 
 **Rationale:**
+
 - ✅ Architecture: 100% confidence (validated)
 - ✅ Code Quality: 100% confidence (tests passing)
 - ✅ Configuration: 95% confidence (verified via API)
@@ -390,6 +414,7 @@ Once the binary is installed and LAPI is running, the entire system will functio
 - ⚠️ Production Traffic: 0% confidence (not tested)
 
 **Risk Assessment:**
+
 - **Low Risk**: Code quality, architecture, configuration
 - **Medium Risk**: CrowdSec binary installation
 - **High Risk**: Production traffic behavior (untested)
@@ -399,11 +424,13 @@ Once the binary is installed and LAPI is running, the entire system will functio
 **RECOMMENDATION: DO NOT DEPLOY TO PRODUCTION YET**
 
 **Reason:** CrowdSec binary must be installed first. Deploying without it means:
+
 - No actual security protection
 - Confusing logs (connection refused errors)
 - False sense of security
 
 **Next Steps:**
+
 1. DevOps team: Add CrowdSec to Dockerfile
 2. DevOps team: Rebuild image with no-cache
 3. QA team: Re-run validation (LAPI health check)
@@ -470,6 +497,7 @@ No vulnerabilities found.
 **Status:** CONDITIONALLY APPROVED (pending CrowdSec binary installation)
 
 **Reviewed Configuration:**
+
 - docker-compose.yml
 - docker-compose.override.yml
 - Caddy JSON config (live)
@@ -477,6 +505,7 @@ No vulnerabilities found.
 - Frontend test suite
 
 **Not Reviewed:**
+
 - Production traffic behavior
 - Live blocking effectiveness
 - Performance under load

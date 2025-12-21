@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent, type FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { getSetupStatus, performSetup, SetupRequest } from '../api/setup';
 import client from '../api/client';
 import { useAuth } from '../hooks/useAuth';
@@ -10,6 +11,7 @@ import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { isValidEmail } from '../utils/validation';
 
 const Setup: FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { login, isAuthenticated } = useAuth();
@@ -66,7 +68,7 @@ const Setup: FC = () => {
       navigate('/');
     },
     onError: (err: Error) => {
-      setError(err.message || 'Setup failed');
+      setError(err.message || t('setup.setupFailed'));
     },
   });
 
@@ -79,7 +81,7 @@ const Setup: FC = () => {
   if (statusLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <div className="text-blue-500">Loading...</div>
+        <div className="text-blue-500">{t('common.loading')}</div>
       </div>
     );
   }
@@ -96,10 +98,10 @@ const Setup: FC = () => {
 
 
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            Welcome to Charon
+            {t('setup.welcomeTitle')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-            Create your administrator account to get started.
+            {t('setup.welcomeDescription')}
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
@@ -107,10 +109,10 @@ const Setup: FC = () => {
             <Input
               id="name"
               name="name"
-              label="Name"
+              label={t('setup.nameLabel')}
               type="text"
               required
-              placeholder="Admin User"
+              placeholder={t('setup.namePlaceholder')}
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             />
@@ -118,23 +120,23 @@ const Setup: FC = () => {
               <Input
                 id="email"
                 name="email"
-                label="Email Address"
+                label={t('setup.emailLabel')}
                 type="email"
                 required
-                placeholder="admin@example.com"
+                placeholder={t('setup.emailPlaceholder')}
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className={emailValid === false ? 'border-red-500 focus:ring-red-500' : emailValid === true ? 'border-green-500 focus:ring-green-500' : ''}
               />
               {emailValid === false && (
-                <p className="mt-1 text-xs text-red-500">Please enter a valid email address</p>
+                <p className="mt-1 text-xs text-red-500">{t('setup.invalidEmail')}</p>
               )}
             </div>
             <div className="space-y-1">
               <Input
                 id="password"
                 name="password"
-                label="Password"
+                label={t('setup.passwordLabel')}
                 type="password"
                 required
                 placeholder="••••••••"
@@ -157,7 +159,7 @@ const Setup: FC = () => {
               className="w-full"
               isLoading={mutation.isPending}
             >
-              Create Admin Account
+              {t('setup.createAdminButton')}
             </Button>
           </div>
         </form>

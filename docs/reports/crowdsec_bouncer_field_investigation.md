@@ -35,6 +35,7 @@ func buildCrowdSecHandler(...) (Handler, error) {
 ```
 
 This generates:
+
 ```json
 {
   "handle": [
@@ -84,6 +85,7 @@ This generates:
 ```
 
 Handler becomes:
+
 ```json
 {
   "handler": "crowdsec"  // No inline config
@@ -111,6 +113,7 @@ Handler becomes:
 ## Next Steps
 
 1. **Research Plugin Source:**
+
    ```bash
    git clone https://github.com/hslatman/caddy-crowdsec-bouncer
    cd caddy-crowdsec-bouncer

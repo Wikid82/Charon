@@ -53,7 +53,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 		t.Fatalf("Create decision expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
 	}
 
-	var decisionResp map[string]interface{}
+	var decisionResp map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &decisionResp))
 	require.NotNil(t, decisionResp["decision"])
 
@@ -63,7 +63,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("Upsert ruleset expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
 	}
-	var listResp map[string][]map[string]interface{}
+	var listResp map[string][]map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &listResp))
 	require.GreaterOrEqual(t, len(listResp["decisions"]), 1)
 
@@ -76,7 +76,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("Upsert ruleset expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
 	}
-	var rsResp map[string]interface{}
+	var rsResp map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &rsResp))
 	require.NotNil(t, rsResp["ruleset"])
 
@@ -86,7 +86,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("List rulesets expected status 200, got %d; body: %s", resp.Code, resp.Body.String())
 	}
-	var listRsResp map[string][]map[string]interface{}
+	var listRsResp map[string][]map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &listRsResp))
 	require.GreaterOrEqual(t, len(listRsResp["rulesets"]), 1)
 
@@ -98,7 +98,7 @@ func TestSecurityHandler_CreateAndListDecisionAndRulesets(t *testing.T) {
 	resp = httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 	assert.Equal(t, http.StatusOK, resp.Code)
-	var delResp map[string]interface{}
+	var delResp map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &delResp))
 	require.Equal(t, true, delResp["deleted"].(bool))
 }
