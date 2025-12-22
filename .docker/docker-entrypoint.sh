@@ -196,10 +196,10 @@ fi
 echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
-# Run Caddy as charon user for security
+# Run Caddy as charon user for security (preserves supplementary groups)
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-su-exec charon:charon caddy run --config /config/caddy.json &
+su-exec charon caddy run --config /config/caddy.json &
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
@@ -218,6 +218,7 @@ done
 # Start Charon management application
 # Drop privileges to charon user before starting the application
 # This maintains security while allowing Docker socket access via group membership
+# Note: Using 'su-exec charon' without explicit group to preserve supplementary groups (docker)
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
@@ -227,13 +228,13 @@ if [ "$DEBUG_FLAG" = "1" ]; then
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    su-exec charon:charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+    su-exec charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     bin_path=/app/charon
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    su-exec charon:charon "$bin_path" &
+    su-exec charon "$bin_path" &
 fi
 APP_PID=$!
 echo "Charon started (PID: $APP_PID)"
