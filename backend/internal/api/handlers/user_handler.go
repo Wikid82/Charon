@@ -15,7 +15,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
-	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/Wikid82/charon/backend/internal/utils"
 )
 
@@ -822,13 +821,6 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 	var user models.User
 	if err := h.DB.Where("invite_token = ?", req.Token).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
-		return
-	}
-
-	// Verify token in constant time as defense-in-depth against timing attacks.
-	// The DB lookup itself has timing variance, but this prevents comparison timing leaks.
-	if !util.ConstantTimeCompare(user.InviteToken, req.Token) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid invite token"})
 		return
 	}
 
