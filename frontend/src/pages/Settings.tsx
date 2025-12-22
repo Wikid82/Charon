@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { PageShell } from '../components/layout/PageShell'
 import { cn } from '../utils/cn'
-import { Settings as SettingsIcon, Server, Mail, User } from 'lucide-react'
+import { Settings as SettingsIcon, Server, Mail, User, Bell } from 'lucide-react'
 
 export default function Settings() {
   const { t } = useTranslation()
@@ -12,6 +12,7 @@ export default function Settings() {
 
   const navItems = [
     { path: '/settings/system', label: t('settings.system'), icon: Server },
+    { path: '/settings/notifications', label: t('settings.notifications'), icon: Bell },
     { path: '/settings/smtp', label: t('settings.smtp'), icon: Mail },
     { path: '/settings/account', label: t('settings.account'), icon: User },
   ]

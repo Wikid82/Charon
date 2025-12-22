@@ -31,6 +31,27 @@ mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
 # ============================================================================
+# Docker Socket Permission Handling
+# ============================================================================
+# The Docker integration feature requires access to the Docker socket.
+# When running as non-root user (charon), we need to ensure the user is in
+# the same group as the mounted socket for permission access.
+
+if [ -S "/var/run/docker.sock" ]; then
+    DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
+    if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
+        # Check if a group with this GID exists
+        if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
+            echo "Docker socket detected (gid=$DOCKER_SOCK_GID). Note: Container integration requires socket access."
+            echo "  To enable Docker container discovery:"
+            echo "  1. Run container with --user root:root, OR"
+            echo "  2. Add host docker group: docker run --group-add $DOCKER_SOCK_GID ..., OR"
+            echo "  3. Change socket permissions: chmod 666 /var/run/docker.sock (not recommended)"
+        fi
+    fi
+fi
+
+# ============================================================================
 # CrowdSec Initialization
 # ============================================================================
 # Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.
