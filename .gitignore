@@ -239,3 +239,4 @@ sbom*.json
 # -----------------------------------------------------------------------------
 .docker/compose/docker-compose.override.yml
 docker-compose.test.yml
+.github/agents/prompt_template/
