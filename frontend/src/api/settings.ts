@@ -40,3 +40,18 @@ export const validatePublicURL = async (url: string): Promise<{
   const response = await client.post('/settings/validate-url', { url })
   return response.data
 }
+
+/**
+ * Tests if a URL is reachable from the server with SSRF protection.
+ * @param url - The URL to test
+ * @returns Promise resolving to test result with reachability status and latency
+ */
+export const testPublicURL = async (url: string): Promise<{
+  reachable: boolean
+  latency?: number
+  message?: string
+  error?: string
+}> => {
+  const response = await client.post('/settings/test-url', { url })
+  return response.data
+}

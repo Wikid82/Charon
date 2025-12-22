@@ -193,6 +193,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// URL Validation
 		protected.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
+		protected.POST("/settings/test-url", settingsHandler.TestPublicURL)
 
 		// Auth related protected routes
 		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)

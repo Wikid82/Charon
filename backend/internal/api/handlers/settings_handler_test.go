@@ -418,3 +418,284 @@ func TestMaskPassword(t *testing.T) {
 	// Non-empty password
 	assert.Equal(t, "********", handlers.MaskPasswordForTest("secret"))
 }
+
+// ============= URL Testing Tests =============
+
+func TestSettingsHandler_ValidatePublicURL_NonAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	router.POST("/settings/validate-url", handler.ValidatePublicURL)
+
+	body := map[string]string{"url": "https://example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/validate-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/validate-url", handler.ValidatePublicURL)
+
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{"Missing scheme", "example.com"},
+		{"Invalid scheme", "ftp://example.com"},
+		{"URL with path", "https://example.com/path"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]string{"url": tc.url}
+			jsonBody, _ := json.Marshal(body)
+			req, _ := http.NewRequest("POST", "/settings/validate-url", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			var resp map[string]any
+			json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.Equal(t, false, resp["valid"])
+		})
+	}
+}
+
+func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/validate-url", handler.ValidatePublicURL)
+
+	testCases := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{"HTTPS URL", "https://example.com", "https://example.com"},
+		{"HTTP URL", "http://example.com", "http://example.com"},
+		{"URL with port", "https://example.com:8080", "https://example.com:8080"},
+		{"URL with trailing slash", "https://example.com/", "https://example.com"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]string{"url": tc.url}
+			jsonBody, _ := json.Marshal(body)
+			req, _ := http.NewRequest("POST", "/settings/validate-url", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			var resp map[string]any
+			json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.Equal(t, true, resp["valid"])
+			assert.Equal(t, tc.expected, resp["normalized"])
+		})
+	}
+}
+
+func TestSettingsHandler_TestPublicURL_NonAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	body := map[string]string{"url": "https://example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSettingsHandler_TestPublicURL_NoRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	// No role set in context
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	body := map[string]string{"url": "https://example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSettingsHandler_TestPublicURL_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBufferString("invalid json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	body := map[string]string{"url": "not-a-valid-url"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["reachable"])
+	assert.Contains(t, resp["error"], "Invalid URL")
+}
+
+func TestSettingsHandler_TestPublicURL_PrivateIPBlocked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	// Test various private IPs that should be blocked
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{"localhost", "http://localhost"},
+		{"127.0.0.1", "http://127.0.0.1"},
+		{"Private 10.x", "http://10.0.0.1"},
+		{"Private 192.168.x", "http://192.168.1.1"},
+		{"AWS metadata", "http://169.254.169.254"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]string{"url": tc.url}
+			jsonBody, _ := json.Marshal(body)
+			req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
+			var resp map[string]any
+			json.Unmarshal(w.Body.Bytes(), &resp)
+			assert.Equal(t, false, resp["reachable"])
+			assert.Contains(t, resp["error"], "private IP")
+		})
+	}
+}
+
+func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	// Create a test server to simulate a reachable URL
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer testServer.Close()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	body := map[string]string{"url": testServer.URL}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, true, resp["reachable"])
+	assert.NotNil(t, resp["latency"])
+	assert.NotNil(t, resp["message"])
+}
+
+func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	body := map[string]string{"url": "http://nonexistent-domain-12345.invalid"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["reachable"])
+	assert.Contains(t, resp["error"], "DNS")
+}
