@@ -12,7 +12,7 @@ export default function Settings() {
 
   const navItems = [
     { path: '/settings/system', label: t('settings.system'), icon: Server },
-    { path: '/settings/notifications', label: t('settings.notifications'), icon: Bell },
+    { path: '/settings/notifications', label: t('navigation.notifications'), icon: Bell },
     { path: '/settings/smtp', label: t('settings.smtp'), icon: Mail },
     { path: '/settings/account', label: t('settings.account'), icon: User },
   ]
