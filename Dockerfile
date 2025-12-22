@@ -284,11 +284,16 @@ RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
     fi
 
 # Create required CrowdSec directories in runtime image
-# Also prepare persistent config directory structure for volume mounts
-RUN mkdir -p /etc/crowdsec /etc/crowdsec/acquis.d /etc/crowdsec/bouncers \
-             /etc/crowdsec/hub /etc/crowdsec/notifications \
-             /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
+# NOTE: Do NOT create /etc/crowdsec here - it must be a symlink created at runtime by non-root user
+RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
              /app/data/crowdsec/config /app/data/crowdsec/data
+
+# Generate CrowdSec default configs to .dist directory
+RUN if command -v cscli >/dev/null; then \
+        mkdir -p /etc/crowdsec.dist && \
+        cscli config restore /etc/crowdsec.dist/ || \
+        cp -r /etc/crowdsec/* /etc/crowdsec.dist/ 2>/dev/null || true; \
+    fi
 
 # Copy CrowdSec configuration templates from source
 COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
@@ -328,10 +333,9 @@ ENV CHARON_ENV=production \
 RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
 # Security: Set ownership of all application directories to non-root charon user
-# Note: /app/data and /config are typically mounted as volumes; permissions
-# will be handled at runtime in docker-entrypoint.sh if needed
+# Security: Set ownership of all application directories to non-root charon user
+# Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
-    chown -R charon:charon /etc/crowdsec 2>/dev/null || true && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 
@@ -358,6 +362,11 @@ EXPOSE 80 443 443/udp 2019 8080
 # Verifies the Charon API is responding correctly
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/api/v1/health || exit 1
+
+# Create CrowdSec symlink as root before switching to non-root user
+# This symlink allows CrowdSec to use persistent storage at /app/data/crowdsec/config
+# while maintaining the expected /etc/crowdsec path for compatibility
+RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 
 # Security: Run as non-root user (CIS Docker Benchmark 4.1)
 # The entrypoint script handles any required permission fixes for volumes
