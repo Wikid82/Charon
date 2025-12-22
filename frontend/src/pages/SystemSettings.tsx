@@ -12,7 +12,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { toast } from '../utils/toast'
-import { getSettings, updateSetting } from '../api/settings'
+import { getSettings, updateSetting, testPublicURL } from '../api/settings'
 import { getFeatureFlags, updateFeatureFlags } from '../api/featureFlags'
 import client from '../api/client'
 import { Server, RefreshCw, Save, Activity, Info, ExternalLink, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
@@ -100,18 +100,24 @@ export default function SystemSettings() {
     },
   })
 
-  // Test Public URL
-  const testPublicURL = async () => {
+  // Test Public URL - Server-side connectivity test with SSRF protection
+  const testPublicURLHandler = async () => {
     if (!publicURL) {
       toast.error(t('systemSettings.applicationUrl.invalidUrl'))
       return
     }
     setPublicURLSaving(true)
     try {
-      window.open(publicURL, '_blank')
-      toast.success(t('systemSettings.applicationUrl.testSuccess') || 'URL opened in new tab')
-    } catch {
-      toast.error(t('systemSettings.applicationUrl.testFailed') || 'Failed to open URL')
+      const result = await testPublicURL(publicURL)
+      if (result.reachable) {
+        toast.success(
+          result.message || `URL reachable (${result.latency?.toFixed(0)}ms)`
+        )
+      } else {
+        toast.error(result.error || 'URL not reachable')
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Test failed')
     } finally {
       setPublicURLSaving(false)
     }
@@ -414,7 +420,7 @@ export default function SystemSettings() {
             <div className="flex gap-2">
               <Button
                 variant="secondary"
-                onClick={testPublicURL}
+                onClick={testPublicURLHandler}
                 disabled={!publicURL || publicURLSaving}
               >
                 <ExternalLink className="h-4 w-4 mr-2" />

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -263,4 +264,53 @@ func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// TestPublicURL performs a server-side connectivity test with SSRF protection.
+// This endpoint is admin-only and validates that a URL is reachable from the server.
+func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
+	// Admin-only access check
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Parse request body
+	type TestURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req TestURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate URL format first
+	normalized, _, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"reachable": false,
+			"error":     "Invalid URL format",
+		})
+		return
+	}
+
+	// Perform connectivity test with SSRF protection
+	reachable, latency, err := utils.TestURLConnectivity(normalized)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"reachable": false,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"reachable": reachable,
+		"latency":   latency,
+		"message":   fmt.Sprintf("URL reachable (%.0fms)", latency),
+	})
 }
