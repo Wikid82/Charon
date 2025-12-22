@@ -453,7 +453,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager already created above
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
-	proxyHostHandler.RegisterRoutes(api)
+	proxyHostHandler.RegisterRoutes(protected)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)

@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -150,4 +153,24 @@ func TestRegister_RoutesRegistration(t *testing.T) {
 	for _, expected := range expectedRoutes {
 		assert.True(t, routeMap[expected], "Route %s should be registered", expected)
 	}
+}
+
+func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// Use in-memory DB
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_proxyhosts_auth"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-hosts", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "Authorization header required")
 }

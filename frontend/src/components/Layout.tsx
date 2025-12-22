@@ -72,14 +72,13 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
       { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
     ]},
-    { name: t('navigation.notifications'), path: '/notifications', icon: '🔔' },
-    // Import group moved under Tasks
     {
       name: t('navigation.settings'),
       path: '/settings',
       icon: '⚙️',
       children: [
         { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
+        { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
         { name: t('navigation.adminAccount'), path: '/settings/account', icon: '🛡️' },
         { name: t('navigation.accountManagement'), path: '/settings/account-management', icon: '👥' },
@@ -93,7 +92,6 @@ export default function Layout({ children }: LayoutProps) {
         {
           name: t('navigation.import'),
           path: '/tasks/import',
-          icon: '📥',
           children: [
             { name: t('navigation.caddyfile'), path: '/tasks/import/caddyfile', icon: '📥' },
             { name: t('navigation.crowdsec'), path: '/tasks/import/crowdsec', icon: '🛡️' },
