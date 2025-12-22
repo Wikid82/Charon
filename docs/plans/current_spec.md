@@ -1,667 +1,1013 @@
-# URL Test Button Navigation Bug - Implementation Plan
+# Current Project Specification
 
-**Status**: Ready for Implementation
-**Priority**: High
-**Affected Component**: System Settings - Application URL Test
-**Last Updated**: December 22, 2025 (Security Review Completed)
+## Active Issue: CrowdSec Non-Root Migration Fix - REVISED
 
----
+**Status**: Implementation Ready - Supervisor Review Complete
+**Priority**: CRITICAL
+**Last Updated**: 2024-12-22 (Revised after supervisor review)
 
-## Security Review Summary
+### Quick Summary
 
-**Critical vulnerabilities fixed in this revision:**
+The container migration from root to non-root user broke CrowdSec. Supervisor review identified **7 critical issues** that would cause the original fix to fail. This revised plan addresses all issues.
 
-1. ✅ **DNS Rebinding Protection**: HTTP requests now use validated IP addresses instead of hostnames, preventing TOCTOU attacks
-2. ✅ **Redirect Validation**: All redirect targets validated for private IPs before following
-3. ✅ **Complete IP Blocklist**: 15 IPv4 + 6 IPv6 reserved ranges blocked (RFC-compliant)
-4. ✅ **HTTPS Enforcement**: Only HTTPS URLs accepted for secure testing
-5. ✅ **Port Restrictions**: Limited to 443/8443 only
-6. ✅ **Hostname Blocklist**: Cloud metadata endpoints explicitly blocked
-7. ✅ **Rate Limiting**: Middleware implementation with 5 tests/minute per user
+**Root Cause**: Permission issues, missing symlink creation logic, and incomplete config template population.
 
----
+### Changes Required
 
-## Executive Summary
-
-The URL test button in System Settings incorrectly uses `window.open()` instead of performing a server-side connectivity test. This causes the browser to open the URL in a new tab (blank screen if unreachable) rather than executing a proper health check.
-
-**User Report**: Clicking test button for `http://100.98.12.109:8080/settings/https//charon.hatfieldhosted.com` opened blank blue screen.
+1. **Dockerfile** (Line ~332): Add config template population before final COPY
+2. **Entrypoint Script** (Lines 68-73): Replace symlink verification with creation logic
+3. **Entrypoint Script** (Line 100): Fix LOG variable to use directory-based path
+4. **Entrypoint Script** (Line 51): Add hub_cache directory creation
+5. **Entrypoint Script** (Line 99): Keep CFG pointing to `/etc/crowdsec` (resolves via symlink)
+6. **Entrypoint Script** (Lines 68-73): Strengthen error handling in migration
+7. **Verification Checklist**: Expand from 7 to 11 steps
 
 ---
 
-## Current Implementation Analysis
+## Detailed Implementation Plan
 
-### Frontend: SystemSettings.tsx
+### Issue 1: Missing Config Template Population (HIGH PRIORITY)
 
-**File**: [frontend/src/pages/SystemSettings.tsx](frontend/src/pages/SystemSettings.tsx#L103-L118)
+**Location**: `Dockerfile` before line 332 (before final COPY commands)
 
-```typescript
-const testPublicURL = async () => {
-  if (!publicURL) {
-    toast.error(t('systemSettings.applicationUrl.invalidUrl'))
-    return
-  }
-  setPublicURLSaving(true)
-  try {
-    window.open(publicURL, '_blank')  // ❌ Opens URL in browser instead of API test
-    toast.success('URL opened in new tab')
-  } catch {
-    toast.error('Failed to open URL')
-  } finally {
-    setPublicURLSaving(false)
-  }
-}
+**Problem**: The Dockerfile doesn't populate `/etc/crowdsec.dist/` with CrowdSec default configs (`config.yaml`, `user.yaml`, etc.). This causes the entrypoint script to have nothing to copy when initializing persistent storage.
+
+**Current Code** (Lines 330-332):
+```dockerfile
+# Copy CrowdSec configuration templates from source
+COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
+COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
 ```
 
-**Button** (line 417):
-```typescript
-<Button onClick={testPublicURL} disabled={!publicURL || publicURLSaving}>
-  <ExternalLink className="h-4 w-4 mr-2" />
-  {t('systemSettings.applicationUrl.testButton')}
-</Button>
+**Required Fix** (Add BEFORE line 330):
+```dockerfile
+# Generate CrowdSec default configs to .dist directory
+RUN if command -v cscli >/dev/null; then \
+        mkdir -p /etc/crowdsec.dist && \
+        cscli config restore /etc/crowdsec.dist/ || \
+        cp -r /etc/crowdsec/* /etc/crowdsec.dist/ 2>/dev/null || true; \
+    fi
 ```
 
-### Backend: Existing Validation Only
+**Rationale**: The `cscli config restore` command generates all required default configs (`config.yaml`, `user.yaml`, `local_api_credentials.yaml`, etc.). If that fails, we fall back to copying any existing configs. This ensures the `.dist` directory is always populated for the entrypoint to use.
 
-**File**: [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go#L195)
-
-```go
-protected.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
-```
-
-**Handler**: [backend/internal/api/handlers/settings_handler.go](backend/internal/api/handlers/settings_handler.go#L229-L267)
-
-This endpoint **only validates format** (scheme, no paths), does NOT test connectivity.
+**Risk**: Low - Command has multiple fallbacks and won't fail the build if CrowdSec is unavailable.
 
 ---
 
-## Root Cause
+### Issue 2: Symlink Not Created (HIGH PRIORITY)
 
-1. **Misnamed Function**: `testPublicURL()` implies connectivity test but performs navigation
-2. **No Backend Endpoint**: Missing API for server-side reachability tests
-3. **User Expectation**: "Test" button should verify connectivity, not open URL
-4. **Malformed URL Issue**: User input `https//charon.hatfieldhosted.com` (missing colon) causes navigation failure
+**Location**: `.docker/docker-entrypoint.sh` lines 68-73
+
+**Problem**: The entrypoint only VERIFIES the symlink exists but never CREATES it. This is the root cause of CrowdSec failures.
+
+**Current Code** (Lines 68-73):
+```bash
+# Link /etc/crowdsec to persistent config for runtime compatibility
+# Note: This symlink is created at build time; verify it exists
+if [ -L "/etc/crowdsec" ]; then
+    echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
+else
+    echo "Warning: /etc/crowdsec symlink not found. CrowdSec may use volume config directly."
+fi
+```
+
+**Required Fix** (Replace lines 68-73):
+```bash
+# Migrate existing directory to persistent storage if needed
+if [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
+    echo "Migrating /etc/crowdsec to persistent storage..."
+    if [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
+        cp -rn /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
+            echo "ERROR: Failed to migrate configs"
+            exit 1
+        }
+    fi
+    rm -rf /etc/crowdsec || {
+        echo "ERROR: Failed to remove old directory"
+        exit 1
+    }
+fi
+
+# Create symlink if it doesn't exist
+if [ ! -L "/etc/crowdsec" ]; then
+    ln -sf "$CS_CONFIG_DIR" /etc/crowdsec || {
+        echo "ERROR: Failed to create symlink"
+        exit 1
+    }
+    echo "Created symlink: /etc/crowdsec -> $CS_CONFIG_DIR"
+fi
+```
+
+**Rationale**: This implements proper migration logic with fail-fast error handling. If `/etc/crowdsec` exists as a directory, we migrate its contents before creating the symlink.
+
+**Risk**: Medium - Changes startup flow. Must test with both fresh and existing volumes.
 
 ---
 
-## Security: SSRF Protection Requirements
+### Issue 3: Wrong LOG Environment Variable
 
-**CRITICAL**: Backend URL testing must prevent Server-Side Request Forgery attacks.
+**Location**: `.docker/docker-entrypoint.sh` line 100
 
-### Required Protections
+**Problem**: The `LOG` variable points directly to a file instead of using the log directory variable, breaking consistency.
 
-1. **Complete IP Blocklist**: Reject all private/reserved IPs
-   - IPv4: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
-   - Loopback: `127.0.0.0/8`, IPv6 `::1/128`
-   - Link-local: `169.254.0.0/16`, IPv6 `fe80::/10`
-   - Cloud metadata: `169.254.169.254` (AWS/GCP/Azure)
-   - IPv6 ULA: `fc00::/7`
-   - Test/doc ranges: `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`
-   - Reserved: `0.0.0.0/8`, `240.0.0.0/4`, `255.255.255.255/32`
-   - CGNAT: `100.64.0.0/10`
-   - Multicast: `224.0.0.0/4`, IPv6 `ff00::/8`
+**Current Code** (Line 100):
+```bash
+export LOG=/var/log/crowdsec.log
+```
 
-2. **DNS Rebinding Protection** (CRITICAL):
-   - Make HTTP request directly to validated IP address
-   - Use `req.Host` header for SNI/vhost routing
-   - Prevents TOCTOU attacks where DNS changes between check and use
+**Required Fix** (Replace line 100):
+```bash
+export LOG="$CS_LOG_DIR/crowdsec.log"
+```
 
-3. **Redirect Validation** (CRITICAL):
-   - Validate each redirect target's IP before following
-   - Max 2 redirects
-   - Block redirects to private IPs
+**Required Addition** (Add after line 47 where other CS_* variables are defined):
+```bash
+CS_LOG_DIR="/var/log/crowdsec"
+```
 
-4. **Hostname Blocklist**:
-   - `metadata.google.internal`, `metadata.goog`, `metadata`
-   - `169.254.169.254`, `localhost`
+**Rationale**: Ensures all CrowdSec paths are consistently managed through variables, making future changes easier.
 
-5. **HTTPS Enforcement**:
-   - Require HTTPS scheme (reject HTTP for security)
-   - Warn users about insecure connections
-
-6. **Port Restrictions**:
-   - Allow only: 443 (HTTPS), 8443 (alternate HTTPS)
-   - Block all other ports including privileged ports
-
-7. **Rate Limiting**: 5 tests per minute per user
-   - Implement using `golang.org/x/time/rate`
-   - Per-user token bucket with burst allowance
-
-8. **Request Restrictions**:
-   - 5 second HTTP timeout
-   - 3 second DNS timeout
-   - HEAD method only (no full GET)
-
-9. **Admin-Only**: Require admin role (already enforced on `/settings/*`)
+**Risk**: Low - Simple variable change with no behavioral impact.
 
 ---
 
-## Implementation Plan
+### Issue 4: Missing Hub Cache Directory
 
-### Backend: New API Endpoint
+**Location**: `.docker/docker-entrypoint.sh` after line 51
 
-#### 1. Register Route with Rate Limiting
+**Problem**: The hub cache directory `/app/data/crowdsec/hub_cache/` is never explicitly created, causing hub operations to fail.
 
-**File**: [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go#L195)
-
-After line 195:
-```go
-// Create rate limiter for URL testing (5 requests per minute)
-urlTestLimiter := middleware.NewRateLimiter(5.0/60.0, 5)
-protected.POST("/settings/test-url",
-    urlTestLimiter.Limit(),
-    settingsHandler.TestPublicURL)
+**Current Code** (Lines 49-51):
+```bash
+# Ensure persistent directories exist (within writable volume)
+mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
+mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
 ```
 
-#### 2. Handler
-
-**File**: [backend/internal/api/handlers/settings_handler.go](backend/internal/api/handlers/settings_handler.go#L267)
-
-```go
-// TestPublicURL performs server-side connectivity test with SSRF protection
-func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
-role, _ := c.Get("role")
-if role != "admin" {
-c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
-return
-}
-
-type TestURLRequest struct {
-URL string `json:"url" binding:"required"`
-}
-
-var req TestURLRequest
-if err := c.ShouldBindJSON(&req); err != nil {
-c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-return
-}
-
-// Validate format first
-normalized, _, err := utils.ValidateURL(req.URL)
-if err != nil {
-c.JSON(http.StatusBadRequest, gin.H{
-"reachable": false,
-"error":     "Invalid URL format",
-})
-return
-}
-
-// Test connectivity (SSRF-safe)
-reachable, latency, err := utils.TestURLConnectivity(normalized)
-if err != nil {
-c.JSON(http.StatusOK, gin.H{
-"reachable": false,
-"error":     err.Error(),
-})
-return
-}
-
-c.JSON(http.StatusOK, gin.H{
-"reachable": reachable,
-"latency":   latency,
-"message":   fmt.Sprintf("URL reachable (%.0fms)", latency),
-})
-}
+**Required Fix** (Add after line 51):
+```bash
+mkdir -p "$CS_PERSIST_DIR/hub_cache"
 ```
 
-#### 3. Utility Function with DNS Rebinding Protection
+**Rationale**: CrowdSec stores hub metadata in a separate cache directory. Without this, `cscli hub update` fails silently.
 
-**File**: Create `backend/internal/utils/url_test.go`
-
-```go
-package utils
-
-import (
-    "context"
-    "fmt"
-    "net"
-    "net/http"
-    "net/url"
-    "strings"
-    "time"
-)
-
-// TestURLConnectivity checks if URL is reachable with comprehensive SSRF protection
-// including DNS rebinding prevention, redirect validation, and complete IP blocklist
-func TestURLConnectivity(rawURL string) (bool, float64, error) {
-    parsed, err := url.Parse(rawURL)
-    if err != nil {
-        return false, 0, fmt.Errorf("invalid URL: %w", err)
-    }
-
-    host := parsed.Hostname()
-    port := parsed.Port()
-    if port == "" {
-        port = map[string]string{"https": "443", "http": "80"}[parsed.Scheme]
-    }
-
-    // Enforce HTTPS for security
-    if parsed.Scheme != "https" {
-        return false, 0, fmt.Errorf("HTTPS required")
-    }
-
-    // Validate port
-    allowedPorts := map[string]bool{"443": true, "8443": true}
-    if !allowedPorts[port] {
-        return false, 0, fmt.Errorf("port %s not allowed", port)
-    }
-
-    // Block metadata hostnames explicitly
-    forbiddenHosts := []string{
-        "metadata.google.internal", "metadata.goog", "metadata",
-        "169.254.169.254", "localhost",
-    }
-    for _, forbidden := range forbiddenHosts {
-        if strings.EqualFold(host, forbidden) {
-            return false, 0, fmt.Errorf("blocked hostname")
-        }
-    }
-
-    // DNS resolution with timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-    defer cancel()
-
-    ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-    if err != nil {
-        return false, 0, fmt.Errorf("DNS failed: %w", err)
-    }
-    if len(ips) == 0 {
-        return false, 0, fmt.Errorf("no IPs found")
-    }
-
-    // SSRF protection: block private IPs
-    for _, ip := range ips {
-        if isPrivateIP(ip.IP) {
-            return false, 0, fmt.Errorf("private IP blocked: %s", ip.IP)
-        }
-    }
-
-    // DNS REBINDING PROTECTION: Use first validated IP for request
-    validatedIP := ips[0].IP.String()
-
-    // Construct URL using validated IP to prevent TOCTOU attacks
-    var targetURL string
-    if port != "" {
-        targetURL = fmt.Sprintf("%s://%s:%s%s", parsed.Scheme, validatedIP, port, parsed.Path)
-    } else {
-        targetURL = fmt.Sprintf("%s://%s%s", parsed.Scheme, validatedIP, parsed.Path)
-    }
-
-    // HTTP request with redirect validation
-    client := &http.Client{
-        Timeout: 5 * time.Second,
-        CheckRedirect: func(req *http.Request, via []*http.Request) error {
-            if len(via) >= 2 {
-                return fmt.Errorf("too many redirects")
-            }
-
-            // CRITICAL: Validate redirect target IPs
-            redirectHost := req.URL.Hostname()
-            redirectIPs, err := net.DefaultResolver.LookupIPAddr(ctx, redirectHost)
-            if err != nil {
-                return fmt.Errorf("redirect DNS failed: %w", err)
-            }
-            if len(redirectIPs) == 0 {
-                return fmt.Errorf("redirect DNS returned no IPs")
-            }
-
-            // Check redirect target IPs
-            for _, ip := range redirectIPs {
-                if isPrivateIP(ip.IP) {
-                    return fmt.Errorf("redirect to private IP blocked: %s", ip.IP)
-                }
-            }
-            return nil
-        },
-    }
-
-    start := time.Now()
-    req, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
-    if err != nil {
-        return false, 0, fmt.Errorf("request creation failed: %w", err)
-    }
-
-    // Set Host header to original hostname for SNI/vhost routing
-    req.Host = parsed.Host
-    req.Header.Set("User-Agent", "Charon-Health-Check/1.0")
-
-    resp, err := client.Do(req)
-    latency := time.Since(start).Seconds() * 1000
-
-    if err != nil {
-        return false, 0, fmt.Errorf("connection failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-        return true, latency, nil
-    }
-
-    return false, latency, fmt.Errorf("status %d", resp.StatusCode)
-}
-
-// isPrivateIP checks if an IP is in any private/reserved range
-func isPrivateIP(ip net.IP) bool {
-    // Check special addresses
-    if ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-       ip.IsLinkLocalMulticast() || ip.IsMulticast() {
-        return true
-    }
-
-    // Check if it's IPv4 or IPv6
-    if ip.To4() != nil {
-        // IPv4 private ranges (comprehensive RFC compliance)
-        privateBlocks := []string{
-            "0.0.0.0/8",          // Current network
-            "10.0.0.0/8",         // Private
-            "100.64.0.0/10",      // Shared address space (CGNAT)
-            "127.0.0.0/8",        // Loopback
-            "169.254.0.0/16",     // Link-local / Cloud metadata
-            "172.16.0.0/12",      // Private
-            "192.0.0.0/24",       // IETF protocol assignments
-            "192.0.2.0/24",       // TEST-NET-1
-            "192.168.0.0/16",     // Private
-            "198.18.0.0/15",      // Benchmarking
-            "198.51.100.0/24",    // TEST-NET-2
-            "203.0.113.0/24",     // TEST-NET-3
-            "224.0.0.0/4",        // Multicast
-            "240.0.0.0/4",        // Reserved
-            "255.255.255.255/32", // Broadcast
-        }
-
-        for _, block := range privateBlocks {
-            _, subnet, _ := net.ParseCIDR(block)
-            if subnet.Contains(ip) {
-                return true
-            }
-        }
-    } else {
-        // IPv6 private ranges
-        privateBlocks := []string{
-            "::1/128",       // Loopback
-            "::/128",        // Unspecified
-            "::ffff:0:0/96", // IPv4-mapped
-            "fe80::/10",     // Link-local
-            "fc00::/7",      // Unique local
-            "ff00::/8",      // Multicast
-        }
-
-        for _, block := range privateBlocks {
-            _, subnet, _ := net.ParseCIDR(block)
-            if subnet.Contains(ip) {
-                return true
-            }
-        }
-    }
-
-    return false
-}
-```
-
-#### 4. Rate Limiting Middleware
-
-**File**: Create `backend/internal/middleware/rate_limit.go`
-
-```go
-package middleware
-
-import (
-    "net/http"
-    "sync"
-    "time"
-
-    "github.com/gin-gonic/gin"
-    "golang.org/x/time/rate"
-)
-
-type RateLimiter struct {
-    limiters map[string]*rate.Limiter
-    mu       sync.RWMutex
-    rate     rate.Limit
-    burst    int
-}
-
-func NewRateLimiter(rps float64, burst int) *RateLimiter {
-    return &RateLimiter{
-        limiters: make(map[string]*rate.Limiter),
-        rate:     rate.Limit(rps),
-        burst:    burst,
-    }
-}
-
-func (rl *RateLimiter) getLimiter(key string) *rate.Limiter {
-    rl.mu.Lock()
-    defer rl.mu.Unlock()
-
-    limiter, exists := rl.limiters[key]
-    if !exists {
-        limiter = rate.NewLimiter(rl.rate, rl.burst)
-        rl.limiters[key] = limiter
-    }
-    return limiter
-}
-
-func (rl *RateLimiter) Limit() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        userID, exists := c.Get("user_id")
-        if !exists {
-            c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-                "error": "Authentication required",
-            })
-            return
-        }
-
-        limiter := rl.getLimiter(userID.(string))
-        if !limiter.Allow() {
-            c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-                "error": "Rate limit exceeded. Maximum 5 tests per minute.",
-            })
-            return
-        }
-
-        c.Next()
-    }
-}
-```
-
-### Frontend: Use API Instead of window.open
-
-#### 1. API Client
-
-**File**: [frontend/src/api/settings.ts](frontend/src/api/settings.ts#L40)
-
-```typescript
-export const testPublicURL = async (url: string): Promise<{
-  reachable: boolean
-  latency?: number
-  message?: string
-  error?: string
-}> => {
-  const response = await client.post('/settings/test-url', { url })
-  return response.data
-}
-```
-
-#### 2. Component Update
-
-**File**: [frontend/src/pages/SystemSettings.tsx](frontend/src/pages/SystemSettings.tsx#L103-L118)
-
-Replace function:
-
-```typescript
-const testPublicURLHandler = async () => {
-  if (!publicURL) {
-    toast.error(t('systemSettings.applicationUrl.invalidUrl'))
-    return
-  }
-  setPublicURLSaving(true)
-  try {
-    const result = await testPublicURL(publicURL)
-    if (result.reachable) {
-      toast.success(
-        result.message || `URL reachable (${result.latency?.toFixed(0)}ms)`
-      )
-    } else {
-      toast.error(result.error || 'URL not reachable')
-    }
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Test failed')
-  } finally {
-    setPublicURLSaving(false)
-  }
-}
-```
-
-#### 3. Update Button (line 417)
-
-```typescript
-<Button onClick={testPublicURLHandler} disabled={!publicURL || publicURLSaving}>
-```
-
-#### 4. Update Imports (line 17)
-
-```typescript
-import { getSettings, updateSetting, testPublicURL } from '../api/settings'
-```
+**Risk**: Low - Simple directory creation with no side effects.
 
 ---
 
-## Testing Strategy
+### Issue 5: CFG Variable Should Stay /etc/crowdsec
 
-### Backend Unit Tests
+**Location**: `.docker/docker-entrypoint.sh` line 99
 
-**File**: `backend/internal/utils/url_test_test.go`
+**Problem**: The original plan incorrectly suggested changing CFG to `$CS_CONFIG_DIR`, but it should remain `/etc/crowdsec` since it resolves to persistent storage via the symlink.
 
-```go
-func TestTestURLConnectivity_Success(t *testing.T)
-func TestTestURLConnectivity_PrivateIP_Blocked(t *testing.T)
-func TestTestURLConnectivity_InvalidURL(t *testing.T)
-func TestTestURLConnectivity_Timeout(t *testing.T)
-func TestTestURLConnectivity_HTTPRejected(t *testing.T)
-func TestTestURLConnectivity_InvalidPort(t *testing.T)
-func TestTestURLConnectivity_MetadataHostnameBlocked(t *testing.T)
-func TestTestURLConnectivity_RedirectToPrivateIP(t *testing.T)
-func TestTestURLConnectivity_DNSRebinding(t *testing.T) // Verifies IP-based request
-func TestIsPrivateIP_AllRanges(t *testing.T)           // Test all blocked ranges
+**Current Code** (Line 99):
+```bash
+export CFG=/etc/crowdsec
 ```
 
-**DNS Rebinding Integration Test**:
-```go
-// Verifies that HTTP request is made to validated IP, not hostname
-func TestTestURLConnectivity_DNSRebinding(t *testing.T) {
-    // Create test server that only responds to direct IP requests
-    ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Verify Host header is set for SNI but request went to IP
-        if r.Host == "" {
-            t.Error("Host header not set for SNI routing")
-        }
-        w.WriteHeader(http.StatusOK)
-    }))
-    defer ts.Close()
+**Required Action**: **KEEP AS-IS** - Do NOT change this line.
 
-    // Test verifies we connect to IP while preserving Host header
-    // This prevents DNS rebinding TOCTOU attacks
-}
-```
+**Rationale**: The CFG variable should point to `/etc/crowdsec` which resolves to `$CS_CONFIG_DIR` via symlink. This maintains compatibility with CrowdSec's expected paths while still using persistent storage.
 
-**File**: `backend/internal/api/handlers/settings_handler_test.go`
-
-Test handler with:
-- Valid public HTTPS URL → Success
-- HTTP URL → Rejected (HTTPS required)
-- Private IP (10.0.0.1) → Blocked
-- Cloud metadata IP (169.254.169.254) → Blocked
-- Non-standard port (8080) → Rejected
-- Non-admin user → 403 Forbidden
-- Malformed URL → Validation error
-- Rate limiting → 429 after 5 requests
-
-**File**: `backend/internal/middleware/rate_limit_test.go`
-
-Test rate limiter:
-- 5 requests within minute → Success
-- 6th request → 429 Too Many Requests
-- Different users → Independent limits
-
-### Frontend Tests
-
-**File**: `frontend/src/pages/__tests__/SystemSettings.spec.tsx`
-
-```typescript
-it('shows success toast on reachable URL')
-it('shows error toast on unreachable URL')
-it('disables button when URL empty')
-it('shows latency in success message')
-```
-
-### Manual Tests
-
-#### Security Tests
-- [ ] Test `https://google.com` → Success with latency
-- [ ] Test `http://google.com` → Rejected (HTTP not allowed)
-- [ ] Test `https://google.com:8080` → Rejected (invalid port)
-- [ ] Test `https://192.168.1.1` → Blocked (private IP)
-- [ ] Test `https://10.0.0.1` → Blocked (private IP)
-- [ ] Test `https://169.254.169.254` → Blocked (metadata IP)
-- [ ] Test `https://localhost` → Blocked (hostname blocklist)
-- [ ] Test `https://metadata.google.internal` → Blocked (hostname)
-- [ ] Test redirect to private IP → Blocked in redirect check
-- [ ] Test 6 consecutive requests → 6th returns 429
-- [ ] Test as non-admin user → 403 Forbidden
-
-#### Functional Tests
-- [ ] Test `https://nonexistent.invalid` → DNS error
-- [ ] Test `https//example.com` → Validation error (malformed)
-- [ ] Test unreachable HTTPS URL → Connection timeout
-- [ ] Test URL with query params → Success
-- [ ] Verify latency displayed in success message
+**Risk**: None - No change required.
 
 ---
 
-## Implementation Checklist
+### Issue 6: Weak Migration Error Handling
 
-### Backend
-- [ ] Create `backend/internal/utils/url_test.go` with DNS rebinding protection
-- [ ] Create `backend/internal/middleware/rate_limit.go`
-- [ ] Add `TestPublicURL` handler
-- [ ] Register route with rate limiting in `routes.go`
-- [ ] Write comprehensive unit tests (11+ test cases)
-- [ ] Test SSRF protection (all IP ranges)
-- [ ] Test DNS rebinding protection
-- [ ] Test redirect validation
-- [ ] Test rate limiting
-- [ ] Test HTTPS enforcement
-- [ ] Test port restrictions
+**Location**: `.docker/docker-entrypoint.sh` lines 56-62
 
-### Frontend
-- [ ] Add API function to `settings.ts`
-- [ ] Update component handler
-- [ ] Update button onClick
-- [ ] Update imports
-- [ ] Write component tests
-- [ ] Manual testing
+**Problem**: Too many `|| true` statements allow silent failures during config migration.
 
-### Documentation
-- [ ] Update API docs
-- [ ] Document SSRF protection
+**Current Code** (Lines 56-62):
+```bash
+# Initialize persistent config if key files are missing
+if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+    echo "Initializing persistent CrowdSec configuration..."
+    if [ -d "/etc/crowdsec.dist" ]; then
+        cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy dist config"
+    elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
+        # Fallback if .dist is missing
+        cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy config"
+    fi
+fi
+```
+
+**Required Fix** (Replace lines 56-62):
+```bash
+# Initialize persistent config if key files are missing
+if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+    echo "Initializing persistent CrowdSec configuration..."
+    if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
+        cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
+            echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
+            exit 1
+        }
+        echo "Successfully initialized config from .dist directory"
+    elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
+        cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
+            echo "ERROR: Failed to copy config from /etc/crowdsec"
+            exit 1
+        }
+        echo "Successfully initialized config from /etc/crowdsec"
+    else
+        echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
+        exit 1
+    fi
+fi
+```
+
+**Rationale**: Fail-fast approach ensures we detect misconfigurations early. Empty directory checks prevent copying empty directories.
+
+**Risk**: Medium - Strict error handling may reveal edge cases. Must test thoroughly.
+
+---
+
+### Issue 7: Incomplete Verification Checklist
+
+**Problem**: Original checklist had only 7 steps and missed critical tests for volume replacement, permissions, config persistence, and hub updates.
+
+**Original Checklist** (Steps 1-7):
+1. Fresh container start with empty volumes
+2. Container restart (data persists)
+3. CrowdSec enable/disable via UI
+4. Log file permissions and rotation
+5. LAPI readiness and machine registration
+6. Hub updates and parsers
+7. Multi-architecture compatibility
+
+**Required Additional Steps** (8-11):
+8. **Volume Replacement Test**: Start container with volume → destroy volume → recreate volume. Verify configs regenerate correctly.
+9. **Permission Inheritance**: Create new files in persistent storage (e.g., `cscli decisions add`). Verify ownership is correct (1000:1000).
+10. **Config Persistence**: Make config changes via `cscli` (e.g., add bouncer, modify settings). Restart container. Verify changes persist.
+11. **Hub Update Test**: Run `cscli hub update && cscli hub upgrade`. Verify hub data is stored in persistent volume and survives restarts.
+
+**Rationale**: These tests cover critical failure modes discovered in production: volume loss, permission issues on newly created files, config changes not persisting, and hub data being ephemeral.
+
+**Risk**: None - This is documentation only.
+
+---
+
+## Implementation Order
+
+Follow this sequence to apply changes safely:
+
+### Phase 1: Dockerfile Changes (Low Risk)
+1. Add config template population to `Dockerfile` before line 330
+2. Build test image: `docker build -t charon:test .`
+3. Verify `/etc/crowdsec.dist/` is populated: `docker run --rm charon:test ls -la /etc/crowdsec.dist/`
+4. Expected output: `config.yaml`, `user.yaml`, `local_api_credentials.yaml`, `profiles.yaml`
+
+### Phase 2: Entrypoint Script Changes (Medium Risk)
+5. Apply all 5 entrypoint script fixes in a single commit (they're interdependent)
+6. Rebuild image: `docker build -t charon:test .`
+7. Test with fresh volumes (see Phase 3)
+
+### Phase 3: Testing Strategy
+Run all 11 verification tests in order:
+
+**Test 1: Fresh Start**
+```bash
+docker volume create charon_data_test
+docker run -d --name charon_test -v charon_data_test:/app/data charon:test
+docker logs charon_test | grep -E "(symlink|CrowdSec config)"
+```
+Expected: "Created symlink: /etc/crowdsec -> /app/data/crowdsec/config"
+
+**Test 2: Container Restart**
+```bash
+docker restart charon_test
+docker logs charon_test | grep "symlink verified"
+```
+Expected: "CrowdSec config symlink verified: /etc/crowdsec -> /app/data/crowdsec/config"
+
+**Test 3-7**: Follow existing test procedures from original plan
+
+**Test 8: Volume Replacement**
+```bash
+docker stop charon_test
+docker rm charon_test
+docker volume rm charon_data_test
+docker volume create charon_data_test
+docker run -d --name charon_test -v charon_data_test:/app/data charon:test
+docker exec charon_test ls -la /app/data/crowdsec/config/
+```
+Expected: `config.yaml` and other files regenerated
+
+**Test 9: Permission Inheritance**
+```bash
+docker exec charon_test cscli decisions add -i 1.2.3.4
+docker exec charon_test ls -ln /app/data/crowdsec/data/
+```
+Expected: All files owned by uid 1000, gid 1000
+
+**Test 10: Config Persistence**
+```bash
+docker exec charon_test cscli config set api.server.log_level=debug
+docker restart charon_test
+docker exec charon_test cscli config show api.server.log_level
+```
+Expected: "debug"
+
+**Test 11: Hub Update**
+```bash
+docker exec charon_test cscli hub update
+docker exec charon_test ls -la /app/data/crowdsec/hub_cache/
+docker restart charon_test
+docker exec charon_test cscli hub list -o json
+```
+Expected: Hub cache persists, parsers/scenarios remain installed
+
+### Phase 4: Rollback Procedure
+If any test fails:
+1. Tag working version: `docker tag charon:current charon:rollback`
+2. Revert changes to `.docker/docker-entrypoint.sh` and `Dockerfile`
+3. Rebuild: `docker build -t charon:current .`
+4. Document failure in issue tracker with test logs
+
+---
+
+## Summary of All Changes
+
+| File | Line(s) | Change Type | Priority | Risk |
+|------|---------|-------------|----------|------|
+| `Dockerfile` | Before 330 | Add config restore RUN | HIGH | Low |
+| `.docker/docker-entrypoint.sh` | 47 | Add CS_LOG_DIR variable | HIGH | Low |
+| `.docker/docker-entrypoint.sh` | 51 | Add hub_cache mkdir | HIGH | Low |
+| `.docker/docker-entrypoint.sh` | 56-62 | Strengthen config init | HIGH | Medium |
+| `.docker/docker-entrypoint.sh` | 68-73 | Implement symlink creation | HIGH | Medium |
+| `.docker/docker-entrypoint.sh` | 99 | Keep CFG=/etc/crowdsec | NONE | None |
+| `.docker/docker-entrypoint.sh` | 100 | Fix LOG variable | HIGH | Low |
+| Verification checklist | N/A | Add 4 new tests | HIGH | None |
+
+---
+
+## Risk Assessment
+
+### Low Risk Changes (Can be applied immediately)
+- Dockerfile config template population
+- LOG variable fix
+- Hub cache directory creation
+- CFG variable (no change)
+
+### Medium Risk Changes (Require thorough testing)
+- Symlink creation logic (fundamental behavior change)
+- Error handling strengthening (may expose edge cases)
+
+### High Risk Scenarios to Test
+- Existing installations upgrading from old version
+- Corrupted/incomplete config directories
+- Simultaneous volume and config failures
+- Cross-architecture compatibility (arm64 especially)
+
+---
+
+## Acceptance Criteria
+
+All 11 verification tests must pass before merging:
+- [ ] Fresh container start
+- [ ] Container restart
+- [ ] CrowdSec enable/disable
+- [ ] Log file permissions
+- [ ] LAPI readiness
+- [ ] Hub updates
+- [ ] Multi-arch compatibility
+- [ ] Volume replacement
+- [ ] Permission inheritance
+- [ ] Config persistence
+- [ ] Hub update persistence
 
 ---
 
 ## References
 
-### Security
-- OWASP SSRF Prevention: https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
-- DNS Rebinding Attacks: https://en.wikipedia.org/wiki/DNS_rebinding
-- RFC 1918 (Private IPv4): https://datatracker.ietf.org/doc/html/rfc1918
-- RFC 4193 (IPv6 ULA): https://datatracker.ietf.org/doc/html/rfc4193
-- RFC 5737 (Test Networks): https://datatracker.ietf.org/doc/html/rfc5737
-- RFC 6598 (CGNAT): https://datatracker.ietf.org/doc/html/rfc6598
-- Cloud Metadata SSRF: https://blog.appsecco.com/getting-started-with-version-2-of-aws-ec2-instance-metadata-service-imdsv2-2ad03a1f3650
-
-### Rate Limiting
-- golang.org/x/time/rate: https://pkg.go.dev/golang.org/x/time/rate
-- Token Bucket Algorithm: https://en.wikipedia.org/wiki/Token_bucket
+- Original issue: CrowdSec non-root migration
+- Supervisor review: 2024-12-22
+- Related files: `Dockerfile`, `.docker/docker-entrypoint.sh`
+- Testing environment: Docker 24.x, volumes with uid 1000
 
 ---
 
-**Ready for Implementation**
+# Historical Analysis: CrowdSec Reconciliation Failure Diagnostics
+
+## Executive Summary
+
+Investigation of why CrowdSec shows "not started" in the UI when it should **already be enabled**. This is NOT a first-time enable issue—it's a **reconciliation/runtime failure** after container restart or app startup.
+
+---
+
+## Problem Statement
+
+User reports CrowdSec was previously enabled and working, but after container restart:
+- UI shows CrowdSec as "not started"
+- The setting in database says it should be enabled
+- No obvious errors in the UI
+
+---
+
+## 1. Reconciliation Flow Overview
+
+When Charon starts, `ReconcileCrowdSecOnStartup()` runs **asynchronously** (in a goroutine) to restore CrowdSec state.
+
+### Flow Diagram
+
+```
+App Startup → go ReconcileCrowdSecOnStartup() → (async goroutine)
+                        │
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 1. Validate: db != nil && exec != nil │
+           └────────────────────────────────────┘
+                        │ (fail → silent return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 2. Check: SecurityConfig table exists │
+           └────────────────────────────────────┘
+                        │ (no table → WARN + return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 3. Query: SecurityConfig record       │
+           └────────────────────────────────────┘
+                        │ (not found → auto-create from Settings)
+                        │ (error → return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 4. Query: Settings table override     │
+           │    key = "security.crowdsec.enabled"  │
+           └────────────────────────────────────┘
+                        │
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 5. Decide: Start if CrowdSecMode ==   │
+           │    "local" OR setting == "true"       │
+           └────────────────────────────────────┘
+                        │ (both false → INFO skip)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 6. Validate: Binary exists at path    │
+           │    /usr/local/bin/crowdsec            │
+           └────────────────────────────────────┘
+                        │ (not found → ERROR + return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 7. Validate: Config dir exists        │
+           │    dataDir/config                     │
+           └────────────────────────────────────┘
+                        │ (not found → ERROR + return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 8. Check: Status (already running?)   │
+           └────────────────────────────────────┘
+                        │ (running → INFO + done)
+                        │ (error → WARN + return!)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 9. Start: CrowdSec process            │
+           └────────────────────────────────────┘
+                        │ (error → ERROR + return)
+                        ▼
+           ┌────────────────────────────────────┐
+           │ 10. Verify: Wait 2s + check status    │
+           └────────────────────────────────────┘
+```
+
+---
+
+## 2. Most Likely Failure Points (Priority Order)
+
+### 2.1 Binary Not Found ⭐ HIGH LIKELIHOOD
+
+**Code:** `backend/internal/services/crowdsec_startup.go:117-120`
+
+```go
+if _, err := os.Stat(binPath); os.IsNotExist(err) {
+    logger.Log().WithField("path", binPath).Error("CrowdSec reconciliation: binary not found, cannot start")
+    return
+}
+```
+
+**Diagnosis:**
+```bash
+docker exec <container> ls -la /usr/local/bin/crowdsec
+docker exec <container> printenv CHARON_CROWDSEC_BIN
+```
+
+---
+
+### 2.2 Config Directory Missing ⭐ HIGH LIKELIHOOD
+
+**Code:** `backend/internal/services/crowdsec_startup.go:122-126`
+
+```go
+configPath := filepath.Join(dataDir, "config")
+if _, err := os.Stat(configPath); os.IsNotExist(err) {
+    logger.Log().WithField("path", configPath).Error("CrowdSec reconciliation: config directory not found")
+    return
+}
+```
+
+**Diagnosis:**
+```bash
+docker exec <container> ls -la /data/crowdsec/config/
+docker exec <container> cat /data/crowdsec/config/config.yaml
+```
+
+---
+
+### 2.3 Database State Mismatch ⭐ MEDIUM LIKELIHOOD
+
+Two sources must be checked:
+1. `security_configs.crowdsec_mode = "local"`
+2. `settings.key = "security.crowdsec.enabled"` with `value = "true"`
+
+If **BOTH** are not "enabled", reconciliation silently skips.
+
+**Diagnosis:**
+```bash
+docker exec <container> sqlite3 /data/charon.db "SELECT crowdsec_mode, enabled FROM security_configs LIMIT 1;"
+docker exec <container> sqlite3 /data/charon.db "SELECT key, value FROM settings WHERE key LIKE '%crowdsec%';"
+```
+
+---
+
+### 2.4 Stale PID File (PID Recycled) ⭐ MEDIUM LIKELIHOOD
+
+**Code:** `backend/internal/api/handlers/crowdsec_exec.go:118-147`
+
+Status check reads PID file, checks if process exists, then verifies `/proc/<pid>/cmdline` contains "crowdsec".
+
+**Diagnosis:**
+```bash
+docker exec <container> cat /data/crowdsec/crowdsec.pid
+docker exec <container> pgrep -a crowdsec
+```
+
+---
+
+### 2.5 Process Crashes After Start ⭐ MEDIUM LIKELIHOOD
+
+**Code:** `backend/internal/services/crowdsec_startup.go:146-159`
+
+After starting, waits 2 seconds and verifies. If crashed:
+```
+logger.Log().Error("CrowdSec reconciliation: process started but is no longer running - may have crashed")
+```
+
+**Diagnosis:**
+```bash
+# Try manual start to see errors
+docker exec <container> /usr/local/bin/crowdsec -c /data/crowdsec/config/config.yaml
+
+# Check for port conflicts (LAPI uses 8085)
+docker exec <container> netstat -tlnp 2>/dev/null | grep 8085
+```
+
+---
+
+### 2.6 Status Check Error (Silently Aborts) ⭐ LOW LIKELIHOOD
+
+**Code:** `backend/internal/services/crowdsec_startup.go:129-134`
+
+```go
+if err != nil {
+    logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to check status")
+    return  // ← Aborts without trying to start!
+}
+```
+
+---
+
+## 3. Status Handler Analysis
+
+The UI calls `GET /api/v1/admin/crowdsec/status`:
+
+**Code:** `backend/internal/api/handlers/crowdsec_handler.go:313-333`
+
+Returns `running: false` when:
+- PID file doesn't exist
+- PID doesn't correspond to a running process
+- PID is running but `/proc/<pid>/cmdline` doesn't contain "crowdsec"
+
+---
+
+## 4. Diagnostic Commands Summary
+
+```bash
+# 1. Check binary
+docker exec <container> ls -la /usr/local/bin/crowdsec
+
+# 2. Check config directory
+docker exec <container> ls -la /data/crowdsec/config/
+
+# 3. Check database state
+docker exec <container> sqlite3 /data/charon.db \
+  "SELECT crowdsec_mode, enabled FROM security_configs LIMIT 1;"
+docker exec <container> sqlite3 /data/charon.db \
+  "SELECT key, value FROM settings WHERE key LIKE '%crowdsec%';"
+
+# 4. Check PID file
+docker exec <container> cat /data/crowdsec/crowdsec.pid 2>/dev/null || echo "No PID file"
+
+# 5. Check running processes
+docker exec <container> pgrep -a crowdsec || echo "Not running"
+
+# 6. Check logs for reconciliation
+docker logs <container> 2>&1 | grep -i "crowdsec reconciliation"
+
+# 7. Try manual start
+docker exec <container> /usr/local/bin/crowdsec \
+  -c /data/crowdsec/config/config.yaml &
+
+# 8. Check port conflicts
+docker exec <container> netstat -tlnp 2>/dev/null | grep -E "8085|8080"
+```
+
+---
+
+## 5. Log Messages to Look For
+
+| Priority | Cause | Log Message |
+|----------|-------|-------------|
+| 1 | Binary missing | `"CrowdSec reconciliation: binary not found"` |
+| 2 | Config missing | `"CrowdSec reconciliation: config directory not found"` |
+| 3 | DB says disabled | `"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled"` |
+| 4 | Crashed after start | `"process started but is no longer running"` |
+| 5 | Start failed | `"CrowdSec reconciliation: FAILED to start CrowdSec"` |
+| 6 | Status check failed | `"failed to check status"` |
+
+---
+
+## 6. Key Timeouts
+
+| Operation | Timeout | Location |
+|-----------|---------|----------|
+| Status check | 5 seconds | crowdsec_startup.go:128 |
+| Start timeout | 30 seconds | crowdsec_startup.go:146 |
+| Post-start delay | 2 seconds | crowdsec_startup.go:153 |
+| Verification check | 5 seconds | crowdsec_startup.go:156 |
+
+---
+
+---
+
+# Original Analysis: First-Time Enable Issues
+
+## Observed Browser Console Errors
+
+```
+- 401 Unauthorized on /api/v1/auth/me
+- Multiple 400 Bad Request on /api/v1/settings/validate-url
+- Auto-logging out due to inactivity
+- Various ERR_NETWORK_CHANGED errors
+- CrowdSec appears to not be running
+```
+
+---
+
+## Relevant Code Files and Flow Analysis
+
+### 2.1 CrowdSec Startup Flow
+
+#### Entry Point: Frontend Toggle
+
+**File:** [frontend/src/pages/Security.tsx](../../../frontend/src/pages/Security.tsx#L147-L183)
+
+```typescript
+const crowdsecPowerMutation = useMutation({
+  mutationFn: async (enabled: boolean) => {
+    await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
+    if (enabled) {
+      toast.info('Starting CrowdSec... This may take up to 30 seconds')
+      const result = await startCrowdsec()
+      const status = await statusCrowdsec()
+      if (!status.running) {
+        await updateSetting('security.crowdsec.enabled', 'false', 'security', 'bool')
+        throw new Error('CrowdSec process failed to start. Check server logs for details.')
+      }
+      return result
+    } else {
+      await stopCrowdsec()
+      // ...
+    }
+  },
+  // ...
+})
+```
+
+#### API Client Configuration
+
+**File:** [frontend/src/api/client.ts](../../../frontend/src/api/client.ts#L7-L11)
+
+```typescript
+const client = axios.create({
+  baseURL: '/api/v1',
+  withCredentials: true,
+  timeout: 30000, // 30 second timeout
+});
+```
+
+**Issue Identified:** The frontend has a **30-second timeout**, which aligns with the backend LAPI readiness timeout. However, the startup process involves multiple sequential steps that could exceed this total.
+
+#### Backend Start Handler
+
+**File:** [backend/internal/api/handlers/crowdsec_handler.go](../../../backend/internal/api/handlers/crowdsec_handler.go#L175-L252)
+
+Key timeouts in `Start()`:
+
+- LAPI readiness polling: **30 seconds max** (line 229: `maxWait := 30 * time.Second`)
+- Poll interval: **500ms** (line 230: `pollInterval := 500 * time.Millisecond`)
+- Individual LAPI check: **2 seconds** (line 237: `context.WithTimeout(ctx, 2*time.Second)`)
+
+```go
+// Wait for LAPI to be ready (with timeout)
+lapiReady := false
+maxWait := 30 * time.Second
+pollInterval := 500 * time.Millisecond
+deadline := time.Now().Add(maxWait)
+
+for time.Now().Before(deadline) {
+    checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    _, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
+    cancel()
+    if err == nil {
+        lapiReady = true
+        break
+    }
+    time.Sleep(pollInterval)
+}
+```
+
+#### Backend Executor (Process Management)
+
+**File:** [backend/internal/api/handlers/crowdsec_exec.go](../../../backend/internal/api/handlers/crowdsec_exec.go)
+
+The `DefaultCrowdsecExecutor.Start()` method (lines 39-66):
+
+- Uses `exec.Command` (not `CommandContext`) - process is detached
+- Sets `Setpgid: true` to create new process group
+- Writes PID file synchronously
+- Returns immediately after starting the process
+
+```go
+func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir string) (int, error) {
+    configFile := filepath.Join(configDir, "config", "config.yaml")
+    cmd := exec.Command(binPath, "-c", configFile)
+    cmd.SysProcAttr = &syscall.SysProcAttr{
+        Setpgid: true, // Create new process group
+    }
+    // ...
+    if err := cmd.Start(); err != nil {
+        return 0, err
+    }
+    // ... writes PID file
+    go func() {
+        _ = cmd.Wait()
+        _ = os.Remove(e.pidFile(configDir))
+    }()
+    return pid, nil
+}
+```
+
+#### Background Reconciliation
+
+**File:** [backend/internal/services/crowdsec_startup.go](../../../backend/internal/services/crowdsec_startup.go)
+
+Key timeouts in `ReconcileCrowdSecOnStartup()`:
+
+- Status check timeout: **5 seconds** (line 139)
+- Start timeout: **30 seconds** (line 150)
+- Verification delay: **2 seconds** (line 159: `time.Sleep(2 * time.Second)`)
+- Verification check timeout: **5 seconds** (line 161)
+
+```go
+// Start context with 30 second timeout
+startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer startCancel()
+
+newPid, err := executor.Start(startCtx, binPath, dataDir)
+// ...
+
+// VERIFY: Wait briefly and confirm process is actually running
+time.Sleep(2 * time.Second)
+
+verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer verifyCancel()
+```
+
+---
+
+## 3. Identified Potential Root Causes
+
+### 3.1 Timeout Race Condition (HIGH PROBABILITY)
+
+The frontend timeout (30s) and backend LAPI polling timeout (30s) are identical. Combined with:
+
+- Initial process start time
+- Settings database update
+- SecurityConfig database update
+- Network latency
+
+**Total time could easily exceed 30 seconds**, causing the frontend to timeout before the backend responds.
+
+### 3.2 CrowdSec Binary/Config Not Found
+
+In [crowdsec_startup.go](../../../backend/internal/services/crowdsec_startup.go#L124-L135):
+
+```go
+// VALIDATE: Ensure binary exists
+if _, err := os.Stat(binPath); os.IsNotExist(err) {
+    logger.Log().WithField("path", binPath).Error("CrowdSec reconciliation: binary not found")
+    return
+}
+
+// VALIDATE: Ensure config directory exists
+configPath := filepath.Join(dataDir, "config")
+if _, err := os.Stat(configPath); os.IsNotExist(err) {
+    logger.Log().WithField("path", configPath).Error("CrowdSec reconciliation: config directory not found")
+    return
+}
+```
+
+**Check:** The binary path defaults to `/usr/local/bin/crowdsec` (from `routes.go` line 292) and config dir is `data/crowdsec`. If either is missing, the startup silently fails.
+
+### 3.3 LAPI Never Becomes Ready
+
+The handler waits for `cscli lapi status` to succeed. If CrowdSec starts but LAPI never initializes (e.g., database issues, missing configuration), the handler will timeout.
+
+### 3.4 Authentication Issues (401 on /auth/me)
+
+The 401 errors suggest the user's session is expiring during the long-running operation. This is likely a **symptom, not the cause**:
+
+**File:** [frontend/src/api/client.ts](../../../frontend/src/api/client.ts#L25-L33)
+
+```typescript
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.warn('Authentication failed:', error.config?.url);
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+The session timeout or network interruption during the 30+ second CrowdSec startup could cause parallel requests to `/auth/me` to fail.
+
+### 3.5 ERR_NETWORK_CHANGED
+
+This indicates network connectivity issues on the client side. If the network changes during the long-running request, it will fail. This is external to the application but exacerbated by long timeouts.
+
+---
+
+## 4. Configuration Defaults
+
+| Setting | Default Value | Source |
+|---------|---------------|--------|
+| CrowdSec Binary | `/usr/local/bin/crowdsec` | `CHARON_CROWDSEC_BIN` env or hardcoded |
+| CrowdSec Config Dir | `data/crowdsec` | `CHARON_CROWDSEC_CONFIG_DIR` env |
+| CrowdSec Mode | `disabled` | `CERBERUS_SECURITY_CROWDSEC_MODE` env |
+| Frontend Timeout | 30 seconds | `client.ts` |
+| LAPI Wait Timeout | 30 seconds | `crowdsec_handler.go` |
+| Process Start Timeout | 30 seconds | `crowdsec_startup.go` |
+
+---
+
+## 5. Remediation Plan
+
+### Phase 1: Immediate Fixes (Timeout Handling)
+
+#### 5.1.1 Increase Frontend Timeout for CrowdSec Operations
+
+**File:** `frontend/src/api/crowdsec.ts`
+
+Create a dedicated request with extended timeout for CrowdSec start:
+
+```typescript
+export async function startCrowdsec(): Promise<{ status: string; pid: number; lapi_ready?: boolean }> {
+  const resp = await client.post('/admin/crowdsec/start', {}, {
+    timeout: 60000, // 60 second timeout for startup operations
+  })
+  return resp.data
+}
+```
+
+#### 5.1.2 Add Progress/Status Feedback
+
+Implement polling-based status check instead of waiting for single long request:
+
+1. Backend: Return immediately after starting process, with status "starting"
+2. Frontend: Poll status endpoint until "running" or timeout
+
+#### 5.1.3 Improve Error Messages
+
+**File:** `backend/internal/api/handlers/crowdsec_handler.go`
+
+Add detailed error responses:
+
+```go
+if !lapiReady {
+    logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
+    c.JSON(http.StatusOK, gin.H{
+        "status":     "started",
+        "pid":        pid,
+        "lapi_ready": false,
+        "warning":    "Process started but LAPI initialization may take additional time",
+        "next_step":  "Poll /admin/crowdsec/status until lapi_ready is true",
+    })
+    return
+}
+```
+
+### Phase 2: Diagnostic Improvements
+
+#### 5.2.1 Add Health Check Endpoint
+
+Create `/admin/crowdsec/health` that returns:
+
+- Binary path and existence check
+- Config directory and existence check
+- Process status
+- LAPI status
+- Last error (if any)
+
+#### 5.2.2 Enhanced Logging
+
+Add structured logging for all CrowdSec operations with correlation IDs.
+
+### Phase 3: Long-term Fixes
+
+#### 5.3.1 Async Startup Pattern
+
+Convert to async pattern:
+
+1. `POST /admin/crowdsec/start` returns immediately with job ID
+2. `GET /admin/crowdsec/jobs/{id}` returns job status
+3. Frontend polls job status with exponential backoff
+
+#### 5.3.2 WebSocket Status Updates
+
+Use existing WebSocket infrastructure to push status updates during startup.
+
+---
+
+## 6. Diagnostic Commands
+
+To investigate the issue on the running container:
+
+```bash
+# Check if CrowdSec binary exists
+ls -la /usr/local/bin/crowdsec
+
+# Check CrowdSec config directory
+ls -la /app/data/crowdsec/config/
+
+# Check if CrowdSec is running
+pgrep -f crowdsec
+ps aux | grep crowdsec
+
+# Check CrowdSec logs (if running)
+cat /var/log/crowdsec.log
+
+# Test LAPI status
+cscli lapi status
+
+# Check PID file
+cat /app/data/crowdsec/crowdsec.pid
+
+# Check database for CrowdSec settings
+sqlite3 /app/data/charon.db "SELECT * FROM settings WHERE key LIKE '%crowdsec%';"
+sqlite3 /app/data/charon.db "SELECT * FROM security_configs;"
+```
+
+---
+
+## 7. Summary
+
+| Issue | Probability | Impact | Fix Complexity |
+|-------|-------------|--------|----------------|
+| Timeout race condition | HIGH | Startup fails | Low |
+| Missing binary/config | MEDIUM | Startup fails silently | Low |
+| LAPI initialization slow | MEDIUM | Timeout | Medium |
+| Session expiry during startup | LOW | User sees 401 | Low |
+| Network instability | LOW | Request fails | N/A (external) |
+
+**Recommended Immediate Action:** Increase frontend timeout for CrowdSec start operations to 60 seconds and add polling-based status verification.
+
+---
+
+## 8. Files to Modify
+
+| File | Change |
+|------|--------|
+| `frontend/src/api/crowdsec.ts` | Extend timeout for start operation |
+| `frontend/src/pages/Security.tsx` | Add polling for status after start |
+| `backend/internal/api/handlers/crowdsec_handler.go` | Return partial success, add health endpoint |
+| `backend/internal/services/crowdsec_startup.go` | Add more diagnostic logging |
+
+---
+
+*Investigation completed: December 22, 2025*
+*Author: GitHub Copilot (Research Mode)*
