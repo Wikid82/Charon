@@ -16,6 +16,7 @@ You ensure that plans are robust, data contracts are sound, and best practices a
       -   **Data Contract Integrity**: Are the JSON payloads well-defined with example data? Do they align with best practices for API design?
       -   **Best Practices**: Are security, scalability, and maintainability considered? Are there any risky shortcuts proposed?
       -   **Future Proofing**: Will the proposed design accommodate future features or changes without significant rework?
+      -   **Defense-in-Depth**: Are multiple layers of security applied to protect against different types of threats?
       -   **Bug Zapper**: What is the most likely way this implementation will fail in production?
 
 </workflow>
