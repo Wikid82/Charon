@@ -34,21 +34,30 @@ mkdir -p /app/data/geoip 2>/dev/null || true
 # Docker Socket Permission Handling
 # ============================================================================
 # The Docker integration feature requires access to the Docker socket.
-# When running as non-root user (charon), we need to ensure the user is in
-# the same group as the mounted socket for permission access.
+# This section runs as root to configure group membership, then privileges
+# are dropped to the charon user at the end of this script.
 
 if [ -S "/var/run/docker.sock" ]; then
     DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
     if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
         # Check if a group with this GID exists
         if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
-            echo "Docker socket detected (gid=$DOCKER_SOCK_GID). Note: Container integration requires socket access."
-            echo "  To enable Docker container discovery:"
-            echo "  1. Run container with --user root:root, OR"
-            echo "  2. Add host docker group: docker run --group-add $DOCKER_SOCK_GID ..., OR"
-            echo "  3. Change socket permissions: chmod 666 /var/run/docker.sock (not recommended)"
+            echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
+            # Create docker group with the socket's GID
+            addgroup -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            # Add charon user to the docker group
+            addgroup charon docker 2>/dev/null || true
+            echo "Docker integration enabled for charon user"
+        else
+            # Group exists, just add charon to it
+            GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
+            echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
+            addgroup charon "$GROUP_NAME" 2>/dev/null || true
+            echo "Docker integration enabled for charon user"
         fi
     fi
+else
+    echo "Note: Docker socket not found. Docker container discovery will be unavailable."
 fi
 
 # ============================================================================
@@ -187,9 +196,10 @@ fi
 echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
+# Run Caddy as charon user for security
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-caddy run --config /config/caddy.json &
+su-exec charon:charon caddy run --config /config/caddy.json &
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
@@ -206,6 +216,8 @@ while [ "$i" -le 30 ]; do
 done
 
 # Start Charon management application
+# Drop privileges to charon user before starting the application
+# This maintains security while allowing Docker socket access via group membership
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
@@ -215,13 +227,13 @@ if [ "$DEBUG_FLAG" = "1" ]; then
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+    su-exec charon:charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     bin_path=/app/charon
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    "$bin_path" &
+    su-exec charon:charon "$bin_path" &
 fi
 APP_PID=$!
 echo "Charon started (PID: $APP_PID)"

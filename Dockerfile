@@ -247,9 +247,10 @@ FROM ${CADDY_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon, including bash for maintenance scripts
+# su-exec is used for dropping privileges after Docker socket group setup
 # Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
-RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext \
+RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec \
     && apk --no-cache upgrade \
     && apk --no-cache upgrade c-ares
 
@@ -369,8 +370,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 
 # Security: Run as non-root user (CIS Docker Benchmark 4.1)
-# The entrypoint script handles any required permission fixes for volumes
-USER charon
+# NOTE: The entrypoint script starts as root to handle Docker socket permissions,
+# then drops privileges to the charon user before starting applications.
+# This is necessary for Docker integration while maintaining security.
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]
