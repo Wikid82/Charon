@@ -1,1013 +1,376 @@
-# Current Project Specification
+## Active Issue: Creating a Proxy Host triggers Docker socket 500
 
-## Active Issue: CrowdSec Non-Root Migration Fix - REVISED
+**Bug report**: “When trying to create a new proxy host, connection to the local docker socket is giving a 500 error.”
 
-**Status**: Implementation Ready - Supervisor Review Complete
-**Priority**: CRITICAL
-**Last Updated**: 2024-12-22 (Revised after supervisor review)
+**Status**: Trace analysis complete (no code changes in this phase)
 
-### Quick Summary
-
-The container migration from root to non-root user broke CrowdSec. Supervisor review identified **7 critical issues** that would cause the original fix to fail. This revised plan addresses all issues.
-
-**Root Cause**: Permission issues, missing symlink creation logic, and incomplete config template population.
-
-### Changes Required
-
-1. **Dockerfile** (Line ~332): Add config template population before final COPY
-2. **Entrypoint Script** (Lines 68-73): Replace symlink verification with creation logic
-3. **Entrypoint Script** (Line 100): Fix LOG variable to use directory-based path
-4. **Entrypoint Script** (Line 51): Add hub_cache directory creation
-5. **Entrypoint Script** (Line 99): Keep CFG pointing to `/etc/crowdsec` (resolves via symlink)
-6. **Entrypoint Script** (Lines 68-73): Strengthen error handling in migration
-7. **Verification Checklist**: Expand from 7 to 11 steps
+**Last updated**: 2025-12-22
 
 ---
 
-## Detailed Implementation Plan
+## 1) Trace Analysis (MANDATORY)
 
-### Issue 1: Missing Config Template Population (HIGH PRIORITY)
+This workflow has two coupled request paths:
 
-**Location**: `Dockerfile` before line 332 (before final COPY commands)
+1. Creating/saving the Proxy Host itself (`POST /api/v1/proxy-hosts`).
+2. Populating the “Containers” quick-select (Docker integration) used during Proxy Host creation (`GET /api/v1/docker/containers`).
 
-**Problem**: The Dockerfile doesn't populate `/etc/crowdsec.dist/` with CrowdSec default configs (`config.yaml`, `user.yaml`, etc.). This causes the entrypoint script to have nothing to copy when initializing persistent storage.
+The reported 500 is thrown in (2), but it is experienced during the Proxy Host creation flow because the UI fetches containers from the local Docker socket when the user selects “Local (Docker Socket)”.
 
-**Current Code** (Lines 330-332):
-```dockerfile
-# Copy CrowdSec configuration templates from source
-COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
-COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
-```
+### A) Frontend: UI entrypoint -> hooks
 
-**Required Fix** (Add BEFORE line 330):
-```dockerfile
-# Generate CrowdSec default configs to .dist directory
-RUN if command -v cscli >/dev/null; then \
-        mkdir -p /etc/crowdsec.dist && \
-        cscli config restore /etc/crowdsec.dist/ || \
-        cp -r /etc/crowdsec/* /etc/crowdsec.dist/ 2>/dev/null || true; \
-    fi
-```
+1. `frontend/src/pages/ProxyHosts.tsx`
+     - Component: `ProxyHosts`
+     - Key functions:
+         - `handleAdd()` sets `showForm=true` and clears `editingHost`.
+         - `handleSubmit(data: Partial<ProxyHost>)` calls `createHost(data)` (new host) or `updateHost(uuid, data)` (edit).
+     - Renders `ProxyHostForm` when `showForm` is true.
 
-**Rationale**: The `cscli config restore` command generates all required default configs (`config.yaml`, `user.yaml`, `local_api_credentials.yaml`, etc.). If that fails, we fall back to copying any existing configs. This ensures the `.dist` directory is always populated for the entrypoint to use.
+2. `frontend/src/components/ProxyHostForm.tsx`
+     - Component: `ProxyHostForm({ host, onSubmit, onCancel })`
+     - Default form state (`formData`) is constructed with UI defaults (notably many booleans default to `true`).
+     - Docker quick-select integration:
+         - Local state: `connectionSource` defaults to `'custom'`.
+         - Hook call:
+             - `useDocker(connectionSource === 'local' ? 'local' : undefined, connectionSource !== 'local' && connectionSource !== 'custom' ? connectionSource : undefined)`
+             - When `connectionSource` is `'local'`, `useDocker(host='local', serverId=undefined)`.
+             - When `connectionSource` is a remote server UUID, `useDocker(host=undefined, serverId='<uuid>')`.
+     - Docker container select -> form transforms:
+         - `handleContainerSelect(containerId)`:
+             - chooses `forward_host` and `forward_port` from container `ip` + `private_port`, or uses `RemoteServer.host` + mapped `public_port` when a remote server source is selected.
+             - auto-detects an `application` preset from `container.image`.
+             - optionally auto-fills `domain_names` from a selected base domain.
+     - Submit:
+         - `handleSubmit(e)` builds `payloadWithoutUptime` and calls `onSubmit(payloadWithoutUptime)`.
 
-**Risk**: Low - Command has multiple fallbacks and won't fail the build if CrowdSec is unavailable.
+3. `frontend/src/hooks/useProxyHosts.ts`
+     - Hook: `useProxyHosts()`
+     - `createHost` is `createMutation.mutateAsync` where `mutationFn: (host) => createProxyHost(host)`.
+
+4. `frontend/src/hooks/useDocker.ts`
+     - Hook: `useDocker(host?: string | null, serverId?: string | null)`
+     - Uses React Query:
+         - `queryKey: ['docker-containers', host, serverId]`
+         - `queryFn: () => dockerApi.listContainers(host || undefined, serverId || undefined)`
+         - `retry: 1`
+         - `enabled: host !== null || serverId !== null`
+             - Important behavior: if both params are `undefined`, this expression evaluates to `true` (`undefined !== null`).
+             - Result: the hook can still issue `GET /docker/containers` even when `connectionSource` is `'custom'` (because the hook is called with `undefined, undefined`).
+             - This is not necessarily the reported bug, but it is an observable logic hazard that increases the frequency of local Docker socket access.
+
+### B) Frontend: API client and payload shapes
+
+5. `frontend/src/api/client.ts`
+     - Axios instance with `baseURL: '/api/v1'`.
+     - All calls below are relative to `/api/v1`.
+
+6. `frontend/src/api/proxyHosts.ts`
+     - Function: `createProxyHost(host: Partial<ProxyHost>)`
+         - Request: `POST /proxy-hosts`
+         - Payload shape (snake_case; subset of):
+             - `name: string`
+             - `domain_names: string`
+             - `forward_scheme: string`
+             - `forward_host: string`
+             - `forward_port: number`
+             - `ssl_forced: boolean`
+             - `http2_support: boolean`
+             - `hsts_enabled: boolean`
+             - `hsts_subdomains: boolean`
+             - `block_exploits: boolean`
+             - `websocket_support: boolean`
+             - `enable_standard_headers?: boolean`
+             - `application: 'none' | ...`
+             - `locations: Array<{ uuid?: string; path: string; forward_scheme: string; forward_host: string; forward_port: number }>`
+             - `advanced_config?: string` (JSON string)
+             - `enabled: boolean`
+             - `certificate_id?: number | null`
+             - `access_list_id?: number | null`
+             - `security_header_profile_id?: number | null`
+         - Response: `ProxyHost` (same shape) from server.
+
+7. `frontend/src/api/docker.ts`
+     - Function: `dockerApi.listContainers(host?: string, serverId?: string)`
+         - Request: `GET /docker/containers`
+         - Query params:
+             - `host=<string>` (e.g., `local`) OR
+             - `server_id=<uuid>` (remote server UUID)
+         - Response payload shape (array of `DockerContainer`):
+             - `id: string`
+             - `names: string[]`
+             - `image: string`
+             - `state: string`
+             - `status: string`
+             - `network: string`
+             - `ip: string`
+             - `ports: Array<{ private_port: number; public_port: number; type: string }>`
+
+### C) Backend: route definitions -> handlers
+
+8. `backend/internal/api/routes/routes.go`
+     - Route group base: `/api/v1`.
+
+     Proxy Host routes:
+     - The `ProxyHostHandler` is registered on `api` (not the `protected` group):
+         - `proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)`
+         - `proxyHostHandler.RegisterRoutes(api)`
+     - Routes include:
+         - `POST /api/v1/proxy-hosts` (create)
+         - plus list/get/update/delete/test/bulk endpoints.
+
+### C1) Auth/Authz: intended exposure of Proxy Host routes
+
+The current route registration places Proxy Host routes on the unprotected `api` group (not the `protected` auth-required group).
+
+- Intended behavior (needs explicit confirmation): Proxy Host CRUD is accessible without auth.
+- If unintended: move `ProxyHostHandler.RegisterRoutes(...)` under the `protected` group or enforce auth/authorization within the handler layer (deny-by-default).
+- Either way: document the intended access model so the frontend and deployments can assume the correct security posture.
+
+     Docker routes:
+     - Docker routes are registered on `protected` (auth-required) and only if `services.NewDockerService()` returns `nil` error:
+         - `dockerService, err := services.NewDockerService()`
+         - `if err == nil { dockerHandler.RegisterRoutes(protected) }`
+     - Key route:
+         - `GET /api/v1/docker/containers`.
+
+     Clarification: `NewDockerService()` success is a client construction success, not a reachability/health guarantee.
+     - Result: the Docker endpoints may register at startup even when the Docker daemon/socket is unreachable, and failures will surface later per-request in `ListContainers`.
+
+9. `backend/internal/api/handlers/proxy_host_handler.go`
+     - Handler type: `ProxyHostHandler`
+     - Method: `Create(c *gin.Context)`
+         - Input binding: `c.ShouldBindJSON(&host)` into `models.ProxyHost`.
+         - Validations/transforms:
+             - If `host.advanced_config != ""`, it must parse as JSON; it is normalized via `caddy.NormalizeAdvancedConfig` then re-marshaled back to a JSON string.
+             - `host.UUID` is generated server-side.
+             - Each `host.locations[i].UUID` is generated server-side.
+         - Persistence: `h.service.Create(&host)`.
+         - Side effects:
+             - If `h.caddyManager != nil`, `ApplyConfig(ctx)` is called; on error, it attempts rollback by deleting the created host.
+             - Notification emit via `notificationService.SendExternal(...)`.
+         - Response:
+             - `201` with the persisted host JSON.
+
+10. `backend/internal/api/handlers/docker_handler.go`
+        - Handler type: `DockerHandler`
+        - Method: `ListContainers(c *gin.Context)`
+            - Reads query parameters:
+                - `host := c.Query("host")`
+                - `serverID := c.Query("server_id")`
+            - If `server_id` is provided:
+                - `remoteServerService.GetByUUID(serverID)`
+                - Constructs host: `tcp://<server.Host>:<server.Port>`
+            - Calls: `dockerService.ListContainers(ctx, host)`
+            - On error:
+                - Returns `500` with JSON: `{ "error": "Failed to list containers: <err>" }`.
+
+     Security note (SSRF/network scanning): the `host` query param currently allows the caller to influence the Docker client target.
+     - If `host` is accepted as an arbitrary value, this becomes an SSRF primitive (arbitrary outbound connections) and can be used for network scanning.
+     - Preferred posture: do not accept user-supplied `host` for remote selection; use `server_id` as the only selector and resolve it server-side.
+
+### D) Backend: services -> Docker client wrapper -> persistence
+
+11. `backend/internal/services/proxyhost_service.go`
+        - Service: `ProxyHostService`
+        - `Create(host *models.ProxyHost)`:
+            - Validates domain uniqueness by exact `domain_names` string match.
+            - Normalizes `advanced_config` again (duplicates handler logic).
+            - Persists via `db.Create(host)`.
+
+12. `backend/internal/models/proxy_host.go` and `backend/internal/models/location.go`
+        - Persistence model: `models.ProxyHost` with snake_case JSON tags.
+        - Related model: `models.Location`.
+
+13. `backend/internal/services/docker_service.go`
+        - Wrapper: `DockerService`
+        - `NewDockerService()`:
+            - Creates Docker client via `client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())`.
+            - Important: this does not guarantee the daemon is reachable; it typically succeeds even if the socket is missing/unreachable, because it does not perform an API call.
+        - `ListContainers(ctx, host string)`:
+            - If `host == ""` or `host == "local"`:
+                - uses the default client (local Docker socket via env defaults).
+            - Else:
+                - creates a new client with `client.WithHost(host)` (e.g., `tcp://...`).
+            - Calls Docker API: `cli.ContainerList(ctx, container.ListOptions{All: false})`.
+            - Maps Docker container data to `[]DockerContainer` response DTO (still local to the service file).
+
+14. `backend/internal/services/remoteserver_service.go` and `backend/internal/models/remote_server.go`
+        - `RemoteServerService.GetByUUID(uuid)` loads `models.RemoteServer` used to build the remote Docker host string.
+
+### E) Where the 500 is likely being thrown (and why)
+
+The reported 500 is thrown in:
+
+- `backend/internal/api/handlers/docker_handler.go` in `ListContainers` when `dockerService.ListContainers(...)` returns an error.
+
+The most likely underlying causes for the error returned by `DockerService.ListContainers` in the “local” case are:
+
+- Local socket missing (no Docker installed or not running): `unix:///var/run/docker.sock` not present.
+- Socket permissions (common): process user is not in the `docker` group, or the socket is root-only.
+- Rootless Docker: the daemon socket is under the user runtime dir (e.g., `$XDG_RUNTIME_DIR/docker.sock`) and `client.FromEnv` isn’t pointing there.
+- Containerized deployment without mounting the Docker socket into Charon.
+- Context timeout or daemon unresponsive.
+
+Because the handler converts any Docker error into a generic `500`, the UI sees it as an application failure rather than “Docker unavailable” / “permission denied”.
+
+### F) Explicit mismatch check: frontend vs backend payload expectations
+
+This needs to distinguish two different “contracts”:
+
+- Schema contract (wire format): The JSON/query parameter names and shapes align.
+- Behavioral contract (when calls happen): The frontend can initiate Docker calls even when neither selector is set (both `host` and `serverId` are `undefined`).
+
+**Answer**:
+
+- Schema contract: No evidence of a mismatch for either call.
+- Behavioral contract: There is a mismatch/hazard in the frontend enablement condition that can produce calls with both selectors absent.
+
+- Proxy Host create:
+    - Frontend sends snake_case fields (e.g., `domain_names`, `forward_port`, `security_header_profile_id`).
+    - Backend binds into `models.ProxyHost` which uses matching snake_case JSON tags.
+    - Evidence: `models.ProxyHost` includes `json:"domain_names"`, `json:"forward_port"`, etc.
+    - Note: `enable_standard_headers` is a `*bool` in the backend model and a boolean-ish field in the frontend; JSON `true/false` binds correctly into `*bool`.
+
+- Docker list containers:
+    - Frontend sends query params `host` and/or `server_id`.
+    - Backend reads `host` and `server_id` exactly.
+    - Evidence: `dockerApi.listContainers` constructs `{ host, server_id }`, and `DockerHandler.ListContainers` reads those exact query keys.
+
+Behavioral hazard detail:
+
+- In `useDocker`, `enabled: host !== null || serverId !== null` evaluates to `true` even when both values are `undefined`.
+- Result: the frontend may call `GET /docker/containers` with neither `host` nor `server_id` set (effectively “default/local”), even when the user selected “Custom / Manual”.
+- Recommendation: treat “no selectors” as disabled in the frontend, and consider a backend 400/validation guardrail if both are absent.
 
 ---
 
-### Issue 2: Symlink Not Created (HIGH PRIORITY)
+## 2) Reproduction & Observability
 
-**Location**: `.docker/docker-entrypoint.sh` lines 68-73
+### Local reproduction steps (UI)
 
-**Problem**: The entrypoint only VERIFIES the symlink exists but never CREATES it. This is the root cause of CrowdSec failures.
+1. Start Charon and log in.
+2. Navigate to “Proxy Hosts”.
+3. Click “Add Proxy Host”.
+4. In the form, set “Source” to “Local (Docker Socket)”.
+5. Observe the Containers dropdown attempts to load.
 
-**Current Code** (Lines 68-73):
-```bash
-# Link /etc/crowdsec to persistent config for runtime compatibility
-# Note: This symlink is created at build time; verify it exists
-if [ -L "/etc/crowdsec" ]; then
-    echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
-else
-    echo "Warning: /etc/crowdsec symlink not found. CrowdSec may use volume config directly."
-fi
-```
+### API endpoint involved
 
-**Required Fix** (Replace lines 68-73):
-```bash
-# Migrate existing directory to persistent storage if needed
-if [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
-    echo "Migrating /etc/crowdsec to persistent storage..."
-    if [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
-        cp -rn /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
-            echo "ERROR: Failed to migrate configs"
-            exit 1
-        }
-    fi
-    rm -rf /etc/crowdsec || {
-        echo "ERROR: Failed to remove old directory"
-        exit 1
-    }
-fi
+- `GET /api/v1/docker/containers?host=local`
+    - (Triggered by the “Source: Local (Docker Socket)” selection.)
 
-# Create symlink if it doesn't exist
-if [ ! -L "/etc/crowdsec" ]; then
-    ln -sf "$CS_CONFIG_DIR" /etc/crowdsec || {
-        echo "ERROR: Failed to create symlink"
-        exit 1
-    }
-    echo "Created symlink: /etc/crowdsec -> $CS_CONFIG_DIR"
-fi
-```
+### Expected vs actual
 
-**Rationale**: This implements proper migration logic with fail-fast error handling. If `/etc/crowdsec` exists as a directory, we migrate its contents before creating the symlink.
+- Expected:
+    - Containers list appears, allowing the user to pick a container and auto-fill forward host/port.
+    - If Docker is unavailable, the UI should show a clear “Docker unavailable” or “permission denied” message and not treat it as a generic server failure.
 
-**Risk**: Medium - Changes startup flow. Must test with both fresh and existing volumes.
+- Actual:
+    - API responds `500` with `{"error":"Failed to list containers: ..."}`.
+    - UI shows “Failed to connect: <message>” under the Containers select when the source is not “Custom / Manual”.
+
+### Where to look for logs
+
+- Backend request logging middleware is enabled in `backend/cmd/api/main.go`:
+    - `router.Use(middleware.RequestID())`
+    - `router.Use(middleware.RequestLogger())`
+    - `router.Use(middleware.Recovery(cfg.Debug))`
+    - Expect to see request logs with status/latency for `/api/v1/docker/containers`.
+- `DockerHandler.ListContainers` currently returns JSON errors but does not emit a structured log line for the underlying Docker error; only request logs will show the 500 unless the error causes a panic (unlikely).
 
 ---
 
-### Issue 3: Wrong LOG Environment Variable
+## 3) Proposed Plan (after Trace Analysis)
 
-**Location**: `.docker/docker-entrypoint.sh` line 100
+Phased remediation with minimal changes, ordered for fastest user impact.
 
-**Problem**: The `LOG` variable points directly to a file instead of using the log directory variable, breaking consistency.
+### Phase 1: Make the UI stop calling Docker unless explicitly requested
 
-**Current Code** (Line 100):
-```bash
-export LOG=/var/log/crowdsec.log
-```
+- Files:
+    - `frontend/src/hooks/useDocker.ts`
+    - (Optional) `frontend/src/components/ProxyHostForm.tsx`
+- Intended changes (high level):
+    - Ensure the Docker containers query is *disabled* when no `host` and no `serverId` are set.
+    - Keep “Source: Custom / Manual” truly free of Docker calls.
+- Tests:
+    - Add/extend a frontend test to confirm **no request is made** when `host` and `serverId` are both `undefined` (the undefined/undefined case).
 
-**Required Fix** (Replace line 100):
-```bash
-export LOG="$CS_LOG_DIR/crowdsec.log"
-```
+### Phase 2: Improve backend error mapping and message for Docker unavailability
 
-**Required Addition** (Add after line 47 where other CS_* variables are defined):
-```bash
-CS_LOG_DIR="/var/log/crowdsec"
-```
+- Files:
+    - `backend/internal/api/handlers/docker_handler.go`
+    - (Optional) `backend/internal/services/docker_service.go`
+- Intended changes (high level):
+    - Detect common Docker connectivity errors (socket missing, permission denied, daemon unreachable) and return a more accurate status (e.g., `503 Service Unavailable`) with a clearer message.
+    - Add structured logging for the underlying error, including request_id.
+    - Security/SSRF hardening:
+        - Prefer `server_id` as the only remote selector.
+        - Remove `host` from the public API surface if feasible; if it must remain, restrict it strictly (e.g., allow only `local` and/or a strict allow-list of configured endpoints).
+        - Treat arbitrary `host` values as invalid input (deny-by-default) to prevent SSRF/network scanning.
+- Tests:
+    - Introduce a small interface around DockerService (or a function injection) so `DockerHandler` can be unit-tested without a real Docker daemon.
+    - Add unit tests in `backend/internal/api/handlers/docker_handler_test.go` covering:
+        - local Docker unavailable -> 503
+        - invalid `server_id` -> 404
+        - remote server host build -> correct host string
+        - selector validation: both `host` and `server_id` absent should be rejected if the backend adopts a stricter contract (recommended).
 
-**Rationale**: Ensures all CrowdSec paths are consistently managed through variables, making future changes easier.
+### Phase 3: Environment guidance and configuration surface
 
-**Risk**: Low - Simple variable change with no behavioral impact.
-
----
-
-### Issue 4: Missing Hub Cache Directory
-
-**Location**: `.docker/docker-entrypoint.sh` after line 51
-
-**Problem**: The hub cache directory `/app/data/crowdsec/hub_cache/` is never explicitly created, causing hub operations to fail.
-
-**Current Code** (Lines 49-51):
-```bash
-# Ensure persistent directories exist (within writable volume)
-mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
-mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
-```
-
-**Required Fix** (Add after line 51):
-```bash
-mkdir -p "$CS_PERSIST_DIR/hub_cache"
-```
-
-**Rationale**: CrowdSec stores hub metadata in a separate cache directory. Without this, `cscli hub update` fails silently.
-
-**Risk**: Low - Simple directory creation with no side effects.
+- Files:
+    - `docs/debugging-local-container.md` (or another relevant doc page)
+    - (Optional) backend config docs
+- Intended changes (high level):
+    - Document how to mount `/var/run/docker.sock` in containerized deployments.
+    - Document rootless Docker socket path and `DOCKER_HOST` usage.
+    - Provide a “Docker integration status” indicator in UI (optional, later).
 
 ---
 
-### Issue 5: CFG Variable Should Stay /etc/crowdsec
-
-**Location**: `.docker/docker-entrypoint.sh` line 99
-
-**Problem**: The original plan incorrectly suggested changing CFG to `$CS_CONFIG_DIR`, but it should remain `/etc/crowdsec` since it resolves to persistent storage via the symlink.
-
-**Current Code** (Line 99):
-```bash
-export CFG=/etc/crowdsec
-```
-
-**Required Action**: **KEEP AS-IS** - Do NOT change this line.
-
-**Rationale**: The CFG variable should point to `/etc/crowdsec` which resolves to `$CS_CONFIG_DIR` via symlink. This maintains compatibility with CrowdSec's expected paths while still using persistent storage.
-
-**Risk**: None - No change required.
-
----
-
-### Issue 6: Weak Migration Error Handling
-
-**Location**: `.docker/docker-entrypoint.sh` lines 56-62
-
-**Problem**: Too many `|| true` statements allow silent failures during config migration.
-
-**Current Code** (Lines 56-62):
-```bash
-# Initialize persistent config if key files are missing
-if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
-    echo "Initializing persistent CrowdSec configuration..."
-    if [ -d "/etc/crowdsec.dist" ]; then
-        cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy dist config"
-    elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
-        # Fallback if .dist is missing
-        cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy config"
-    fi
-fi
-```
-
-**Required Fix** (Replace lines 56-62):
-```bash
-# Initialize persistent config if key files are missing
-if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
-    echo "Initializing persistent CrowdSec configuration..."
-    if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
-        cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
-            echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
-            exit 1
-        }
-        echo "Successfully initialized config from .dist directory"
-    elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
-        cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
-            echo "ERROR: Failed to copy config from /etc/crowdsec"
-            exit 1
-        }
-        echo "Successfully initialized config from /etc/crowdsec"
-    else
-        echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
-        exit 1
-    fi
-fi
-```
-
-**Rationale**: Fail-fast approach ensures we detect misconfigurations early. Empty directory checks prevent copying empty directories.
-
-**Risk**: Medium - Strict error handling may reveal edge cases. Must test thoroughly.
-
----
-
-### Issue 7: Incomplete Verification Checklist
-
-**Problem**: Original checklist had only 7 steps and missed critical tests for volume replacement, permissions, config persistence, and hub updates.
-
-**Original Checklist** (Steps 1-7):
-1. Fresh container start with empty volumes
-2. Container restart (data persists)
-3. CrowdSec enable/disable via UI
-4. Log file permissions and rotation
-5. LAPI readiness and machine registration
-6. Hub updates and parsers
-7. Multi-architecture compatibility
-
-**Required Additional Steps** (8-11):
-8. **Volume Replacement Test**: Start container with volume → destroy volume → recreate volume. Verify configs regenerate correctly.
-9. **Permission Inheritance**: Create new files in persistent storage (e.g., `cscli decisions add`). Verify ownership is correct (1000:1000).
-10. **Config Persistence**: Make config changes via `cscli` (e.g., add bouncer, modify settings). Restart container. Verify changes persist.
-11. **Hub Update Test**: Run `cscli hub update && cscli hub upgrade`. Verify hub data is stored in persistent volume and survives restarts.
-
-**Rationale**: These tests cover critical failure modes discovered in production: volume loss, permission issues on newly created files, config changes not persisting, and hub data being ephemeral.
-
-**Risk**: None - This is documentation only.
-
----
-
-## Implementation Order
-
-Follow this sequence to apply changes safely:
-
-### Phase 1: Dockerfile Changes (Low Risk)
-1. Add config template population to `Dockerfile` before line 330
-2. Build test image: `docker build -t charon:test .`
-3. Verify `/etc/crowdsec.dist/` is populated: `docker run --rm charon:test ls -la /etc/crowdsec.dist/`
-4. Expected output: `config.yaml`, `user.yaml`, `local_api_credentials.yaml`, `profiles.yaml`
-
-### Phase 2: Entrypoint Script Changes (Medium Risk)
-5. Apply all 5 entrypoint script fixes in a single commit (they're interdependent)
-6. Rebuild image: `docker build -t charon:test .`
-7. Test with fresh volumes (see Phase 3)
-
-### Phase 3: Testing Strategy
-Run all 11 verification tests in order:
-
-**Test 1: Fresh Start**
-```bash
-docker volume create charon_data_test
-docker run -d --name charon_test -v charon_data_test:/app/data charon:test
-docker logs charon_test | grep -E "(symlink|CrowdSec config)"
-```
-Expected: "Created symlink: /etc/crowdsec -> /app/data/crowdsec/config"
-
-**Test 2: Container Restart**
-```bash
-docker restart charon_test
-docker logs charon_test | grep "symlink verified"
-```
-Expected: "CrowdSec config symlink verified: /etc/crowdsec -> /app/data/crowdsec/config"
-
-**Test 3-7**: Follow existing test procedures from original plan
-
-**Test 8: Volume Replacement**
-```bash
-docker stop charon_test
-docker rm charon_test
-docker volume rm charon_data_test
-docker volume create charon_data_test
-docker run -d --name charon_test -v charon_data_test:/app/data charon:test
-docker exec charon_test ls -la /app/data/crowdsec/config/
-```
-Expected: `config.yaml` and other files regenerated
-
-**Test 9: Permission Inheritance**
-```bash
-docker exec charon_test cscli decisions add -i 1.2.3.4
-docker exec charon_test ls -ln /app/data/crowdsec/data/
-```
-Expected: All files owned by uid 1000, gid 1000
-
-**Test 10: Config Persistence**
-```bash
-docker exec charon_test cscli config set api.server.log_level=debug
-docker restart charon_test
-docker exec charon_test cscli config show api.server.log_level
-```
-Expected: "debug"
-
-**Test 11: Hub Update**
-```bash
-docker exec charon_test cscli hub update
-docker exec charon_test ls -la /app/data/crowdsec/hub_cache/
-docker restart charon_test
-docker exec charon_test cscli hub list -o json
-```
-Expected: Hub cache persists, parsers/scenarios remain installed
-
-### Phase 4: Rollback Procedure
-If any test fails:
-1. Tag working version: `docker tag charon:current charon:rollback`
-2. Revert changes to `.docker/docker-entrypoint.sh` and `Dockerfile`
-3. Rebuild: `docker build -t charon:current .`
-4. Document failure in issue tracker with test logs
-
----
-
-## Summary of All Changes
-
-| File | Line(s) | Change Type | Priority | Risk |
-|------|---------|-------------|----------|------|
-| `Dockerfile` | Before 330 | Add config restore RUN | HIGH | Low |
-| `.docker/docker-entrypoint.sh` | 47 | Add CS_LOG_DIR variable | HIGH | Low |
-| `.docker/docker-entrypoint.sh` | 51 | Add hub_cache mkdir | HIGH | Low |
-| `.docker/docker-entrypoint.sh` | 56-62 | Strengthen config init | HIGH | Medium |
-| `.docker/docker-entrypoint.sh` | 68-73 | Implement symlink creation | HIGH | Medium |
-| `.docker/docker-entrypoint.sh` | 99 | Keep CFG=/etc/crowdsec | NONE | None |
-| `.docker/docker-entrypoint.sh` | 100 | Fix LOG variable | HIGH | Low |
-| Verification checklist | N/A | Add 4 new tests | HIGH | None |
-
----
-
-## Risk Assessment
-
-### Low Risk Changes (Can be applied immediately)
-- Dockerfile config template population
-- LOG variable fix
-- Hub cache directory creation
-- CFG variable (no change)
-
-### Medium Risk Changes (Require thorough testing)
-- Symlink creation logic (fundamental behavior change)
-- Error handling strengthening (may expose edge cases)
-
-### High Risk Scenarios to Test
-- Existing installations upgrading from old version
-- Corrupted/incomplete config directories
-- Simultaneous volume and config failures
-- Cross-architecture compatibility (arm64 especially)
-
----
-
-## Acceptance Criteria
-
-All 11 verification tests must pass before merging:
-- [ ] Fresh container start
-- [ ] Container restart
-- [ ] CrowdSec enable/disable
-- [ ] Log file permissions
-- [ ] LAPI readiness
-- [ ] Hub updates
-- [ ] Multi-arch compatibility
-- [ ] Volume replacement
-- [ ] Permission inheritance
-- [ ] Config persistence
-- [ ] Hub update persistence
-
----
-
-## References
-
-- Original issue: CrowdSec non-root migration
-- Supervisor review: 2024-12-22
-- Related files: `Dockerfile`, `.docker/docker-entrypoint.sh`
-- Testing environment: Docker 24.x, volumes with uid 1000
-
----
-
-# Historical Analysis: CrowdSec Reconciliation Failure Diagnostics
-
-## Executive Summary
-
-Investigation of why CrowdSec shows "not started" in the UI when it should **already be enabled**. This is NOT a first-time enable issue—it's a **reconciliation/runtime failure** after container restart or app startup.
-
----
-
-## Problem Statement
-
-User reports CrowdSec was previously enabled and working, but after container restart:
-- UI shows CrowdSec as "not started"
-- The setting in database says it should be enabled
-- No obvious errors in the UI
-
----
-
-## 1. Reconciliation Flow Overview
-
-When Charon starts, `ReconcileCrowdSecOnStartup()` runs **asynchronously** (in a goroutine) to restore CrowdSec state.
-
-### Flow Diagram
-
-```
-App Startup → go ReconcileCrowdSecOnStartup() → (async goroutine)
-                        │
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 1. Validate: db != nil && exec != nil │
-           └────────────────────────────────────┘
-                        │ (fail → silent return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 2. Check: SecurityConfig table exists │
-           └────────────────────────────────────┘
-                        │ (no table → WARN + return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 3. Query: SecurityConfig record       │
-           └────────────────────────────────────┘
-                        │ (not found → auto-create from Settings)
-                        │ (error → return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 4. Query: Settings table override     │
-           │    key = "security.crowdsec.enabled"  │
-           └────────────────────────────────────┘
-                        │
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 5. Decide: Start if CrowdSecMode ==   │
-           │    "local" OR setting == "true"       │
-           └────────────────────────────────────┘
-                        │ (both false → INFO skip)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 6. Validate: Binary exists at path    │
-           │    /usr/local/bin/crowdsec            │
-           └────────────────────────────────────┘
-                        │ (not found → ERROR + return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 7. Validate: Config dir exists        │
-           │    dataDir/config                     │
-           └────────────────────────────────────┘
-                        │ (not found → ERROR + return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 8. Check: Status (already running?)   │
-           └────────────────────────────────────┘
-                        │ (running → INFO + done)
-                        │ (error → WARN + return!)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 9. Start: CrowdSec process            │
-           └────────────────────────────────────┘
-                        │ (error → ERROR + return)
-                        ▼
-           ┌────────────────────────────────────┐
-           │ 10. Verify: Wait 2s + check status    │
-           └────────────────────────────────────┘
-```
-
----
-
-## 2. Most Likely Failure Points (Priority Order)
-
-### 2.1 Binary Not Found ⭐ HIGH LIKELIHOOD
-
-**Code:** `backend/internal/services/crowdsec_startup.go:117-120`
-
-```go
-if _, err := os.Stat(binPath); os.IsNotExist(err) {
-    logger.Log().WithField("path", binPath).Error("CrowdSec reconciliation: binary not found, cannot start")
-    return
-}
-```
-
-**Diagnosis:**
-```bash
-docker exec <container> ls -la /usr/local/bin/crowdsec
-docker exec <container> printenv CHARON_CROWDSEC_BIN
-```
-
----
-
-### 2.2 Config Directory Missing ⭐ HIGH LIKELIHOOD
-
-**Code:** `backend/internal/services/crowdsec_startup.go:122-126`
-
-```go
-configPath := filepath.Join(dataDir, "config")
-if _, err := os.Stat(configPath); os.IsNotExist(err) {
-    logger.Log().WithField("path", configPath).Error("CrowdSec reconciliation: config directory not found")
-    return
-}
-```
-
-**Diagnosis:**
-```bash
-docker exec <container> ls -la /data/crowdsec/config/
-docker exec <container> cat /data/crowdsec/config/config.yaml
-```
-
----
-
-### 2.3 Database State Mismatch ⭐ MEDIUM LIKELIHOOD
-
-Two sources must be checked:
-1. `security_configs.crowdsec_mode = "local"`
-2. `settings.key = "security.crowdsec.enabled"` with `value = "true"`
-
-If **BOTH** are not "enabled", reconciliation silently skips.
-
-**Diagnosis:**
-```bash
-docker exec <container> sqlite3 /data/charon.db "SELECT crowdsec_mode, enabled FROM security_configs LIMIT 1;"
-docker exec <container> sqlite3 /data/charon.db "SELECT key, value FROM settings WHERE key LIKE '%crowdsec%';"
-```
-
----
-
-### 2.4 Stale PID File (PID Recycled) ⭐ MEDIUM LIKELIHOOD
-
-**Code:** `backend/internal/api/handlers/crowdsec_exec.go:118-147`
-
-Status check reads PID file, checks if process exists, then verifies `/proc/<pid>/cmdline` contains "crowdsec".
-
-**Diagnosis:**
-```bash
-docker exec <container> cat /data/crowdsec/crowdsec.pid
-docker exec <container> pgrep -a crowdsec
-```
-
----
-
-### 2.5 Process Crashes After Start ⭐ MEDIUM LIKELIHOOD
-
-**Code:** `backend/internal/services/crowdsec_startup.go:146-159`
-
-After starting, waits 2 seconds and verifies. If crashed:
-```
-logger.Log().Error("CrowdSec reconciliation: process started but is no longer running - may have crashed")
-```
-
-**Diagnosis:**
-```bash
-# Try manual start to see errors
-docker exec <container> /usr/local/bin/crowdsec -c /data/crowdsec/config/config.yaml
-
-# Check for port conflicts (LAPI uses 8085)
-docker exec <container> netstat -tlnp 2>/dev/null | grep 8085
-```
-
----
-
-### 2.6 Status Check Error (Silently Aborts) ⭐ LOW LIKELIHOOD
-
-**Code:** `backend/internal/services/crowdsec_startup.go:129-134`
-
-```go
-if err != nil {
-    logger.Log().WithError(err).Warn("CrowdSec reconciliation: failed to check status")
-    return  // ← Aborts without trying to start!
-}
-```
-
----
-
-## 3. Status Handler Analysis
-
-The UI calls `GET /api/v1/admin/crowdsec/status`:
-
-**Code:** `backend/internal/api/handlers/crowdsec_handler.go:313-333`
-
-Returns `running: false` when:
-- PID file doesn't exist
-- PID doesn't correspond to a running process
-- PID is running but `/proc/<pid>/cmdline` doesn't contain "crowdsec"
-
----
-
-## 4. Diagnostic Commands Summary
-
-```bash
-# 1. Check binary
-docker exec <container> ls -la /usr/local/bin/crowdsec
-
-# 2. Check config directory
-docker exec <container> ls -la /data/crowdsec/config/
-
-# 3. Check database state
-docker exec <container> sqlite3 /data/charon.db \
-  "SELECT crowdsec_mode, enabled FROM security_configs LIMIT 1;"
-docker exec <container> sqlite3 /data/charon.db \
-  "SELECT key, value FROM settings WHERE key LIKE '%crowdsec%';"
-
-# 4. Check PID file
-docker exec <container> cat /data/crowdsec/crowdsec.pid 2>/dev/null || echo "No PID file"
-
-# 5. Check running processes
-docker exec <container> pgrep -a crowdsec || echo "Not running"
-
-# 6. Check logs for reconciliation
-docker logs <container> 2>&1 | grep -i "crowdsec reconciliation"
-
-# 7. Try manual start
-docker exec <container> /usr/local/bin/crowdsec \
-  -c /data/crowdsec/config/config.yaml &
-
-# 8. Check port conflicts
-docker exec <container> netstat -tlnp 2>/dev/null | grep -E "8085|8080"
-```
-
----
-
-## 5. Log Messages to Look For
-
-| Priority | Cause | Log Message |
-|----------|-------|-------------|
-| 1 | Binary missing | `"CrowdSec reconciliation: binary not found"` |
-| 2 | Config missing | `"CrowdSec reconciliation: config directory not found"` |
-| 3 | DB says disabled | `"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled"` |
-| 4 | Crashed after start | `"process started but is no longer running"` |
-| 5 | Start failed | `"CrowdSec reconciliation: FAILED to start CrowdSec"` |
-| 6 | Status check failed | `"failed to check status"` |
-
----
-
-## 6. Key Timeouts
-
-| Operation | Timeout | Location |
-|-----------|---------|----------|
-| Status check | 5 seconds | crowdsec_startup.go:128 |
-| Start timeout | 30 seconds | crowdsec_startup.go:146 |
-| Post-start delay | 2 seconds | crowdsec_startup.go:153 |
-| Verification check | 5 seconds | crowdsec_startup.go:156 |
-
----
-
----
-
-# Original Analysis: First-Time Enable Issues
-
-## Observed Browser Console Errors
-
-```
-- 401 Unauthorized on /api/v1/auth/me
-- Multiple 400 Bad Request on /api/v1/settings/validate-url
-- Auto-logging out due to inactivity
-- Various ERR_NETWORK_CHANGED errors
-- CrowdSec appears to not be running
-```
-
----
-
-## Relevant Code Files and Flow Analysis
-
-### 2.1 CrowdSec Startup Flow
-
-#### Entry Point: Frontend Toggle
-
-**File:** [frontend/src/pages/Security.tsx](../../../frontend/src/pages/Security.tsx#L147-L183)
-
-```typescript
-const crowdsecPowerMutation = useMutation({
-  mutationFn: async (enabled: boolean) => {
-    await updateSetting('security.crowdsec.enabled', enabled ? 'true' : 'false', 'security', 'bool')
-    if (enabled) {
-      toast.info('Starting CrowdSec... This may take up to 30 seconds')
-      const result = await startCrowdsec()
-      const status = await statusCrowdsec()
-      if (!status.running) {
-        await updateSetting('security.crowdsec.enabled', 'false', 'security', 'bool')
-        throw new Error('CrowdSec process failed to start. Check server logs for details.')
-      }
-      return result
-    } else {
-      await stopCrowdsec()
-      // ...
-    }
-  },
-  // ...
-})
-```
-
-#### API Client Configuration
-
-**File:** [frontend/src/api/client.ts](../../../frontend/src/api/client.ts#L7-L11)
-
-```typescript
-const client = axios.create({
-  baseURL: '/api/v1',
-  withCredentials: true,
-  timeout: 30000, // 30 second timeout
-});
-```
-
-**Issue Identified:** The frontend has a **30-second timeout**, which aligns with the backend LAPI readiness timeout. However, the startup process involves multiple sequential steps that could exceed this total.
-
-#### Backend Start Handler
-
-**File:** [backend/internal/api/handlers/crowdsec_handler.go](../../../backend/internal/api/handlers/crowdsec_handler.go#L175-L252)
-
-Key timeouts in `Start()`:
-
-- LAPI readiness polling: **30 seconds max** (line 229: `maxWait := 30 * time.Second`)
-- Poll interval: **500ms** (line 230: `pollInterval := 500 * time.Millisecond`)
-- Individual LAPI check: **2 seconds** (line 237: `context.WithTimeout(ctx, 2*time.Second)`)
-
-```go
-// Wait for LAPI to be ready (with timeout)
-lapiReady := false
-maxWait := 30 * time.Second
-pollInterval := 500 * time.Millisecond
-deadline := time.Now().Add(maxWait)
-
-for time.Now().Before(deadline) {
-    checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-    _, err := h.CmdExec.Execute(checkCtx, "cscli", args...)
-    cancel()
-    if err == nil {
-        lapiReady = true
-        break
-    }
-    time.Sleep(pollInterval)
-}
-```
-
-#### Backend Executor (Process Management)
-
-**File:** [backend/internal/api/handlers/crowdsec_exec.go](../../../backend/internal/api/handlers/crowdsec_exec.go)
-
-The `DefaultCrowdsecExecutor.Start()` method (lines 39-66):
-
-- Uses `exec.Command` (not `CommandContext`) - process is detached
-- Sets `Setpgid: true` to create new process group
-- Writes PID file synchronously
-- Returns immediately after starting the process
-
-```go
-func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir string) (int, error) {
-    configFile := filepath.Join(configDir, "config", "config.yaml")
-    cmd := exec.Command(binPath, "-c", configFile)
-    cmd.SysProcAttr = &syscall.SysProcAttr{
-        Setpgid: true, // Create new process group
-    }
-    // ...
-    if err := cmd.Start(); err != nil {
-        return 0, err
-    }
-    // ... writes PID file
-    go func() {
-        _ = cmd.Wait()
-        _ = os.Remove(e.pidFile(configDir))
-    }()
-    return pid, nil
-}
-```
-
-#### Background Reconciliation
-
-**File:** [backend/internal/services/crowdsec_startup.go](../../../backend/internal/services/crowdsec_startup.go)
-
-Key timeouts in `ReconcileCrowdSecOnStartup()`:
-
-- Status check timeout: **5 seconds** (line 139)
-- Start timeout: **30 seconds** (line 150)
-- Verification delay: **2 seconds** (line 159: `time.Sleep(2 * time.Second)`)
-- Verification check timeout: **5 seconds** (line 161)
-
-```go
-// Start context with 30 second timeout
-startCtx, startCancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer startCancel()
-
-newPid, err := executor.Start(startCtx, binPath, dataDir)
-// ...
-
-// VERIFY: Wait briefly and confirm process is actually running
-time.Sleep(2 * time.Second)
-
-verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer verifyCancel()
-```
-
----
-
-## 3. Identified Potential Root Causes
-
-### 3.1 Timeout Race Condition (HIGH PROBABILITY)
-
-The frontend timeout (30s) and backend LAPI polling timeout (30s) are identical. Combined with:
-
-- Initial process start time
-- Settings database update
-- SecurityConfig database update
-- Network latency
-
-**Total time could easily exceed 30 seconds**, causing the frontend to timeout before the backend responds.
-
-### 3.2 CrowdSec Binary/Config Not Found
-
-In [crowdsec_startup.go](../../../backend/internal/services/crowdsec_startup.go#L124-L135):
-
-```go
-// VALIDATE: Ensure binary exists
-if _, err := os.Stat(binPath); os.IsNotExist(err) {
-    logger.Log().WithField("path", binPath).Error("CrowdSec reconciliation: binary not found")
-    return
-}
-
-// VALIDATE: Ensure config directory exists
-configPath := filepath.Join(dataDir, "config")
-if _, err := os.Stat(configPath); os.IsNotExist(err) {
-    logger.Log().WithField("path", configPath).Error("CrowdSec reconciliation: config directory not found")
-    return
-}
-```
-
-**Check:** The binary path defaults to `/usr/local/bin/crowdsec` (from `routes.go` line 292) and config dir is `data/crowdsec`. If either is missing, the startup silently fails.
-
-### 3.3 LAPI Never Becomes Ready
-
-The handler waits for `cscli lapi status` to succeed. If CrowdSec starts but LAPI never initializes (e.g., database issues, missing configuration), the handler will timeout.
-
-### 3.4 Authentication Issues (401 on /auth/me)
-
-The 401 errors suggest the user's session is expiring during the long-running operation. This is likely a **symptom, not the cause**:
-
-**File:** [frontend/src/api/client.ts](../../../frontend/src/api/client.ts#L25-L33)
-
-```typescript
-client.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      console.warn('Authentication failed:', error.config?.url);
-    }
-    return Promise.reject(error);
-  }
-);
-```
-
-The session timeout or network interruption during the 30+ second CrowdSec startup could cause parallel requests to `/auth/me` to fail.
-
-### 3.5 ERR_NETWORK_CHANGED
-
-This indicates network connectivity issues on the client side. If the network changes during the long-running request, it will fail. This is external to the application but exacerbated by long timeouts.
-
----
-
-## 4. Configuration Defaults
-
-| Setting | Default Value | Source |
-|---------|---------------|--------|
-| CrowdSec Binary | `/usr/local/bin/crowdsec` | `CHARON_CROWDSEC_BIN` env or hardcoded |
-| CrowdSec Config Dir | `data/crowdsec` | `CHARON_CROWDSEC_CONFIG_DIR` env |
-| CrowdSec Mode | `disabled` | `CERBERUS_SECURITY_CROWDSEC_MODE` env |
-| Frontend Timeout | 30 seconds | `client.ts` |
-| LAPI Wait Timeout | 30 seconds | `crowdsec_handler.go` |
-| Process Start Timeout | 30 seconds | `crowdsec_startup.go` |
-
----
-
-## 5. Remediation Plan
-
-### Phase 1: Immediate Fixes (Timeout Handling)
-
-#### 5.1.1 Increase Frontend Timeout for CrowdSec Operations
-
-**File:** `frontend/src/api/crowdsec.ts`
-
-Create a dedicated request with extended timeout for CrowdSec start:
-
-```typescript
-export async function startCrowdsec(): Promise<{ status: string; pid: number; lapi_ready?: boolean }> {
-  const resp = await client.post('/admin/crowdsec/start', {}, {
-    timeout: 60000, // 60 second timeout for startup operations
-  })
-  return resp.data
-}
-```
-
-#### 5.1.2 Add Progress/Status Feedback
-
-Implement polling-based status check instead of waiting for single long request:
-
-1. Backend: Return immediately after starting process, with status "starting"
-2. Frontend: Poll status endpoint until "running" or timeout
-
-#### 5.1.3 Improve Error Messages
-
-**File:** `backend/internal/api/handlers/crowdsec_handler.go`
-
-Add detailed error responses:
-
-```go
-if !lapiReady {
-    logger.Log().WithField("pid", pid).Warn("CrowdSec started but LAPI not ready within timeout")
-    c.JSON(http.StatusOK, gin.H{
-        "status":     "started",
-        "pid":        pid,
-        "lapi_ready": false,
-        "warning":    "Process started but LAPI initialization may take additional time",
-        "next_step":  "Poll /admin/crowdsec/status until lapi_ready is true",
-    })
-    return
-}
-```
-
-### Phase 2: Diagnostic Improvements
-
-#### 5.2.1 Add Health Check Endpoint
-
-Create `/admin/crowdsec/health` that returns:
-
-- Binary path and existence check
-- Config directory and existence check
-- Process status
-- LAPI status
-- Last error (if any)
-
-#### 5.2.2 Enhanced Logging
-
-Add structured logging for all CrowdSec operations with correlation IDs.
-
-### Phase 3: Long-term Fixes
-
-#### 5.3.1 Async Startup Pattern
-
-Convert to async pattern:
-
-1. `POST /admin/crowdsec/start` returns immediately with job ID
-2. `GET /admin/crowdsec/jobs/{id}` returns job status
-3. Frontend polls job status with exponential backoff
-
-#### 5.3.2 WebSocket Status Updates
-
-Use existing WebSocket infrastructure to push status updates during startup.
-
----
-
-## 6. Diagnostic Commands
-
-To investigate the issue on the running container:
-
-```bash
-# Check if CrowdSec binary exists
-ls -la /usr/local/bin/crowdsec
-
-# Check CrowdSec config directory
-ls -la /app/data/crowdsec/config/
-
-# Check if CrowdSec is running
-pgrep -f crowdsec
-ps aux | grep crowdsec
-
-# Check CrowdSec logs (if running)
-cat /var/log/crowdsec.log
-
-# Test LAPI status
-cscli lapi status
-
-# Check PID file
-cat /app/data/crowdsec/crowdsec.pid
-
-# Check database for CrowdSec settings
-sqlite3 /app/data/charon.db "SELECT * FROM settings WHERE key LIKE '%crowdsec%';"
-sqlite3 /app/data/charon.db "SELECT * FROM security_configs;"
-```
-
----
-
-## 7. Summary
-
-| Issue | Probability | Impact | Fix Complexity |
-|-------|-------------|--------|----------------|
-| Timeout race condition | HIGH | Startup fails | Low |
-| Missing binary/config | MEDIUM | Startup fails silently | Low |
-| LAPI initialization slow | MEDIUM | Timeout | Medium |
-| Session expiry during startup | LOW | User sees 401 | Low |
-| Network instability | LOW | Request fails | N/A (external) |
-
-**Recommended Immediate Action:** Increase frontend timeout for CrowdSec start operations to 60 seconds and add polling-based status verification.
-
----
-
-## 8. Files to Modify
-
-| File | Change |
-|------|--------|
-| `frontend/src/api/crowdsec.ts` | Extend timeout for start operation |
-| `frontend/src/pages/Security.tsx` | Add polling for status after start |
-| `backend/internal/api/handlers/crowdsec_handler.go` | Return partial success, add health endpoint |
-| `backend/internal/services/crowdsec_startup.go` | Add more diagnostic logging |
-
----
-
-*Investigation completed: December 22, 2025*
-*Author: GitHub Copilot (Research Mode)*
+## 4) Risks & Edge Cases
+
+- Docker socket permissions:
+    - On Linux, `/var/run/docker.sock` is typically owned by `root:docker` and requires membership in the `docker` group.
+    - In containers, the effective UID/GID and group mapping matters.
+
+- Rootless Docker:
+    - Socket often at `unix:///run/user/<uid>/docker.sock` and requires `DOCKER_HOST` to point there.
+    - The current backend uses `client.FromEnv`; if `DOCKER_HOST` is not set, it will default to the standard rootful socket path.
+
+- Docker-in-Docker vs host socket mount:
+    - If Charon runs inside a container, Docker access requires either:
+        - mounting the host socket into the container, or
+        - running DinD and pointing `DOCKER_HOST` to it.
+
+- Path differences:
+    - `/var/run/docker.sock` (common) vs `/run/docker.sock` (symlinked on many distros) vs user socket paths.
+
+- Remote server scheme/transport mismatch:
+    - `DockerHandler` assumes TCP for remote Docker (`tcp://host:port`). If a remote server is configured but Docker only listens on a Unix socket or requires TLS, listing will fail.
+
+- Security considerations:
+    - SSRF/network scanning risk (high): if callers can control the Docker client target via `host`, the system can be coerced into arbitrary outbound connections.
+        - Mitigation: remove `host` from the public API or strict allow-listing only; prefer `server_id` as the only remote selector.
+    - Docker socket risk (high): mounting `/var/run/docker.sock` (even as `:ro`) is effectively Docker-admin.
+        - Rationale: many Docker API operations are possible via read endpoints that still grant sensitive access; and “read-only bind mount” does not prevent Docker API actions if the socket is reachable.
+        - Least-privilege deployment guidance: disable Docker integration unless needed, isolate Charon in a dedicated environment, avoid exposing remote Docker APIs publicly, and prefer restricted `server_id`-based selection with strict auth.
+
+## 5) Tests & Validation Requirements
+
+### Required tests (definition of done for the remediation work)
+
+- Frontend:
+    - Add a test that asserts `useDocker(undefined, undefined)` does not issue a request (the undefined/undefined case).
+    - Ensure the UI “Custom / Manual” path does not fetch containers implicitly.
+- Backend:
+    - Add handler unit tests for Docker routes using an injected/mocked docker service (no real Docker daemon required).
+    - Add tests for selector validation and for error mapping (e.g., unreachable/permission denied -> 503).
+
+### Task-based validation steps (run via VS Code tasks)
+
+- `Test: Backend with Coverage`
+- `Test: Frontend with Coverage`
+- `Lint: TypeScript Check`
+- `Lint: Pre-commit (All Files)`
+- `Security: Trivy Scan`
+- `Security: Go Vulnerability Check`
