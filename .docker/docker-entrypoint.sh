@@ -43,10 +43,12 @@ if command -v cscli >/dev/null; then
     CS_PERSIST_DIR="/app/data/crowdsec"
     CS_CONFIG_DIR="$CS_PERSIST_DIR/config"
     CS_DATA_DIR="$CS_PERSIST_DIR/data"
+    CS_LOG_DIR="/var/log/crowdsec"
 
     # Ensure persistent directories exist (within writable volume)
     mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
     mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
+    mkdir -p "$CS_PERSIST_DIR/hub_cache"
     # Log directories are created at build time with correct ownership
     # Only attempt to create if they don't exist (first run scenarios)
     mkdir -p /var/log/crowdsec 2>/dev/null || true
@@ -55,20 +57,33 @@ if command -v cscli >/dev/null; then
     # Initialize persistent config if key files are missing
     if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
         echo "Initializing persistent CrowdSec configuration..."
-        if [ -d "/etc/crowdsec.dist" ]; then
-            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy dist config"
-        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
-            # Fallback if .dist is missing
-            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy config"
+        if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
+            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
+                echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
+                exit 1
+            }
+            echo "Successfully initialized config from .dist directory"
+        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
+            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
+                echo "ERROR: Failed to copy config from /etc/crowdsec"
+                exit 1
+            }
+            echo "Successfully initialized config from /etc/crowdsec"
+        else
+            echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
+            exit 1
         fi
     fi
 
-    # Link /etc/crowdsec to persistent config for runtime compatibility
-    # Note: This symlink is created at build time; verify it exists
+    # Verify symlink exists (created at build time)
+    # Note: Symlink is created in Dockerfile as root before switching to non-root user
+    # Non-root users cannot create symlinks in /etc, so this must be done at build time
     if [ -L "/etc/crowdsec" ]; then
         echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
     else
-        echo "Warning: /etc/crowdsec symlink not found. CrowdSec may use volume config directly."
+        echo "WARNING: /etc/crowdsec symlink not found. This may indicate a build issue."
+        echo "Expected: /etc/crowdsec -> /app/data/crowdsec/config"
+        # Try to continue anyway - config may still work if CrowdSec uses CFG env var
     fi
 
     # Create/update acquisition config for Caddy logs
@@ -93,7 +108,7 @@ ACQUIS_EOF
     export CFG=/etc/crowdsec
     export DATA="$CS_DATA_DIR"
     export PID=/var/run/crowdsec.pid
-    export LOG=/var/log/crowdsec.log
+    export LOG="$CS_LOG_DIR/crowdsec.log"
 
     # Process config.yaml and user.yaml with envsubst
     # We use a temp file to avoid issues with reading/writing same file
