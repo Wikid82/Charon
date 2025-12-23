@@ -88,7 +88,7 @@ The task is not complete until ALL of the following pass with zero issues:
 
 5. **Linting**: All language-specific linters must pass
 
-**Your Role**: You delegate implementation to subagents, but YOU are responsible for verifying they completed the Definition of Done. Do not accept "DONE" from a subagent until you have confirmed they ran coverage tests and type checks explicitly.
+**Your Role**: You delegate implementation to subagents, but YOU are responsible for verifying they completed the Definition of Done. Do not accept "DONE" from a subagent until you have confirmed they ran coverage tests, type checks, and security scans explicitly.
 
 **Critical Note**: Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless of whether they are unrelated to the original task. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
 

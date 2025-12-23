@@ -35,8 +35,8 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
     - **Cleanup**: If the test was temporary, delete it. If it's valuable, keep it.
 </workflow>
 
-<trivy-cve-remediation>
-When Trivy reports CVEs in container dependencies (especially Caddy transitive deps):
+<security-remediation>
+When Trivy or CodeQLreports CVEs in container dependencies (especially Caddy transitive deps):
 
 1. **Triage**: Determine if CVE is in OUR code or a DEPENDENCY.
     - If ours: Fix immediately.
@@ -68,24 +68,25 @@ When Trivy reports CVEs in container dependencies (especially Caddy transitive d
 
 The task is not complete until ALL of the following pass with zero issues:
 
-1. **Coverage Tests (MANDATORY - Run Explicitly)**:
+1. **Security Scans**:
+    - CodeQL: Run as VS Code task or via GitHub Actions
+    - Trivy: Run as VS Code task or via Docker
+    - Zero issues allowed
+
+2. **Coverage Tests (MANDATORY - Run Explicitly)**:
     - **Backend**: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
     - **Frontend**: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
     - **Why**: These are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts.
     - Minimum coverage: 85% for both backend and frontend.
     - All tests must pass with zero failures.
 
-2. **Type Safety (Frontend)**:
+3. **Type Safety (Frontend)**:
     - Run VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`
     - **Why**: This check is in manual stage of pre-commit for performance. You MUST run it explicitly.
     - Fix all type errors immediately.
 
-3. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
+4. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
 
-4. **Security Scans**:
-    - CodeQL: Run as VS Code task or via GitHub Actions
-    - Trivy: Run as VS Code task or via Docker
-    - Zero issues allowed
 
 5. **Linting**: All language-specific linters must pass (Go vet, ESLint, markdownlint)
 
