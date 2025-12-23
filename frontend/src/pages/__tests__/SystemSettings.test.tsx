@@ -15,6 +15,8 @@ import { LanguageProvider } from '../../context/LanguageContext'
 vi.mock('../../api/settings', () => ({
   getSettings: vi.fn(),
   updateSetting: vi.fn(),
+  validatePublicURL: vi.fn(),
+  testPublicURL: vi.fn(),
 }))
 
 vi.mock('../../api/featureFlags', () => ({
@@ -25,6 +27,7 @@ vi.mock('../../api/featureFlags', () => ({
 vi.mock('../../api/client', () => ({
   default: {
     get: vi.fn(),
+    post: vi.fn(),
   },
 }))
 
@@ -425,6 +428,217 @@ describe('SystemSettings', () => {
       await waitFor(() => {
         expect(screen.getByText('Updating features...')).toBeInTheDocument()
       })
+    })
+  })
+
+  describe('Application URL Card', () => {
+    it('renders public URL input field', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+    })
+
+    it('shows green border and checkmark when URL is valid', async () => {
+      vi.mocked(client.get).mockResolvedValue({
+        data: { status: 'healthy', service: 'charon', version: '1.0.0' },
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const input = screen.getByPlaceholderText('https://charon.example.com')
+
+      // Mock validation response for valid URL
+      vi.mocked(client.post).mockResolvedValue({
+        data: { valid: true, normalized: 'https://example.com' },
+      })
+
+      await user.clear(input)
+      await user.type(input, 'https://example.com')
+
+      // Wait for debounced validation
+      await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/settings/validate-url', {
+          url: 'https://example.com',
+        })
+      }, { timeout: 1000 })
+
+      await waitFor(() => {
+        const checkIcon = document.querySelector('.text-green-500')
+        expect(checkIcon).toBeTruthy()
+      })
+
+      await waitFor(() => {
+        expect(input.className).toContain('border-green-500')
+      })
+    })
+
+    it('shows red border and X icon when URL is invalid', async () => {
+      vi.mocked(client.get).mockResolvedValue({
+        data: { status: 'healthy', service: 'charon', version: '1.0.0' },
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const input = screen.getByPlaceholderText('https://charon.example.com')
+
+      // Mock validation response for invalid URL
+      vi.mocked(client.post).mockResolvedValue({
+        data: { valid: false, error: 'Invalid URL format' },
+      })
+
+      await user.clear(input)
+      await user.type(input, 'invalid-url')
+
+      await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/settings/validate-url', {
+          url: 'invalid-url',
+        })
+      }, { timeout: 1000 })
+
+      await waitFor(() => {
+        const xIcon = document.querySelector('.text-red-500')
+        expect(xIcon).toBeTruthy()
+      })
+
+      await waitFor(() => {
+        expect(input.className).toContain('border-red-500')
+      })
+    })
+
+    it('shows invalid URL error message when validation fails', async () => {
+      vi.mocked(client.get).mockResolvedValue({
+        data: { status: 'healthy', service: 'charon', version: '1.0.0' },
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const input = screen.getByPlaceholderText('https://charon.example.com')
+
+      vi.mocked(client.post).mockResolvedValue({
+        data: { valid: false, error: 'Invalid URL format' },
+      })
+
+      await user.clear(input)
+      await user.type(input, 'bad-url')
+
+      // Wait for debounce and validation
+      await new Promise(resolve => setTimeout(resolve, 400))
+
+      await waitFor(() => {
+        // Check for red border class indicating invalid state
+        const inputElement = screen.getByPlaceholderText('https://charon.example.com')
+        expect(inputElement.className).toContain('border-red')
+      }, { timeout: 1000 })
+    })
+
+    it('clears validation state when URL is cleared', async () => {
+      vi.mocked(settingsApi.getSettings).mockResolvedValue({
+        'app.public_url': 'https://example.com',
+      })
+      vi.mocked(client.get).mockResolvedValue({
+        data: { status: 'healthy', service: 'charon', version: '1.0.0' },
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        const input = screen.getByPlaceholderText('https://charon.example.com') as HTMLInputElement
+        expect(input.value).toBe('https://example.com')
+      })
+
+      const user = userEvent.setup()
+      const input = screen.getByPlaceholderText('https://charon.example.com')
+
+      await user.clear(input)
+
+      await waitFor(() => {
+        expect(input.className).not.toContain('border-green-500')
+        expect(input.className).not.toContain('border-red-500')
+      })
+    })
+
+    it('renders test button and verifies functionality', async () => {
+      vi.mocked(settingsApi.getSettings).mockResolvedValue({
+        'app.public_url': 'https://example.com',
+      })
+      vi.mocked(settingsApi.testPublicURL).mockResolvedValue({
+        reachable: true,
+        latency: 42,
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+
+      // Find test button by looking for buttons with External Link icon
+      const buttons = screen.getAllByRole('button')
+      const testButton = buttons.find((btn) => btn.querySelector('.lucide-external-link'))
+      expect(testButton).toBeTruthy()
+      expect(testButton).not.toBeDisabled()
+
+      const user = userEvent.setup()
+      await user.click(testButton!)
+
+      await waitFor(() => {
+        expect(settingsApi.testPublicURL).toHaveBeenCalledWith('https://example.com')
+      })
+    })
+
+    it('disables test button when URL is empty', async () => {
+      vi.mocked(settingsApi.getSettings).mockResolvedValue({
+        'app.public_url': '',
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        const input = screen.getByPlaceholderText('https://charon.example.com') as HTMLInputElement
+        expect(input.value).toBe('')
+      })
+
+      const buttons = screen.getAllByRole('button')
+      const testButton = buttons.find((btn) => btn.querySelector('.lucide-external-link'))
+      expect(testButton).toBeDisabled()
+    })
+
+    it('handles validation API error gracefully', async () => {
+      renderWithProviders(<SystemSettings />)
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://charon.example.com')).toBeTruthy()
+      })
+
+      const user = userEvent.setup()
+      const input = screen.getByPlaceholderText('https://charon.example.com')
+
+      vi.mocked(client.post).mockRejectedValue(new Error('Network error'))
+
+      await user.clear(input)
+      await user.type(input, 'https://example.com')
+
+      await waitFor(() => {
+        const xIcon = document.querySelector('.text-red-500')
+        expect(xIcon).toBeTruthy()
+      }, { timeout: 1000 })
     })
   })
 })
