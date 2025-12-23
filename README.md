@@ -38,6 +38,16 @@ You want your apps accessible online. You don't want to become a networking expe
 
 ---
 
+## Cerberus Security Suite
+
+**CrowdSec Integration** — Protects your applications from attacks using behavior-based detection and automated remediation.
+**Access Control Lists (ACLs)** — Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+**WAF** — Web Application Firewall (Coraza) protects your applications from common web vulnerabilities such as SQL injection, XSS, and more.
+**Rate Limiting** — Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
+
+---
+
+
 ## ✨ Top 10 Features
 
 ### 🎯 **Point & Click Management**
@@ -156,28 +166,6 @@ docker restart charon
 This ensures security features (especially CrowdSec) work correctly.
 
 **Important:** If you had CrowdSec enabled before the upgrade, it will **automatically restart** after migration. You don't need to manually re-enable it via the GUI. See [Migration Guide](https://wikid82.github.io/charon/migration-guide) for details.
-
----
-
-## Security Features
-
-### SSRF Protection
-
-Charon implements comprehensive Server-Side Request Forgery (SSRF) protection for all user-controlled URLs:
-
-- ✅ **Private IP Blocking**: Prevents access to RFC 1918 private networks
-- ✅ **Cloud Metadata Protection**: Blocks AWS, GCP, Azure metadata endpoints
-- ✅ **Protocol Restrictions**: Only allows HTTP/HTTPS schemes
-- ✅ **DNS Validation**: Resolves and validates all IPs before requests
-- ✅ **Defense in Depth**: Multiple validation layers for maximum security
-
-**Protected Features:**
-- Security notification webhooks
-- Custom webhook notifications
-- CrowdSec hub synchronization
-- External URL connectivity testing
-
-**Learn More:** See [docs/security/ssrf-protection.md](docs/security/ssrf-protection.md)
 
 ---
 
