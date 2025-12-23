@@ -287,7 +287,9 @@ RUN chmod +x /usr/local/bin/crowdsec /usr/local/bin/cscli 2>/dev/null || true; \
 # Create required CrowdSec directories in runtime image
 # NOTE: Do NOT create /etc/crowdsec here - it must be a symlink created at runtime by non-root user
 RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
-             /app/data/crowdsec/config /app/data/crowdsec/data
+             /app/data/crowdsec/config /app/data/crowdsec/data && \
+    chown -R charon:charon /var/lib/crowdsec /var/log/crowdsec \
+                           /app/data/crowdsec
 
 # Generate CrowdSec default configs to .dist directory
 RUN if command -v cscli >/dev/null; then \

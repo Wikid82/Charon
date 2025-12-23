@@ -5,12 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"gorm.io/gorm"
 )
+
+// reconcileLock prevents concurrent reconciliation calls.
+// This mutex is necessary because reconciliation can be triggered from multiple sources:
+// 1. Container startup (main.go calls synchronously during boot)
+// 2. Manual GUI toggle (user clicks Start/Stop in Security dashboard)
+// 3. Future auto-restart (watchdog could trigger on crash)
+// Without this mutex, race conditions could occur:
+// - Multiple goroutines starting CrowdSec simultaneously
+// - Database race conditions on SecurityConfig table
+// - Duplicate process spawning
+// - Corrupted state in executor
+var reconcileLock sync.Mutex
 
 // CrowdsecProcessManager abstracts starting/stopping/status of CrowdSec process.
 // This interface is structurally compatible with handlers.CrowdsecExecutor.
@@ -23,7 +36,29 @@ type CrowdsecProcessManager interface {
 // ReconcileCrowdSecOnStartup checks if CrowdSec should be running based on DB settings
 // and starts it if necessary. This handles container restart scenarios where the
 // user's preference was to have CrowdSec enabled.
+//
+// This function is called during container startup (before HTTP server starts) and
+// ensures CrowdSec automatically resumes if it was previously enabled. It checks both
+// the SecurityConfig table (primary source) and Settings table (fallback/legacy support).
+//
+// Mutex Protection: This function uses a global mutex to prevent concurrent execution,
+// which could occur if multiple startup routines or manual toggles happen simultaneously.
+//
+// Initialization Order:
+// 1. Container boot
+// 2. Database migrations (ensures SecurityConfig table exists)
+// 3. ReconcileCrowdSecOnStartup (this function) ← YOU ARE HERE
+// 4. HTTP server starts
+// 5. Routes registered
+//
+// Auto-start conditions (if ANY true, CrowdSec starts):
+// - SecurityConfig.crowdsec_mode == "local"
+// - Settings["security.crowdsec.enabled"] == "true"
 func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string) {
+	// Prevent concurrent reconciliation calls
+	reconcileLock.Lock()
+	defer reconcileLock.Unlock()
+
 	logger.Log().WithFields(map[string]any{
 		"bin_path": binPath,
 		"data_dir": dataDir,

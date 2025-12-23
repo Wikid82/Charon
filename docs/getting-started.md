@@ -133,10 +133,18 @@ CrowdSec will automatically start if it was previously enabled. The reconciliati
 2. **Settings table** for `security.crowdsec.enabled = "true"`
 3. **Starts CrowdSec** if either condition is true
 
+**How it works:**
+- Reconciliation happens **before** the HTTP server starts (during container boot)
+- Protected by mutex to prevent race conditions
+- Validates binary and config paths before starting
+- Verifies process is running after start (2-second health check)
+
 You'll see this in the logs:
 
 ```json
+{"level":"info","msg":"CrowdSec reconciliation: starting startup check"}
 {"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'"}
+{"level":"info","msg":"CrowdSec reconciliation: successfully started and verified CrowdSec","pid":123}
 ```
 
 **Verification:**
@@ -155,7 +163,34 @@ Expected output:
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
-**If auto-start didn't work:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart) for detailed troubleshooting steps.
+**Troubleshooting:**
+
+If CrowdSec doesn't auto-start:
+
+1. **Check reconciliation logs:**
+   ```bash
+   docker logs charon 2>&1 | grep "CrowdSec reconciliation"
+   ```
+
+2. **Verify SecurityConfig mode:**
+   ```bash
+   docker exec charon sqlite3 /app/data/charon.db \
+     "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
+   ```
+   Expected: `local`
+
+3. **Check directory permissions:**
+   ```bash
+   docker exec charon ls -la /var/lib/crowdsec/data/
+   ```
+   Expected: `charon:charon` ownership
+
+4. **Manual start:**
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
+   ```
+
+**For detailed troubleshooting:** See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md)
 
 ---
 
