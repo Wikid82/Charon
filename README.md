@@ -7,7 +7,7 @@
 <p align="center"><strong>Your websites, your rules—without the headaches.</strong></p>
 
 <p align="center">
-Turn multiple websites and apps into one simple dashboard. Click, save, done. No code, no config files, no PhD required.
+Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
 </p>
 
 <br>
