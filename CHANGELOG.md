@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validation occurs at configuration save (fail-fast) and request time (defense-in-depth)
   - See [SSRF Protection Guide](docs/security/ssrf-protection.md) for technical details
   - Pre-remediation CVSS score: 8.6 (HIGH) → Post-remediation: 0.0 (vulnerability eliminated)
+- **fix(security)**: Fixed SSRF vulnerability in URL connectivity testing with connection-time IP validation (CWE-918, PR #450)
+  - Implemented custom `ssrfSafeDialer()` with atomic DNS resolution and IP validation
+  - All resolved IPs validated before connection establishment (prevents DNS rebinding)
+  - Validates 13+ CIDR ranges including RFC 1918 private networks, cloud metadata endpoints (169.254.0.0/16), loopback, and link-local addresses
+  - HTTP client enforces 5-second timeout and max 2 redirects
+  - CodeQL Critical finding resolved - all security tests passing
 
 ### Changed
 
