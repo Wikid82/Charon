@@ -9,6 +9,42 @@ import (
 	"time"
 )
 
+// ssrfSafeDialer creates a custom dialer that validates IP addresses at connection time.
+// This prevents DNS rebinding attacks by validating the IP just before connecting.
+// Returns a DialContext function suitable for use in http.Transport.
+func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Parse host and port from address
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid address format: %w", err)
+		}
+
+		// Resolve DNS with context timeout
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("DNS resolution failed: %w", err)
+		}
+
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IP addresses found for host")
+		}
+
+		// Validate ALL resolved IPs - if any are private, reject immediately
+		for _, ip := range ips {
+			if isPrivateIP(ip.IP) {
+				return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
+			}
+		}
+
+		// Connect to the first valid IP (prevents DNS rebinding)
+		dialer := &net.Dialer{
+			Timeout: 5 * time.Second,
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	}
+}
+
 // TestURLConnectivity performs a server-side connectivity test with SSRF protection.
 // For testing purposes, an optional http.RoundTripper can be provided to bypass
 // DNS resolution and network calls.
@@ -21,6 +57,11 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false, 0, fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Validate URL scheme (only allow http/https)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false, 0, fmt.Errorf("invalid URL scheme: only http and https are allowed")
 	}
 
 	// Create HTTP client with optional custom transport
@@ -38,35 +79,17 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 			},
 		}
 	} else {
-		// Production path: SSRF protection with DNS resolution
-		host := parsed.Hostname()
-		port := parsed.Port()
-		if port == "" {
-			port = map[string]string{"https": "443", "http": "80"}[parsed.Scheme]
-		}
-
-		// DNS resolution with timeout (SSRF protection step 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return false, 0, fmt.Errorf("DNS resolution failed: %w", err)
-		}
-
-		if len(ips) == 0 {
-			return false, 0, fmt.Errorf("no IP addresses found for host")
-		}
-
-		// SSRF protection: block private/internal IPs
-		for _, ip := range ips {
-			if isPrivateIP(ip.IP) {
-				return false, 0, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
-			}
-		}
-
+		// Production path: SSRF protection with safe dialer
 		client = &http.Client{
 			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				DialContext:           ssrfSafeDialer(),
+				MaxIdleConns:          1,
+				IdleConnTimeout:       5 * time.Second,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ResponseHeaderTimeout: 5 * time.Second,
+				DisableKeepAlives:     true,
+			},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 2 {
 					return fmt.Errorf("too many redirects (max 2)")
