@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
 )
@@ -266,8 +266,12 @@ func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// TestPublicURL performs a server-side connectivity test with SSRF protection.
-// This endpoint is admin-only and validates that a URL is reachable from the server.
+// TestPublicURL performs a server-side connectivity test with comprehensive SSRF protection.
+// This endpoint implements defense-in-depth security:
+// 1. Format validation: Ensures valid HTTP/HTTPS URLs without path components
+// 2. SSRF validation: Pre-validates DNS resolution and blocks private/reserved IPs
+// 3. Runtime protection: ssrfSafeDialer validates IPs again at connection time
+// This multi-layer approach satisfies both static analysis (CodeQL) and runtime security.
 func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 	// Admin-only access check
 	role, exists := c.Get("role")
@@ -287,18 +291,29 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 		return
 	}
 
-	// Validate URL format first
-	normalized, _, err := utils.ValidateURL(req.URL)
+	// Step 1: Format validation (scheme, no paths)
+	_, _, err := utils.ValidateURL(req.URL)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Step 2: SSRF validation (breaks CodeQL taint chain)
+	// This explicitly validates against private IPs, loopback, link-local,
+	// and cloud metadata endpoints before any network connection is made.
+	validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
+	if err != nil {
+		// Return 200 OK for security blocks (maintains existing API behavior)
+		c.JSON(http.StatusOK, gin.H{
 			"reachable": false,
-			"error":     "Invalid URL format",
+			"latency":   0,
+			"error":     err.Error(),
 		})
 		return
 	}
 
-	// Perform connectivity test with SSRF protection
-	reachable, latency, err := utils.TestURLConnectivity(normalized)
+	// Step 3: Connectivity test with runtime SSRF protection
+	reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"reachable": false,
@@ -311,6 +326,5 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"reachable": reachable,
 		"latency":   latency,
-		"message":   fmt.Sprintf("URL reachable (%.0fms)", latency),
 	})
 }

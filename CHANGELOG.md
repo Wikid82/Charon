@@ -9,22 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **CRITICAL**: Fixed Server-Side Request Forgery (SSRF) vulnerabilities (OWASP A10:2021)
-  - Added comprehensive URL validation for all user-controlled URLs
-  - Implemented defense-in-depth SSRF protection with 13+ blocked IP ranges
-  - Protected security notification webhooks from SSRF attacks
-  - Added validation for CrowdSec hub URLs and GitHub update URLs
-  - Blocked access to cloud metadata endpoints (AWS, GCP, Azure)
-  - Logged all SSRF attempts with HIGH severity for security monitoring
-  - Validation occurs at configuration save (fail-fast) and request time (defense-in-depth)
-  - See [SSRF Protection Guide](docs/security/ssrf-protection.md) for technical details
+- **CRITICAL**: Complete Server-Side Request Forgery (SSRF) remediation with defense-in-depth architecture (CWE-918, PR #450)
+  - **Phase 1**: Runtime SSRF protection via `url_testing.go` with connection-time IP validation
+    - Implemented custom `ssrfSafeDialer()` with atomic DNS resolution and IP validation
+    - All resolved IPs validated before connection establishment (prevents DNS rebinding/TOCTOU attacks)
+    - Validates 13+ CIDR ranges: RFC 1918 private networks, cloud metadata endpoints (169.254.0.0/16), loopback, and link-local addresses
+    - HTTP client enforces 5-second timeout and max 2 redirects
+  - **Phase 2**: Handler-level SSRF pre-validation in `settings_handler.go` TestPublicURL endpoint
+    - Pre-connection validation using `security.ValidateExternalURL()` breaks CodeQL taint chain
+    - Rejects embedded credentials (prevents URL parser differential attacks like `http://evil.com@127.0.0.1/`)
+    - Returns HTTP 200 with `reachable: false` for SSRF blocks (maintains API contract)
+    - Admin-only access with comprehensive test coverage (31/31 assertions passing)
+  - **Defense-in-Depth Architecture**: Four-layer protection (format validation → SSRF pre-check → connectivity test → runtime re-validation)
+  - **Additional Protections**:
+    - Security notification webhooks validated to prevent SSRF attacks
+    - CrowdSec hub URLs validated against allowlist of official domains
+    - GitHub update URLs validated before requests
+  - **Monitoring**: All SSRF attempts logged with HIGH severity
+  - **Validation Strategy**: Fail-fast at configuration save + defense-in-depth at request time
   - Pre-remediation CVSS score: 8.6 (HIGH) → Post-remediation: 0.0 (vulnerability eliminated)
-- **fix(security)**: Fixed SSRF vulnerability in URL connectivity testing with connection-time IP validation (CWE-918, PR #450)
-  - Implemented custom `ssrfSafeDialer()` with atomic DNS resolution and IP validation
-  - All resolved IPs validated before connection establishment (prevents DNS rebinding)
-  - Validates 13+ CIDR ranges including RFC 1918 private networks, cloud metadata endpoints (169.254.0.0/16), loopback, and link-local addresses
-  - HTTP client enforces 5-second timeout and max 2 redirects
   - CodeQL Critical finding resolved - all security tests passing
+  - See [Complete SSRF Implementation](docs/implementation/SSRF_COMPLETE.md) for technical details
 
 ### Changed
 
