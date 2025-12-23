@@ -40,10 +40,14 @@ You want your apps accessible online. You don't want to become a networking expe
 
 ## Cerberus Security Suite
 
-**CrowdSec Integration** — Protects your applications from attacks using behavior-based detection and automated remediation.
-**Access Control Lists (ACLs)** — Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
-**WAF** — Web Application Firewall (Coraza) protects your applications from common web vulnerabilities such as SQL injection, XSS, and more.
-**Rate Limiting** — Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
+### **CrowdSec Integration**
+ Protects your applications from attacks using behavior-based detection and automated remediation.
+### **Access Control Lists (ACLs)**
+Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+### **Web Application Firewall (WAF)**
+Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+### **Rate Limiting**
+Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
 
 ---
 
