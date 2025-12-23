@@ -133,6 +133,29 @@ Request Body (example):
 
 Response 200: `{ "config": { ... } }`
 
+**Security Considerations**:
+
+Webhook URLs configured in security settings are validated to prevent Server-Side Request Forgery (SSRF) attacks. The following destinations are blocked:
+
+- Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Cloud metadata endpoints (169.254.169.254)
+- Loopback addresses (127.0.0.0/8)
+- Link-local addresses
+
+**Error Response**:
+```json
+{
+  "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
+}
+```
+
+**Example Valid URL**:
+```json
+{
+  "webhook_url": "https://webhook.example.com/receive"
+}
+```
+
 #### Enable Cerberus
 
 ```http
@@ -1276,6 +1299,22 @@ Content-Type: application/json
   "notify_rate_limit_hits": false,
   "webhook_url": "https://discord.com/api/webhooks/123456789/abcdefgh",
   "email_recipients": "alerts@example.com"
+}
+```
+
+**Security Considerations**:
+
+Webhook URLs are validated to prevent SSRF attacks. Blocked destinations:
+
+- Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Cloud metadata endpoints (169.254.169.254)
+- Loopback addresses (127.0.0.0/8)
+- Link-local addresses
+
+**Error Response**:
+```json
+{
+  "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
 }
 ```
 

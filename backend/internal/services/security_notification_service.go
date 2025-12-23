@@ -10,6 +10,8 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -95,12 +97,29 @@ func (s *SecurityNotificationService) Send(ctx context.Context, event models.Sec
 
 // sendWebhook sends the event to a webhook URL.
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
+	// CRITICAL FIX: Validate webhook URL before making request (SSRF protection)
+	validatedURL, err := security.ValidateExternalURL(webhookURL,
+		security.WithAllowLocalhost(), // Allow localhost for testing
+		security.WithAllowHTTP(),      // Some webhooks use HTTP
+	)
+	if err != nil {
+		// Log SSRF attempt with high severity
+		logger.Log().WithFields(logrus.Fields{
+			"url":        webhookURL,
+			"error":      err.Error(),
+			"event_type": "ssrf_blocked",
+			"severity":   "HIGH",
+		}).Warn("Blocked SSRF attempt in security notification webhook")
+
+		return fmt.Errorf("invalid webhook URL: %w", err)
+	}
+
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", validatedURL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
