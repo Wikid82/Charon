@@ -4,7 +4,7 @@
 
 <h1 align="center">Charon</h1>
 
-<p align="center"><strong>Your websites, your rules—without the headaches.</strong></p>
+<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
 
 <p align="center">
 Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
