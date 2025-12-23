@@ -758,6 +758,57 @@ The animations tell you what's happening so you don't think it's broken.
 **Optional:** You can disable this feature in System Settings → Optional Features if you don't need it.
 Your uptime history will be preserved.
 
+### How Uptime Checks Work
+
+Charon uses a **two-level check system** for efficient monitoring:
+
+#### Level 1: Host-Level Pre-Check (TCP)
+
+**What it does:** Quickly tests if the backend host/container is reachable via TCP connection.
+
+**How it works:**
+- Groups monitors by their backend IP address (e.g., `172.20.0.11`)
+- Attempts TCP connection to the actual backend port (e.g., port `5690` for Wizarr)
+- If successful → Proceeds to Level 2 checks
+- If failed → Marks all monitors on that host as "down" (skips Level 2)
+
+**Why it matters:** Avoids redundant HTTP checks when an entire backend container is stopped or unreachable.
+
+**Technical detail:** Uses the `forward_port` from your proxy host configuration, not the public URL port.
+This ensures correct connectivity checks for services on non-standard ports.
+
+#### Level 2: Service-Level Check (HTTP/HTTPS)
+
+**What it does:** Verifies the specific service is responding correctly via HTTP request.
+
+**How it works:**
+- Only runs if Level 1 passes
+- Performs HTTP GET to the public URL (e.g., `https://wizarr.hatfieldhosted.com`)
+- Accepts these as "up": 2xx (success), 3xx (redirect), 401 (auth required), 403 (forbidden)
+- Measures response latency
+- Records heartbeat with status
+
+**Why it matters:** Detects service-specific issues like crashes, misconfigurations, or certificate problems.
+
+**Example:** A service might be running (Level 1 passes) but return 500 errors (Level 2 catches this).
+
+### When Things Go Wrong
+
+**Scenario 1: Backend container stopped**
+- Level 1: TCP connection fails ❌
+- Level 2: Skipped
+- Status: "down" with message "Host unreachable"
+
+**Scenario 2: Service crashed but container running**
+- Level 1: TCP connection succeeds ✅
+- Level 2: HTTP request fails or returns 500 ❌
+- Status: "down" with specific HTTP error
+
+**Scenario 3: Everything working**
+- Level 1: TCP connection succeeds ✅
+- Level 2: HTTP request succeeds ✅
+- Status: "up" with latency measurement
+
 ---
 
 ## \ud83d\udccb Logs & Monitoring
