@@ -278,7 +278,7 @@ func TestValidateURL_RootPathAllowed(t *testing.T) {
 // TestValidateURL_MalformedURL verifies handling of malformed URLs
 func TestValidateURL_MalformedURL(t *testing.T) {
 	testCases := []struct {
-		url       string
+		url        string
 		shouldFail bool
 	}{
 		{"not a url", true},
@@ -312,7 +312,7 @@ func TestValidateURL_SpecialCharacters(t *testing.T) {
 		{"Punycode domain", "https://xn--e1afmkfd.xn--p1ai", true},
 		{"Port with special chars", "https://example.com:8080", true},
 		{"Query string (no path component)", "https://example.com?query=1", true}, // Query strings have empty Path
-		{"Fragment (no path component)", "https://example.com#section", true}, // Fragments have empty Path
+		{"Fragment (no path component)", "https://example.com#section", true},     // Fragments have empty Path
 		{"Userinfo", "https://user:pass@example.com", true},
 	}
 
@@ -336,10 +336,10 @@ func TestValidateURL_Normalization(t *testing.T) {
 		expected   string
 		shouldFail bool
 	}{
-		{"https://EXAMPLE.COM", "https://EXAMPLE.COM", false},  // Case preserved
-		{"https://example.com/", "https://example.com", false}, // Trailing slash removed
-		{"https://example.com///", "", true},                   // Multiple slashes = path component, should fail
-		{"http://example.com:80", "http://example.com:80", false}, // Port preserved
+		{"https://EXAMPLE.COM", "https://EXAMPLE.COM", false},         // Case preserved
+		{"https://example.com/", "https://example.com", false},        // Trailing slash removed
+		{"https://example.com///", "", true},                          // Multiple slashes = path component, should fail
+		{"http://example.com:80", "http://example.com:80", false},     // Port preserved
 		{"https://example.com:443", "https://example.com:443", false}, // Default HTTPS port preserved
 	}
 
@@ -360,11 +360,11 @@ func TestValidateURL_Normalization(t *testing.T) {
 // TestGetBaseURL verifies base URL extraction from request
 func TestGetBaseURL(t *testing.T) {
 	testCases := []struct {
-		name           string
-		host           string
-		hasTLS         bool
+		name            string
+		host            string
+		hasTLS          bool
 		xForwardedProto string
-		expected       string
+		expected        string
 	}{
 		{
 			name:     "HTTPS with TLS",

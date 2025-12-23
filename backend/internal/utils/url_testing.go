@@ -130,8 +130,8 @@ func isPrivateIP(ip net.IP) bool {
 		"127.0.0.0/8",
 
 		// IPv4 Reserved ranges
-		"0.0.0.0/8",      // "This network"
-		"240.0.0.0/4",    // Reserved for future use
+		"0.0.0.0/8",          // "This network"
+		"240.0.0.0/4",        // Reserved for future use
 		"255.255.255.255/32", // Broadcast
 
 		// IPv6 Loopback
