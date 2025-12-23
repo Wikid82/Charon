@@ -358,9 +358,13 @@ func (s *UptimeService) checkAllHosts() {
 func (s *UptimeService) checkHost(host *models.UptimeHost) {
 	start := time.Now()
 
+	logger.Log().WithField("host_name", host.Name).WithField("host_ip", host.Host).Info("Starting TCP check for host")
+
 	// Get common ports for this host from its monitors
 	var monitors []models.UptimeMonitor
-	s.DB.Where("uptime_host_id = ?", host.ID).Find(&monitors)
+	s.DB.Preload("ProxyHost").Where("uptime_host_id = ?", host.ID).Find(&monitors)
+
+	logger.Log().WithField("host_name", host.Name).WithField("monitor_count", len(monitors)).Info("Retrieved monitors for host")
 
 	if len(monitors) == 0 {
 		return
@@ -371,10 +375,29 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 	var msg string
 
 	for _, monitor := range monitors {
-		port := extractPort(monitor.URL)
+		var port string
+
+		// Use actual backend port from ProxyHost if available
+		if monitor.ProxyHost != nil {
+			port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
+		} else {
+			// Fallback to extracting from URL for standalone monitors
+			port = extractPort(monitor.URL)
+		}
+
 		if port == "" {
 			continue
 		}
+
+		// Debug logging for port resolution
+		logger.Log().WithFields(map[string]any{
+			"monitor":        monitor.Name,
+			"extracted_port": extractPort(monitor.URL),
+			"actual_port":    port,
+			"host":           host.Host,
+			"proxy_host_nil": monitor.ProxyHost == nil,
+			"proxy_host_id":  monitor.ProxyHostID,
+		}).Info("TCP check port resolution")
 
 		// Use net.JoinHostPort for IPv6 compatibility
 		addr := net.JoinHostPort(host.Host, port)
