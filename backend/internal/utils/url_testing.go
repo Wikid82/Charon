@@ -10,56 +10,74 @@ import (
 )
 
 // TestURLConnectivity performs a server-side connectivity test with SSRF protection.
+// For testing purposes, an optional http.RoundTripper can be provided to bypass
+// DNS resolution and network calls.
 // Returns:
 // - reachable: true if URL returned 2xx-3xx status
 // - latency: round-trip time in milliseconds
 // - error: validation or connectivity error
-func TestURLConnectivity(rawURL string) (bool, float64, error) {
+func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
 	// Parse URL
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return false, 0, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	// Extract host and port
-	host := parsed.Hostname()
-	port := parsed.Port()
-	if port == "" {
-		port = map[string]string{"https": "443", "http": "80"}[parsed.Scheme]
-	}
+	// Create HTTP client with optional custom transport
+	var client *http.Client
+	if len(transport) > 0 && transport[0] != nil {
+		// Use provided transport (for testing)
+		client = &http.Client{
+			Timeout:   5 * time.Second,
+			Transport: transport[0],
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 2 {
+					return fmt.Errorf("too many redirects (max 2)")
+				}
+				return nil
+			},
+		}
+	} else {
+		// Production path: SSRF protection with DNS resolution
+		host := parsed.Hostname()
+		port := parsed.Port()
+		if port == "" {
+			port = map[string]string{"https": "443", "http": "80"}[parsed.Scheme]
+		}
 
-	// DNS resolution with timeout (SSRF protection step 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+		// DNS resolution with timeout (SSRF protection step 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
 
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return false, 0, fmt.Errorf("DNS resolution failed: %w", err)
-	}
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return false, 0, fmt.Errorf("DNS resolution failed: %w", err)
+		}
 
-	if len(ips) == 0 {
-		return false, 0, fmt.Errorf("no IP addresses found for host")
-	}
+		if len(ips) == 0 {
+			return false, 0, fmt.Errorf("no IP addresses found for host")
+		}
 
-	// SSRF protection: block private/internal IPs
-	for _, ip := range ips {
-		if isPrivateIP(ip.IP) {
-			return false, 0, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
+		// SSRF protection: block private/internal IPs
+		for _, ip := range ips {
+			if isPrivateIP(ip.IP) {
+				return false, 0, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
+			}
+		}
+
+		client = &http.Client{
+			Timeout: 5 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 2 {
+					return fmt.Errorf("too many redirects (max 2)")
+				}
+				return nil
+			},
 		}
 	}
 
 	// Perform HTTP HEAD request with strict timeout
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Limit redirects to 2 maximum
-			if len(via) >= 2 {
-				return fmt.Errorf("too many redirects (max 2)")
-			}
-			return nil
-		},
-	}
-
+	ctx := context.Background()
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
 	if err != nil {
