@@ -27,7 +27,8 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	defer server.Close()
 
 	us := NewUpdateService()
-	us.SetAPIURL(server.URL + "/releases/latest")
+	err := us.SetAPIURL(server.URL + "/releases/latest")
+	assert.NoError(t, err)
 	// us.currentVersion is private, so we can't set it directly in test unless we export it or add a setter.
 	// However, NewUpdateService sets it from version.Version.
 	// We can temporarily change version.Version if it's a var, but it's likely a const or var in another package.

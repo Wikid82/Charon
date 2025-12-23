@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
@@ -42,6 +44,21 @@ func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	if config.MinLogLevel != "" && !validLevels[config.MinLogLevel] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid min_log_level. Must be one of: debug, info, warn, error"})
 		return
+	}
+
+	// CRITICAL FIX: Validate webhook URL immediately (fail-fast principle)
+	// This prevents invalid/malicious URLs from being saved to the database
+	if config.WebhookURL != "" {
+		if _, err := security.ValidateExternalURL(config.WebhookURL,
+			security.WithAllowLocalhost(),
+			security.WithAllowHTTP(),
+		); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Invalid webhook URL: %v", err),
+				"help":  "URL must be publicly accessible and cannot point to private networks or cloud metadata endpoints",
+			})
+			return
+		}
 	}
 
 	if err := h.service.UpdateSettings(&config); err != nil {

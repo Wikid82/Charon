@@ -2,7 +2,9 @@ package services
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	neturl "net/url"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -39,8 +41,55 @@ func NewUpdateService() *UpdateService {
 }
 
 // SetAPIURL sets the GitHub API URL for testing.
-func (s *UpdateService) SetAPIURL(url string) {
+// CRITICAL FIX: Added validation to prevent SSRF if this becomes user-exposed.
+// This function returns an error if the URL is invalid or not a GitHub domain.
+//
+// Note: For testing purposes, this accepts HTTP URLs (for httptest.Server).
+// In production, only HTTPS GitHub URLs should be used.
+func (s *UpdateService) SetAPIURL(url string) error {
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		return fmt.Errorf("invalid API URL: %w", err)
+	}
+
+	// Only allow HTTP/HTTPS
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return fmt.Errorf("API URL must use HTTP or HTTPS")
+	}
+
+	// For test servers (127.0.0.1 or localhost), allow any URL
+	// This is safe because test servers are never exposed to user input
+	host := parsed.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		s.apiURL = url
+		return nil
+	}
+
+	// For production, only allow GitHub domains
+	allowedHosts := []string{
+		"api.github.com",
+		"github.com",
+	}
+
+	hostAllowed := false
+	for _, allowed := range allowedHosts {
+		if parsed.Host == allowed {
+			hostAllowed = true
+			break
+		}
+	}
+
+	if !hostAllowed {
+		return fmt.Errorf("API URL must be a GitHub domain (api.github.com or github.com) or localhost for testing, got: %s", parsed.Host)
+	}
+
+	// Enforce HTTPS for production GitHub URLs
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("GitHub API URL must use HTTPS")
+	}
+
 	s.apiURL = url
+	return nil
 }
 
 // SetCurrentVersion sets the current version for testing.

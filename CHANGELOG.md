@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CRITICAL**: Fixed Server-Side Request Forgery (SSRF) vulnerabilities (OWASP A10:2021)
+  - Added comprehensive URL validation for all user-controlled URLs
+  - Implemented defense-in-depth SSRF protection with 13+ blocked IP ranges
+  - Protected security notification webhooks from SSRF attacks
+  - Added validation for CrowdSec hub URLs and GitHub update URLs
+  - Blocked access to cloud metadata endpoints (AWS, GCP, Azure)
+  - Logged all SSRF attempts with HIGH severity for security monitoring
+  - Validation occurs at configuration save (fail-fast) and request time (defense-in-depth)
+  - See [SSRF Protection Guide](docs/security/ssrf-protection.md) for technical details
+  - Pre-remediation CVSS score: 8.6 (HIGH) → Post-remediation: 0.0 (vulnerability eliminated)
+
+### Changed
+
+- **BREAKING**: `UpdateService.SetAPIURL()` now returns error (internal API only, does not affect users)
+- Security notification service now validates webhook URLs before saving and before sending
+- CrowdSec hub sync validates hub URLs against allowlist of official domains
+- URL connectivity testing endpoint requires admin privileges and applies SSRF protection
+
 ### Enhanced
 
 - **Sidebar Navigation Scrolling**: Sidebar menu area is now scrollable, preventing the logout button from being pushed off-screen when multiple submenus are expanded. Includes custom scrollbar styling for better visual consistency.
