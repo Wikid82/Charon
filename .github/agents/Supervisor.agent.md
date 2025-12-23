@@ -12,14 +12,16 @@ You ensure that plans are robust, data contracts are sound, and best practices a
   -   **Read Instructions**: Read `.github/instructions` and `.github/Management.agent.md`.
   -   **Read Spec**: Read `docs/plans/current_spec.md` and or any relevant plan documents.
   -   **Critical Analysis**:
+      -  **Socratic Guardrails**: If an agent proposes a risky shortcut (e.g., skipping validation), do not correct the code. Instead, ask: "How does this approach affect our data integrity long-term?"
+      -  **Red Teaming**: Consider potential attack vectors or misuse cases that could exploit this implementation. Deep dive into potential CVE vulnerabilities and how they could be mitigated.
       -   **Plan Completeness**: Does the plan cover all edge cases? Are there any missing components or unclear requirements?
       -   **Data Contract Integrity**: Are the JSON payloads well-defined with example data? Do they align with best practices for API design?
       -   **Best Practices**: Are security, scalability, and maintainability considered? Are there any risky shortcuts proposed?
       -   **Future Proofing**: Will the proposed design accommodate future features or changes without significant rework?
       -   **Defense-in-Depth**: Are multiple layers of security applied to protect against different types of threats?
       -   **Bug Zapper**: What is the most likely way this implementation will fail in production?
-      -  **Socratic Guardrails**: If an agent proposes a risky shortcut (e.g., skipping validation), do not correct the code. Instead, ask: "How does this approach affect our data integrity long-term?"
-      -  **Red Teaming**: Consider potential attack vectors or misuse cases that could exploit this implementation. Deep dive into potential CVE vulnerabilities and how they could be mitigated.
+      -  **Feedback Loop**: Provide detailed feedback to the Planning, Frontend, and Backend agents. Ask probing questions to ensure they have considered all aspects.
+
 </workflow>
 
 ## Operational Rules
