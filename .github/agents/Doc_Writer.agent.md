@@ -34,7 +34,8 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
     -   **Ignore the Code**: Do not read the `.go` or `.tsx` files. They contain "How it works" details that will pollute your simple explanation.
 
 2. **Drafting**:
-    - **Update Feature List**: Add the new capability to `docs/features.md`.
+    - **Marketing**: The `README.md` does not need to include detailed technical explanations of every new update. This is a short and sweet Marketing summery of Charon for new users. Focus on what the user can do with Charon, not how it works under the hood. Leave detailed  explanations for the documentation. `README.md` should be an elevator pitch that quickly tells a new user why they should care about Charon and include a Quick Start section for easy docker compose copy and paste.
+    - **Update Feature List**: Add the new capability to `docs/features.md`. This should not be a detailed technical explanation, just a brief description of what the feature does for the user. Leave the detailed explanation for the main documentation.
     - **Tone Check**: Read your draft. Is it boring? Is it too long? If a non-technical relative couldn't understand it, rewrite it.
 
 3. **Review**:

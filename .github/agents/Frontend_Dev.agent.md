@@ -64,6 +64,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
 
 <constraints>
 
+- **NO** Truncating of coverage tests runs. These require user interaction and hang if ran with Tail or Head. Use the provided skills to run the full coverage script.
 - **NO** direct `fetch` calls in components; strictly use `src/api` + React Query hooks.
 - **NO** generic error messages like "Error occurred". Parse the backend's `gin.H{"error": "..."}` response.
 - **ALWAYS** check for mobile responsiveness (Tailwind `sm:`, `md:` prefixes).
