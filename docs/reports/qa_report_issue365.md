@@ -126,22 +126,48 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 
 ### 1.5 ✅ Container Hardening Documentation
 
-**Status**: ✅ **VERIFIED - PRODUCTION-READY CONFIGURATION**
+**Status**: ✅ **VERIFIED - PRODUCTION-READY CONFIGURATION** *(Updated 2025-12-23)*
 
 **Evidence Found**:
 - **File**: [docs/security.md#L681](../security.md#L681) - "Container Hardening" section
-- **Lines**: ~36 lines of container security configuration
+- **Research Plan**: [docs/plans/container-hardening-fix.md](../plans/container-hardening-fix.md) - Code analysis research
+- **Lines**: ~200 lines of comprehensive container security configuration
 
 **Content Verification**:
-- ✅ Read-only root filesystem configuration
+- ✅ Read-only root filesystem configuration (`read_only: true`)
 - ✅ Capability dropping (cap_drop: ALL, cap_add: NET_BIND_SERVICE)
-- ✅ tmpfs mounts for writable directories
+- ✅ Complete tmpfs mount configuration:
+  - `/tmp` (100M) - CrowdSec hub operations
+  - `/var/log/caddy` (100M) - Access logs
+  - `/var/log/crowdsec` (100M) - CrowdSec logs
+  - `/config` (10M) - Runtime Caddy configuration
+  - `/var/lib/crowdsec` (50M) - CrowdSec runtime data
+  - `/run` (10M) - Runtime state files
+- ✅ Persistent data volume (`charon_data:/app/data`) with explanation of contents:
+  - Database (`charon.db`)
+  - Backups directory
+  - Caddy certificates
+  - Import directory
+  - CrowdSec config and data
+  - GeoIP database
 - ✅ no-new-privileges security option
-- ✅ Complete docker-compose.yml example
+- ✅ Complete working docker-compose.yml example
+- ✅ Removed unused `caddy_data` volume with explanation
+- ✅ Validation checklist with verification commands
+- ✅ Troubleshooting guide for common issues
+- ✅ Security vs functionality trade-off guidance
 
-**Verification Method**: Documentation review
+**Research Validation**:
+The configuration is based on comprehensive code analysis that identified all write locations:
+- Database path: `backend/internal/config/config.go:44`
+- Backup service: `backend/internal/services/backup_service.go:35`
+- Caddy config: `backend/internal/caddy/config.go:18`
+- CrowdSec setup: `.docker/docker-entrypoint.sh:96-206`
+- Original volume mounts: `.docker/compose/docker-compose.yml:30-36`
 
-**Result**: ✅ **PASS** - Production-ready container hardening configuration
+**Verification Method**: Documentation review + research plan validation
+
+**Result**: ✅ **PASS** - Production-ready container hardening configuration with comprehensive explanation and validation steps
 
 ---
 

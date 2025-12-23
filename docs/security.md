@@ -682,34 +682,228 @@ Then restart: `sudo systemctl restart systemd-resolved`
 
 ### Running Charon with Maximum Security
 
-For production deployments, apply these Docker security configurations:
+Charon supports a fully hardened container configuration with a read-only root filesystem. This section explains the correct configuration based on research of where Charon writes data at runtime.
+
+#### Understanding Charon's Data Storage
+
+Charon uses two types of storage:
+
+1. **Persistent Data** (`/app/data` volume) - Data that must survive container restarts:
+   - **Database**: `/app/data/charon.db` - SQLite database with WAL mode
+   - **Backups**: `/app/data/backups/` - Daily automated backups (3 AM cron job)
+   - **Caddy Certificates**: `/app/data/caddy/` - TLS certificates from Let's Encrypt, ZeroSSL, or custom CAs
+   - **Import Directory**: `/app/data/imports/` - Uploaded Caddyfile configurations
+   - **CrowdSec Data**: `/app/data/crowdsec/` - CrowdSec configuration, database, and hub cache
+   - **GeoIP Database**: `/app/data/geoip/GeoLite2-Country.mmdb` - Pre-populated at build time (read-only at runtime)
+
+2. **Ephemeral Data** (tmpfs mounts) - Temporary data that doesn't need persistence:
+   - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec
+   - **CrowdSec Logs**: `/var/log/crowdsec/` - Agent and LAPI logs
+   - **Runtime Config**: `/config/` - Dynamically generated Caddy JSON configuration
+   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - CrowdSec agent runtime data
+   - **Temporary Files**: `/tmp/` - Used by CrowdSec hub operations
+   - **Runtime State**: `/run/` - PIDs and runtime state files
+
+#### Complete Hardened Configuration
 
 ```yaml
 services:
   charon:
     image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+
+    # Security: Read-only root filesystem
     read_only: true
-    tmpfs:
-      - /tmp:size=100M
-      - /config:size=50M
-      - /data/logs:size=100M
+
+    # Drop all capabilities except NET_BIND_SERVICE (for ports 80/443)
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+
+    # Prevent privilege escalation
     security_opt:
       - no-new-privileges:true
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+
+    environment:
+      - CHARON_ENV=production
+      - TZ=UTC
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     volumes:
-      - ./data:/data
+      # Persistent data (database, certificates, backups, CrowdSec config)
+      - charon_data:/app/data
+
+      # Ephemeral tmpfs mounts for writable directories
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+          mode: 1777  # Sticky bit for multi-user temp directory
+
+      - type: tmpfs
+        target: /var/log/caddy
+        tmpfs:
+          size: 100M
+          mode: 0755
+
+      - type: tmpfs
+        target: /var/log/crowdsec
+        tmpfs:
+          size: 100M
+          mode: 0755
+
+      - type: tmpfs
+        target: /config
+        tmpfs:
+          size: 10M
+          mode: 0755
+
+      - type: tmpfs
+        target: /var/lib/crowdsec
+        tmpfs:
+          size: 50M
+          mode: 0755
+
+      - type: tmpfs
+        target: /run
+        tmpfs:
+          size: 10M
+          mode: 0755
+
+      # Docker socket for container discovery (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Optional: Import existing Caddyfile (read-only)
+      # - ./my-existing-Caddyfile:/import/Caddyfile:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  charon_data:
+    driver: local
 ```
 
-**Security Options Explained:**
+#### Security Features Explained
 
-- `read_only: true` — Prevents filesystem modifications (defense against malware)
-- `cap_drop: ALL` — Removes all Linux capabilities
-- `cap_add: NET_BIND_SERVICE` — Only allows binding to ports (required for reverse proxy)
-- `no-new-privileges` — Prevents privilege escalation attacks
-- `tmpfs` mounts — Provides writable directories for logs and temp files without persistent storage
+**Read-Only Root Filesystem:**
+- `read_only: true` prevents unauthorized file modifications
+- Blocks malware from persisting on the container filesystem
+- Requires explicit tmpfs mounts for directories that need write access
+
+**Capability Dropping:**
+- `cap_drop: ALL` removes all Linux capabilities
+- `cap_add: NET_BIND_SERVICE` only allows binding to privileged ports 80/443
+- Follows the principle of least privilege
+
+**No Privilege Escalation:**
+- `no-new-privileges:true` prevents processes from gaining additional privileges
+- Protects against setuid binary exploits and capability escalation
+
+**Tmpfs Mounts:**
+- Ephemeral storage that exists only in memory
+- Automatically cleared on container restart
+- Prevents logs and temporary files from filling disk space
+- Size limits prevent memory exhaustion attacks
+
+#### What About the `caddy_data` Volume?
+
+If you're migrating from older documentation, you may notice the `caddy_data:/data` volume has been removed. This volume was never used by Charon. Here's why:
+
+- **Caddy in standalone mode** uses `/data` for certificates
+- **Charon configures Caddy** to use `/app/data/caddy/` instead
+- The `caddy_data` volume was redundant and has been removed
+
+#### Validation Checklist
+
+Before deploying this configuration, validate that all features work correctly:
+
+- [ ] Charon starts successfully with `read_only: true`
+- [ ] Database operations work (create/read/update/delete proxy hosts)
+- [ ] Caddy can obtain and renew TLS certificates
+- [ ] Backups are created successfully (check `/app/data/backups/`)
+- [ ] CrowdSec can start and update hub items (if enabled)
+- [ ] Log files are written to `/var/log/caddy/access.log`
+- [ ] Container discovery works with Docker socket
+- [ ] Import directory accepts uploaded Caddyfiles
+- [ ] No "read-only filesystem" errors in logs
+
+**Quick Validation Commands:**
+
+```bash
+# Check startup logs
+docker logs charon
+
+# Verify database is writable
+docker exec charon ls -la /app/data/charon.db
+
+# Verify tmpfs mounts are correct
+docker inspect charon | grep -A 10 Tmpfs
+
+# Verify read-only root filesystem
+docker inspect charon | grep '"ReadonlyRootfs": true'
+
+# Test certificate directory is writable
+docker exec charon touch /app/data/caddy/test.txt && docker exec charon rm /app/data/caddy/test.txt
+
+# Verify logs are being written
+docker exec charon ls -la /var/log/caddy/
+
+# Check filesystem permissions
+docker exec charon ls -la /app/data
+```
+
+#### Troubleshooting
+
+**"read-only filesystem" errors:**
+- Verify all tmpfs mounts are configured correctly
+- Check that `/app/data` is mounted as a volume (not tmpfs)
+- Ensure tmpfs sizes are adequate for your log volume
+
+**CrowdSec fails to start:**
+- Verify `/var/lib/crowdsec` tmpfs mount exists
+- Check `/app/data/crowdsec` volume is writable
+- Ensure symlink `/etc/crowdsec -> /app/data/crowdsec/config` is preserved
+
+**Certificates not persisting:**
+- Verify `charon_data` volume is mounted at `/app/data`
+- Check that `CHARON_CADDY_CONFIG_DIR=/app/data/caddy` is set
+- Ensure `/app/data/caddy` directory exists in the volume
+
+**Security vs Functionality Trade-off:**
+
+If you encounter issues with the hardened configuration, you can gradually relax security settings:
+
+1. **Start with** `read_only: true` + all tmpfs mounts (recommended)
+2. **If issues occur**, temporarily remove `read_only: true` to isolate the problem
+3. **Identify the directory** that needs write access
+4. **Add a tmpfs mount** for that directory (if ephemeral) or bind mount (if persistent)
+5. **Re-enable** `read_only: true` once all write locations are properly mounted
+
+⚠️ **Warning:** Do not skip tmpfs mounts and just remove `read_only: true`. This defeats the purpose of container hardening
 
 ---
 
