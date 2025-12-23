@@ -13,14 +13,13 @@ Turn multiple websites and apps into one simple dashboard. Click, save, done. No
 <br>
 
 <p align="center">
-
   <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
   <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
   <a href="https://codecov.io/gh/Wikid82/Charon" >
- <img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/>
- </a>
- [![Trivy](https://github.com/Wikid82/Charon/actions/workflows/docker-build.yml/badge.svg?event=push)](https://github.com/Wikid82/Charon/actions/workflows/docker-build.yml)
+  [![Trivy](https://github.com/Wikid82/Charon/actions/workflows/docker-build.yml/badge.svg?event=push)](https://github.com/Wikid82/Charon/actions/workflows/docker-build.yml)
  [![CodeQL](https://github.com/Wikid82/Charon/actions/workflows/codeql.yml/badge.svg?branch=main&event=schedule)](https://github.com/Wikid82/Charon/actions/workflows/codeql.yml)
+ <br>
+ <img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
