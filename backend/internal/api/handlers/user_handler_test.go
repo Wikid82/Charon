@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1321,6 +1322,126 @@ func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
 	db.Preload("PermittedHosts").Where("email = ?", "invitee-perms@example.com").First(&user)
 	assert.Len(t, user.PermittedHosts, 1)
 	assert.Equal(t, models.PermissionModeDenyAll, user.PermissionMode)
+}
+
+func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-smtp@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	// Configure SMTP settings to trigger email code path and getAppName call
+	smtpSettings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app_name", Value: "TestApp", Type: "string", Category: "app"},
+	}
+	for _, setting := range smtpSettings {
+		db.Create(&setting)
+	}
+
+	// Reinitialize mail service to pick up new settings
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-test@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created
+	var user models.User
+	db.Where("email = ?", "smtp-test@example.com").First(&user)
+	assert.Equal(t, "pending", user.InviteStatus)
+	assert.False(t, user.Enabled)
+
+	// Note: email_sent will be false because we can't actually send email in tests,
+	// but the code path through IsConfigured() and getAppName() is still executed
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
+}
+
+func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-smtp-default@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	// Configure SMTP settings WITHOUT app_name to trigger default "Charon" path
+	smtpSettings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		// Intentionally NOT setting app_name to test default path
+	}
+	for _, setting := range smtpSettings {
+		db.Create(&setting)
+	}
+
+	// Reinitialize mail service to pick up new settings
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-test-default@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created
+	var user models.User
+	db.Where("email = ?", "smtp-test-default@example.com").First(&user)
+	assert.Equal(t, "pending", user.InviteStatus)
+	assert.False(t, user.Enabled)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
 }
 
 // Note: TestGetBaseURL and TestGetAppName have been removed as these internal helper
