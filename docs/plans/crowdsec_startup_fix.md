@@ -1,398 +1,316 @@
 # CrowdSec Startup Fix Plan
 
 **Date:** 2025-12-22
-**Status:** Draft
-**Priority:** High
+**Updated:** 2025-12-23 (Post-Implementation Investigation)
+**Status:** FAILED - Requires Additional Fixes
+**Priority:** CRITICAL
 
-## Executive Summary
+## Current State (2025-12-23 Investigation)
 
-CrowdSec is not starting automatically when the container starts. Manual start attempts via the GUI succeed in launching the CrowdSec process, but it immediately fails because the LAPI (Local API) cannot bind to port 8085. The error logs show the Caddy CrowdSec bouncer continuously retrying to connect to LAPI on 127.0.0.1:8085, but getting "connection refused" errors.
+**CrowdSec is NOT starting due to PERMISSION ERRORS.** The initial fix was implemented but did NOT address the actual root causes.
 
-## Root Cause Analysis
+### Actual Error Messages from Container Logs
 
-### 1. **ReconcileCrowdSecOnStartup Not Called**
+```
+Failed to write to log, can't open new logfile: open /var/log/crowdsec.log: permission denied
 
-**Finding:** The `ReconcileCrowdSecOnStartup` function exists in [backend/internal/services/crowdsec_startup.go](backend/internal/services/crowdsec_startup.go) but is called in [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go) as a goroutine **AFTER** route registration completes. This means:
-- The function is never called during container startup phase (before HTTP server starts)
-- It only executes after the HTTP server is running
-- There's no coordination with the entrypoint script's initialization phase
+FATAL unable to create database client: unable to set perms on /var/lib/crowdsec/data/crowdsec.db: chmod /var/lib/crowdsec/data/crowdsec.db: operation not permitted
 
-**Evidence:**
-```go
-// From routes.go line ~466
-// Reconcile CrowdSec state on startup (handles container restarts)
-go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+{"level":"warning","msg":"CrowdSec started but LAPI not ready within timeout","pid":316,"time":"2025-12-22T21:04:00-05:00"}
 ```
 
-This goroutine starts AFTER the routes are registered, which happens AFTER the main database migrations and all other initialization. The entrypoint script comments explicitly state:
+### File Ownership Issues (VERIFIED)
 
 ```bash
-# From .docker/docker-entrypoint.sh line 66
-# Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.
+# Database file owned by root - CrowdSec can't chmod it
+$ stat -c '%U:%G %n' /var/lib/crowdsec/data/crowdsec.db
+root:root /var/lib/crowdsec/data/crowdsec.db
+
+# Config files owned by root - created by entrypoint running as root
+$ stat -c '%U:%G %n' /app/data/crowdsec/config/config.yaml /app/data/crowdsec/config/user.yaml
+root:root /app/data/crowdsec/config/config.yaml
+root:root /app/data/crowdsec/config/user.yaml
 ```
 
-### 2. **CrowdSec Process Starts But LAPI Fails to Bind**
+### CrowdSec Config Problem (CRITICAL)
 
-**Finding:** When CrowdSec is manually started via `/api/v1/admin/crowdsec/start`, the process launches successfully (PID is returned, process appears in process list), but the LAPI server component fails to start.
-
-**Evidence from logs:**
-```
-{"level":"error","ts":1766442959.4174962,"logger":"crowdsec","msg":"failed to connect to LAPI, retrying in 10s: Get \"http://127.0.0.1:8085/v1/decisions/stream?startup=true\": dial tcp 127.0.0.1:8085: connect: connection refused"}
-```
-
-The Caddy bouncer (which runs as part of Caddy) is trying to connect to the CrowdSec LAPI on port 8085 but repeatedly fails with "connection refused". This indicates the LAPI listener never binds to the port.
-
-### 3. **Permission Issues with CrowdSec Data Directory**
-
-**Finding:** The CrowdSec data directory `/var/lib/crowdsec/data/` is owned by `root:root` but the application runs as user `charon` (UID 1000).
-
-**Evidence:**
-```bash
-$ docker compose -f docker-compose.test.yml exec charon ls -la /var/lib/crowdsec/data/
-total 192
-drwxr-xr-x    1 charon   charon        4096 Dec 22 17:38 .
-drwxr-xr-x    1 charon   charon        4096 Dec 22 17:18 ..
--rw-r-----    1 root     root        131072 Dec 22 17:38 crowdsec.db
--rw-r-----    1 root     root         32768 Dec 22 17:38 crowdsec.db-shm
--rw-r-----    1 root     root         12392 Dec 22 17:38 crowdsec.db-wal
-```
-
-The database files are owned by `root` with `rw-r-----` (640) permissions. When the CrowdSec process is started by the `charon` user via `exec.Command`, it cannot write to these files or bind to the LAPI socket.
-
-### 4. **Process Group Detachment Issue**
-
-**Finding:** In [backend/internal/api/handlers/crowdsec_exec.go](backend/internal/api/handlers/crowdsec_exec.go), the `Start` method uses `Setpgid: true` to detach the CrowdSec process from the parent process group:
-
-```go
-cmd.SysProcAttr = &syscall.SysProcAttr{
-    Setpgid: true, // Create new process group
-}
-```
-
-However, this doesn't address the issue that CrowdSec needs to run with elevated privileges to bind to ports and access system resources. The `charon` user cannot start CrowdSec with the necessary permissions.
-
-### 5. **Config File Path Mismatch**
-
-**Finding:** The entrypoint script creates a symlink from `/etc/crowdsec` → `/app/data/crowdsec/config`, but the CrowdSec binary is started with `-c /app/data/crowdsec/config/config.yaml`. The config file references `/etc/crowdsec` paths:
+The `config.yaml` has `log_dir: /var/log/` (wrong path):
 
 ```yaml
-# From /app/data/crowdsec/config/config.yaml
-config_paths:
-  config_dir: /etc/crowdsec/
-  data_dir: /var/lib/crowdsec/data/
-  # ... other paths under /etc/crowdsec
+common:
+  log_dir: /var/log/          # <-- WRONG: Should be /var/log/crowdsec/
+  log_media: file
 ```
 
-When CrowdSec starts, it follows the symlink correctly, but there's no validation that the symlink is intact or that the paths are accessible by the `charon` user.
+CrowdSec is trying to write to `/var/log/crowdsec.log` but `/var/log/` is owned by root. The correct path should be `/var/log/crowdsec/` which is owned by charon.
 
-## Impact Assessment
+## Root Cause Analysis (UPDATED)
 
-- **Critical:** CrowdSec does not start automatically on container startup
-- **High:** Manual start via GUI times out after 30 seconds (HTTP handler timeout)
-- **Medium:** LAPI is unavailable, so Caddy bouncer cannot function
-- **Medium:** Security features (ban decisions, threat detection) are non-functional
-- **Low:** Error logs spam the container logs every 10 seconds
+### 1. **Entrypoint Script Runs CrowdSec Commands as Root**
 
-## Proposed Solution
+**Finding:** The entrypoint script runs `cscli machines add -a --force` and `envsubst` on config files **while still running as root**. These operations:
+- Create `/var/lib/crowdsec/data/crowdsec.db` owned by root
+- Overwrite `config.yaml` and `user.yaml` with root ownership
 
-### Phase 1: Fix Reconciliation Timing (Immediate)
+**Evidence from entrypoint:**
+```bash
+# These run as root BEFORE `su-exec charon` is used
+cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
+envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+```
 
-**Goal:** Ensure `ReconcileCrowdSecOnStartup` is called DURING the entrypoint script phase, not after HTTP server startup.
+### 2. **CrowdSec Log Path Configuration Error**
 
-**Changes Required:**
+**Finding:** The distributed `config.yaml` has `log_dir: /var/log/` instead of `log_dir: /var/log/crowdsec/`.
 
-1. **Move reconciliation to entrypoint script**
-   - **File:** [.docker/docker-entrypoint.sh](/.docker/docker-entrypoint.sh)
-   - **Action:** Add a call to start CrowdSec directly from the entrypoint script when `SECURITY_CROWDSEC_MODE=local` is set
-   - **Location:** After line 180 (after "CrowdSec configuration initialized" message)
-   - **Logic:**
-     ```bash
-     # Check if CrowdSec should auto-start based on environment variable
-     if [ "$SECURITY_CROWDSEC_MODE" = "local" ]; then
-         echo "Starting CrowdSec in local mode..."
-         # Start as background daemon
-         /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml &
-         CROWDSEC_PID=$!
-         echo "CrowdSec started (PID: $CROWDSEC_PID)"
+**Evidence:**
+```yaml
+# Current (WRONG):
+log_dir: /var/log/
 
-         # Wait for LAPI to be ready (max 30 seconds)
-         LAPI_READY=0
-         for i in $(seq 1 30); do
-             if cscli lapi status -c /app/data/crowdsec/config/config.yaml 2>/dev/null; then
-                 LAPI_READY=1
-                 echo "CrowdSec LAPI is ready!"
-                 break
-             fi
-             sleep 1
-         done
+# Should be:
+log_dir: /var/log/crowdsec/
+```
 
-         if [ "$LAPI_READY" -eq 0 ]; then
-             echo "WARNING: CrowdSec LAPI not ready after 30 seconds"
-         fi
-     fi
-     ```
+### 3. **ReconcileCrowdSecOnStartup IS Being Called (VERIFIED)**
 
-2. **Remove goroutine call from routes.go**
-   - **File:** [backend/internal/api/routes/routes.go](backend/internal/api/routes/routes.go)
-   - **Action:** Comment out or remove the goroutine call to `ReconcileCrowdSecOnStartup` (around line 466)
-   - **Reason:** Reconciliation should happen in entrypoint, not after HTTP server starts
+**Finding:** The reconciliation function is now correctly called in [backend/cmd/api/main.go#L144](backend/cmd/api/main.go#L144) BEFORE the HTTP server starts:
+```go
+crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
+services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+```
 
-3. **Add environment variable to docker-compose**
-   - **File:** [docker-compose.test.yml](docker-compose.test.yml) and other compose files
-   - **Action:** Add `SECURITY_CROWDSEC_MODE: local` to the environment variables
-   - **Purpose:** Control automatic startup behavior
+This is CORRECT but CrowdSec still fails due to permission issues.
 
-### Phase 2: Fix Permission Issues (Critical)
+### 4. **CrowdSec Start Method is Correct (VERIFIED)**
 
-**Goal:** Ensure CrowdSec can write to its data directory and bind to LAPI port.
+**Finding:** The executor's `Start` method correctly uses `os/exec` without context cancellation:
+```go
+cmd := exec.Command(binPath, "-c", configFile)
+cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+```
 
-**Changes Required:**
+The binary starts but immediately crashes due to permission denied errors.
 
-1. **Fix data directory ownership in Dockerfile**
-   - **File:** [Dockerfile](Dockerfile)
-   - **Action:** Add ownership fix for CrowdSec directories during build phase
-   - **Location:** After line 270 (after GeoIP setup, before final chown)
-   - **Change:**
-     ```dockerfile
-     # Create CrowdSec directories with correct ownership
-     RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /etc/crowdsec && \
-         chown -R charon:charon /var/lib/crowdsec /var/log/crowdsec /etc/crowdsec
-     ```
+## What Was Implemented vs What Actually Happened
 
-2. **Update entrypoint script to fix permissions**
-   - **File:** [.docker/docker-entrypoint.sh](/.docker/docker-entrypoint.sh)
-   - **Action:** Add permission fix before starting CrowdSec
-   - **Location:** In the CrowdSec startup block (after config initialization)
-   - **Change:**
-     ```bash
-     # Ensure correct ownership of CrowdSec directories
-     # Note: This must run as root, so place before su-exec to charon user
-     chown -R charon:charon /var/lib/crowdsec /var/log/crowdsec 2>/dev/null || true
-     ```
+| Item | Expected | Actual |
+|------|----------|--------|
+| Reconciliation in main.go | ✅ Added | ✅ Called on startup |
+| Dockerfile chown for CrowdSec dirs | ✅ Added | ❌ Overwritten at runtime by entrypoint |
+| Goroutine removed from routes.go | ✅ Removed | ✅ Confirmed removed |
+| Entrypoint permission fix | ❌ Not implemented | ❌ Root operations create root-owned files |
+| Config log_dir fix | ❌ Not implemented | ❌ Still pointing to /var/log/ |
 
-3. **Run CrowdSec as charon user**
-   - **File:** [.docker/docker-entrypoint.sh](/.docker/docker-entrypoint.sh)
-   - **Action:** Use `su-exec charon` to start CrowdSec
-   - **Change:**
-     ```bash
-     # Start CrowdSec as charon user (not root)
-     su-exec charon /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml &
-     CROWDSEC_PID=$!
-     ```
+## REQUIRED FIXES (Specific Code Changes)
 
-### Phase 3: Fix LAPI Binding Issue (Critical)
+### FIX 1: Change CrowdSec log_dir in Entrypoint (CRITICAL)
 
-**Goal:** Ensure LAPI can bind to port 8085 without permission errors.
+**File:** `.docker/docker-entrypoint.sh`
+**Location:** After line 155 (after `sed -i 's|listen_uri.*|listen_uri: 127.0.0.1:8085|g'`)
+**Add:**
 
-**Root Cause:** Port 8085 doesn't require elevated privileges (only ports <1024 do), so this should work. However, we need to verify the LAPI configuration is correct and the process can actually bind.
+```bash
+# Fix log_dir path - must point to /var/log/crowdsec/ not /var/log/
+if [ -f "/etc/crowdsec/config.yaml" ]; then
+    sed -i 's|log_dir: /var/log/$|log_dir: /var/log/crowdsec/|g' /etc/crowdsec/config.yaml
+    sed -i 's|log_dir: /var/log/\s*$|log_dir: /var/log/crowdsec/|g' /etc/crowdsec/config.yaml
+fi
+```
 
-**Changes Required:**
+### FIX 2: Run cscli Commands as charon User (CRITICAL)
 
-1. **Verify LAPI port configuration**
-   - **File:** None (configuration check)
-   - **Action:** Confirm the entrypoint script's `sed` commands correctly set port 8085 in config.yaml
-   - **Current:** Lines 151-155 in docker-entrypoint.sh already do this
-   - **Verification:** Add debug logging to confirm sed operations succeeded
+**File:** `.docker/docker-entrypoint.sh`
+**Change:** All `cscli` commands must run as `charon` user, not root.
 
-2. **Add startup validation**
-   - **File:** [.docker/docker-entrypoint.sh](/.docker/docker-entrypoint.sh)
-   - **Action:** After starting CrowdSec, verify LAPI is listening
-   - **Change:**
-     ```bash
-     # Verify LAPI is listening on port 8085
-     if netstat -tuln | grep -q ':8085 '; then
-         echo "✓ CrowdSec LAPI is listening on port 8085"
-     else
-         echo "✗ WARNING: CrowdSec LAPI is NOT listening on port 8085"
-         echo "  Check /var/log/crowdsec/crowdsec.log for errors"
-     fi
-     ```
+**Current (WRONG):**
+```bash
+cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
+```
 
-3. **Add netstat to Dockerfile if not present**
-   - **File:** [Dockerfile](Dockerfile)
-   - **Action:** Add `net-tools` or `netstat` to apk packages
-   - **Location:** Line ~257 (where runtime dependencies are installed)
-   - **Change:**
-     ```dockerfile
-     RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec net-tools \
-     ```
+**Required (CORRECT):**
+```bash
+su-exec charon cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
+```
 
-### Phase 4: Improve Handler Timeout Handling (Medium Priority)
+### FIX 3: Run envsubst as charon User (CRITICAL)
 
-**Goal:** Provide better feedback when CrowdSec start takes longer than expected.
+**File:** `.docker/docker-entrypoint.sh`
+**Change:** The envsubst operations must preserve charon ownership.
 
-**Changes Required:**
+**Current (WRONG):**
+```bash
+for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
+    if [ -f "$file" ]; then
+        envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+    fi
+done
+```
 
-1. **Increase start timeout in handler**
-   - **File:** [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go)
-   - **Action:** Increase LAPI readiness timeout from 30s to 60s
-   - **Location:** Line ~223 (in `Start` method)
-   - **Current:** `maxWait := 30 * time.Second`
-   - **Change:** `maxWait := 60 * time.Second`
-   - **Reason:** LAPI startup can take 45+ seconds on slow systems
+**Required (CORRECT):**
+```bash
+for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
+    if [ -f "$file" ]; then
+        envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        chown charon:charon "$file" 2>/dev/null || true
+    fi
+done
+```
 
-2. **Add progress updates to handler**
-   - **File:** [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go)
-   - **Action:** Return intermediate status updates instead of blocking for 30+ seconds
-   - **Option 1:** Use streaming JSON response with periodic updates
-   - **Option 2:** Return 202 Accepted with a separate status endpoint
-   - **Recommendation:** Option 2 (cleaner, follows REST patterns)
+### FIX 4: Fix Ownership AFTER cscli Operations (CRITICAL)
 
-3. **Add dedicated status check endpoint**
-   - **File:** [backend/internal/api/handlers/crowdsec_handler.go](backend/internal/api/handlers/crowdsec_handler.go)
-   - **Action:** Add `/api/v1/admin/crowdsec/startup-status` endpoint
-   - **Purpose:** Allow frontend to poll for startup completion
-   - **Response:**
-     ```json
-     {
-       "status": "starting|ready|failed",
-       "pid": 12345,
-       "lapi_ready": false,
-       "elapsed_seconds": 15,
-       "message": "Waiting for LAPI to bind to port 8085..."
-     }
-     ```
+**File:** `.docker/docker-entrypoint.sh`
+**Location:** After all cscli operations, before "CrowdSec configuration initialized" message
+**Add:**
 
-### Phase 5: Enhance Logging and Debugging (Low Priority)
+```bash
+# Fix ownership of files created by cscli (runs as root, creates root-owned files)
+# The database and config files must be owned by charon for CrowdSec to start
+chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
+```
 
-**Goal:** Make it easier to diagnose CrowdSec startup issues in the future.
+### FIX 5: Update Default config.yaml in configs/crowdsec/ (PREVENTIVE)
 
-**Changes Required:**
+**File:** `configs/crowdsec/config.yaml` (if exists) or modify the distributed template
+**Change:** Ensure log_dir is correct in the source template:
 
-1. **Add structured logging to reconciliation**
-   - **File:** [backend/internal/services/crowdsec_startup.go](backend/internal/services/crowdsec_startup.go)
-   - **Action:** Add more detailed logs at each decision point
-   - **Examples:**
-     - Log when SecurityConfig check is performed
-     - Log the actual mode and enabled status values
-     - Log when binary/config validation succeeds/fails
-     - Log the exact command being executed to start CrowdSec
+```yaml
+common:
+  daemonize: true
+  log_media: file
+  log_level: info
+  log_dir: /var/log/crowdsec/   # <-- CORRECT PATH
+```
 
-2. **Add health check script**
-   - **File:** New file `scripts/crowdsec_health_check.sh`
-   - **Purpose:** Standalone script to diagnose CrowdSec issues
-   - **Checks:**
-     - Binary exists and is executable
-     - Config files exist and are valid
-     - Data directory is writable
-     - LAPI port is not already in use
-     - Process is running and responding
+## Complete Entrypoint Script Fix
 
-3. **Add recovery mechanism**
-   - **File:** [backend/internal/services/crowdsec_startup.go](backend/internal/services/crowdsec_startup.go)
-   - **Action:** If verification fails after start, attempt to retrieve error logs
-   - **Logic:**
-     ```go
-     if !verifyRunning {
-         // Read last 50 lines of crowdsec.log for debugging
-         logPath := filepath.Join(dataDir, "logs", "crowdsec.log")
-         if logData, err := exec.Command("tail", "-n", "50", logPath).Output(); err == nil {
-             logger.Log().WithField("log_tail", string(logData)).Error("CrowdSec failed to start - log excerpt")
-         }
-     }
-     ```
+Here's the corrected CrowdSec section for `.docker/docker-entrypoint.sh`:
 
-## Implementation Order
+```bash
+# ============================================================================
+# CrowdSec Initialization
+# ============================================================================
 
-1. **Phase 2 (Permissions)** - Must be done first, as this is the actual blocker
-2. **Phase 3 (LAPI)** - Immediately after Phase 2, to verify binding works
-3. **Phase 1 (Timing)** - Once CrowdSec can actually start, fix when it starts
-4. **Phase 4 (Timeouts)** - Improve user experience after core functionality works
-5. **Phase 5 (Logging)** - Nice to have for future debugging
+if command -v cscli >/dev/null; then
+    echo "Initializing CrowdSec configuration..."
 
-## Testing Strategy
+    # Define persistent paths
+    CS_PERSIST_DIR="/app/data/crowdsec"
+    CS_CONFIG_DIR="$CS_PERSIST_DIR/config"
+    CS_DATA_DIR="$CS_PERSIST_DIR/data"
+    CS_LOG_DIR="/var/log/crowdsec"
 
-### Unit Tests
+    # Ensure persistent directories exist
+    mkdir -p "$CS_CONFIG_DIR" "$CS_DATA_DIR" "$CS_LOG_DIR" 2>/dev/null || true
+    mkdir -p /var/lib/crowdsec/data 2>/dev/null || true
 
-- [ ] Test `ReconcileCrowdSecOnStartup` with various permission scenarios
-- [ ] Test `DefaultCrowdsecExecutor.Start` with non-root user
-- [ ] Test LAPI readiness check with unreachable server
+    # Initialize persistent config if key files are missing
+    if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
+        echo "Initializing persistent CrowdSec configuration..."
+        if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
+            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || exit 1
+            echo "Successfully initialized config from .dist directory"
+        fi
+    fi
 
-### Integration Tests
+    # Create acquisition config
+    if [ ! -f "/etc/crowdsec/acquis.yaml" ] || [ ! -s "/etc/crowdsec/acquis.yaml" ]; then
+        cat > /etc/crowdsec/acquis.yaml << 'ACQUIS_EOF'
+source: file
+filenames:
+  - /var/log/caddy/access.log
+  - /var/log/caddy/*.log
+labels:
+  type: caddy
+ACQUIS_EOF
+    fi
 
-- [ ] Test automatic startup with `SECURITY_CROWDSEC_MODE=local`
-- [ ] Test manual start via `/api/v1/admin/crowdsec/start`
-- [ ] Test LAPI connectivity from Caddy bouncer
-- [ ] Test container restart preserves CrowdSec state
+    # Environment substitution (preserving ownership after)
+    export CFG=/etc/crowdsec
+    export DATA="$CS_DATA_DIR"
+    export PID=/var/run/crowdsec.pid
+    export LOG="$CS_LOG_DIR/crowdsec.log"
 
-### Manual Verification Steps
+    for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
+        if [ -f "$file" ]; then
+            envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            chown charon:charon "$file" 2>/dev/null || true
+        fi
+    done
 
-1. **Build and run test container:**
+    # Configure LAPI port (8085 instead of 8080)
+    if [ -f "/etc/crowdsec/config.yaml" ]; then
+        sed -i 's|listen_uri: 127.0.0.1:8080|listen_uri: 127.0.0.1:8085|g' /etc/crowdsec/config.yaml
+        sed -i 's|listen_uri: 0.0.0.0:8080|listen_uri: 127.0.0.1:8085|g' /etc/crowdsec/config.yaml
+        # FIX: Correct log_dir path
+        sed -i 's|log_dir: /var/log/$|log_dir: /var/log/crowdsec/|g' /etc/crowdsec/config.yaml
+    fi
+
+    # Update local_api_credentials.yaml to use correct port
+    if [ -f "/etc/crowdsec/local_api_credentials.yaml" ]; then
+        sed -i 's|url: http://127.0.0.1:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
+        sed -i 's|url: http://localhost:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
+    fi
+
+    # Update hub index
+    if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
+        echo "Updating CrowdSec hub index..."
+        timeout 60s cscli hub update 2>/dev/null || echo "⚠️ Hub update timed out"
+    fi
+
+    # Register local machine (run as charon or fix ownership after)
+    echo "Registering local machine..."
+    cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration failed"
+
+    # *** CRITICAL FIX: Fix ownership of ALL CrowdSec files after cscli operations ***
+    # cscli runs as root and creates root-owned files (crowdsec.db, config files)
+    # CrowdSec process runs as charon and needs write access
+    echo "Fixing CrowdSec file ownership..."
+    chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
+
+    echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
+fi
+```
+
+## Testing After Fix
+
+1. **Rebuild container:**
    ```bash
-   docker build -t charon:test .
-   docker compose -f docker-compose.test.yml up -d
+   docker build -t charon:local . && docker compose -f docker-compose.test.yml up -d
    ```
 
-2. **Verify CrowdSec auto-started:**
+2. **Verify ownership is correct:**
    ```bash
-   docker compose -f docker-compose.test.yml exec charon ps aux | grep crowdsec
+   docker compose -f docker-compose.test.yml exec charon ls -la /var/lib/crowdsec/data/
+   # Expected: all files owned by charon:charon
    ```
 
-3. **Verify LAPI is listening:**
+3. **Check CrowdSec logs for permission errors:**
    ```bash
-   docker compose -f docker-compose.test.yml exec charon netstat -tuln | grep 8085
+   docker compose -f docker-compose.test.yml logs charon 2>&1 | grep -i "permission\|denied\|FATAL"
+   # Expected: no permission errors
    ```
 
-4. **Verify Caddy bouncer can connect:**
+4. **Verify LAPI is listening after manual start:**
    ```bash
-   docker compose -f docker-compose.test.yml logs charon | grep -i "crowdsec.*ready"
-   ```
-
-5. **Test manual stop/start:**
-   ```bash
-   curl -X POST http://localhost:8080/api/v1/admin/crowdsec/stop
    curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
+   docker compose -f docker-compose.test.yml exec charon ss -tuln | grep 8085
+   # Expected: LISTEN on :8085
    ```
 
-6. **Verify decisions endpoint works:**
-   ```bash
-   curl http://localhost:8080/api/v1/admin/crowdsec/decisions
-   ```
+## Success Criteria (Updated)
 
-## Rollback Plan
-
-If changes break the build or runtime:
-
-1. Revert Dockerfile changes:
-   ```bash
-   git checkout HEAD -- Dockerfile
-   ```
-
-2. Revert entrypoint script:
-   ```bash
-   git checkout HEAD -- .docker/docker-entrypoint.sh
-   ```
-
-3. Rebuild and test:
-   ```bash
-   docker build -t charon:rollback .
-   docker compose -f docker-compose.test.yml up -d
-   ```
-
-## Success Criteria
-
-- [ ] CrowdSec process starts automatically on container startup
-- [ ] LAPI binds to port 8085 successfully
-- [ ] Caddy bouncer can connect to LAPI within 30 seconds
-- [ ] Manual start via GUI completes within 60 seconds
-- [ ] Container logs show "CrowdSec LAPI is ready" message
-- [ ] Decisions endpoint returns valid data (empty array is OK)
-- [ ] Container restart preserves CrowdSec running state
-- [ ] All existing CrowdSec tests pass
-- [ ] No permission errors in logs
-
-## Future Improvements
-
-1. **Add CrowdSec metrics to Prometheus endpoint**
-   - Expose LAPI status, decision count, parser stats
-2. **Add GUI indicators for LAPI health**
-   - Show "LAPI Ready" badge in security dashboard
-3. **Add automatic restart on crash**
-   - Implement watchdog that restarts CrowdSec if it dies
-4. **Add configuration validation on save**
-   - Use `crowdsec -c <config> -t` before applying changes
-5. **Add log streaming for CrowdSec logs**
-   - Expose `/var/log/crowdsec/crowdsec.log` via WebSocket
+- [ ] All files in `/var/lib/crowdsec/` owned by `charon:charon`
+- [ ] All files in `/app/data/crowdsec/` owned by `charon:charon`
+- [ ] `config.yaml` has `log_dir: /var/log/crowdsec/`
+- [ ] No "permission denied" errors in container logs
+- [ ] CrowdSec LAPI binds to port 8085 successfully
+- [ ] Manual start via GUI completes without timeout
+- [ ] Reconciliation on startup works when mode=local
 
 ## References
 
@@ -400,11 +318,17 @@ If changes break the build or runtime:
 - [CrowdSec LAPI Reference](https://docs.crowdsec.net/docs/local_api/intro)
 - [Caddy CrowdSec Bouncer Plugin](https://github.com/hslatman/caddy-crowdsec-bouncer)
 - [Issue #16: ACL Implementation](ISSUE_16_ACL_IMPLEMENTATION.md) (related security feature)
-- [Integration Test: crowdsec_integration_test.go](backend/integration/crowdsec_integration_test.go)
 
-## Review and Approval
+## Changelog
 
-- [ ] Reviewed by: _____________
-- [ ] Approved by: _____________
-- [ ] Implementation assigned to: _____________
-- [ ] Target completion date: _____________
+### 2025-12-23 - Investigation Update
+- **Status:** FAILED - Previous implementation did not fix root cause
+- **Finding:** Permission errors due to entrypoint running cscli as root
+- **Finding:** log_dir config points to wrong path (/var/log/ vs /var/log/crowdsec/)
+- **Action:** Updated plan with specific entrypoint script fixes
+- **Priority:** Escalated to CRITICAL
+
+### 2025-12-22 - Initial Plan
+- Created initial plan based on code review
+- Identified timing issue with goroutine call
+- Proposed moving reconciliation to main.go (implemented)

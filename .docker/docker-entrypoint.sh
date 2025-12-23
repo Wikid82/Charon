@@ -145,6 +145,7 @@ ACQUIS_EOF
     for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
         if [ -f "$file" ]; then
             envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            chown charon:charon "$file" 2>/dev/null || true
         fi
     done
 
@@ -159,6 +160,11 @@ ACQUIS_EOF
         sed -i 's|url: http://127.0.0.1:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
         sed -i 's|url: http://localhost:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
     fi
+
+    # Fix log directory path (ensure it points to /var/log/crowdsec/ not /var/log/)
+    sed -i 's|log_dir: /var/log/$|log_dir: /var/log/crowdsec/|g' "$CS_CONFIG_DIR/config.yaml"
+    # Also handle case where it might be without trailing slash
+    sed -i 's|log_dir: /var/log$|log_dir: /var/log/crowdsec|g' "$CS_CONFIG_DIR/config.yaml"
 
     # Verify LAPI configuration was applied correctly
     if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
@@ -185,6 +191,12 @@ ACQUIS_EOF
             /usr/local/bin/install_hub_items.sh 2>/dev/null || echo "Warning: Some hub items may not have installed"
         fi
     fi
+
+    # Fix ownership AFTER cscli commands (they run as root and create root-owned files)
+    echo "Fixing CrowdSec file ownership..."
+    chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
 fi
 
 # CrowdSec Lifecycle Management:
