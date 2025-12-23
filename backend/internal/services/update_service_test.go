@@ -77,3 +77,84 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	_, err = us.CheckForUpdates()
 	assert.Error(t, err)
 }
+
+func TestUpdateService_SetAPIURL_GitHubValidation(t *testing.T) {
+	svc := NewUpdateService()
+
+	tests := []struct {
+		name        string
+		url         string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid GitHub API HTTPS",
+			url:     "https://api.github.com/repos/test/repo",
+			wantErr: false,
+		},
+		{
+			name:        "GitHub with HTTP scheme",
+			url:         "http://api.github.com/repos/test/repo",
+			wantErr:     true,
+			errContains: "must use HTTPS",
+		},
+		{
+			name:        "non-GitHub domain",
+			url:         "https://evil.com/api",
+			wantErr:     true,
+			errContains: "GitHub domain",
+		},
+		{
+			name:    "localhost allowed",
+			url:     "http://localhost:8080/api",
+			wantErr: false,
+		},
+		{
+			name:    "127.0.0.1 allowed",
+			url:     "http://127.0.0.1:8080/api",
+			wantErr: false,
+		},
+		{
+			name:    "::1 IPv6 localhost allowed",
+			url:     "http://[::1]:8080/api",
+			wantErr: false,
+		},
+		{
+			name:        "invalid URL",
+			url:         "not a valid url",
+			wantErr:     true,
+			errContains: "", // Error message varies by Go version
+		},
+		{
+			name:        "ftp scheme not allowed",
+			url:         "ftp://api.github.com/repos/test/repo",
+			wantErr:     true,
+			errContains: "must use HTTP or HTTPS",
+		},
+		{
+			name:    "github.com domain allowed with HTTPS",
+			url:     "https://github.com/repos/test/repo",
+			wantErr: false,
+		},
+		{
+			name:        "github.com domain with HTTP rejected",
+			url:         "http://github.com/repos/test/repo",
+			wantErr:     true,
+			errContains: "must use HTTPS",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := svc.SetAPIURL(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
