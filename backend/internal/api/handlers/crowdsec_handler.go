@@ -241,7 +241,7 @@ func (h *CrowdsecHandler) Start(c *gin.Context) {
 
 	// Wait for LAPI to be ready (with timeout)
 	lapiReady := false
-	maxWait := 30 * time.Second
+	maxWait := 60 * time.Second
 	pollInterval := 500 * time.Millisecond
 	deadline := time.Now().Add(maxWait)
 

@@ -391,8 +391,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
-		// Reconcile CrowdSec state on startup (handles container restarts)
-		go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+		// NOTE: CrowdSec reconciliation now happens in main.go BEFORE HTTP server starts
+		// This ensures proper initialization order and prevents race conditions
 		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
 		// or falls back to the configured storage directory for development
 		accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG")

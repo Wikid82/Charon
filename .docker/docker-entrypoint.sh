@@ -160,6 +160,13 @@ ACQUIS_EOF
         sed -i 's|url: http://localhost:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
     fi
 
+    # Verify LAPI configuration was applied correctly
+    if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec LAPI configured for port 8085"
+    else
+        echo "✗ WARNING: LAPI port configuration may be incorrect"
+    fi
+
     # Update hub index to ensure CrowdSec can start
     if [ ! -f "/etc/crowdsec/hub/.index.json" ]; then
         echo "Updating CrowdSec hub index..."

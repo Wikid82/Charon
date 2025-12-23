@@ -80,10 +80,10 @@ Restart again. Now bad guys actually get blocked.
 
 When you toggle CrowdSec ON, Charon:
 
-1. Starts the CrowdSec process
+1. Starts the CrowdSec process as the `charon` user (not root)
 2. Loads configuration, parsers, and security scenarios
 3. Initializes the Local API (LAPI) on port 8085
-4. Polls LAPI health every 500ms for up to 30 seconds
+4. Polls LAPI health every 500ms for up to 60 seconds
 5. Returns one of two states:
    - ✅ **LAPI Ready** — "CrowdSec started and LAPI is ready" — You can immediately proceed to console enrollment
    - ⚠️ **LAPI Initializing** — "CrowdSec started but LAPI is still initializing" — Wait 10 more seconds before enrolling
@@ -92,7 +92,7 @@ When you toggle CrowdSec ON, Charon:
 
 - **Initial start:** 5-10 seconds
 - **First start after container restart:** 10-15 seconds
-- **Maximum wait:** 30 seconds (with automatic health checks)
+- **Maximum wait:** 60 seconds (with automatic health checks)
 
 **What you'll see in the UI:**
 
@@ -114,9 +114,12 @@ Once enabled, CrowdSec **automatically starts** when the container restarts:
 
 **How it works:**
 
-- Your preference is stored in two places (Settings and SecurityConfig tables)
-- Reconciliation function runs at container startup
+- Your preference is stored in the database (Settings and SecurityConfig tables)
+- Reconciliation function runs at container startup **before** HTTP server starts
+- Protected by mutex to prevent race conditions
 - Checks both tables to determine if CrowdSec should auto-start
+- Validates binary and config paths before starting
+- Verifies process is running after start (2-second health check)
 - Logs show: "CrowdSec reconciliation: starting based on SecurityConfig mode='local'"
 
 **Verification after restart:**
@@ -133,9 +136,15 @@ Expected output:
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
-**Troubleshooting auto-start:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart)
+**Troubleshooting auto-start:**
 
-⚠️ **DEPRECATED:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
+See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md) for detailed troubleshooting including:
+- Permission issues
+- Missing SecurityConfig table
+- Binary not found errors
+- Process crashes on startup
+
+⚠️ **DEPRECATED:** Environment variables like `SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
