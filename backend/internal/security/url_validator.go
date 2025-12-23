@@ -36,8 +36,8 @@ func WithTimeout(timeout time.Duration) ValidationOption {
 }
 
 // WithMaxRedirects sets the maximum number of redirects to follow (default: 0).
-func WithMaxRedirects(max int) ValidationOption {
-	return func(c *ValidationConfig) { c.MaxRedirects = max }
+func WithMaxRedirects(maxRedirects int) ValidationOption {
+	return func(c *ValidationConfig) { c.MaxRedirects = maxRedirects }
 }
 
 // ValidateExternalURL validates a URL for external HTTP requests with comprehensive SSRF protection.
