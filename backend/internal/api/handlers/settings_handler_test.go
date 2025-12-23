@@ -647,11 +647,11 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, _ := setupSettingsHandlerWithMail(t)
 
-	// Create a test server to simulate a reachable URL
-	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer testServer.Close()
+	// NOTE: Using a real public URL instead of httptest.NewServer() because
+	// SSRF protection (correctly) blocks localhost/127.0.0.1.
+	// Using example.com which is guaranteed to be reachable and is designed for testing
+	// Alternative: Refactor handler to accept injectable URL validator (future improvement).
+	publicTestURL := "https://example.com"
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -660,7 +660,7 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 	})
 	router.POST("/settings/test-url", handler.TestPublicURL)
 
-	body := map[string]string{"url": testServer.URL}
+	body := map[string]string{"url": publicTestURL}
 	jsonBody, _ := json.Marshal(body)
 	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -670,7 +670,9 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	assert.Equal(t, true, resp["reachable"])
+
+	// The test verifies the handler works with a real public URL
+	assert.Equal(t, true, resp["reachable"], "example.com should be reachable")
 	assert.NotNil(t, resp["latency"])
 	assert.NotNil(t, resp["message"])
 }
