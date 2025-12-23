@@ -1,4 +1,3 @@
-```markdown
 ---
 title: Security Incident Response Plan
 description: Industry-standard incident response procedures for Charon deployments, including detection, containment, recovery, and post-incident review.
