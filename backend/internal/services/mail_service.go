@@ -225,6 +225,12 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 
 // buildEmail constructs a properly formatted email message with sanitized headers.
 // All header values are sanitized to prevent email header injection (CWE-93).
+//
+// Security Note: Email injection protection implemented via:
+// - Headers sanitized by sanitizeEmailHeader() removing control chars (0x00-0x1F, 0x7F)
+// - Body protected by sanitizeEmailBody() with RFC 5321 dot-stuffing
+// - mail.FormatAddress validates RFC 5322 address format
+// CodeQL taint tracking warning intentionally kept as architectural guardrail
 func (s *MailService) buildEmail(from, to, subject, htmlBody string) []byte {
 	// Sanitize all header values to prevent CRLF injection
 	sanitizedFrom := sanitizeEmailHeader(from)
@@ -329,6 +335,8 @@ func (s *MailService) sendSSL(addr string, config *SMTPConfig, auth smtp.Auth, t
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
+	// Security Note: msg built by buildEmail() with header/body sanitization
+	// See buildEmail() for injection protection details
 	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
@@ -380,6 +388,8 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 		return fmt.Errorf("DATA failed: %w", err)
 	}
 
+	// Security Note: msg built by buildEmail() with header/body sanitization
+	// See buildEmail() for injection protection details
 	if _, err := w.Write(msg); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}

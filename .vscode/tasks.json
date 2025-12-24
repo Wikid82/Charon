@@ -150,18 +150,67 @@
             "problemMatcher": []
         },
         {
-            "label": "Security: CodeQL Go Scan",
+            "label": "Security: CodeQL Go Scan (DEPRECATED)",
             "type": "shell",
             "command": "codeql database create codeql-db-go --language=go --source-root=backend --overwrite && codeql database analyze codeql-db-go /projects/codeql/codeql/go/ql/src/codeql-suites/go-security-extended.qls --format=sarif-latest --output=codeql-results-go.sarif",
             "group": "test",
             "problemMatcher": []
         },
         {
-            "label": "Security: CodeQL JS Scan",
+            "label": "Security: CodeQL JS Scan (DEPRECATED)",
             "type": "shell",
             "command": "codeql database create codeql-db-js --language=javascript --source-root=frontend --overwrite && codeql database analyze codeql-db-js /projects/codeql/codeql/javascript/ql/src/codeql-suites/javascript-security-extended.qls --format=sarif-latest --output=codeql-results-js.sarif",
             "group": "test",
             "problemMatcher": []
+        },
+        {
+            "label": "Security: CodeQL Go Scan (CI-Aligned) [~60s]",
+            "type": "shell",
+            "command": "bash -c 'set -e && \\\n        echo \"🔍 Creating CodeQL database for Go...\" && \\\n        rm -rf codeql-db-go && \\\n        codeql database create codeql-db-go \\\n          --language=go \\\n          --source-root=backend \\\n          --overwrite \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"📊 Running CodeQL analysis (security-and-quality suite)...\" && \\\n        codeql database analyze codeql-db-go \\\n          codeql/go-queries:codeql-suites/go-security-and-quality.qls \\\n          --format=sarif-latest \\\n          --output=codeql-results-go.sarif \\\n          --sarif-add-baseline-file-info \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"✅ CodeQL scan complete. Results: codeql-results-go.sarif\" && \\\n        echo \"\" && \\\n        echo \"📋 Summary of findings:\" && \\\n        codeql database interpret-results codeql-db-go \\\n          --format=text \\\n          --output=/dev/stdout \\\n          codeql/go-queries:codeql-suites/go-security-and-quality.qls 2>/dev/null || \\\n          (echo \"⚠️  Use SARIF Viewer extension to view detailed results\" && jq -r \".runs[].results[] | \\\"\\(.level): \\(.message.text) (\\(.locations[0].physicalLocation.artifactLocation.uri):\\(.locations[0].physicalLocation.region.startLine))\\\"\" codeql-results-go.sarif 2>/dev/null | head -20 || echo \"No findings or jq not available\")'",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Security: CodeQL JS Scan (CI-Aligned) [~90s]",
+            "type": "shell",
+            "command": "bash -c 'set -e && \\\n        echo \"🔍 Creating CodeQL database for JavaScript/TypeScript...\" && \\\n        rm -rf codeql-db-js && \\\n        codeql database create codeql-db-js \\\n          --language=javascript \\\n          --source-root=frontend \\\n          --overwrite \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"📊 Running CodeQL analysis (security-and-quality suite)...\" && \\\n        codeql database analyze codeql-db-js \\\n          codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls \\\n          --format=sarif-latest \\\n          --output=codeql-results-js.sarif \\\n          --sarif-add-baseline-file-info \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"✅ CodeQL scan complete. Results: codeql-results-js.sarif\" && \\\n        echo \"\" && \\\n        echo \"📋 Summary of findings:\" && \\\n        codeql database interpret-results codeql-db-js \\\n          --format=text \\\n          --output=/dev/stdout \\\n          codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls 2>/dev/null || \\\n          (echo \"⚠️  Use SARIF Viewer extension to view detailed results\" && jq -r \".runs[].results[] | \\\"\\(.level): \\(.message.text) (\\(.locations[0].physicalLocation.artifactLocation.uri):\\(.locations[0].physicalLocation.region.startLine))\\\"\" codeql-results-js.sarif 2>/dev/null | head -20 || echo \"No findings or jq not available\")'",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Security: CodeQL All (CI-Aligned)",
+            "type": "shell",
+            "dependsOn": ["Security: CodeQL Go Scan (CI-Aligned) [~60s]", "Security: CodeQL JS Scan (CI-Aligned) [~90s]"],
+            "dependsOrder": "sequence",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: CodeQL Scan (Skill)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-scan-codeql",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
         },
         {
             "label": "Security: Go Vulnerability Check",

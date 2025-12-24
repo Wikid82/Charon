@@ -165,6 +165,12 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 	// Add custom User-Agent header
 	req.Header.Set("User-Agent", "Charon-Health-Check/1.0")
 
+	// codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
+	// 1. Validates URL format and scheme (HTTPS required in production)
+	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
+	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
+	// 4. No redirect following allowed
+	// See: internal/security/url_validator.go
 	resp, err := client.Do(req)
 	latency := time.Since(start).Seconds() * 1000 // Convert to milliseconds
 
