@@ -83,6 +83,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 	// - Production code never provides custom transport (len == 0)
 	// - Test code provides mock transport (bypasses network entirely)
 	// - ssrfSafeDialer() provides defense-in-depth at connection time
+	var requestURL string // Final URL for HTTP request (validated in production, raw in test)
 	if len(transport) == 0 || transport[0] == nil {
 		validatedURL, err := security.ValidateExternalURL(rawURL,
 			security.WithAllowHTTP(),      // REQUIRED: TestURLConnectivity is designed to test HTTP
@@ -99,9 +100,11 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 			}
 			return false, 0, fmt.Errorf("security validation failed: %s", errMsg)
 		}
-		rawURL = validatedURL // Use validated URL for production requests (breaks taint chain)
+		requestURL = validatedURL // Use validated URL for production requests (breaks taint chain)
+	} else {
+		// For test path: use raw URL (test transport handles everything)
+		requestURL = rawURL
 	}
-	// For test path: rawURL remains unchanged (test transport handles everything)
 
 	// Create HTTP client with optional custom transport
 	var client *http.Client
@@ -141,7 +144,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 	// Perform HTTP HEAD request with strict timeout
 	ctx := context.Background()
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to create request: %w", err)
 	}
