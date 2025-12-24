@@ -360,7 +360,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:  "://invalid-url",
 		}
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
 	})
 
@@ -377,7 +377,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		// But for unit test speed, we should probably mock or use a closed port on localhost
 		// Using a closed port on localhost is faster
 		provider.URL = "http://127.0.0.1:54321" // Assuming this port is closed
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
 	})
 
@@ -392,7 +392,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			URL:  ts.URL,
 		}
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "500")
 	})
@@ -417,7 +417,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Config: `{"custom": "Test: {{.Title}}"}`,
 		}
 		data := map[string]any{"Title": "My Title", "Message": "Test Message"}
-		svc.sendCustomWebhook(context.Background(), provider, data)
+		svc.sendJSONPayload(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -447,7 +447,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			// Config is empty, so default template is used: minimal
 		}
 		data := map[string]any{"Title": "Default Title", "Message": "Test Message"}
-		svc.sendCustomWebhook(context.Background(), provider, data)
+		svc.sendJSONPayload(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -473,7 +473,7 @@ func TestNotificationService_SendCustomWebhook_PropagatesRequestID(t *testing.T)
 	data := map[string]any{"Title": "Test", "Message": "Test"}
 	// Build context with requestID value
 	ctx := context.WithValue(context.Background(), trace.RequestIDKey, "my-rid")
-	err := svc.sendCustomWebhook(ctx, provider, data)
+	err := svc.sendJSONPayload(ctx, provider, data)
 	require.NoError(t, err)
 
 	select {
@@ -534,8 +534,9 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 		defer ts.Close()
 
 		provider := models.NotificationProvider{
-			Type: "webhook",
-			URL:  ts.URL,
+			Type:     "webhook",
+			URL:      ts.URL,
+			Template: "minimal", // Use JSON template path which supports HTTP/HTTPS
 		}
 		err := svc.TestProvider(provider)
 		assert.NoError(t, err)
@@ -615,7 +616,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 			URL:  "http://10.0.0.1/webhook",
 		}
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid webhook url")
 	})
@@ -626,7 +627,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 			URL:  "http://169.254.169.254/latest/meta-data/",
 		}
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid webhook url")
 	})
@@ -642,7 +643,7 @@ func TestSSRF_WebhookIntegration(t *testing.T) {
 			URL:  ts.URL,
 		}
 		data := map[string]any{"Title": "Test", "Message": "Test Message"}
-		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		err := svc.sendJSONPayload(context.Background(), provider, data)
 		assert.NoError(t, err)
 	})
 }
@@ -974,7 +975,7 @@ func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
 				"EventType": "test",
 			}
 
-			err := svc.sendCustomWebhook(context.Background(), provider, data)
+			err := svc.sendJSONPayload(context.Background(), provider, data)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), fmt.Sprintf("%d", statusCode))
 		})
@@ -1048,7 +1049,7 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 				"Services":     []string{"svc1", "svc2"},
 			}
 
-			err := svc.sendCustomWebhook(context.Background(), provider, data)
+			err := svc.sendJSONPayload(context.Background(), provider, data)
 			require.NoError(t, err)
 
 			for _, key := range tt.expectedKeys {
@@ -1088,7 +1089,7 @@ func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 		"EventType": "test",
 	}
 
-	err := svc.sendCustomWebhook(context.Background(), provider, data)
+	err := svc.sendJSONPayload(context.Background(), provider, data)
 	require.NoError(t, err)
 
 	// Should use minimal template
@@ -1196,7 +1197,7 @@ func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := svc.sendCustomWebhook(ctx, provider, data)
+	err := svc.sendJSONPayload(ctx, provider, data)
 	require.Error(t, err)
 }
 
