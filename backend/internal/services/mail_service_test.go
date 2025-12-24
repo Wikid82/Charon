@@ -280,6 +280,76 @@ func TestValidateEmailAddress(t *testing.T) {
 	}
 }
 
+// TestMailService_SMTPDotStuffing tests SMTP dot-stuffing to prevent email injection (CWE-93)
+func TestMailService_SMTPDotStuffing(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	tests := []struct {
+		name          string
+		htmlBody      string
+		shouldContain string
+	}{
+		{
+			name:          "body with leading period on line",
+			htmlBody:      "Line 1\n.Line 2 starts with period\nLine 3",
+			shouldContain: "Line 1\n..Line 2 starts with period\nLine 3",
+		},
+		{
+			name:          "body with SMTP terminator sequence",
+			htmlBody:      "Some text\n.\nMore text",
+			shouldContain: "Some text\n..\nMore text",
+		},
+		{
+			name:          "body with multiple leading periods",
+			htmlBody:      ".First\n..Second\nNormal",
+			shouldContain: "..First\n...Second\nNormal",
+		},
+		{
+			name:          "body without leading periods",
+			htmlBody:      "Normal line\nAnother normal line",
+			shouldContain: "Normal line\nAnother normal line",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := svc.buildEmail("from@example.com", "to@example.com", "Test", tc.htmlBody)
+			msgStr := string(msg)
+
+			// Extract body (everything after \r\n\r\n)
+			parts := strings.Split(msgStr, "\r\n\r\n")
+			require.Len(t, parts, 2, "Email should have headers and body")
+			body := parts[1]
+
+			assert.Contains(t, body, tc.shouldContain, "Body should contain dot-stuffed content")
+		})
+	}
+}
+
+// TestSanitizeEmailBody tests the sanitizeEmailBody function directly
+func TestSanitizeEmailBody(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"single leading period", ".test", "..test"},
+		{"period in middle", "test.com", "test.com"},
+		{"multiple lines with periods", "line1\n.line2\nline3", "line1\n..line2\nline3"},
+		{"SMTP terminator", "text\n.\nmore", "text\n..\nmore"},
+		{"no periods", "clean text", "clean text"},
+		{"empty string", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := sanitizeEmailBody(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 func TestMailService_TestConnection_NotConfigured(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)

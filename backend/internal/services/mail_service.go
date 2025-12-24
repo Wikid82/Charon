@@ -243,7 +243,9 @@ func (s *MailService) buildEmail(from, to, subject, htmlBody string) []byte {
 		msg.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
 	}
 	msg.WriteString("\r\n")
-	msg.WriteString(htmlBody)
+	// Sanitize body to prevent SMTP injection (CWE-93)
+	sanitizedBody := sanitizeEmailBody(htmlBody)
+	msg.WriteString(sanitizedBody)
 
 	return msg.Bytes()
 }
@@ -252,6 +254,20 @@ func (s *MailService) buildEmail(from, to, subject, htmlBody string) []byte {
 // values to prevent email header injection attacks (CWE-93).
 func sanitizeEmailHeader(value string) string {
 	return emailHeaderSanitizer.ReplaceAllString(value, "")
+}
+
+// sanitizeEmailBody performs SMTP dot-stuffing to prevent email injection.
+// According to RFC 5321, if a line starts with a period, it must be doubled
+// to prevent premature termination of the SMTP DATA command.
+func sanitizeEmailBody(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		// RFC 5321 Section 4.5.2: Transparency - dot-stuffing
+		if strings.HasPrefix(line, ".") {
+			lines[i] = "." + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // validateEmailAddress validates that an email address is well-formed.
@@ -377,6 +393,21 @@ func (s *MailService) sendSTARTTLS(addr string, config *SMTPConfig, auth smtp.Au
 
 // SendInvite sends an invitation email to a new user.
 func (s *MailService) SendInvite(email, inviteToken, appName, baseURL string) error {
+	// Validate inputs to prevent content spoofing (CWE-93)
+	if err := validateEmailAddress(email); err != nil {
+		return fmt.Errorf("invalid email address: %w", err)
+	}
+	// Sanitize appName to prevent injection in email content
+	appName = sanitizeEmailHeader(strings.TrimSpace(appName))
+	if appName == "" {
+		appName = "Application"
+	}
+	// Validate baseURL format
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return errors.New("baseURL cannot be empty")
+	}
+
 	inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), inviteToken)
 
 	tmpl := `
