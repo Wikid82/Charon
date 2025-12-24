@@ -49,6 +49,29 @@ func TestSettingsHandler_GetSettings(t *testing.T) {
 	assert.Equal(t, "test_value", response["test_key"])
 }
 
+func TestSettingsHandler_GetSettings_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	// Close the database to force an error
+	sqlDB, _ := db.DB()
+	_ = sqlDB.Close()
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.GET("/settings", handler.GetSettings)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/settings", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Contains(t, response["error"], "Failed to fetch settings")
+}
+
 func TestSettingsHandler_UpdateSettings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupSettingsTestDB(t)
@@ -90,6 +113,36 @@ func TestSettingsHandler_UpdateSettings(t *testing.T) {
 
 	db.Where("key = ?", "new_key").First(&setting)
 	assert.Equal(t, "updated_value", setting.Value)
+}
+
+func TestSettingsHandler_UpdateSetting_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupSettingsTestDB(t)
+
+	handler := handlers.NewSettingsHandler(db)
+	router := gin.New()
+	router.POST("/settings", handler.UpdateSetting)
+
+	// Close the database to force an error
+	sqlDB, _ := db.DB()
+	_ = sqlDB.Close()
+
+	payload := map[string]string{
+		"key":   "test_key",
+		"value": "test_value",
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/settings", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Contains(t, response["error"], "Failed to save setting")
 }
 
 func TestSettingsHandler_Errors(t *testing.T) {

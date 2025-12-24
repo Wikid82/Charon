@@ -8,16 +8,21 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security"
-	"github.com/Wikid82/charon/backend/internal/services"
 )
+
+// SecurityNotificationServiceInterface defines the interface for security notification service.
+type SecurityNotificationServiceInterface interface {
+	GetSettings() (*models.NotificationConfig, error)
+	UpdateSettings(*models.NotificationConfig) error
+}
 
 // SecurityNotificationHandler handles notification settings endpoints.
 type SecurityNotificationHandler struct {
-	service *services.SecurityNotificationService
+	service SecurityNotificationServiceInterface
 }
 
 // NewSecurityNotificationHandler creates a new handler instance.
-func NewSecurityNotificationHandler(service *services.SecurityNotificationService) *SecurityNotificationHandler {
+func NewSecurityNotificationHandler(service SecurityNotificationServiceInterface) *SecurityNotificationHandler {
 	return &SecurityNotificationHandler{service: service}
 }
 
