@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/trace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -539,15 +540,109 @@ func TestNotificationService_TestProvider_Errors(t *testing.T) {
 	})
 }
 
-func TestValidateWebhookURL_PrivateIP(t *testing.T) {
+func TestSSRF_URLValidation_PrivateIP(t *testing.T) {
 	// Direct IP literal within RFC1918 block should be rejected
-	_, err := validateWebhookURL("http://10.0.0.1")
+	// Using security.ValidateExternalURL with AllowHTTP option
+	_, err := security.ValidateExternalURL("http://10.0.0.1", security.WithAllowHTTP())
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "private")
 
-	// Loopback allowed
-	u, err := validateWebhookURL("http://127.0.0.1:8080")
+	// Loopback allowed when WithAllowLocalhost is set
+	validatedURL, err := security.ValidateExternalURL("http://127.0.0.1:8080",
+		security.WithAllowHTTP(),
+		security.WithAllowLocalhost(),
+	)
 	assert.NoError(t, err)
-	assert.Equal(t, "127.0.0.1", u.Hostname())
+	assert.Contains(t, validatedURL, "127.0.0.1")
+
+	// Loopback NOT allowed without WithAllowLocalhost
+	_, err = security.ValidateExternalURL("http://127.0.0.1:8080", security.WithAllowHTTP())
+	assert.Error(t, err)
+}
+
+func TestSSRF_URLValidation_ComprehensiveBlocking(t *testing.T) {
+	tests := []struct {
+		name        string
+		url         string
+		shouldBlock bool
+		description string
+	}{
+		// RFC 1918 private ranges
+		{"10.0.0.0/8", "http://10.0.0.1", true, "Class A private network"},
+		{"10.255.255.254", "http://10.255.255.254", true, "Class A private high end"},
+		{"172.16.0.0/12", "http://172.16.0.1", true, "Class B private network start"},
+		{"172.31.255.254", "http://172.31.255.254", true, "Class B private network end"},
+		{"192.168.0.0/16", "http://192.168.1.1", true, "Class C private network"},
+
+		// Edge cases for 172.x range (16-31 is private, others are not)
+		{"172.15.x (not private)", "http://172.15.0.1", false, "Below private range"},
+		{"172.32.x (not private)", "http://172.32.0.1", false, "Above private range"},
+
+		// Link-local / Cloud metadata
+		{"169.254.169.254", "http://169.254.169.254", true, "AWS/GCP metadata endpoint"},
+
+		// Loopback (blocked without WithAllowLocalhost)
+		{"localhost", "http://localhost", true, "Localhost hostname"},
+		{"127.0.0.1", "http://127.0.0.1", true, "IPv4 loopback"},
+		{"::1", "http://[::1]", true, "IPv6 loopback"},
+
+		// Valid external URLs (should pass)
+		{"google.com", "https://google.com", false, "Public external URL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test WITHOUT AllowLocalhost - should block localhost variants
+			_, err := security.ValidateExternalURL(tt.url, security.WithAllowHTTP())
+			if tt.shouldBlock {
+				assert.Error(t, err, "Expected %s to be blocked: %s", tt.url, tt.description)
+			} else {
+				assert.NoError(t, err, "Expected %s to be allowed: %s", tt.url, tt.description)
+			}
+		})
+	}
+}
+
+func TestSSRF_WebhookIntegration(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("blocks private IP webhook", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  "http://10.0.0.1/webhook",
+		}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid webhook url")
+	})
+
+	t.Run("blocks cloud metadata endpoint", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  "http://169.254.169.254/latest/meta-data/",
+		}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid webhook url")
+	})
+
+	t.Run("allows localhost for testing", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		provider := models.NotificationProvider{
+			Type: "webhook",
+			URL:  ts.URL,
+		}
+		data := map[string]any{"Title": "Test", "Message": "Test Message"}
+		err := svc.sendCustomWebhook(context.Background(), provider, data)
+		assert.NoError(t, err)
+	})
 }
 
 func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {

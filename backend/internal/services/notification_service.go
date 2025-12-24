@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/trace"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -128,8 +129,12 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 			} else {
 				url := normalizeURL(p.Type, p.URL)
 				// Validate HTTP/HTTPS destinations used by shoutrrr to reduce SSRF risk
+				// Using security.ValidateExternalURL to break CodeQL taint chain for CWE-918
 				if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-					if _, err := validateWebhookURL(url); err != nil {
+					if _, err := security.ValidateExternalURL(url,
+						security.WithAllowHTTP(),
+						security.WithAllowLocalhost(),
+					); err != nil {
 						logger.Log().WithField("provider", util.SanitizeForLog(p.Name)).Warn("Skipping notification for provider due to invalid destination")
 						return
 					}
@@ -166,8 +171,16 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		}
 	}
 
-	// Validate webhook URL to reduce SSRF risk (returns parsed URL)
-	u, err := validateWebhookURL(p.URL)
+	// Validate webhook URL using the security package's SSRF-safe validator.
+	// ValidateExternalURL performs comprehensive validation including:
+	// - URL format and scheme validation (http/https only)
+	// - DNS resolution and IP blocking for private/reserved ranges
+	// - Protection against cloud metadata endpoints (169.254.169.254)
+	// Using the security package's function helps CodeQL recognize the sanitization.
+	validatedURLStr, err := security.ValidateExternalURL(p.URL,
+		security.WithAllowHTTP(),      // Allow both http and https for webhooks
+		security.WithAllowLocalhost(), // Allow localhost for testing
+	)
 	if err != nil {
 		return fmt.Errorf("invalid webhook url: %w", err)
 	}
@@ -199,11 +212,11 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 	// Resolve the hostname to an explicit IP and construct the request URL using the
 	// resolved IP. This prevents direct user-controlled hostnames from being used
 	// as the request's destination (SSRF mitigation) and helps CodeQL validate the
-	// sanitisation performed by validateWebhookURL.
+	// sanitisation performed by security.ValidateExternalURL.
 	//
 	// NOTE (security): The following mitigations are intentionally applied to
 	// reduce SSRF/request-forgery risk:
-	//  - `validateWebhookURL` enforces http(s) schemes and rejects private IPs
+	//  - security.ValidateExternalURL enforces http(s) schemes and rejects private IPs
 	//    (except explicit localhost for testing) after DNS resolution.
 	//  - We perform an additional DNS resolution here and choose a non-private
 	//    IP to use as the TCP destination to avoid direct hostname-based routing.
@@ -213,16 +226,19 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 	// Together these steps make the request destination unambiguous and prevent
 	// accidental requests to internal networks. If your threat model requires
 	// stricter controls, consider an explicit allowlist of webhook hostnames.
-	ips, err := net.LookupIP(u.Hostname())
+	// Re-parse the validated URL string to get hostname for DNS lookup.
+	// This uses the sanitized string rather than the original tainted input.
+	validatedURL, _ := neturl.Parse(validatedURLStr)
+	ips, err := net.LookupIP(validatedURL.Hostname())
 	if err != nil || len(ips) == 0 {
 		return fmt.Errorf("failed to resolve webhook host: %w", err)
 	}
 	// If hostname is local loopback, accept loopback addresses; otherwise pick
-	// the first non-private IP (validateWebhookURL already ensured these
+	// the first non-private IP (security.ValidateExternalURL already ensured these
 	// are not private, but check again defensively).
 	var selectedIP net.IP
 	for _, ip := range ips {
-		if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" {
+		if validatedURL.Hostname() == "localhost" || validatedURL.Hostname() == "127.0.0.1" || validatedURL.Hostname() == "::1" {
 			selectedIP = ip
 			break
 		}
@@ -232,26 +248,27 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		}
 	}
 	if selectedIP == nil {
-		return fmt.Errorf("failed to find non-private IP for webhook host: %s", u.Hostname())
+		return fmt.Errorf("failed to find non-private IP for webhook host: %s", validatedURL.Hostname())
 	}
 
-	port := u.Port()
+	port := validatedURL.Port()
 	if port == "" {
-		if u.Scheme == "https" {
+		if validatedURL.Scheme == "https" {
 			port = "443"
 		} else {
 			port = "80"
 		}
 	}
 	// Construct a safe URL using the resolved IP:port for the Host component,
-	// while preserving the original path and query from the user-provided URL.
+	// while preserving the original path and query from the validated URL.
 	// This makes the destination hostname unambiguously an IP that we resolved
 	// and prevents accidental requests to private/internal addresses.
+	// Using validatedURL (derived from validatedURLStr) breaks the CodeQL taint chain.
 	safeURL := &neturl.URL{
-		Scheme:   u.Scheme,
+		Scheme:   validatedURL.Scheme,
 		Host:     net.JoinHostPort(selectedIP.String(), port),
-		Path:     u.Path,
-		RawQuery: u.RawQuery,
+		Path:     validatedURL.Path,
+		RawQuery: validatedURL.RawQuery,
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", safeURL.String(), &body)
 	if err != nil {
@@ -265,7 +282,8 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		}
 	}
 	// Preserve original hostname for virtual host (Host header)
-	req.Host = u.Host
+	// Using validatedURL.Host ensures we're using the sanitized value.
+	req.Host = validatedURL.Host
 
 	// We validated the URL and resolved the hostname to an explicit IP above.
 	// The request uses the resolved IP (selectedIP) and we also set the
@@ -319,40 +337,6 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// validateWebhookURL parses and validates webhook URLs and ensures
-// the resolved addresses are not private/local.
-func validateWebhookURL(raw string) (*neturl.URL, error) {
-	u, err := neturl.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid url: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
-	}
-
-	host := u.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("missing host")
-	}
-
-	// Allow explicit loopback/localhost addresses for local tests.
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-		return u, nil
-	}
-
-	// Resolve and check IPs
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return nil, fmt.Errorf("dns lookup failed: %w", err)
-	}
-	for _, ip := range ips {
-		if isPrivateIP(ip) {
-			return nil, fmt.Errorf("disallowed host IP: %s", ip.String())
-		}
-	}
-	return u, nil
-}
-
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
 	if provider.Type == "webhook" {
 		data := map[string]any{
@@ -366,6 +350,18 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 		return s.sendCustomWebhook(context.Background(), provider, data)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
+	// SSRF validation for HTTP/HTTPS URLs used by shoutrrr
+	// Using security.ValidateExternalURL to break CodeQL taint chain for CWE-918.
+	// Non-HTTP schemes (e.g., discord://, slack://) are protocol-specific and don't
+	// directly expose SSRF risks since shoutrrr handles their network connections.
+	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+		if _, err := security.ValidateExternalURL(url,
+			security.WithAllowHTTP(),
+			security.WithAllowLocalhost(),
+		); err != nil {
+			return fmt.Errorf("invalid notification URL: %w", err)
+		}
+	}
 	return shoutrrr.Send(url, "Test notification from Charon")
 }
 
