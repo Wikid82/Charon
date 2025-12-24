@@ -52,6 +52,7 @@ backend/*.coverage.out
 backend/handler_coverage.txt
 backend/handlers.out
 backend/services.test
+backend/*.test
 backend/test-output.txt
 backend/tr_no_cover.txt
 backend/nohup.out
