@@ -234,7 +234,7 @@ func TestDockerHandler_ListContainers_InvalidHost(t *testing.T) {
 	h.RegisterRoutes(api)
 
 	tests := []struct {
-		name     string
+		name      string
 		hostParam string
 	}{
 		{"arbitrary IP", "host=10.0.0.1"},
