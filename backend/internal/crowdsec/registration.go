@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 const (
@@ -133,7 +135,11 @@ func CheckLAPIHealth(lapiURL string) bool {
 		return false
 	}
 
-	client := &http.Client{Timeout: defaultHealthTimeout}
+	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(defaultHealthTimeout),
+		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+	)
 	resp, err := client.Do(req)
 	if err != nil {
 		// Fallback: try the /v1/decisions endpoint with a HEAD request
@@ -173,7 +179,11 @@ func GetLAPIVersion(ctx context.Context, lapiURL string) (string, error) {
 		return "", fmt.Errorf("create version request: %w", err)
 	}
 
-	client := &http.Client{Timeout: defaultHealthTimeout}
+	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(defaultHealthTimeout),
+		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+	)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("version request failed: %w", err)
@@ -208,7 +218,11 @@ func checkDecisionsEndpoint(ctx context.Context, lapiURL string) bool {
 		return false
 	}
 
-	client := &http.Client{Timeout: defaultHealthTimeout}
+	// Use SSRF-safe HTTP client with localhost allowed (LAPI is localhost-only)
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(defaultHealthTimeout),
+		network.WithAllowLocalhost(), // LAPI validated to be localhost only
+	)
 	resp, err := client.Do(req)
 	if err != nil {
 		return false

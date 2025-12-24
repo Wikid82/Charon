@@ -31,12 +31,52 @@ SSRF vulnerabilities are classified as **OWASP A10:2021** (Server-Side Request F
 
 ### How Charon Protects Against SSRF
 
-Charon implements **four layers of defense**:
+Charon implements a **three-layer defense-in-depth strategy** using two complementary packages:
 
-1. **URL Format Validation**: Ensures URLs follow expected patterns and schemes
-2. **DNS Resolution**: Resolves hostnames to IP addresses with timeout protection
-3. **IP Range Validation**: Blocks access to private, reserved, and sensitive IP ranges
-4. **Request Execution**: Enforces timeouts, limits redirects, and logs all attempts
+#### Defense Layer Architecture
+
+| Layer | Component | Function | Prevents |
+|-------|-----------|----------|----------|
+| **Layer 1** | `security.ValidateExternalURL()` | Pre-validates URL format, scheme, and DNS resolution | Malformed URLs, blocked protocols, obvious private IPs |
+| **Layer 2** | `network.NewSafeHTTPClient()` | Connection-time IP validation in custom dialer | DNS rebinding, TOCTOU attacks, cached DNS exploits |
+| **Layer 3** | Redirect validation | Each redirect target validated before following | Redirect-based SSRF bypasses |
+
+#### Validation Flow
+
+```
+User URL Input
+      │
+      ▼
+┌─────────────────────────────────────┐
+│  Layer 1: security.ValidateExternalURL()   │
+│  - Parse URL (scheme, host, path)   │
+│  - Reject non-HTTP(S) schemes       │
+│  - Resolve DNS with timeout         │
+│  - Check ALL IPs against blocklist  │
+└───────────────┬─────────────────────┘
+                │ ✓ Passes validation
+                ▼
+┌─────────────────────────────────────┐
+│  Layer 2: network.NewSafeHTTPClient()      │
+│  - Custom safeDialer() at TCP level │
+│  - Re-resolve DNS immediately       │
+│  - Re-validate ALL resolved IPs     │
+│  - Connect to validated IP directly │
+└───────────────┬─────────────────────┘
+                │ ✓ Connection allowed
+                ▼
+┌─────────────────────────────────────┐
+│  Layer 3: Redirect Validation       │
+│  - Check redirect count (max 2)     │
+│  - Validate redirect target URL     │
+│  - Re-run IP validation on target   │
+└───────────────┬─────────────────────┘
+                │ ✓ Response received
+                ▼
+         Safe Response
+```
+
+This layered approach ensures that even if an attacker bypasses URL validation through DNS rebinding or cache manipulation, the connection-time validation will catch the attack.
 
 ---
 
@@ -858,6 +898,130 @@ func WithTimeout(timeout time.Duration) ValidationOption
 
 ---
 
+### Using `network.NewSafeHTTPClient()`
+
+For runtime HTTP requests where SSRF protection must be enforced at connection time (defense-in-depth), use the `network.NewSafeHTTPClient()` function. This provides a **three-layer defense strategy**:
+
+1. **Layer 1: URL Pre-Validation** - `security.ValidateExternalURL()` checks URL format and DNS resolution
+2. **Layer 2: Connection-Time Validation** - `network.NewSafeHTTPClient()` re-validates IPs at dial time
+3. **Layer 3: Redirect Validation** - Each redirect target is validated before following
+
+**Import**:
+```go
+import "github.com/Wikid82/charon/backend/internal/network"
+```
+
+**Basic Usage**:
+```go
+// Create a safe HTTP client with default options
+client := network.NewSafeHTTPClient()
+
+// Make request (connection-time SSRF protection is automatic)
+resp, err := client.Get("https://api.example.com/data")
+if err != nil {
+    // Connection blocked due to private IP, or normal network error
+    log.Error("Request failed:", err)
+    return err
+}
+defer resp.Body.Close()
+```
+
+**With Options**:
+```go
+// Custom timeout (default: 10 seconds)
+client := network.NewSafeHTTPClient(
+    network.WithTimeout(5 * time.Second),
+)
+
+// Allow localhost for local services (e.g., CrowdSec LAPI)
+client := network.NewSafeHTTPClient(
+    network.WithAllowLocalhost(),
+)
+
+// Allow limited redirects (default: 0)
+client := network.NewSafeHTTPClient(
+    network.WithMaxRedirects(2),
+)
+
+// Restrict to specific domains
+client := network.NewSafeHTTPClient(
+    network.WithAllowedDomains("api.github.com", "hub-data.crowdsec.net"),
+)
+
+// Custom dial timeout (default: 5 seconds)
+client := network.NewSafeHTTPClient(
+    network.WithDialTimeout(3 * time.Second),
+)
+
+// Combine multiple options
+client := network.NewSafeHTTPClient(
+    network.WithTimeout(10 * time.Second),
+    network.WithAllowLocalhost(),        // For CrowdSec LAPI
+    network.WithMaxRedirects(2),
+    network.WithDialTimeout(5 * time.Second),
+)
+```
+
+#### Available Options for `NewSafeHTTPClient`
+
+| Option | Default | Description | Security Impact |
+|--------|---------|-------------|-----------------|
+| `WithTimeout(d)` | 10s | Total request timeout | ✅ LOW |
+| `WithAllowLocalhost()` | false | Permit 127.0.0.1/localhost/::1 | 🔴 HIGH |
+| `WithAllowedDomains(...)` | nil | Restrict to specific domains | ✅ Improves security |
+| `WithMaxRedirects(n)` | 0 | Max redirects to follow (each validated) | ⚠️ MEDIUM if > 0 |
+| `WithDialTimeout(d)` | 5s | Connection timeout per dial | ✅ LOW |
+
+#### How It Prevents DNS Rebinding
+
+The `safeDialer()` function prevents DNS rebinding attacks by:
+
+1. Resolving the hostname to IP addresses **immediately before connection**
+2. Validating **ALL resolved IPs** (not just the first) against `IsPrivateIP()`
+3. Connecting directly to the validated IP (bypassing DNS cache)
+
+```go
+// Internal implementation (simplified)
+func safeDialer(opts *ClientOptions) func(ctx, network, addr string) (net.Conn, error) {
+    return func(ctx, network, addr string) (net.Conn, error) {
+        host, port := net.SplitHostPort(addr)
+
+        // Resolve DNS immediately before connection
+        ips, _ := net.DefaultResolver.LookupIPAddr(ctx, host)
+
+        // Validate ALL resolved IPs
+        for _, ip := range ips {
+            if IsPrivateIP(ip.IP) {
+                return nil, fmt.Errorf("connection to private IP blocked: %s", ip.IP)
+            }
+        }
+
+        // Connect to validated IP (not hostname)
+        return dialer.DialContext(ctx, network, net.JoinHostPort(selectedIP, port))
+    }
+}
+```
+
+#### Blocked CIDR Ranges
+
+The `network.IsPrivateIP()` function blocks these IP ranges:
+
+| CIDR Block | Description |
+|------------|-------------|
+| `10.0.0.0/8` | RFC 1918 Class A private network |
+| `172.16.0.0/12` | RFC 1918 Class B private network |
+| `192.168.0.0/16` | RFC 1918 Class C private network |
+| `169.254.0.0/16` | Link-local (AWS/Azure/GCP metadata: 169.254.169.254) |
+| `127.0.0.0/8` | IPv4 loopback |
+| `0.0.0.0/8` | Current network |
+| `240.0.0.0/4` | Reserved for future use |
+| `255.255.255.255/32` | Broadcast |
+| `::1/128` | IPv6 loopback |
+| `fc00::/7` | IPv6 unique local addresses |
+| `fe80::/10` | IPv6 link-local |
+
+---
+
 ### Best Practices
 
 **1. Validate Early (Fail-Fast Principle)**
@@ -1199,7 +1363,7 @@ We're interested in:
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: December 23, 2025
+**Document Version**: 1.1
+**Last Updated**: December 24, 2025
 **Status**: Production
 **Maintained By**: Charon Security Team

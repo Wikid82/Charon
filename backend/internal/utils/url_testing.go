@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 )
 
@@ -16,7 +17,7 @@ import (
 // This prevents DNS rebinding attacks by validating the IP just before connecting.
 // Returns a DialContext function suitable for use in http.Transport.
 func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, netw, addr string) (net.Conn, error) {
 		// Parse host and port from address
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
@@ -34,8 +35,9 @@ func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn,
 		}
 
 		// Validate ALL resolved IPs - if any are private, reject immediately
+		// Using centralized network.IsPrivateIP for consistent SSRF protection
 		for _, ip := range ips {
-			if isPrivateIP(ip.IP) {
+			if network.IsPrivateIP(ip.IP) {
 				return nil, fmt.Errorf("access to private IP addresses is blocked (resolved to %s)", ip.IP)
 			}
 		}
@@ -44,7 +46,7 @@ func ssrfSafeDialer() func(ctx context.Context, network, addr string) (net.Conn,
 		dialer := &net.Dialer{
 			Timeout: 5 * time.Second,
 		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		return dialer.DialContext(ctx, netw, net.JoinHostPort(ips[0].IP.String(), port))
 	}
 }
 
@@ -188,56 +190,8 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 }
 
 // isPrivateIP checks if an IP address is private, loopback, link-local, or otherwise restricted.
-// This function implements SSRF protection by blocking:
-// - Private IPv4 ranges (RFC 1918)
-// - Loopback addresses (127.0.0.0/8, ::1/128)
-// - Link-local addresses (169.254.0.0/16, fe80::/10)
-// - Private IPv6 ranges (fc00::/7)
-// - Reserved ranges (0.0.0.0/8, 240.0.0.0/4, 255.255.255.255/32)
+// This function wraps network.IsPrivateIP for backward compatibility within the utils package.
+// See network.IsPrivateIP for the full list of blocked IP ranges.
 func isPrivateIP(ip net.IP) bool {
-	// Check built-in Go functions for common cases
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Define private and reserved IP blocks
-	privateBlocks := []string{
-		// IPv4 Private Networks (RFC 1918)
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-
-		// IPv4 Link-Local (RFC 3927) - includes AWS/GCP metadata service
-		"169.254.0.0/16",
-
-		// IPv4 Loopback
-		"127.0.0.0/8",
-
-		// IPv4 Reserved ranges
-		"0.0.0.0/8",          // "This network"
-		"240.0.0.0/4",        // Reserved for future use
-		"255.255.255.255/32", // Broadcast
-
-		// IPv6 Loopback
-		"::1/128",
-
-		// IPv6 Unique Local Addresses (RFC 4193)
-		"fc00::/7",
-
-		// IPv6 Link-Local
-		"fe80::/10",
-	}
-
-	// Check if IP is in any of the blocked ranges
-	for _, block := range privateBlocks {
-		_, subnet, err := net.ParseCIDR(block)
-		if err != nil {
-			continue
-		}
-		if subnet.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+	return network.IsPrivateIP(ip)
 }

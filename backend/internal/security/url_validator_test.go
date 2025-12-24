@@ -606,7 +606,7 @@ func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
 		{"IPv4-mapped private", "::ffff:192.168.1.1", true},
 
 		// Edge cases
-		{"IPv6 unspecified", "::", false},   // Not private, just null
+		{"IPv6 unspecified", "::", true},    // Unspecified addresses should be blocked for SSRF protection
 		{"IPv6 multicast", "ff02::1", true}, // Multicast is blocked by IsLinkLocalMulticast()
 	}
 
