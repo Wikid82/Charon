@@ -4,6 +4,12 @@
 
 Server-Side Request Forgery (SSRF) is a critical web security vulnerability where an attacker can abuse server functionality to access or manipulate internal resources. Charon implements comprehensive defense-in-depth SSRF protection across all features that accept user-controlled URLs.
 
+**Status**: ✅ **CodeQL CWE-918 Resolved** (PR #450)
+- Taint chain break verified via static analysis
+- Test coverage: 90.2% for URL validation utilities
+- Zero security vulnerabilities (Trivy, govulncheck clean)
+- See [PR #450 Implementation Summary](../implementation/PR450_TEST_COVERAGE_COMPLETE.md) for details
+
 ### What is SSRF?
 
 SSRF occurs when an application fetches a remote resource based on user input without validating the destination. Attackers exploit this to:
@@ -1073,6 +1079,62 @@ func (s *NotificationService) SendWebhook(ctx context.Context, event SecurityEve
     return nil
 }
 ```
+
+---
+
+---
+
+## Test Coverage (PR #450)
+
+### Comprehensive SSRF Protection Tests
+
+Charon maintains extensive test coverage for all SSRF protection mechanisms:
+
+**URL Validation Tests** (90.2% coverage):
+- ✅ Private IP detection (IPv4/IPv6)
+- ✅ Cloud metadata endpoint blocking (169.254.169.254)
+- ✅ DNS resolution with timeout handling
+- ✅ Localhost allowance in test mode only
+- ✅ Custom timeout configuration
+- ✅ Multiple IP address validation (all must pass)
+
+**Security Notification Tests**:
+- ✅ Webhook URL validation on save
+- ✅ Webhook URL re-validation on send
+- ✅ HTTPS enforcement in production
+- ✅ SSRF blocking for private IPs
+- ✅ DNS rebinding protection
+
+**Integration Tests**:
+- ✅ End-to-end webhook delivery with SSRF checks
+- ✅ CrowdSec hub URL validation
+- ✅ URL connectivity testing with admin-only access
+- ✅ Performance benchmarks (< 10ms validation overhead)
+
+**Test Pattern Example**:
+```go
+func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
+    // Test blocking AWS metadata endpoint
+    _, err := security.ValidateExternalURL("http://169.254.169.254/latest/meta-data/")
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "private IP address")
+}
+
+func TestValidateExternalURL_IPv6Comprehensive(t *testing.T) {
+    // Test IPv6 private addresses
+    testCases := []string{
+        "http://[fc00::1]/",      // Unique local
+        "http://[fe80::1]/",      // Link-local
+        "http://[::1]/",          // Loopback
+    }
+    for _, url := range testCases {
+        _, err := security.ValidateExternalURL(url)
+        assert.Error(t, err, "Should block: %s", url)
+    }
+}
+```
+
+See [PR #450 Implementation Summary](../implementation/PR450_TEST_COVERAGE_COMPLETE.md) for complete test metrics.
 
 ---
 

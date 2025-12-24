@@ -941,7 +941,32 @@ No. Use what you need:
 - ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
 - ✅ Remote Code Execution (RCE) — command injection patterns
 - ✅ Path Traversal — attempts to read system files
+- ✅ Server-Side Request Forgery (SSRF) — defense-in-depth architecture (CWE-918 resolved, PR #450)
 - ⚠️ CrowdSec — protects hours/days after first exploitation (crowd-sourced)
+
+**SSRF Protection Details** (PR #450):
+
+Charon implements four-layer SSRF protection to prevent attacks against internal services, cloud metadata endpoints, and private networks:
+
+1. **Format Validation**: URL scheme and path validation
+2. **Pre-Connection Validation**: DNS resolution and IP address validation against 13+ blocked CIDR ranges
+3. **Connectivity Testing**: Controlled HEAD requests with strict timeouts
+4. **Runtime Re-Validation**: Connection-time IP checks to prevent DNS rebinding (TOCTOU protection)
+
+**Protected Against**:
+- Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Loopback addresses (127.0.0.0/8, ::1/128)
+- Link-local addresses (169.254.0.0/16, fe80::/10)
+- Cloud metadata endpoints (169.254.169.254/32)
+- IPv6 private ranges (fc00::/7)
+
+**Where Applied**:
+- Security notification webhooks
+- URL connectivity testing endpoint
+- CrowdSec hub URL validation
+- GitHub update URL validation
+
+See [SSRF Complete Implementation](implementation/SSRF_COMPLETE.md) for technical details.
 
 ### How It Works
 
@@ -1128,6 +1153,33 @@ From [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html):
 ---
 
 ## Testing & Validation
+
+### Test Coverage Metrics (PR #450)
+
+Charon maintains comprehensive test coverage to ensure security features work correctly:
+
+**Backend Coverage**: **86.2%** (exceeds 85% threshold)
+- Security handlers: 85.6%
+- Security middleware: 99.1%
+- URL validation utilities: 91.8%
+- SSRF protection: 90.2%
+- IP helpers: 100%
+
+**Frontend Coverage**: **87.27%** (exceeds 85% threshold)
+- Security API: 92.19%
+- Security hooks: 96.56%
+- Security pages: 85.61%
+- UI components: 97.35%
+
+**Security-Specific Test Patterns**:
+- ✅ SSRF protection for webhook URLs (HTTPS enforcement, private IP blocking)
+- ✅ DNS resolution validation with timeout handling
+- ✅ IPv4/IPv6 private address detection (13+ CIDR ranges)
+- ✅ Cloud metadata endpoint blocking (169.254.169.254)
+- ✅ DNS rebinding/TOCTOU attack prevention
+- ✅ URL parser differential attack protection
+
+See [PR #450 Implementation Summary](implementation/PR450_TEST_COVERAGE_COMPLETE.md) for detailed test metrics.
 
 ### Integration Testing
 

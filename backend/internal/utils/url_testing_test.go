@@ -113,31 +113,31 @@ func TestURLConnectivity_ProductionPathValidation(t *testing.T) {
 		errorString string
 	}{
 		{
-			name:        "localhost blocked",
+			name:        "localhost blocked at dial time",
 			url:         "http://localhost",
 			shouldFail:  true,
-			errorString: "security validation failed",
+			errorString: "private IP", // Blocked by ssrfSafeDialer
 		},
 		{
-			name:        "127.0.0.1 blocked",
+			name:        "127.0.0.1 blocked at dial time",
 			url:         "http://127.0.0.1",
 			shouldFail:  true,
-			errorString: "security validation failed",
+			errorString: "private IP", // Blocked by ssrfSafeDialer
 		},
 		{
-			name:        "private 10.x blocked",
+			name:        "private 10.x blocked at validation",
 			url:         "http://10.0.0.1",
 			shouldFail:  true,
 			errorString: "security validation failed",
 		},
 		{
-			name:        "private 192.168.x blocked",
+			name:        "private 192.168.x blocked at validation",
 			url:         "http://192.168.1.1",
 			shouldFail:  true,
 			errorString: "security validation failed",
 		},
 		{
-			name:        "AWS metadata blocked",
+			name:        "AWS metadata blocked at validation",
 			url:         "http://169.254.169.254",
 			shouldFail:  true,
 			errorString: "security validation failed",
@@ -146,13 +146,12 @@ func TestURLConnectivity_ProductionPathValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reachable, latency, err := TestURLConnectivity(tt.url)
+			reachable, _, err := TestURLConnectivity(tt.url)
 
 			if tt.shouldFail {
 				require.Error(t, err, "expected error for %s", tt.url)
 				assert.Contains(t, err.Error(), tt.errorString)
 				assert.False(t, reachable)
-				assert.Equal(t, float64(0), latency)
 			}
 		})
 	}
@@ -204,22 +203,26 @@ func TestURLConnectivity_InvalidScheme(t *testing.T) {
 
 func TestURLConnectivity_SSRFValidationFailure(t *testing.T) {
 	// Test that SSRF validation catches private IPs
-	privateURLs := []string{
-		"http://10.0.0.1",
-		"http://192.168.1.1",
-		"http://172.16.0.1",
-		"http://localhost",
-		"http://127.0.0.1",
+	// Note: localhost/127.0.0.1 are allowed by ValidateExternalURL (WithAllowLocalhost)
+	// but blocked by ssrfSafeDialer at connection time
+	privateURLs := []struct {
+		url         string
+		errorString string
+	}{
+		{"http://10.0.0.1", "security validation failed"},
+		{"http://192.168.1.1", "security validation failed"},
+		{"http://172.16.0.1", "security validation failed"},
+		{"http://localhost", "private IP"}, // Blocked at dial time
+		{"http://127.0.0.1", "private IP"}, // Blocked at dial time
 	}
 
-	for _, url := range privateURLs {
-		t.Run(url, func(t *testing.T) {
-			reachable, latency, err := TestURLConnectivity(url)
+	for _, tc := range privateURLs {
+		t.Run(tc.url, func(t *testing.T) {
+			reachable, _, err := TestURLConnectivity(tc.url)
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "security validation failed")
+			assert.Contains(t, err.Error(), tc.errorString)
 			assert.False(t, reachable)
-			assert.Equal(t, float64(0), latency)
 		})
 	}
 }

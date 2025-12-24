@@ -152,3 +152,143 @@ func TestIsPrivateIP_IPv4Mapped(t *testing.T) {
 		})
 	}
 }
+
+// ============== Phase 3.3: Additional IP Helpers Tests ==============
+
+func TestIsPrivateIP_CIDRParseError(t *testing.T) {
+	// Temporarily modify the private IP ranges to include an invalid CIDR
+	// This tests graceful handling of CIDR parse errors
+
+	// Since we can't modify the package-level variable, we test the function behavior
+	// with edge cases that might trigger parsing issues
+
+	// Test with various invalid IP formats (should return false gracefully)
+	invalidInputs := []string{
+		"10.0.0.1/8",      // CIDR notation (not a raw IP)
+		"10.0.0.256",      // Invalid octet
+		"999.999.999.999", // Out of range
+		"10.0.0",          // Incomplete
+		"not-an-ip",       // Hostname
+		"",                // Empty
+		"10.0.0.1.1",      // Too many octets
+	}
+
+	for _, input := range invalidInputs {
+		t.Run(input, func(t *testing.T) {
+			result := IsPrivateIP(input)
+			// All invalid inputs should return false (not panic)
+			if result {
+				t.Errorf("IsPrivateIP(%q) = true, want false for invalid input", input)
+			}
+		})
+	}
+}
+
+func TestIsDockerBridgeIP_CIDRParseError(t *testing.T) {
+	// Test graceful handling of invalid inputs
+	invalidInputs := []string{
+		"172.17.0.1/16",   // CIDR notation
+		"172.17.0.256",    // Invalid octet
+		"999.999.999.999", // Out of range
+		"172.17",          // Incomplete
+		"not-an-ip",       // Hostname
+		"",                // Empty
+	}
+
+	for _, input := range invalidInputs {
+		t.Run(input, func(t *testing.T) {
+			result := IsDockerBridgeIP(input)
+			// All invalid inputs should return false (not panic)
+			if result {
+				t.Errorf("IsDockerBridgeIP(%q) = true, want false for invalid input", input)
+			}
+		})
+	}
+}
+
+func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		// IPv6 Loopback
+		{"IPv6 loopback", "::1", false}, // Current implementation treats loopback as non-private
+		{"IPv6 loopback expanded", "0000:0000:0000:0000:0000:0000:0000:0001", false},
+
+		// IPv6 Link-Local (fe80::/10)
+		{"IPv6 link-local", "fe80::1", false},
+		{"IPv6 link-local 2", "fe80::abcd:ef01:2345:6789", false},
+
+		// IPv6 Unique Local (fc00::/7)
+		{"IPv6 unique local fc00", "fc00::1", false},
+		{"IPv6 unique local fd00", "fd00::1", false},
+		{"IPv6 unique local fdff", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
+
+		// IPv6 Public addresses
+		{"IPv6 public Google DNS", "2001:4860:4860::8888", false},
+		{"IPv6 public Cloudflare", "2606:4700:4700::1111", false},
+
+		// IPv6 mapped IPv4
+		{"IPv6 mapped private", "::ffff:10.0.0.1", true},
+		{"IPv6 mapped public", "::ffff:8.8.8.8", false},
+
+		// Invalid IPv6
+		{"Invalid IPv6", "gggg::1", false},
+		{"Incomplete IPv6", "2001::", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsPrivateIP(tt.host)
+			if result != tt.expected {
+				t.Errorf("IsPrivateIP(%q) = %v, want %v", tt.host, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsDockerBridgeIP_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		// Boundaries of 172.16.0.0/12 range
+		{"Lower boundary - 1", "172.15.255.255", false}, // Just outside
+		{"Lower boundary", "172.16.0.0", true},          // Start of range
+		{"Lower boundary + 1", "172.16.0.1", true},
+
+		{"Upper boundary - 1", "172.31.255.254", true},
+		{"Upper boundary", "172.31.255.255", true},  // End of range
+		{"Upper boundary + 1", "172.32.0.0", false}, // Just outside
+		{"Upper boundary + 2", "172.32.0.1", false},
+
+		// Docker default bridge (172.17.0.0/16)
+		{"Docker default bridge start", "172.17.0.0", true},
+		{"Docker default bridge gateway", "172.17.0.1", true},
+		{"Docker default bridge host", "172.17.0.2", true},
+		{"Docker default bridge end", "172.17.255.255", true},
+
+		// Docker user-defined networks
+		{"User network 1", "172.18.0.1", true},
+		{"User network 2", "172.19.0.1", true},
+		{"User network 30", "172.30.0.1", true},
+		{"User network 31", "172.31.0.1", true},
+
+		// Edge of 172.x range
+		{"172.0.0.1", "172.0.0.1", false},             // Below range
+		{"172.15.0.1", "172.15.0.1", false},           // Below range
+		{"172.32.0.1", "172.32.0.1", false},           // Above range
+		{"172.255.255.255", "172.255.255.255", false}, // Above range
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsDockerBridgeIP(tt.host)
+			if result != tt.expected {
+				t.Errorf("IsDockerBridgeIP(%q) = %v, want %v", tt.host, result, tt.expected)
+			}
+		})
+	}
+}

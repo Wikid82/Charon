@@ -833,18 +833,361 @@ func TestCopyDir(t *testing.T) {
 }
 
 func TestFetchIndexHTTPAcceptsTextPlain(t *testing.T) {
-svc := NewHubService(nil, nil, t.TempDir())
-indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
-svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
-resp := newResponse(http.StatusOK, indexBody)
-resp.Header.Set("Content-Type", "text/plain; charset=utf-8")
-return resp, nil
-})}
+	svc := NewHubService(nil, nil, t.TempDir())
+	indexBody := `{"items":[{"name":"crowdsecurity/demo","title":"Demo","type":"collection"}]}`
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusOK, indexBody)
+		resp.Header.Set("Content-Type", "text/plain; charset=utf-8")
+		return resp, nil
+	})}
 
-idx, err := svc.fetchIndexHTTP(context.Background())
-require.NoError(t, err)
-require.Len(t, idx.Items, 1)
-require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+	idx, err := svc.fetchIndexHTTP(context.Background())
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Equal(t, "crowdsecurity/demo", idx.Items[0].Name)
+}
+
+// ============================================
+// Phase 2.1: SSRF Validation & Hub Sync Tests
+// ============================================
+
+func TestValidateHubURL_ValidHTTPSProduction(t *testing.T) {
+	validURLs := []string{
+		"https://hub-data.crowdsec.net/api/index.json",
+		"https://hub.crowdsec.net/api/index.json",
+		"https://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json",
+	}
+
+	for _, url := range validURLs {
+		t.Run(url, func(t *testing.T) {
+			err := validateHubURL(url)
+			require.NoError(t, err, "Expected valid production hub URL to pass validation")
+		})
+	}
+}
+
+func TestValidateHubURL_InvalidSchemes(t *testing.T) {
+	invalidSchemes := []string{
+		"ftp://hub.crowdsec.net/index.json",
+		"file:///etc/passwd",
+		"gopher://attacker.com",
+		"data:text/html,<script>alert('xss')</script>",
+	}
+
+	for _, url := range invalidSchemes {
+		t.Run(url, func(t *testing.T) {
+			err := validateHubURL(url)
+			require.Error(t, err, "Expected invalid scheme to be rejected")
+			require.Contains(t, err.Error(), "unsupported scheme")
+		})
+	}
+}
+
+func TestValidateHubURL_LocalhostExceptions(t *testing.T) {
+	localhostURLs := []string{
+		"http://localhost:8080/index.json",
+		"http://127.0.0.1:8080/index.json",
+		"http://[::1]:8080/index.json",
+		"http://test.hub/api/index.json",
+		"http://example.com/api/index.json",
+		"http://test.example.com/api/index.json",
+		"http://server.local/api/index.json",
+	}
+
+	for _, url := range localhostURLs {
+		t.Run(url, func(t *testing.T) {
+			err := validateHubURL(url)
+			require.NoError(t, err, "Expected localhost/test domain to be allowed")
+		})
+	}
+}
+
+func TestValidateHubURL_UnknownDomainRejection(t *testing.T) {
+	unknownURLs := []string{
+		"https://evil.com/index.json",
+		"https://attacker.net/hub/index.json",
+		"https://hub.evil.com/index.json",
+	}
+
+	for _, url := range unknownURLs {
+		t.Run(url, func(t *testing.T) {
+			err := validateHubURL(url)
+			require.Error(t, err, "Expected unknown domain to be rejected")
+			require.Contains(t, err.Error(), "unknown hub domain")
+		})
+	}
+}
+
+func TestValidateHubURL_HTTPRejectedForProduction(t *testing.T) {
+	httpURLs := []string{
+		"http://hub-data.crowdsec.net/api/index.json",
+		"http://hub.crowdsec.net/api/index.json",
+		"http://raw.githubusercontent.com/crowdsecurity/hub/master/.index.json",
+	}
+
+	for _, url := range httpURLs {
+		t.Run(url, func(t *testing.T) {
+			err := validateHubURL(url)
+			require.Error(t, err, "Expected HTTP to be rejected for production domains")
+			require.Contains(t, err.Error(), "must use HTTPS")
+		})
+	}
+}
+
+func TestBuildResourceURLs(t *testing.T) {
+	t.Run("with explicit URL", func(t *testing.T) {
+		urls := buildResourceURLs("https://explicit.com/file.tgz", "demo/slug", "/%s.tgz", []string{"https://base1.com", "https://base2.com"})
+		require.Contains(t, urls, "https://explicit.com/file.tgz")
+		require.Contains(t, urls, "https://base1.com/demo/slug.tgz")
+		require.Contains(t, urls, "https://base2.com/demo/slug.tgz")
+	})
+
+	t.Run("without explicit URL", func(t *testing.T) {
+		urls := buildResourceURLs("", "demo/preset", "/%s.yaml", []string{"https://hub1.com", "https://hub2.com"})
+		require.Len(t, urls, 2)
+		require.Contains(t, urls, "https://hub1.com/demo/preset.yaml")
+		require.Contains(t, urls, "https://hub2.com/demo/preset.yaml")
+	})
+
+	t.Run("removes duplicates", func(t *testing.T) {
+		urls := buildResourceURLs("", "test", "/%s.tgz", []string{"https://hub.com", "https://hub.com", "https://mirror.com"})
+		require.Len(t, urls, 2)
+	})
+
+	t.Run("handles empty bases", func(t *testing.T) {
+		urls := buildResourceURLs("", "test", "/%s.tgz", []string{"", "https://hub.com", ""})
+		require.Len(t, urls, 1)
+		require.Equal(t, "https://hub.com/test.tgz", urls[0])
+	})
+}
+
+func TestParseRawIndex(t *testing.T) {
+	t.Run("parses valid raw index", func(t *testing.T) {
+		rawJSON := `{
+			"collections": {
+				"crowdsecurity/demo": {
+					"path": "collections/crowdsecurity/demo.tgz",
+					"version": "1.0",
+					"description": "Demo collection"
+				}
+			},
+			"scenarios": {
+				"crowdsecurity/test-scenario": {
+					"path": "scenarios/crowdsecurity/test-scenario.yaml",
+					"version": "2.0",
+					"description": "Test scenario"
+				}
+			}
+		}`
+
+		idx, err := parseRawIndex([]byte(rawJSON), "https://hub.example.com/api/index.json")
+		require.NoError(t, err)
+		require.Len(t, idx.Items, 2)
+
+		// Verify collection entry
+		var demoFound bool
+		for _, item := range idx.Items {
+			if item.Name == "crowdsecurity/demo" {
+				demoFound = true
+				require.Equal(t, "collections", item.Type)
+				require.Equal(t, "1.0", item.Version)
+				require.Equal(t, "Demo collection", item.Description)
+				require.Contains(t, item.DownloadURL, "collections/crowdsecurity/demo.tgz")
+			}
+		}
+		require.True(t, demoFound)
+	})
+
+	t.Run("returns error on invalid JSON", func(t *testing.T) {
+		_, err := parseRawIndex([]byte("not json"), "https://hub.example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "parse raw index")
+	})
+
+	t.Run("returns error on empty index", func(t *testing.T) {
+		_, err := parseRawIndex([]byte("{}"), "https://hub.example.com")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty raw index")
+	})
+}
+
+func TestFetchIndexHTTPFromURL_HTMLDetection(t *testing.T) {
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	htmlResponse := `<!DOCTYPE html>
+<html>
+<head><title>CrowdSec Hub</title></head>
+<body><h1>Welcome to CrowdSec Hub</h1></body>
+</html>`
+
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusOK, htmlResponse)
+		resp.Header.Set("Content-Type", "text/html; charset=utf-8")
+		return resp, nil
+	})}
+
+	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "HTML")
+}
+
+func TestHubService_Apply_ArchiveReadBeforeBackup(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	dataDir := t.TempDir()
+	archive := makeTarGz(t, map[string]string{"config.yml": "test: value"})
+	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", archive)
+	require.NoError(t, err)
+
+	svc := NewHubService(nil, cache, dataDir)
+
+	// Apply should read archive before backup to avoid path issues
+	res, err := svc.Apply(context.Background(), "test/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+	require.FileExists(t, filepath.Join(dataDir, "config.yml"))
+}
+
+func TestHubService_Apply_CacheRefresh(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Second)
+	require.NoError(t, err)
+
+	dataDir := t.TempDir()
+
+	// Store expired entry
+	fixed := time.Now().Add(-5 * time.Second)
+	cache.nowFn = func() time.Time { return fixed }
+	archive := makeTarGz(t, map[string]string{"config.yml": "old"})
+	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "old-preview", archive)
+	require.NoError(t, err)
+
+	// Reset time to trigger expiration
+	cache.nowFn = func() time.Time { return time.Now() }
+
+	indexBody := `{"items":[{"name":"test/preset","title":"Test","etag":"etag2","download_url":"http://test.hub/preset.tgz"}]}`
+	newArchive := makeTarGz(t, map[string]string{"config.yml": "new"})
+
+	svc := NewHubService(nil, cache, dataDir)
+	svc.HubBaseURL = "http://test.hub"
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.String(), "index.json") {
+			return newResponse(http.StatusOK, indexBody), nil
+		}
+		if strings.Contains(req.URL.String(), "preset.tgz") {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(newArchive)), Header: make(http.Header)}, nil
+		}
+		return newResponse(http.StatusNotFound, ""), nil
+	})}
+
+	res, err := svc.Apply(context.Background(), "test/preset")
+	require.NoError(t, err)
+	require.Equal(t, "applied", res.Status)
+
+	// Verify new content was applied
+	content, err := os.ReadFile(filepath.Join(dataDir, "config.yml"))
+	require.NoError(t, err)
+	require.Equal(t, "new", string(content))
+}
+
+func TestHubService_Apply_RollbackOnExtractionFailure(t *testing.T) {
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	dataDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "important.txt"), []byte("preserve me"), 0o644))
+
+	// Create archive with path traversal attempt
+	badArchive := makeTarGz(t, map[string]string{"../escape.txt": "evil"})
+	_, err = cache.Store(context.Background(), "test/preset", "etag1", "hub", "preview", badArchive)
+	require.NoError(t, err)
+
+	svc := NewHubService(nil, cache, dataDir)
+
+	_, err = svc.Apply(context.Background(), "test/preset")
+	require.Error(t, err)
+
+	// Verify rollback preserved original file
+	content, err := os.ReadFile(filepath.Join(dataDir, "important.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "preserve me", string(content))
+}
+
+func TestCopyDirAndCopyFile(t *testing.T) {
+	t.Run("copyFile success", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "source.txt")
+		dstFile := filepath.Join(tmpDir, "dest.txt")
+
+		content := []byte("test content with special chars: !@#$%")
+		require.NoError(t, os.WriteFile(srcFile, content, 0o644))
+
+		err := copyFile(srcFile, dstFile)
+		require.NoError(t, err)
+
+		dstContent, err := os.ReadFile(dstFile)
+		require.NoError(t, err)
+		require.Equal(t, content, dstContent)
+	})
+
+	t.Run("copyFile preserves permissions", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "executable.sh")
+		dstFile := filepath.Join(tmpDir, "copy.sh")
+
+		require.NoError(t, os.WriteFile(srcFile, []byte("#!/bin/bash\necho test"), 0o755))
+
+		err := copyFile(srcFile, dstFile)
+		require.NoError(t, err)
+
+		srcInfo, err := os.Stat(srcFile)
+		require.NoError(t, err)
+		dstInfo, err := os.Stat(dstFile)
+		require.NoError(t, err)
+
+		require.Equal(t, srcInfo.Mode(), dstInfo.Mode())
+	})
+
+	t.Run("copyDir with nested structure", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcDir := filepath.Join(tmpDir, "source")
+		dstDir := filepath.Join(tmpDir, "dest")
+
+		// Create complex directory structure
+		require.NoError(t, os.MkdirAll(filepath.Join(srcDir, "a", "b", "c"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "root.txt"), []byte("root"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "level1.txt"), []byte("level1"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "level2.txt"), []byte("level2"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(srcDir, "a", "b", "c", "level3.txt"), []byte("level3"), 0o644))
+
+		require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+		err := copyDir(srcDir, dstDir)
+		require.NoError(t, err)
+
+		// Verify all files copied correctly
+		require.FileExists(t, filepath.Join(dstDir, "root.txt"))
+		require.FileExists(t, filepath.Join(dstDir, "a", "level1.txt"))
+		require.FileExists(t, filepath.Join(dstDir, "a", "b", "level2.txt"))
+		require.FileExists(t, filepath.Join(dstDir, "a", "b", "c", "level3.txt"))
+
+		content, err := os.ReadFile(filepath.Join(dstDir, "a", "b", "c", "level3.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "level3", string(content))
+	})
+
+	t.Run("copyDir fails on non-directory source", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "file.txt")
+		dstDir := filepath.Join(tmpDir, "dest")
+
+		require.NoError(t, os.WriteFile(srcFile, []byte("test"), 0o644))
+		require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+		err := copyDir(srcFile, dstDir)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a directory")
+	})
 }
 
 // ============================================

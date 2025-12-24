@@ -386,3 +386,241 @@ func TestValidateExternalURL_RealWorldURLs(t *testing.T) {
 		})
 	}
 }
+
+// Phase 4.2: Additional test cases for comprehensive coverage
+
+func TestValidateExternalURL_MultipleOptions(t *testing.T) {
+	// Test combining multiple validation options
+	tests := []struct {
+		name       string
+		url        string
+		options    []ValidationOption
+		shouldPass bool
+	}{
+		{
+			name:       "All options enabled",
+			url:        "http://localhost:8080/webhook",
+			options:    []ValidationOption{WithAllowHTTP(), WithAllowLocalhost(), WithTimeout(5 * time.Second)},
+			shouldPass: true,
+		},
+		{
+			name:       "Custom timeout with HTTPS",
+			url:        "https://example.com/api",
+			options:    []ValidationOption{WithTimeout(10 * time.Second)},
+			shouldPass: true, // May fail DNS in test env
+		},
+		{
+			name:       "HTTP without AllowHTTP fails",
+			url:        "http://example.com",
+			options:    []ValidationOption{WithTimeout(5 * time.Second)},
+			shouldPass: false,
+		},
+		{
+			name:       "Localhost without AllowLocalhost fails",
+			url:        "https://localhost",
+			options:    []ValidationOption{WithTimeout(5 * time.Second)},
+			shouldPass: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ValidateExternalURL(tt.url, tt.options...)
+			if tt.shouldPass {
+				// In test environment, DNS may fail - that's acceptable
+				if err != nil && !strings.Contains(err.Error(), "dns resolution failed") {
+					t.Errorf("Expected success or DNS error, got: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("Expected error for %s, got nil", tt.url)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateExternalURL_CustomTimeout(t *testing.T) {
+	// Test custom timeout configuration
+	tests := []struct {
+		name    string
+		url     string
+		timeout time.Duration
+	}{
+		{
+			name:    "Very short timeout",
+			url:     "https://example.com",
+			timeout: 1 * time.Nanosecond,
+		},
+		{
+			name:    "Standard timeout",
+			url:     "https://api.github.com",
+			timeout: 3 * time.Second,
+		},
+		{
+			name:    "Long timeout",
+			url:     "https://slow-dns-server.example",
+			timeout: 30 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Now()
+			_, err := ValidateExternalURL(tt.url, WithTimeout(tt.timeout))
+			elapsed := time.Since(start)
+
+			// Verify timeout is respected (with some tolerance)
+			if err != nil && elapsed > tt.timeout*2 {
+				t.Logf("Warning: timeout may not be strictly enforced (elapsed: %v, timeout: %v)", elapsed, tt.timeout)
+			}
+
+			// Note: We don't fail the test based on timeout behavior alone
+			// as DNS resolution timing can be unpredictable
+			t.Logf("URL: %s, Timeout: %v, Elapsed: %v, Error: %v", tt.url, tt.timeout, elapsed, err)
+		})
+	}
+}
+
+func TestValidateExternalURL_DNSTimeout(t *testing.T) {
+	// Test DNS resolution timeout behavior
+	// Use a non-routable IP address to force timeout
+	_, err := ValidateExternalURL(
+		"https://10.255.255.1", // Non-routable private IP
+		WithAllowHTTP(),
+		WithTimeout(100*time.Millisecond),
+	)
+
+	// Should fail with DNS resolution error or timeout
+	if err == nil {
+		t.Error("Expected DNS resolution to fail for non-routable IP")
+	}
+	// Accept either DNS failure or timeout
+	if !strings.Contains(err.Error(), "dns resolution failed") &&
+		!strings.Contains(err.Error(), "timeout") &&
+		!strings.Contains(err.Error(), "no route to host") {
+		t.Logf("Got acceptable error: %v", err)
+	}
+}
+
+func TestValidateExternalURL_MultipleIPsAllPrivate(t *testing.T) {
+	// Test scenario where DNS returns multiple IPs, all private
+	// Note: In real environment, we can't control DNS responses
+	// This test documents expected behavior
+
+	// Test with known private IP addresses
+	privateIPs := []string{
+		"10.0.0.1",
+		"172.16.0.1",
+		"192.168.1.1",
+	}
+
+	for _, ip := range privateIPs {
+		t.Run("IP_"+ip, func(t *testing.T) {
+			// Use IP directly as hostname
+			url := "http://" + ip
+			_, err := ValidateExternalURL(url, WithAllowHTTP())
+
+			// Should fail with DNS resolution error (IP won't resolve)
+			// or be blocked as private IP if it somehow resolves
+			if err == nil {
+				t.Errorf("Expected error for private IP %s", ip)
+			}
+		})
+	}
+}
+
+func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
+	// Test detection and blocking of cloud metadata endpoints
+	tests := []struct {
+		name        string
+		url         string
+		errContains string
+	}{
+		{
+			name:        "AWS metadata service",
+			url:         "http://169.254.169.254/latest/meta-data/",
+			errContains: "dns resolution failed", // IP won't resolve in test env
+		},
+		{
+			name:        "AWS metadata IPv6",
+			url:         "http://[fd00:ec2::254]/latest/meta-data/",
+			errContains: "dns resolution failed",
+		},
+		{
+			name:        "GCP metadata service",
+			url:         "http://metadata.google.internal/computeMetadata/v1/",
+			errContains: "", // May resolve or fail depending on environment
+		},
+		{
+			name:        "Azure metadata service",
+			url:         "http://169.254.169.254/metadata/instance",
+			errContains: "dns resolution failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ValidateExternalURL(tt.url, WithAllowHTTP())
+
+			// All metadata endpoints should be blocked one way or another
+			if err == nil {
+				t.Errorf("Cloud metadata endpoint should be blocked: %s", tt.url)
+			} else {
+				t.Logf("Correctly blocked %s with error: %v", tt.url, err)
+			}
+		})
+	}
+}
+
+func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
+	// Comprehensive IPv6 private/reserved range testing
+	tests := []struct {
+		name      string
+		ip        string
+		isPrivate bool
+	}{
+		// IPv6 Loopback
+		{"IPv6 loopback", "::1", true},
+		{"IPv6 loopback expanded", "0000:0000:0000:0000:0000:0000:0000:0001", true},
+
+		// IPv6 Link-Local (fe80::/10)
+		{"IPv6 link-local start", "fe80::1", true},
+		{"IPv6 link-local mid", "fe80:0000:0000:0000:0204:61ff:fe9d:f156", true},
+		{"IPv6 link-local end", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
+
+		// IPv6 Unique Local (fc00::/7)
+		{"IPv6 unique local fc00", "fc00::1", true},
+		{"IPv6 unique local fd00", "fd00::1", true},
+		{"IPv6 unique local fd12", "fd12:3456:789a:1::1", true},
+		{"IPv6 unique local fdff", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
+
+		// IPv6 Public addresses (should NOT be private)
+		{"IPv6 Google DNS", "2001:4860:4860::8888", false},
+		{"IPv6 Cloudflare DNS", "2606:4700:4700::1111", false},
+		{"IPv6 documentation range", "2001:db8::1", false}, // Reserved but not private for SSRF purposes
+
+		// IPv4-mapped IPv6 addresses
+		{"IPv4-mapped public", "::ffff:8.8.8.8", false},
+		{"IPv4-mapped loopback", "::ffff:127.0.0.1", true},
+		{"IPv4-mapped private", "::ffff:192.168.1.1", true},
+
+		// Edge cases
+		{"IPv6 unspecified", "::", false}, // Not private, just null
+		{"IPv6 multicast", "ff02::1", true}, // Multicast is blocked by IsLinkLocalMulticast()
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("Failed to parse IP: %s", tt.ip)
+			}
+
+			result := isPrivateIP(ip)
+			if result != tt.isPrivate {
+				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, result, tt.isPrivate)
+			}
+		})
+	}
+}

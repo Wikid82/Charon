@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"net"
+	"net/url"
 	"os"
 	"syscall"
 	"testing"
@@ -90,4 +92,73 @@ func TestIsDockerConnectivityError(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "isDockerConnectivityError(%v) = %v, want %v", tt.err, result, tt.expected)
 		})
 	}
+}
+
+// ============== Phase 3.1: Additional Docker Service Tests ==============
+
+func TestIsDockerConnectivityError_URLError(t *testing.T) {
+	// Test wrapped url.Error
+	innerErr := errors.New("connection refused")
+	urlErr := &url.Error{
+		Op:  "Get",
+		URL: "http://example.com",
+		Err: innerErr,
+	}
+
+	result := isDockerConnectivityError(urlErr)
+	// Should unwrap and process the inner error
+	assert.False(t, result, "url.Error wrapping non-connectivity error should return false")
+
+	// Test url.Error wrapping ECONNREFUSED
+	urlErrWithSyscall := &url.Error{
+		Op:  "dial",
+		URL: "unix:///var/run/docker.sock",
+		Err: syscall.ECONNREFUSED,
+	}
+	result = isDockerConnectivityError(urlErrWithSyscall)
+	assert.True(t, result, "url.Error wrapping ECONNREFUSED should return true")
+}
+
+func TestIsDockerConnectivityError_OpError(t *testing.T) {
+	// Test wrapped net.OpError
+	opErr := &net.OpError{
+		Op:  "dial",
+		Net: "unix",
+		Err: syscall.ENOENT,
+	}
+
+	result := isDockerConnectivityError(opErr)
+	assert.True(t, result, "net.OpError wrapping ENOENT should return true")
+}
+
+func TestIsDockerConnectivityError_SyscallError(t *testing.T) {
+	// Test wrapped os.SyscallError
+	syscallErr := &os.SyscallError{
+		Syscall: "connect",
+		Err:     syscall.ECONNREFUSED,
+	}
+
+	result := isDockerConnectivityError(syscallErr)
+	assert.True(t, result, "os.SyscallError wrapping ECONNREFUSED should return true")
+}
+
+// Implement net.Error interface for timeoutError
+type timeoutError struct {
+	timeout   bool
+	temporary bool
+}
+
+func (e *timeoutError) Error() string   { return "timeout" }
+func (e *timeoutError) Timeout() bool   { return e.timeout }
+func (e *timeoutError) Temporary() bool { return e.temporary }
+
+func TestIsDockerConnectivityError_NetErrorTimeout(t *testing.T) {
+	// Create a mock net.Error with Timeout()
+	err := &timeoutError{timeout: true, temporary: true}
+
+	// Wrap it to ensure it implements net.Error
+	var netErr net.Error = err
+
+	result := isDockerConnectivityError(netErr)
+	assert.True(t, result, "net.Error with Timeout() should return true")
 }

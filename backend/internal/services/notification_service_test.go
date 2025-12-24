@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -870,5 +872,457 @@ func TestNotificationService_CreateProvider_InvalidCustomTemplate(t *testing.T) 
 		provider.Config = `{"bad": "{{.Title"}`
 		err = svc.UpdateProvider(&provider)
 		assert.Error(t, err)
+	})
+}
+
+// ============================================
+// Phase 2.2: Additional Coverage Tests
+// ============================================
+
+func TestRenderTemplate_TemplateParseError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := models.NotificationProvider{
+		Template: "custom",
+		Config:   `{"invalid": {{.Title}`, // Invalid JSON template - missing closing brace
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	_, _, err := svc.RenderTemplate(provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse")
+}
+
+func TestRenderTemplate_TemplateExecutionError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := models.NotificationProvider{
+		Template: "custom",
+		Config:   `{"title": {{toJSON .Title}}, "broken": {{.NonExistent}}}`, // References missing field without toJSON
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	rendered, parsed, err := svc.RenderTemplate(provider, data)
+	// Go templates don't error on missing fields, they just render "<no value>"
+	// So this should actually succeed but produce invalid JSON
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse rendered template")
+	assert.NotEmpty(t, rendered)
+	assert.Nil(t, parsed)
+}
+
+func TestRenderTemplate_InvalidJSONOutput(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := models.NotificationProvider{
+		Template: "custom",
+		Config:   `{"title": {{.Title}}}`, // Missing toJSON, will produce invalid JSON
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	rendered, parsed, err := svc.RenderTemplate(provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse rendered template")
+	assert.NotEmpty(t, rendered) // Rendered string returned even on validation error
+	assert.Nil(t, parsed)
+}
+
+func TestSendCustomWebhook_HTTPStatusCodeErrors(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	errorCodes := []int{400, 404, 500, 502, 503}
+
+	for _, statusCode := range errorCodes {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(statusCode)
+			}))
+			defer server.Close()
+
+			provider := models.NotificationProvider{
+				Type:     "webhook",
+				URL:      server.URL,
+				Template: "minimal",
+			}
+
+			data := map[string]any{
+				"Title":     "Test",
+				"Message":   "Test",
+				"Time":      time.Now().Format(time.RFC3339),
+				"EventType": "test",
+			}
+
+			err := svc.sendCustomWebhook(context.Background(), provider, data)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), fmt.Sprintf("%d", statusCode))
+		})
+	}
+}
+
+func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	tests := []struct {
+		name           string
+		template       string
+		config         string
+		expectedKeys   []string
+		unexpectedKeys []string
+	}{
+		{
+			name:         "minimal template",
+			template:     "minimal",
+			expectedKeys: []string{"title", "message", "time", "event"},
+		},
+		{
+			name:         "detailed template",
+			template:     "detailed",
+			expectedKeys: []string{"title", "message", "time", "event", "host", "host_ip", "service_count", "services"},
+		},
+		{
+			name:         "custom template",
+			template:     "custom",
+			config:       `{"custom_key": "custom_value", "title": {{toJSON .Title}}}`,
+			expectedKeys: []string{"custom_key", "title"},
+		},
+		{
+			name:         "empty template defaults to minimal",
+			template:     "",
+			expectedKeys: []string{"title", "message", "time", "event"},
+		},
+		{
+			name:         "unknown template defaults to minimal",
+			template:     "unknown",
+			expectedKeys: []string{"title", "message", "time", "event"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedBody map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				json.Unmarshal(body, &receivedBody)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			provider := models.NotificationProvider{
+				Type:     "webhook",
+				URL:      server.URL,
+				Template: tt.template,
+				Config:   tt.config,
+			}
+
+			data := map[string]any{
+				"Title":        "Test Title",
+				"Message":      "Test Message",
+				"Time":         time.Now().Format(time.RFC3339),
+				"EventType":    "test",
+				"HostName":     "testhost",
+				"HostIP":       "192.168.1.1",
+				"ServiceCount": 3,
+				"Services":     []string{"svc1", "svc2"},
+			}
+
+			err := svc.sendCustomWebhook(context.Background(), provider, data)
+			require.NoError(t, err)
+
+			for _, key := range tt.expectedKeys {
+				assert.Contains(t, receivedBody, key, "Expected key %s in response", key)
+			}
+
+			for _, key := range tt.unexpectedKeys {
+				assert.NotContains(t, receivedBody, key, "Unexpected key %s in response", key)
+			}
+		})
+	}
+}
+
+func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	var receivedBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &receivedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      server.URL,
+		Template: "custom",
+		Config:   "", // Empty config should default to minimal
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Message",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendCustomWebhook(context.Background(), provider, data)
+	require.NoError(t, err)
+
+	// Should use minimal template
+	assert.Equal(t, "Test", receivedBody["title"])
+	assert.Equal(t, "Message", receivedBody["message"])
+}
+
+func TestCreateProvider_EmptyCustomTemplateAllowed(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name:     "empty-template",
+		Type:     "webhook",
+		URL:      "http://localhost:8080/webhook",
+		Template: "custom",
+		Config:   "", // Empty should be allowed and default to minimal
+	}
+
+	err := svc.CreateProvider(provider)
+	require.NoError(t, err)
+	assert.NotEmpty(t, provider.ID)
+}
+
+func TestUpdateProvider_NonCustomTemplateSkipsValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name:     "test",
+		Type:     "webhook",
+		URL:      "http://localhost:8080",
+		Template: "minimal",
+	}
+	require.NoError(t, db.Create(provider).Error)
+
+	// Update to detailed template (Config can be garbage since it's ignored)
+	provider.Template = "detailed"
+	provider.Config = "this is not JSON but should be ignored"
+
+	err := svc.UpdateProvider(provider)
+	require.NoError(t, err) // Should succeed because detailed template doesn't use Config
+}
+
+func TestIsPrivateIP_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name      string
+		ip        string
+		isPrivate bool
+	}{
+		// Boundary testing for 172.16-31 range
+		{"172.15.255.255 (just before private)", "172.15.255.255", false},
+		{"172.16.0.0 (start of private)", "172.16.0.0", true},
+		{"172.31.255.255 (end of private)", "172.31.255.255", true},
+		{"172.32.0.0 (just after private)", "172.32.0.0", false},
+
+		// IPv6 unique local address boundaries
+		{"fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff (before ULA)", "fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
+		{"fc00::0 (start of ULA)", "fc00::0", true},
+		{"fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff (end of ULA)", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
+		{"fe00::0 (after ULA)", "fe00::0", false},
+
+		// IPv6 link-local boundaries
+		{"fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff (before link-local)", "fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false},
+		{"fe80::0 (start of link-local)", "fe80::0", true},
+		{"febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff (end of link-local)", "febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
+		{"fec0::0 (after link-local)", "fec0::0", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			require.NotNil(t, ip, "Failed to parse IP: %s", tt.ip)
+			result := isPrivateIP(ip)
+			assert.Equal(t, tt.isPrivate, result, "IP %s: expected private=%v, got=%v", tt.ip, tt.isPrivate, result)
+		})
+	}
+}
+
+func TestSendCustomWebhook_ContextCancellation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Create a server that delays response
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      server.URL,
+		Template: "minimal",
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	// Create context with immediate cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := svc.sendCustomWebhook(ctx, provider, data)
+	require.Error(t, err)
+}
+
+func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	provider := models.NotificationProvider{
+		Name:    "all-disabled",
+		Type:    "webhook",
+		URL:     server.URL,
+		Enabled: true,
+		// All notification types disabled
+		NotifyProxyHosts:    false,
+		NotifyRemoteServers: false,
+		NotifyDomains:       false,
+		NotifyCerts:         false,
+		NotifyUptime:        false,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	// Force update with map to avoid zero value issues
+	require.NoError(t, db.Model(&provider).Updates(map[string]any{
+		"notify_proxy_hosts":    false,
+		"notify_remote_servers": false,
+		"notify_domains":        false,
+		"notify_certs":          false,
+		"notify_uptime":         false,
+	}).Error)
+
+	// Send with unknown event type - should send (default behavior)
+	ctx := context.Background()
+	svc.SendExternal(ctx, "unknown_event_type", "Test", "Message", nil)
+
+	time.Sleep(100 * time.Millisecond)
+	assert.Greater(t, callCount, 0, "Unknown event type should trigger notification")
+}
+
+func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name:     "valid-custom",
+		Type:     "webhook",
+		URL:      "http://localhost:8080/webhook",
+		Template: "custom",
+		Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "custom_field": "value"}`,
+	}
+
+	err := svc.CreateProvider(provider)
+	require.NoError(t, err)
+	assert.NotEmpty(t, provider.ID)
+}
+
+func TestUpdateProvider_ValidCustomTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	provider := &models.NotificationProvider{
+		Name:     "test",
+		Type:     "webhook",
+		URL:      "http://localhost:8080",
+		Template: "minimal",
+	}
+	require.NoError(t, db.Create(provider).Error)
+
+	// Update to valid custom template
+	provider.Template = "custom"
+	provider.Config = `{"msg": {{toJSON .Message}}, "title": {{toJSON .Title}}}`
+
+	err := svc.UpdateProvider(provider)
+	require.NoError(t, err)
+}
+
+func TestRenderTemplate_MinimalAndDetailedTemplates(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	data := map[string]any{
+		"Title":        "Test Title",
+		"Message":      "Test Message",
+		"Time":         time.Now().Format(time.RFC3339),
+		"EventType":    "test",
+		"HostName":     "testhost",
+		"HostIP":       "192.168.1.1",
+		"ServiceCount": 5,
+		"Services":     []string{"web", "api"},
+	}
+
+	t.Run("minimal template", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Template: "minimal",
+		}
+
+		rendered, parsed, err := svc.RenderTemplate(provider, data)
+		require.NoError(t, err)
+		require.NotEmpty(t, rendered)
+		require.NotNil(t, parsed)
+
+		parsedMap := parsed.(map[string]any)
+		assert.Equal(t, "Test Title", parsedMap["title"])
+		assert.Equal(t, "Test Message", parsedMap["message"])
+	})
+
+	t.Run("detailed template", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Template: "detailed",
+		}
+
+		rendered, parsed, err := svc.RenderTemplate(provider, data)
+		require.NoError(t, err)
+		require.NotEmpty(t, rendered)
+		require.NotNil(t, parsed)
+
+		parsedMap := parsed.(map[string]any)
+		assert.Equal(t, "Test Title", parsedMap["title"])
+		assert.Equal(t, "testhost", parsedMap["host"])
+		assert.Equal(t, "192.168.1.1", parsedMap["host_ip"])
+		assert.Equal(t, float64(5), parsedMap["service_count"])
 	})
 }
