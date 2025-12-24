@@ -15,7 +15,39 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/utils"
 )
+
+// ProxyHostWarning represents an advisory warning about proxy host configuration.
+type ProxyHostWarning struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ProxyHostResponse wraps a proxy host with optional advisory warnings.
+type ProxyHostResponse struct {
+	models.ProxyHost
+	Warnings []ProxyHostWarning `json:"warnings,omitempty"`
+}
+
+// generateForwardHostWarnings checks the forward_host value and returns advisory warnings.
+func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
+	var warnings []ProxyHostWarning
+
+	if utils.IsDockerBridgeIP(forwardHost) {
+		warnings = append(warnings, ProxyHostWarning{
+			Field:   "forward_host",
+			Message: "This looks like a Docker container IP address. Docker IPs can change when containers restart. Consider using the container name for more reliable connections.",
+		})
+	} else if utils.IsPrivateIP(forwardHost) {
+		warnings = append(warnings, ProxyHostWarning{
+			Field:   "forward_host",
+			Message: "Using a private IP address. If this is a Docker container, the IP may change on restart. Container names are more reliable for Docker services.",
+		})
+	}
+
+	return warnings
+}
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
@@ -135,6 +167,18 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 				"Action":  "created",
 			},
 		)
+	}
+
+	// Generate advisory warnings for private/Docker IPs
+	warnings := generateForwardHostWarnings(host.ForwardHost)
+
+	// Return response with warnings if any
+	if len(warnings) > 0 {
+		c.JSON(http.StatusCreated, ProxyHostResponse{
+			ProxyHost: host,
+			Warnings:  warnings,
+		})
+		return
 	}
 
 	c.JSON(http.StatusCreated, host)
@@ -393,6 +437,18 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
 			// Don't fail the request if sync fails - the host update succeeded
 		}
+	}
+
+	// Generate advisory warnings for private/Docker IPs
+	warnings := generateForwardHostWarnings(host.ForwardHost)
+
+	// Return response with warnings if any
+	if len(warnings) > 0 {
+		c.JSON(http.StatusOK, ProxyHostResponse{
+			ProxyHost: *host,
+			Warnings:  warnings,
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, host)

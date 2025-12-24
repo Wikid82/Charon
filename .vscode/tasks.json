@@ -150,6 +150,20 @@
             "problemMatcher": []
         },
         {
+            "label": "Security: CodeQL Go Scan",
+            "type": "shell",
+            "command": "codeql database create codeql-db-go --language=go --source-root=backend --overwrite && codeql database analyze codeql-db-go /projects/codeql/codeql/go/ql/src/codeql-suites/go-security-extended.qls --format=sarif-latest --output=codeql-results-go.sarif",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: CodeQL JS Scan",
+            "type": "shell",
+            "command": "codeql database create codeql-db-js --language=javascript --source-root=frontend --overwrite && codeql database analyze codeql-db-js /projects/codeql/codeql/javascript/ql/src/codeql-suites/javascript-security-extended.qls --format=sarif-latest --output=codeql-results-js.sarif",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
             "label": "Security: Go Vulnerability Check",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh security-scan-go-vuln",

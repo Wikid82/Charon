@@ -81,9 +81,11 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 Before marking an implementation task as complete, perform the following in order:
 
 1. **Security Scans**: Run all security scans and ensure zero vulnerabilities.
-    - **CodeQL**: Run as VS Code task or use Skill.
-    - **Trivy**: Run as VS Code task or use Skill.
-    - **Zero issues allowed**.
+    - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan" for backend analysis.
+    - **CodeQL JS Scan**: Run VS Code task "Security: CodeQL JS Scan" for frontend analysis.
+    - **Trivy**: Run VS Code task "Security: Trivy Scan" for container/dependency vulnerabilities.
+    - **Results**: View SARIF output files in VS Code using the SARIF Viewer extension.
+    - **Zero high-severity findings allowed**. Medium/low findings should be documented and triaged.
 
 2. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
     - If errors occur, **fix them immediately**.
