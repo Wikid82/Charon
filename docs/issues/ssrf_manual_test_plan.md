@@ -475,9 +475,159 @@ Each test case includes:
 
 ---
 
-## Test Suite 6: URL Testing Endpoint
+## Test Suite 6: DNS Rebinding Protection
 
-### TC-019: Test Valid Public URL
+**Background**: DNS rebinding attacks exploit the gap between URL validation and actual connection by changing DNS records after validation passes. Charon's `network.NewSafeHTTPClient()` prevents this by re-validating IPs at connection time.
+
+### TC-019: DNS Rebinding Simulation (Conceptual)
+
+**Objective**: Verify connection-time IP validation prevents DNS rebinding
+
+**Steps**:
+1. Configure a webhook with a domain you control
+2. Initially point the domain to a public IP (passes validation)
+3. After webhook is saved, update DNS to point to `192.168.1.100`
+4. Trigger a security event to send webhook notification
+5. Observe the webhook delivery failure
+
+**Expected Result**:
+- ❌ Webhook delivery fails with "connection to private IP blocked"
+- ✅ Log entry shows re-validation caught the attack
+- ✅ No request reaches 192.168.1.100
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+This test requires DNS control. Alternative: use tools like rebinder.it
+```
+
+---
+
+### TC-020: Connection-Time IP Validation
+
+**Objective**: Verify IPs are validated at TCP connection time (not just URL parsing)
+
+**Steps**:
+1. Use a webhook receiver that logs incoming connections
+2. Configure webhook URL pointing to the receiver
+3. Check that the connection comes from Charon
+4. Verify in Charon logs that IP validation occurred during dial
+
+**Expected Result**: ✅ Logs show `safeDialer` validated IP before connection
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+Check logs for: "Validating IP for connection"
+```
+
+---
+
+## Test Suite 7: Redirect Blocking
+
+### TC-021: Redirect to Private IP
+
+**Objective**: Verify redirects to private IPs are blocked
+
+**Steps**:
+1. Set up a redirect server that returns: `HTTP 302 Location: http://192.168.1.100/`
+2. Configure webhook pointing to the redirect server
+3. Trigger webhook delivery
+4. Observe redirect handling
+
+**Expected Result**:
+- ❌ "redirect to private IP blocked"
+- ✅ Original request fails, no connection to 192.168.1.100
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
+```
+
+---
+
+### TC-022: Redirect to Cloud Metadata
+
+**Objective**: Verify redirects to cloud metadata endpoints are blocked
+
+**Steps**:
+1. Set up redirect: `HTTP 302 Location: http://169.254.169.254/latest/meta-data/`
+2. Configure webhook pointing to redirect
+3. Trigger webhook delivery
+4. Verify metadata endpoint not accessed
+
+**Expected Result**: ❌ "redirect to private IP blocked" (169.254.x.x is blocked)
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+
+```
+
+---
+
+### TC-023: Redirect Count Limit
+
+**Objective**: Verify excessive redirects are blocked
+
+**Steps**:
+1. Set up chain of 5+ redirects (each to a valid public URL)
+2. Configure webhook pointing to first redirect
+3. Trigger webhook delivery
+4. Observe redirect chain handling
+
+**Expected Result**: ❌ "too many redirects (max 2)" after 2 hops
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+Default max redirects is 0 (no redirects). If enabled, max is typically 2.
+```
+
+---
+
+### TC-024: Redirect to Localhost
+
+**Objective**: Verify redirects to localhost are blocked
+
+**Steps**:
+1. Set up redirect: `HTTP 302 Location: http://127.0.0.1:8080/admin`
+2. Configure webhook pointing to redirect
+3. Trigger webhook delivery
+4. Verify localhost not accessed
+
+**Expected Result**: ❌ "redirect to localhost blocked"
+
+**Actual Result**: _____________
+
+**Pass/Fail**: [ ] Pass [ ] Fail
+
+**Notes**:
+```
+
+```
+
+---
+
+## Test Suite 8: URL Testing Endpoint
+
+### TC-025: Test Valid Public URL
 
 **Objective**: Verify URL test endpoint works for legitimate URLs
 
@@ -500,7 +650,7 @@ Each test case includes:
 
 ---
 
-### TC-020: Test Private IP via URL Testing
+### TC-026: Test Private IP via URL Testing
 
 **Objective**: Verify URL test endpoint also has SSRF protection
 
@@ -523,7 +673,7 @@ Each test case includes:
 
 ---
 
-### TC-021: Test Non-Existent Domain
+### TC-027: Test Non-Existent Domain
 
 **Objective**: Verify DNS resolution failure handling
 
@@ -545,9 +695,9 @@ Each test case includes:
 
 ---
 
-## Test Suite 7: CrowdSec Hub Sync
+## Test Suite 9: CrowdSec Hub Sync
 
-### TC-022: Official CrowdSec Hub Domain
+### TC-028: Official CrowdSec Hub Domain
 
 **Objective**: Verify CrowdSec hub sync works with official domain
 
@@ -570,7 +720,7 @@ Each test case includes:
 
 ---
 
-### TC-023: Invalid CrowdSec Hub Domain
+### TC-029: Invalid CrowdSec Hub Domain
 
 **Objective**: Verify custom hub URLs are validated
 
@@ -592,9 +742,9 @@ Each test case includes:
 
 ---
 
-## Test Suite 8: Update Service
+## Test Suite 10: Update Service
 
-### TC-024: GitHub Update Check
+### TC-030: GitHub Update Check
 
 **Objective**: Verify update service uses validated GitHub URLs
 
@@ -617,9 +767,9 @@ Each test case includes:
 
 ---
 
-## Test Suite 9: Error Message Validation
+## Test Suite 11: Error Message Validation
 
-### TC-025: Generic Error Messages
+### TC-031: Generic Error Messages
 
 **Objective**: Verify error messages don't leak internal information
 
@@ -641,7 +791,7 @@ Each test case includes:
 
 ---
 
-### TC-026: Log Detail vs User Error
+### TC-032: Log Detail vs User Error
 
 **Objective**: Verify logs contain more detail than user-facing errors
 
@@ -665,9 +815,9 @@ Each test case includes:
 
 ---
 
-## Test Suite 10: Integration Testing
+## Test Suite 12: Integration Testing
 
-### TC-027: End-to-End Webhook Flow
+### TC-033: End-to-End Webhook Flow
 
 **Objective**: Verify complete webhook notification flow with SSRF protection
 
@@ -694,7 +844,7 @@ Each test case includes:
 
 ---
 
-### TC-028: Configuration Persistence
+### TC-034: Configuration Persistence
 
 **Objective**: Verify webhook validation persists across restarts
 
@@ -717,7 +867,7 @@ Each test case includes:
 
 ---
 
-### TC-029: Multiple Webhook Configurations
+### TC-035: Multiple Webhook Configurations
 
 **Objective**: Verify SSRF protection applies to all webhook types
 
@@ -743,7 +893,7 @@ Each test case includes:
 
 ---
 
-### TC-030: Admin-Only Access Control
+### TC-036: Admin-Only Access Control
 
 **Objective**: Verify URL testing requires admin privileges
 
@@ -777,18 +927,20 @@ Each test case includes:
 | Cloud Metadata Endpoints | 3 | ___ | ___ | ___ |
 | Loopback Addresses | 3 | ___ | ___ | ___ |
 | Protocol Validation | 4 | ___ | ___ | ___ |
+| DNS Rebinding Protection | 2 | ___ | ___ | ___ |
+| Redirect Blocking | 4 | ___ | ___ | ___ |
 | URL Testing Endpoint | 3 | ___ | ___ | ___ |
 | CrowdSec Hub Sync | 2 | ___ | ___ | ___ |
 | Update Service | 1 | ___ | ___ | ___ |
 | Error Message Validation | 2 | ___ | ___ | ___ |
 | Integration Testing | 4 | ___ | ___ | ___ |
-| **TOTAL** | **30** | **___** | **___** | **___** |
+| **TOTAL** | **36** | **___** | **___** | **___** |
 
 ### Pass Criteria
 
 **Minimum Requirements**:
-- [ ] All 30 test cases passed OR
-- [ ] All critical tests passed (TC-005 through TC-018, TC-020) AND
+- [ ] All 36 test cases passed OR
+- [ ] All critical tests passed (TC-005 through TC-018, TC-021 through TC-024, TC-026) AND
 - [ ] All failures have documented justification
 
 **Critical Tests** (Must Pass):
@@ -798,7 +950,9 @@ Each test case includes:
 - [ ] TC-009: AWS Metadata blocking
 - [ ] TC-012: IPv4 Loopback blocking
 - [ ] TC-015: File protocol blocking
-- [ ] TC-020: URL testing SSRF protection
+- [ ] TC-021: Redirect to Private IP blocking
+- [ ] TC-022: Redirect to Cloud Metadata blocking
+- [ ] TC-026: URL testing SSRF protection
 
 ---
 
@@ -861,6 +1015,6 @@ I certify that:
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: December 23, 2025
+**Document Version**: 1.1
+**Last Updated**: December 24, 2025
 **Status**: Ready for Execution

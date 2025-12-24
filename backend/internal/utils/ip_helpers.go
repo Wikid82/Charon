@@ -1,44 +1,30 @@
 package utils
 
-import "net"
+import (
+	"net"
 
-// Private IPv4 CIDR ranges (RFC 1918)
-var privateIPv4Ranges = []string{
-	"10.0.0.0/8",     // Class A private
-	"172.16.0.0/12",  // Class B private (includes Docker bridge networks)
-	"192.168.0.0/16", // Class C private
-}
-
-// Docker bridge network CIDR range
-// Docker default bridge: 172.17.0.0/16
-// Docker user-defined networks: 172.18.0.0/16 - 172.31.0.0/16
-// All fall within 172.16.0.0/12
-var dockerBridgeRange = "172.16.0.0/12"
+	"github.com/Wikid82/charon/backend/internal/network"
+)
 
 // IsPrivateIP checks if the given host string is a private IPv4 address.
 // Returns false for hostnames, invalid IPs, or public IP addresses.
+//
+// Deprecated: This function only checks IPv4. For comprehensive SSRF protection,
+// use network.IsPrivateIP() directly which handles IPv4, IPv6, and IPv4-mapped IPv6.
 func IsPrivateIP(host string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return false
 	}
 
-	// Ensure it's IPv4
+	// Ensure it's IPv4 (for backward compatibility)
 	ip4 := ip.To4()
 	if ip4 == nil {
 		return false
 	}
 
-	for _, cidr := range privateIPv4Ranges {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if network.Contains(ip4) {
-			return true
-		}
-	}
-	return false
+	// Use centralized network.IsPrivateIP for consistent checking
+	return network.IsPrivateIP(ip)
 }
 
 // IsDockerBridgeIP checks if the given host string is likely a Docker bridge network IP.
@@ -56,10 +42,11 @@ func IsDockerBridgeIP(host string) bool {
 		return false
 	}
 
-	_, network, err := net.ParseCIDR(dockerBridgeRange)
+	// Docker bridge network CIDR range: 172.16.0.0/12
+	_, dockerNetwork, err := net.ParseCIDR("172.16.0.0/12")
 	if err != nil {
 		return false
 	}
 
-	return network.Contains(ip4)
+	return dockerNetwork.Contains(ip4)
 }

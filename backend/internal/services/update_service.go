@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/version"
 )
 
@@ -109,7 +110,12 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 		return s.cachedResult, nil
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Use SSRF-safe HTTP client for defense-in-depth
+	// Note: SetAPIURL already validates the URL against github.com allowlist
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(5*time.Second),
+		network.WithAllowLocalhost(), // Allow localhost for testing
+	)
 
 	req, err := http.NewRequest("GET", s.apiURL, http.NoBody)
 	if err != nil {

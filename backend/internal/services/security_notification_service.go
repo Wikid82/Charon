@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -127,7 +128,11 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Charon-Cerberus/1.0")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Use SSRF-safe HTTP client for defense-in-depth
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(10*time.Second),
+		network.WithAllowLocalhost(), // Allow localhost for testing
+	)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("execute request: %w", err)

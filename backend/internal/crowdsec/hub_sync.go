@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 // CommandExecutor defines the minimal command execution interface we need for cscli calls.
@@ -170,25 +170,22 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 	}
 }
 
+// newHubHTTPClient creates an SSRF-safe HTTP client for hub operations.
+// Hub URLs are validated by validateHubURL() which:
+// - Enforces HTTPS for production
+// - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
+// - Allows localhost for testing
+// Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{ // keep dials bounded to avoid hanging sockets
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: timeout,
-		ExpectContinueTimeout: 2 * time.Second,
-	}
-
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return network.NewSafeHTTPClient(
+		network.WithTimeout(timeout),
+		network.WithAllowLocalhost(), // Allow localhost for testing
+		network.WithAllowedDomains(
+			"hub-data.crowdsec.net",
+			"hub.crowdsec.net",
+			"raw.githubusercontent.com",
+		),
+	)
 }
 
 func normalizeHubBaseURL(raw string) string {

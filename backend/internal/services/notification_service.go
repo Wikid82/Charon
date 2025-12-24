@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/trace"
 
@@ -201,13 +202,12 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		return fmt.Errorf("failed to execute webhook template: %w", err)
 	}
 
-	// Send Request with a safe client (timeout, no auto-redirect)
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	// Send Request with a safe client (SSRF protection, timeout, no auto-redirect)
+	// Using network.NewSafeHTTPClient() for defense-in-depth against SSRF attacks.
+	client := network.NewSafeHTTPClient(
+		network.WithTimeout(10*time.Second),
+		network.WithAllowLocalhost(), // Allow localhost for testing
+	)
 
 	// Resolve the hostname to an explicit IP and construct the request URL using the
 	// resolved IP. This prevents direct user-controlled hostnames from being used
@@ -325,34 +325,9 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 }
 
 // isPrivateIP returns true for RFC1918, loopback and link-local addresses.
+// This wraps network.IsPrivateIP for backward compatibility and local use.
 func isPrivateIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// IPv4 RFC1918
-	if ip4 := ip.To4(); ip4 != nil {
-		switch {
-		case ip4[0] == 10:
-			return true
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
-			return true
-		case ip4[0] == 192 && ip4[1] == 168:
-			return true
-		}
-	}
-
-	// IPv6 unique local addresses fc00::/7 (both fc00::/8 and fd00::/8)
-	if ip16 := ip.To16(); ip16 != nil {
-		// Check the first byte for fc00::/7 (binary 11111100) -> 0xfc or 0xfd
-		if len(ip16) == net.IPv6len {
-			if ip16[0] == 0xfc || ip16[0] == 0xfd {
-				return true
-			}
-		}
-	}
-
-	return false
+	return network.IsPrivateIP(ip)
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {

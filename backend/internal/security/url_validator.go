@@ -6,6 +6,8 @@ import (
 	"net"
 	neturl "net/url"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 // ValidationConfig holds options for URL validation.
@@ -135,14 +137,14 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	// Check ALL resolved IPs against private/reserved ranges
 	if config.BlockPrivateIPs {
 		for _, ip := range ips {
-			// Check if IP is in private/reserved ranges
-			// This uses comprehensive CIDR blocking including:
+			// Check if IP is in private/reserved ranges using centralized network.IsPrivateIP
+			// This includes:
 			// - RFC 1918 private networks (10.x, 172.16.x, 192.168.x)
 			// - Loopback (127.x.x.x, ::1)
 			// - Link-local (169.254.x.x, fe80::) including cloud metadata
 			// - Reserved ranges (0.x.x.x, 240.x.x.x, 255.255.255.255)
 			// - IPv6 unique local (fc00::)
-			if isPrivateIP(ip) {
+			if network.IsPrivateIP(ip) {
 				// Provide security-conscious error messages
 				if ip.String() == "169.254.169.254" {
 					return "", fmt.Errorf("access to cloud metadata endpoints is blocked for security (detected: %s)", ip.String())
@@ -159,58 +161,8 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 }
 
 // isPrivateIP checks if an IP address is private, loopback, link-local, or otherwise restricted.
-// This function implements comprehensive SSRF protection by blocking:
-// - Private IPv4 ranges (RFC 1918)
-// - Loopback addresses (127.0.0.0/8, ::1/128)
-// - Link-local addresses (169.254.0.0/16, fe80::/10) including AWS/GCP metadata
-// - Reserved ranges (0.0.0.0/8, 240.0.0.0/4, 255.255.255.255/32)
-// - IPv6 unique local addresses (fc00::/7)
-//
-// This is a reused implementation from utils/url_testing.go with excellent test coverage.
+// This function wraps network.IsPrivateIP for backward compatibility within the security package.
+// See network.IsPrivateIP for the full list of blocked IP ranges.
 func isPrivateIP(ip net.IP) bool {
-	// Check built-in Go functions for common cases
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Define private and reserved IP blocks
-	privateBlocks := []string{
-		// IPv4 Private Networks (RFC 1918)
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-
-		// IPv4 Link-Local (RFC 3927) - includes AWS/GCP metadata service
-		"169.254.0.0/16",
-
-		// IPv4 Loopback
-		"127.0.0.0/8",
-
-		// IPv4 Reserved ranges
-		"0.0.0.0/8",          // "This network"
-		"240.0.0.0/4",        // Reserved for future use
-		"255.255.255.255/32", // Broadcast
-
-		// IPv6 Loopback
-		"::1/128",
-
-		// IPv6 Unique Local Addresses (RFC 4193)
-		"fc00::/7",
-
-		// IPv6 Link-Local
-		"fe80::/10",
-	}
-
-	// Check if IP is in any of the blocked ranges
-	for _, block := range privateBlocks {
-		_, subnet, err := net.ParseCIDR(block)
-		if err != nil {
-			continue
-		}
-		if subnet.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+	return network.IsPrivateIP(ip)
 }

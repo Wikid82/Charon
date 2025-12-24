@@ -244,5 +244,5 @@ This security policy is part of the Charon project, licensed under the MIT Licen
 
 ---
 
-**Last Updated**: December 23, 2025
-**Version**: 1.0
+**Last Updated**: December 24, 2025
+**Version**: 1.1

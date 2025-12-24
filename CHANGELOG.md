@@ -32,7 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Rejects embedded credentials (prevents URL parser differential attacks like `http://evil.com@127.0.0.1/`)
     - Returns HTTP 200 with `reachable: false` for SSRF blocks (maintains API contract)
     - Admin-only access with comprehensive test coverage (31/31 assertions passing)
-  - **Defense-in-Depth Architecture**: Four-layer protection (format validation → SSRF pre-check → connectivity test → runtime re-validation)
+  - **Three-Layer Defense-in-Depth Architecture**:
+    - Layer 1: `security.ValidateExternalURL()` - URL format and DNS pre-validation
+    - Layer 2: `network.NewSafeHTTPClient()` - Connection-time IP re-validation via custom dialer
+    - Layer 3: Redirect validation - Each redirect target validated before following
+  - **New SSRF-Safe HTTP Client API** (`internal/network` package):
+    - `network.NewSafeHTTPClient()` with functional options pattern
+    - Options: `WithTimeout()`, `WithAllowLocalhost()`, `WithAllowedDomains()`, `WithMaxRedirects()`, `WithDialTimeout()`
+    - Prevents DNS rebinding attacks by validating IPs at TCP dial time
   - **Additional Protections**:
     - Security notification webhooks validated to prevent SSRF attacks
     - CrowdSec hub URLs validated against allowlist of official domains
@@ -41,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Validation Strategy**: Fail-fast at configuration save + defense-in-depth at request time
   - Pre-remediation CVSS score: 8.6 (HIGH) → Post-remediation: 0.0 (vulnerability eliminated)
   - CodeQL Critical finding resolved - all security tests passing
-  - See [Complete SSRF Implementation](docs/implementation/SSRF_COMPLETE.md) for technical details
+  - See [SSRF Protection Guide](docs/security/ssrf-protection.md) for complete documentation
 
 ### Changed
 

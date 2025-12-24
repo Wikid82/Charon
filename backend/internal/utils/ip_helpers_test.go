@@ -54,9 +54,9 @@ func TestIsPrivateIP(t *testing.T) {
 		{"IPv6 address", "::1", false},
 		{"IPv6 full address", "2001:0db8:85a3:0000:0000:8a2e:0370:7334", false},
 
-		// Localhost and special addresses
-		{"localhost 127.0.0.1", "127.0.0.1", false},
-		{"0.0.0.0", "0.0.0.0", false},
+		// Localhost and special addresses - these are now blocked for SSRF protection
+		{"localhost 127.0.0.1", "127.0.0.1", true},
+		{"0.0.0.0", "0.0.0.0", true},
 	}
 
 	for _, tt := range tests {
