@@ -5,6 +5,10 @@
         },
         {
             "path": "../codeql"
+        },
+        {
+            "name": "[my-codeql-db source archive]",
+            "uri": "codeql-zip-archive://0-37/projects/Charon/my-codeql-db/src.zip"
         }
     ],
     "settings": {
