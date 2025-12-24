@@ -463,7 +463,7 @@
     "detailedTemplate": "Modèle Détaillé",
     "customTemplate": "Personnalisé",
     "template": "Modèle",
-    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time. Prend en charge webhook, Discord, Slack, Gotify et services génériques.",
     "notificationEvents": "Événements de Notification",
     "proxyHosts": "Hôtes Proxy",
     "remoteServers": "Serveurs Distants",

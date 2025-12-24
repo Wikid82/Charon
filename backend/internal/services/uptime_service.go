@@ -25,6 +25,20 @@ type UptimeService struct {
 	pendingNotifications map[string]*pendingHostNotification
 	notificationMutex    sync.Mutex
 	batchWindow          time.Duration
+	// Host-specific mutexes to prevent concurrent database updates
+	hostMutexes   map[string]*sync.Mutex
+	hostMutexLock sync.Mutex
+	// Configuration
+	config UptimeConfig
+}
+
+// UptimeConfig holds configurable timeouts and thresholds
+type UptimeConfig struct {
+	TCPTimeout       time.Duration
+	MaxRetries       int
+	FailureThreshold int
+	CheckTimeout     time.Duration
+	StaggerDelay     time.Duration
 }
 
 type pendingHostNotification struct {
@@ -49,6 +63,14 @@ func NewUptimeService(db *gorm.DB, ns *NotificationService) *UptimeService {
 		NotificationService:  ns,
 		pendingNotifications: make(map[string]*pendingHostNotification),
 		batchWindow:          30 * time.Second, // Wait 30 seconds to batch notifications
+		hostMutexes:          make(map[string]*sync.Mutex),
+		config: UptimeConfig{
+			TCPTimeout:       10 * time.Second,
+			MaxRetries:       2,
+			FailureThreshold: 2,
+			CheckTimeout:     60 * time.Second,
+			StaggerDelay:     100 * time.Millisecond,
+		},
 	}
 }
 
@@ -349,75 +371,163 @@ func (s *UptimeService) checkAllHosts() {
 		return
 	}
 
-	for i := range hosts {
-		s.checkHost(&hosts[i])
+	if len(hosts) == 0 {
+		return
 	}
+
+	logger.Log().WithField("host_count", len(hosts)).Info("Starting host checks")
+
+	// Create context with timeout for all checks
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.CheckTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for i := range hosts {
+		wg.Add(1)
+		// Staggered startup to reduce load spikes
+		if i > 0 {
+			time.Sleep(s.config.StaggerDelay)
+		}
+		go func(host *models.UptimeHost) {
+			defer wg.Done()
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				logger.Log().WithField("host_name", host.Name).Warn("Host check cancelled due to timeout")
+				return
+			default:
+				s.checkHost(ctx, host)
+			}
+		}(&hosts[i])
+	}
+	wg.Wait() // Wait for all host checks to complete
+
+	logger.Log().WithField("host_count", len(hosts)).Info("All host checks completed")
 }
 
 // checkHost performs a basic TCP connectivity check to determine if the host is reachable
-func (s *UptimeService) checkHost(host *models.UptimeHost) {
+func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) {
+	// Get host-specific mutex to prevent concurrent database updates
+	s.hostMutexLock.Lock()
+	if s.hostMutexes[host.ID] == nil {
+		s.hostMutexes[host.ID] = &sync.Mutex{}
+	}
+	mutex := s.hostMutexes[host.ID]
+	s.hostMutexLock.Unlock()
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	start := time.Now()
 
-	logger.Log().WithField("host_name", host.Name).WithField("host_ip", host.Host).Info("Starting TCP check for host")
+	logger.Log().WithFields(map[string]any{
+		"host_name": host.Name,
+		"host_ip":   host.Host,
+		"host_id":   host.ID,
+	}).Debug("Starting TCP check for host")
 
 	// Get common ports for this host from its monitors
 	var monitors []models.UptimeMonitor
 	s.DB.Preload("ProxyHost").Where("uptime_host_id = ?", host.ID).Find(&monitors)
 
-	logger.Log().WithField("host_name", host.Name).WithField("monitor_count", len(monitors)).Info("Retrieved monitors for host")
+	logger.Log().WithField("host_name", host.Name).WithField("monitor_count", len(monitors)).Debug("Retrieved monitors for host")
 
 	if len(monitors) == 0 {
 		return
 	}
 
-	// Try to connect to any of the monitor ports
+	// Try to connect to any of the monitor ports with retry logic
 	success := false
 	var msg string
+	var lastErr error
 
-	for _, monitor := range monitors {
-		var port string
-
-		// Use actual backend port from ProxyHost if available
-		if monitor.ProxyHost != nil {
-			port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
-		} else {
-			// Fallback to extracting from URL for standalone monitors
-			port = extractPort(monitor.URL)
+	for retry := 0; retry <= s.config.MaxRetries && !success; retry++ {
+		if retry > 0 {
+			logger.Log().WithFields(map[string]any{
+				"host_name": host.Name,
+				"retry":     retry,
+				"max":       s.config.MaxRetries,
+			}).Info("Retrying TCP check")
+			time.Sleep(2 * time.Second) // Brief delay between retries
 		}
 
-		if port == "" {
-			continue
+		// Check if context is cancelled
+		select {
+		case <-ctx.Done():
+			logger.Log().WithField("host_name", host.Name).Warn("TCP check cancelled")
+			return
+		default:
 		}
 
-		// Debug logging for port resolution
-		logger.Log().WithFields(map[string]any{
-			"monitor":        monitor.Name,
-			"extracted_port": extractPort(monitor.URL),
-			"actual_port":    port,
-			"host":           host.Host,
-			"proxy_host_nil": monitor.ProxyHost == nil,
-			"proxy_host_id":  monitor.ProxyHostID,
-		}).Info("TCP check port resolution")
+		for _, monitor := range monitors {
+			var port string
 
-		// Use net.JoinHostPort for IPv6 compatibility
-		addr := net.JoinHostPort(host.Host, port)
-		conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
-		if err == nil {
-			if err := conn.Close(); err != nil {
-				logger.Log().WithError(err).Warn("failed to close tcp connection")
+			// Use actual backend port from ProxyHost if available
+			if monitor.ProxyHost != nil {
+				port = fmt.Sprintf("%d", monitor.ProxyHost.ForwardPort)
+			} else {
+				// Fallback to extracting from URL for standalone monitors
+				port = extractPort(monitor.URL)
 			}
-			success = true
-			msg = fmt.Sprintf("TCP connection to %s successful", addr)
-			break
+
+			if port == "" {
+				continue
+			}
+
+			logger.Log().WithFields(map[string]any{
+				"monitor":        monitor.Name,
+				"extracted_port": extractPort(monitor.URL),
+				"actual_port":    port,
+				"host":           host.Host,
+				"retry":          retry,
+			}).Debug("TCP check port resolution")
+
+			// Use net.JoinHostPort for IPv6 compatibility
+			addr := net.JoinHostPort(host.Host, port)
+
+			// Create dialer with timeout from context
+			dialer := net.Dialer{Timeout: s.config.TCPTimeout}
+			conn, err := dialer.DialContext(ctx, "tcp", addr)
+			if err == nil {
+				if err := conn.Close(); err != nil {
+					logger.Log().WithError(err).Warn("failed to close tcp connection")
+				}
+				success = true
+				msg = fmt.Sprintf("TCP connection to %s successful (retry %d)", addr, retry)
+				logger.Log().WithFields(map[string]any{
+					"host_name": host.Name,
+					"addr":      addr,
+					"retry":     retry,
+				}).Debug("TCP connection successful")
+				break
+			}
+			lastErr = err
+			msg = fmt.Sprintf("TCP check failed: %v", err)
 		}
-		msg = err.Error()
 	}
 
 	latency := time.Since(start).Milliseconds()
 	oldStatus := host.Status
-	newStatus := "down"
+	newStatus := oldStatus
+
+	// Implement failure count debouncing
 	if success {
+		host.FailureCount = 0
 		newStatus = "up"
+	} else {
+		host.FailureCount++
+		if host.FailureCount >= s.config.FailureThreshold {
+			newStatus = "down"
+		} else {
+			// Keep current status on first failure
+			newStatus = host.Status
+			logger.Log().WithFields(map[string]any{
+				"host_name":     host.Name,
+				"failure_count": host.FailureCount,
+				"threshold":     s.config.FailureThreshold,
+				"last_error":    lastErr,
+			}).Warn("Host check failed, waiting for threshold")
+		}
 	}
 
 	statusChanged := oldStatus != newStatus && oldStatus != "pending"
@@ -436,6 +546,17 @@ func (s *UptimeService) checkHost(host *models.UptimeHost) {
 			"message":   msg,
 		}).Info("Host status changed")
 	}
+
+	logger.Log().WithFields(map[string]any{
+		"host_name":      host.Name,
+		"host_ip":        host.Host,
+		"success":        success,
+		"failure_count":  host.FailureCount,
+		"old_status":     oldStatus,
+		"new_status":     newStatus,
+		"elapsed_ms":     latency,
+		"status_changed": statusChanged,
+	}).Debug("Host TCP check completed")
 
 	s.DB.Save(host)
 }

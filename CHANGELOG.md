@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Universal JSON Template Support for Notifications**: JSON payload templates (minimal, detailed, custom) are now available for all notification services that support JSON payloads, not just generic webhooks (PR #XXX)
+  - **Discord**: Rich embeds with colors, fields, and custom formatting
+  - **Slack**: Block Kit messages with sections and interactive elements
+  - **Gotify**: JSON payloads with priority levels and extras field
+  - **Generic webhooks**: Complete control over JSON structure
+  - **Template variables**: `{{.Title}}`, `{{.Message}}`, `{{.EventType}}`, `{{.Severity}}`, `{{.HostName}}`, `{{.Timestamp}}`, and more
+  - See [Notification Guide](docs/features/notifications.md) for examples and migration guide
+- **Improved Uptime Monitoring Reliability**: Enhanced uptime monitoring system with debouncing and race condition prevention (PR #XXX)
+  - **Failure debouncing**: Requires 2 consecutive failures before marking host as "down" to prevent false alarms from transient issues
+  - **Increased timeout**: TCP connection timeout raised from 5s to 10s for slow networks and containers
+  - **Automatic retries**: Up to 2 retry attempts with 2-second delay between attempts
+  - **Synchronized checks**: All host checks complete before database reads, eliminating race conditions
+  - **Concurrent processing**: All hosts checked in parallel for better performance
+  - See [Uptime Monitoring Guide](docs/features/uptime-monitoring.md) for troubleshooting tips
+
+### Changed
+
+- **Notification Backend Refactoring**: Renamed internal function `sendCustomWebhook` to `sendJSONPayload` for clarity (no user impact)
+- **Frontend Template UI**: Template configuration UI now appears for Discord, Slack, Gotify, and generic webhooks (previously webhook-only)
+
+### Fixed
+
+- **Uptime False Positives**: Resolved issue where proxy hosts were incorrectly reported as "down" after page refresh due to timing and race conditions
+- **Transient Failure Alerts**: Single network hiccups no longer trigger false down notifications due to debouncing logic
+
+### Test Coverage Improvements
+
 - **Test Coverage Improvements**: Comprehensive test coverage enhancements across backend and frontend (PR #450)
   - Backend coverage: **86.2%** (exceeds 85% threshold)
   - Frontend coverage: **87.27%** (exceeds 85% threshold)

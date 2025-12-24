@@ -543,7 +543,9 @@ Allows friends to access, blocks obvious threat countries.
 
 **Discord webhook format:**
 
-Charon automatically formats notifications for Discord:
+Charon supports rich notification formatting for multiple services using customizable JSON templates:
+
+**Discord Rich Embed Example:**
 
 ```json
 {
@@ -561,19 +563,91 @@ Charon automatically formats notifications for Discord:
 }
 ```
 
+**Slack Block Kit Example:**
+
+```json
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {"type": "plain_text", "text": "🛡️ Security Alert"}
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*WAF Block*\nSQL injection attempt detected and blocked"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {"type": "mrkdwn", "text": "*IP:*\n203.0.113.42"},
+        {"type": "mrkdwn", "text": "*Rule:*\n942100"}
+      ]
+    }
+  ]
+}
+```
+
+**Gotify JSON Payload Example:**
+
+```json
+{
+  "title": "🛡️ Security Alert",
+  "message": "**WAF Block**: SQL injection attempt blocked from 203.0.113.42",
+  "priority": 8,
+  "extras": {
+    "client::display": {"contentType": "text/markdown"},
+    "security": {
+      "event_type": "waf_block",
+      "ip": "203.0.113.42",
+      "rule_id": "942100"
+    }
+  }
+}
+```
+
+**Configuring Notification Templates:**
+
+1. Navigate to **Settings → Notifications**
+2. Add or edit a notification provider
+3. Select service type: Discord, Slack, Gotify, or Generic
+4. Choose template style:
+   - **Minimal**: Simple text-based notifications
+   - **Detailed**: Rich formatting with comprehensive event data
+   - **Custom**: Define your own JSON structure
+5. Use template variables for dynamic content:
+   - `{{.Title}}` — Event title (e.g., "WAF Block")
+   - `{{.Message}}` — Detailed event description
+   - `{{.EventType}}` — Event classification (waf_block, uptime_down, ssl_renewal)
+   - `{{.Severity}}` — Alert level (info, warning, error)
+   - `{{.HostName}}` — Affected proxy host domain
+   - `{{.Timestamp}}` — ISO 8601 formatted timestamp
+6. Click **"Send Test Notification"** to preview output
+7. Save the provider configuration
+
+**For complete examples with all variables and service-specific features, see [Notification Guide](features/notifications.md).**
+
 **Testing your webhook:**
 
 1. Add your webhook URL in Notification Settings
-2. Save the settings
-3. Trigger a test event (try accessing a blocked URL)
-4. Check your Discord/Slack channel for the notification
+2. Select events to monitor (WAF blocks, uptime changes, SSL renewals)
+3. Choose or customize a JSON template
+4. Save the settings
+5. Click **"Send Test"** to verify the integration
+6. Trigger a real event (e.g., attempt to access a blocked URL)
+7. Confirm notification appears in your Discord/Slack/Gotify channel
 
 **Troubleshooting webhooks:**
 
-- No notifications? Check webhook URL is correct and HTTPS
-- Wrong format? Verify your platform's webhook documentation
-- Too many notifications? Increase minimum log level to "error" only
-- Notifications delayed? Check your network connection and firewall rules
+- No notifications? Verify webhook URL is correct and uses HTTPS
+- Invalid template? Use **"Send Test"** to validate JSON structure
+- Wrong format? Consult your platform's webhook API documentation
+- Template variables not replaced? Check variable names match exactly (case-sensitive)
+- Too many notifications? Adjust event filters or increase severity threshold to "error" only
+- Notifications delayed? Check network connectivity and firewall rules
+- Template rendering errors? View logs: `docker logs charon | grep "notification"`
 
 ### Log Privacy Considerations
 

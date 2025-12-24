@@ -173,6 +173,73 @@ This ensures security features (especially CrowdSec) work correctly.
 
 ---
 
+## 🔔 Smart Notifications
+
+Stay informed about your infrastructure with flexible notification support.
+
+### Supported Services
+
+Charon integrates with popular notification platforms using JSON templates for rich formatting:
+
+- **Discord** — Rich embeds with colors, fields, and custom formatting
+- **Slack** — Block Kit messages with interactive elements
+- **Gotify** — Self-hosted push notifications with priority levels
+- **Telegram** — Instant messaging with Markdown support
+- **Generic Webhooks** — Connect to any service with custom JSON payloads
+
+### JSON Template Examples
+
+**Discord Rich Embed:**
+
+```json
+{
+  "embeds": [{
+    "title": "🚨 {{.Title}}",
+    "description": "{{.Message}}",
+    "color": 15158332,
+    "timestamp": "{{.Timestamp}}",
+    "fields": [
+      {"name": "Host", "value": "{{.HostName}}", "inline": true},
+      {"name": "Event", "value": "{{.EventType}}", "inline": true}
+    ]
+  }]
+}
+```
+
+**Slack Block Kit:**
+
+```json
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {"type": "plain_text", "text": "🔔 {{.Title}}"}
+    },
+    {
+      "type": "section",
+      "text": {"type": "mrkdwn", "text": "*Event:* {{.EventType}}\n*Message:* {{.Message}}"}
+    }
+  ]
+}
+```
+
+### Available Template Variables
+
+All JSON templates support these variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{.Title}}` | Event title | "SSL Certificate Renewed" |
+| `{{.Message}}` | Event details | "Certificate for example.com renewed" |
+| `{{.EventType}}` | Type of event | "ssl_renewal", "uptime_down" |
+| `{{.Severity}}` | Severity level | "info", "warning", "error" |
+| `{{.HostName}}` | Affected host | "example.com" |
+| `{{.Timestamp}}` | ISO 8601 timestamp | "2025-12-24T10:30:00Z" |
+
+**[📖 Complete Notification Guide →](docs/features/notifications.md)**
+
+---
+
 ## Getting Help
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply

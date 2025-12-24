@@ -509,7 +509,7 @@
     "detailedTemplate": "Detailed Template",
     "customTemplate": "Custom",
     "template": "Template",
-    "availableVariables": "Available variables: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Available variables: .Title, .Message, .Status, .Name, .Latency, .Time. Supports webhook, Discord, Slack, Gotify, and generic services.",
     "notificationEvents": "Notification Events",
     "proxyHosts": "Proxy Hosts",
     "remoteServers": "Remote Servers",

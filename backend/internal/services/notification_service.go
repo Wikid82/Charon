@@ -46,6 +46,18 @@ func normalizeURL(serviceType, rawURL string) string {
 	return rawURL
 }
 
+// supportsJSONTemplates returns true if the provider type can use JSON templates
+func supportsJSONTemplates(providerType string) bool {
+	switch strings.ToLower(providerType) {
+	case "webhook", "discord", "slack", "gotify", "generic":
+		return true
+	case "telegram":
+		return false // Telegram uses URL parameters
+	default:
+		return false
+	}
+}
+
 // Internal Notifications (DB)
 
 func (s *NotificationService) Create(nType models.NotificationType, title, message string) (*models.Notification, error) {
@@ -123,9 +135,10 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 		}
 
 		go func(p models.NotificationProvider) {
-			if p.Type == "webhook" {
-				if err := s.sendCustomWebhook(ctx, p, data); err != nil {
-					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
+			// Use JSON templates for all supported services
+			if supportsJSONTemplates(p.Type) && p.Template != "" {
+				if err := s.sendJSONPayload(ctx, p, data); err != nil {
+					logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send JSON notification")
 				}
 			} else {
 				url := normalizeURL(p.Type, p.URL)
@@ -150,7 +163,7 @@ func (s *NotificationService) SendExternal(ctx context.Context, eventType, title
 	}
 }
 
-func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
+func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.NotificationProvider, data map[string]any) error {
 	// Built-in templates
 	const minimalTemplate = `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}}`
 	const detailedTemplate = `{"title": {{toJSON .Title}}, "message": {{toJSON .Message}}, "time": {{toJSON .Time}}, "event": {{toJSON .EventType}}, "host": {{toJSON .HostName}}, "host_ip": {{toJSON .HostIP}}, "service_count": {{toJSON .ServiceCount}}, "services": {{toJSON .Services}}, "data": {{toJSON .}}}`
@@ -170,6 +183,12 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		if tmplStr == "" {
 			tmplStr = minimalTemplate
 		}
+	}
+
+	// Template size limit validation (10KB max)
+	const maxTemplateSize = 10 * 1024
+	if len(tmplStr) > maxTemplateSize {
+		return fmt.Errorf("template size exceeds maximum limit of %d bytes", maxTemplateSize)
 	}
 
 	// Validate webhook URL using the security package's SSRF-safe validator.
@@ -197,9 +216,49 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 		return fmt.Errorf("failed to parse webhook template: %w", err)
 	}
 
+	// Template execution with timeout (5 seconds)
 	var body bytes.Buffer
-	if err := tmpl.Execute(&body, data); err != nil {
-		return fmt.Errorf("failed to execute webhook template: %w", err)
+	execDone := make(chan error, 1)
+	go func() {
+		execDone <- tmpl.Execute(&body, data)
+	}()
+
+	select {
+	case err := <-execDone:
+		if err != nil {
+			return fmt.Errorf("failed to execute webhook template: %w", err)
+		}
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("template execution timeout after 5 seconds")
+	}
+
+	// Service-specific JSON validation
+	var jsonPayload map[string]any
+	if err := json.Unmarshal(body.Bytes(), &jsonPayload); err != nil {
+		return fmt.Errorf("invalid JSON payload: %w", err)
+	}
+
+	// Validate service-specific requirements
+	switch strings.ToLower(p.Type) {
+	case "discord":
+		// Discord requires either 'content' or 'embeds'
+		if _, hasContent := jsonPayload["content"]; !hasContent {
+			if _, hasEmbeds := jsonPayload["embeds"]; !hasEmbeds {
+				return fmt.Errorf("discord payload requires 'content' or 'embeds' field")
+			}
+		}
+	case "slack":
+		// Slack requires either 'text' or 'blocks'
+		if _, hasText := jsonPayload["text"]; !hasText {
+			if _, hasBlocks := jsonPayload["blocks"]; !hasBlocks {
+				return fmt.Errorf("slack payload requires 'text' or 'blocks' field")
+			}
+		}
+	case "gotify":
+		// Gotify requires 'message' field
+		if _, hasMessage := jsonPayload["message"]; !hasMessage {
+			return fmt.Errorf("gotify payload requires 'message' field")
+		}
 	}
 
 	// Send Request with a safe client (SSRF protection, timeout, no auto-redirect)
@@ -331,7 +390,7 @@ func isPrivateIP(ip net.IP) bool {
 }
 
 func (s *NotificationService) TestProvider(provider models.NotificationProvider) error {
-	if provider.Type == "webhook" {
+	if supportsJSONTemplates(provider.Type) && provider.Template != "" {
 		data := map[string]any{
 			"Title":   "Test Notification",
 			"Message": "This is a test notification from Charon",
@@ -340,7 +399,7 @@ func (s *NotificationService) TestProvider(provider models.NotificationProvider)
 			"Latency": 123,
 			"Time":    time.Now().Format(time.RFC3339),
 		}
-		return s.sendCustomWebhook(context.Background(), provider, data)
+		return s.sendJSONPayload(context.Background(), provider, data)
 	}
 	url := normalizeURL(provider.Type, provider.URL)
 	// SSRF validation for HTTP/HTTPS URLs used by shoutrrr

@@ -463,7 +463,7 @@
     "detailedTemplate": "详细模板",
     "customTemplate": "自定义",
     "template": "模板",
-    "availableVariables": "可用变量：.Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "可用变量：.Title, .Message, .Status, .Name, .Latency, .Time。支持 webhook、Discord、Slack、Gotify 和通用服务。",
     "notificationEvents": "通知事件",
     "proxyHosts": "代理主机",
     "remoteServers": "远程服务器",
