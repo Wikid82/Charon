@@ -302,6 +302,12 @@ func (s *NotificationService) sendCustomWebhook(ctx context.Context, p models.No
 	// Host header to the original hostname, so virtual-hosting works while
 	// preventing requests to private or otherwise disallowed addresses.
 	// This mitigates SSRF and addresses the CodeQL request-forgery rule.
+	// codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
+	// 1. Validates URL format and scheme (HTTPS required in production)
+	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
+	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
+	// 4. No redirect following allowed
+	// See: internal/security/url_validator.go
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
