@@ -48,7 +48,7 @@ func TestFeatureFlagsHandler_GetFlags_FromShortEnv(t *testing.T) {
 	defer os.Unsetenv("CERBERUS_ENABLED")
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/flags", nil)
+	req := httptest.NewRequest(http.MethodGet, "/flags", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -106,7 +106,7 @@ func TestDomainHandler_List_Additional(t *testing.T) {
 	require.NoError(t, db.Create(&domain2).Error)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/domains", nil)
+	req := httptest.NewRequest(http.MethodGet, "/domains", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -129,7 +129,7 @@ func TestDomainHandler_List_Empty_Additional(t *testing.T) {
 	router.GET("/domains", handler.List)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/domains", nil)
+	req := httptest.NewRequest(http.MethodGet, "/domains", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

@@ -225,8 +225,9 @@ func TestNewSafeHTTPClient_BlocksSSRF(t *testing.T) {
 
 	for _, url := range urls {
 		t.Run(url, func(t *testing.T) {
-			_, err := client.Get(url)
+			resp, err := client.Get(url)
 			if err == nil {
+				defer resp.Body.Close()
 				t.Errorf("expected request to %s to be blocked", url)
 			}
 		})
@@ -251,8 +252,9 @@ func TestNewSafeHTTPClient_WithMaxRedirects(t *testing.T) {
 		WithMaxRedirects(2),
 	)
 
-	_, err := client.Get(server.URL)
+	resp, err := client.Get(server.URL)
 	if err == nil {
+		defer resp.Body.Close()
 		t.Error("expected redirect limit to be enforced")
 	}
 }
@@ -635,8 +637,9 @@ func TestNewSafeHTTPClient_RedirectToPrivateIP(t *testing.T) {
 	)
 
 	// Make request - should fail when trying to follow redirect to private IP
-	_, err := client.Get(server.URL)
+	resp, err := client.Get(server.URL)
 	if err == nil {
+		defer resp.Body.Close()
 		t.Error("expected error when redirect targets private IP")
 	}
 }
