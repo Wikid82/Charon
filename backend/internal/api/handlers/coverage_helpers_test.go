@@ -298,11 +298,11 @@ func TestCrowdsecHandler_ExportConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "crowdsec", "config")
-	require.NoError(t, os.MkdirAll(configDir, 0755))
+	require.NoError(t, os.MkdirAll(configDir, 0o755))
 
 	// Create test config file
 	configFile := filepath.Join(configDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0644))
+	require.NoError(t, os.WriteFile(configFile, []byte("test: config"), 0o644))
 
 	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
 

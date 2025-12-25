@@ -100,7 +100,11 @@ func OpenTestDBWithMigrations(t *testing.T) *gorm.DB {
 		// For SQLite, we can use the template's schema info
 		rows, err := tmpl.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL").Rows()
 		if err == nil {
-			defer rows.Close()
+			defer func() {
+				if closeErr := rows.Close(); closeErr != nil {
+					t.Logf("warning: failed to close rows: %v", closeErr)
+				}
+			}()
 			for rows.Next() {
 				var sql string
 				if rows.Scan(&sql) == nil && sql != "" {
