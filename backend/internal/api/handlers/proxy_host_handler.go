@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/Wikid82/charon/backend/internal/utils"
@@ -39,7 +41,7 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 			Field:   "forward_host",
 			Message: "This looks like a Docker container IP address. Docker IPs can change when containers restart. Consider using the container name for more reliable connections.",
 		})
-	} else if utils.IsPrivateIP(forwardHost) {
+	} else if ip := net.ParseIP(forwardHost); ip != nil && network.IsPrivateIP(ip) {
 		warnings = append(warnings, ProxyHostWarning{
 			Field:   "forward_host",
 			Message: "Using a private IP address. If this is a Docker container, the IP may change on restart. Container names are more reliable for Docker services.",
