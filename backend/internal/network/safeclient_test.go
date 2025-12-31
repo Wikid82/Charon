@@ -738,7 +738,10 @@ func TestNewSafeHTTPClient_MetadataEndpoint(t *testing.T) {
 	)
 
 	// AWS metadata endpoint
-	_, err := client.Get("http://169.254.169.254/latest/meta-data/")
+	resp, err := client.Get("http://169.254.169.254/latest/meta-data/")
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err == nil {
 		t.Error("expected cloud metadata endpoint to be blocked")
 	}

@@ -31,7 +31,7 @@ func (m *mockStopExecutor) Stop(_ context.Context, _ string) error {
 	return m.stopErr
 }
 
-func (m *mockStopExecutor) Status(_ context.Context, _ string) (bool, int, error) {
+func (m *mockStopExecutor) Status(_ context.Context, _ string) (running bool, pid int, err error) {
 	return false, 0, nil
 }
 

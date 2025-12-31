@@ -34,21 +34,19 @@ func NewSecurityHeadersHandler(db *gorm.DB, caddyManager *caddy.Manager) *Securi
 // RegisterRoutes registers all security headers routes
 func (h *SecurityHeadersHandler) RegisterRoutes(router *gin.RouterGroup) {
 	group := router.Group("/security/headers")
-	{
-		group.GET("/profiles", h.ListProfiles)
-		group.GET("/profiles/:id", h.GetProfile)
-		group.POST("/profiles", h.CreateProfile)
-		group.PUT("/profiles/:id", h.UpdateProfile)
-		group.DELETE("/profiles/:id", h.DeleteProfile)
+	group.GET("/profiles", h.ListProfiles)
+	group.GET("/profiles/:id", h.GetProfile)
+	group.POST("/profiles", h.CreateProfile)
+	group.PUT("/profiles/:id", h.UpdateProfile)
+	group.DELETE("/profiles/:id", h.DeleteProfile)
 
-		group.GET("/presets", h.GetPresets)
-		group.POST("/presets/apply", h.ApplyPreset)
+	group.GET("/presets", h.GetPresets)
+	group.POST("/presets/apply", h.ApplyPreset)
 
-		group.POST("/score", h.CalculateScore)
+	group.POST("/score", h.CalculateScore)
 
-		group.POST("/csp/validate", h.ValidateCSP)
-		group.POST("/csp/build", h.BuildCSP)
-	}
+	group.POST("/csp/validate", h.ValidateCSP)
+	group.POST("/csp/build", h.BuildCSP)
 }
 
 // ListProfiles returns all security header profiles
