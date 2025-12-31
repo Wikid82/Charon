@@ -1086,7 +1086,7 @@ func TestFindConfigPath_RootLayout(t *testing.T) {
 
 	// Create config.yaml in root (not in config/ subdirectory)
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0644))
+	require.NoError(t, os.WriteFile(configPath, []byte("common:\n  daemonize: false"), 0o644))
 
 	exec := &stubEnvExecutor{}
 	svc := NewConsoleEnrollmentService(db, exec, tmpDir, "secret")

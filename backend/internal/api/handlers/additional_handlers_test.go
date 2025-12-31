@@ -205,7 +205,7 @@ func TestDomainHandler_Delete_Additional(t *testing.T) {
 	require.NoError(t, db.Create(&domain).Error)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/domains/"+testUUID, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/domains/"+testUUID, http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -228,7 +228,7 @@ func TestDomainHandler_Delete_NotFound_Additional(t *testing.T) {
 	router.DELETE("/domains/:id", handler.Delete)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/domains/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/domains/nonexistent", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	// Should still return OK (delete is idempotent)
@@ -259,7 +259,7 @@ func TestNotificationHandler_List_Additional(t *testing.T) {
 	require.NoError(t, db.Create(&notif2).Error)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/notifications", nil)
+	req := httptest.NewRequest(http.MethodGet, "/notifications", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -287,7 +287,7 @@ func TestNotificationHandler_MarkAsRead_Additional(t *testing.T) {
 	require.NoError(t, db.Create(&notif).Error)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/notifications/"+notif.ID+"/read", nil)
+	req := httptest.NewRequest(http.MethodPut, "/notifications/"+notif.ID+"/read", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -318,7 +318,7 @@ func TestNotificationHandler_MarkAllAsRead_Additional(t *testing.T) {
 	require.NoError(t, db.Create(&notif2).Error)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/notifications/read-all", nil)
+	req := httptest.NewRequest(http.MethodPut, "/notifications/read-all", http.NoBody)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

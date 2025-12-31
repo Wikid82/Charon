@@ -987,13 +987,14 @@ func TestParseRawIndex(t *testing.T) {
 		// Verify collection entry
 		var demoFound bool
 		for _, item := range idx.Items {
-			if item.Name == "crowdsecurity/demo" {
-				demoFound = true
-				require.Equal(t, "collections", item.Type)
-				require.Equal(t, "1.0", item.Version)
-				require.Equal(t, "Demo collection", item.Description)
-				require.Contains(t, item.DownloadURL, "collections/crowdsecurity/demo.tgz")
+			if item.Name != "crowdsecurity/demo" {
+				continue
 			}
+			demoFound = true
+			require.Equal(t, "collections", item.Type)
+			require.Equal(t, "1.0", item.Version)
+			require.Equal(t, "Demo collection", item.Description)
+			require.Contains(t, item.DownloadURL, "collections/crowdsecurity/demo.tgz")
 		}
 		require.True(t, demoFound)
 	})
@@ -1063,7 +1064,7 @@ func TestHubService_Apply_CacheRefresh(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reset time to trigger expiration
-	cache.nowFn = func() time.Time { return time.Now() }
+	cache.nowFn = time.Now
 
 	indexBody := `{"items":[{"name":"test/preset","title":"Test","etag":"etag2","download_url":"http://test.hub/preset.tgz"}]}`
 	newArchive := makeTarGz(t, map[string]string{"config.yml": "new"})

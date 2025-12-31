@@ -698,7 +698,10 @@ func TestNewSafeHTTPClient_TooManyRedirects(t *testing.T) {
 		WithMaxRedirects(3),
 	)
 
-	_, err := client.Get(server.URL)
+	resp, err := client.Get(server.URL)
+	if resp != nil {
+		resp.Body.Close()
+	}
 	if err == nil {
 		t.Error("expected error for too many redirects")
 	}
