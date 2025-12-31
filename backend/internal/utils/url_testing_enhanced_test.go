@@ -99,10 +99,8 @@ func TestTestURLConnectivity_EnhancedSSRF(t *testing.T) {
 				if reachable {
 					t.Errorf("Expected reachable=false, got true")
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected test to succeed, but got error: %s", err.Error())
-				}
+			} else if err != nil {
+				t.Errorf("Expected test to succeed, but got error: %s", err.Error())
 			}
 		})
 	}
