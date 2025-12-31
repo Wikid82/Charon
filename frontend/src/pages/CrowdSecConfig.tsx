@@ -223,6 +223,7 @@ export default function CrowdSecConfig() {
     })
     setPresetPreview(selectedPreset.content || '')
     pullPresetMutation.mutate(selectedPreset.slug)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
   }, [selectedPreset?.slug])
 
   const loadCachedPreview = async () => {
@@ -932,7 +933,7 @@ export default function CrowdSecConfig() {
             </div>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as 'alpha' | 'type' | 'source')}
               className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
             >
               <option value="alpha">{t('crowdsecConfig.presets.sortAlpha')}</option>
