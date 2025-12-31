@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AxiosError } from 'axios'
+import { AxiosError, AxiosResponse } from 'axios'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -261,9 +261,9 @@ describe('CrowdSecConfig', () => {
       status: 501,
       statusText: 'Not Implemented',
       headers: {},
-      config: {},
+      config: { headers: {} },
       data: {},
-    } as any)
+    } as AxiosResponse)
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValue(axiosError)
 
     renderWithProviders(<CrowdSecConfig />)
@@ -287,9 +287,9 @@ describe('CrowdSecConfig', () => {
       status: 400,
       statusText: 'Bad Request',
       headers: {},
-      config: {},
+      config: { headers: {} },
       data: { error: 'slug invalid' },
-    } as any)
+    } as AxiosResponse)
     vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValueOnce(validationError)
 
     renderWithProviders(<CrowdSecConfig />)
@@ -320,9 +320,9 @@ describe('CrowdSecConfig', () => {
       status: 503,
       statusText: 'Service Unavailable',
       headers: {},
-      config: {},
+      config: { headers: {} },
       data: { error: 'hub service unavailable' },
-    } as any)
+    } as AxiosResponse)
     vi.mocked(presetsApi.pullCrowdsecPreset).mockRejectedValue(hubError)
     vi.mocked(presetsApi.getCrowdsecPresetCache).mockResolvedValue({ preview: 'cached-preview', cache_key: 'cache-hub', etag: 'etag-hub' })
 
