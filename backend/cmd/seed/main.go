@@ -214,14 +214,20 @@ func main() {
 	}
 
 	var existing models.User
-	// Find by email first
-	if err := db.Where("email = ?", user.Email).First(&existing).Error; err != nil {
-		// Not found -> create
-		result := db.Create(&user)
-		if result.Error != nil {
-			logger.Log().WithError(result.Error).Error("Failed to seed user")
-		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("user", user.Email).Infof("✓ Created default user: %s", user.Email)
+	// Find by email first - use Take instead of First to avoid GORM's "record not found" log
+	result := db.Where("email = ?", user.Email).Take(&existing)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			// Not found -> create new user
+			createResult := db.Create(&user)
+			if createResult.Error != nil {
+				logger.Log().WithError(createResult.Error).Error("Failed to seed user")
+			} else if createResult.RowsAffected > 0 {
+				logger.Log().WithField("user", user.Email).Infof("✓ Created default user: %s", user.Email)
+			}
+		} else {
+			// Unexpected error
+			logger.Log().WithError(result.Error).Error("Failed to query for existing user")
 		}
 	} else {
 		// Found existing user - optionally update if forced
@@ -245,7 +251,6 @@ func main() {
 			logger.Log().WithField("user", existing.Email).Info("User already exists")
 		}
 	}
-	// result handling is done inline above
 
 	logger.Log().Info("\n✓ Database seeding completed successfully!")
 	logger.Log().Info("  You can now start the application and see sample data.")
