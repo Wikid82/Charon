@@ -17,11 +17,25 @@
 #
 # Reference: /docs/plans/current_spec.md
 extensions:
+  # Mark ValidateExternalURL as a sanitizer that returns validated data
+  # The function returns a sanitized URL string as first return value
   - addsTo:
       pack: codeql/go-all
-      extensible: sourceModel
+      extensible: summaryModel
     data:
-      # security.ValidateExternalURL is the primary SSRF sanitizer
-      # It performs DNS resolution and validates ALL resolved IPs against
-      # private/reserved ranges before returning a safe URL
-      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "", "manual", "sanitizer"]
+      # security.ValidateExternalURL sanitizes URLs by:
+      # 1. Validating URL format and scheme
+      # 2. Performing DNS resolution
+      # 3. Blocking private/reserved IP ranges
+      # Input: Argument[0] (rawURL string)
+      # Output: ReturnValue[0] (validated URL string - safe for HTTP requests)
+      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "Argument[0]", "ReturnValue[0]", "taint", "manual"]
+
+  # Mark url.Parse().String() reconstruction as breaking taint chain
+  # When URL is parsed and reconstructed, it creates a new value
+  - addsTo:
+      pack: codeql/go-all
+      extensible: neutralModel
+    data:
+      # network.IsPrivateIP is a validation function (neutral - doesn't propagate taint)
+      - ["github.com/Wikid82/charon/backend/internal/network", "IsPrivateIP", "manual"]
