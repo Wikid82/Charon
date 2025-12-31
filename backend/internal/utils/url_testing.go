@@ -87,7 +87,7 @@ func validateRedirectTarget(req *http.Request, via []*http.Request) error {
 // - reachable: true if URL returned 2xx-3xx status
 // - latency: round-trip time in milliseconds
 // - error: validation or connectivity error
-func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
+func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachable bool, latency float64, err error) {
 	// Track start time for metrics
 	startTime := time.Now()
 
@@ -248,15 +248,18 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 	req.Header.Set("X-Charon-Request-Type", "url-connectivity-test")
 	req.Header.Set("X-Request-ID", requestID) // Use consistent request ID for tracing
 
-	// lintignore:ssrf - URL validated by security.ValidateExternalURL() with DNS rebinding protection
-	// codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
-	// 1. Validates URL format and scheme (HTTPS required in production)
-	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
-	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
-	// 4. All redirects are validated via validateRedirectTarget (production only)
-	// See: internal/security/url_validator.go
-	resp, err := client.Do(req)
-	latency := time.Since(start).Seconds() * 1000 // Convert to milliseconds
+	// SSRF Protection Summary:
+	// This HTTP request is protected against SSRF by multiple defense layers:
+	// 1. security.ValidateExternalURL() validates URL format, scheme, and performs
+	//    DNS resolution with private IP blocking (RFC 1918, loopback, link-local, metadata)
+	// 2. ssrfSafeDialer() re-validates IPs at connection time (prevents DNS rebinding/TOCTOU)
+	// 3. validateRedirectTarget() validates all redirect URLs in production
+	// 4. requestURL is derived from validated sources (breaks taint chain):
+	//    - Production: security.ValidateExternalURL() returns new validated string
+	//    - Test: url.Parse().String() reconstructs URL (mock transport, no network)
+	// See: internal/security/url_validator.go, internal/network/safeclient.go
+	resp, err := client.Do(req)                  //nolint:bodyclose // Body closed via defer below
+	latency = time.Since(start).Seconds() * 1000 // Convert to milliseconds
 
 	// ENHANCEMENT: Record test duration metric (only in production to avoid test noise)
 	if !isTestMode {
