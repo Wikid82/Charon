@@ -423,24 +423,7 @@ func TestReconcileCrowdSecOnStartup_VerificationFails(t *testing.T) {
 	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
 	defer cleanup()
 
-	// Create mock that starts but verification returns not running
-	type failVerifyMock struct {
-		startCalled bool
-		statusCalls int
-		startPid    int
-	}
-	mock := &failVerifyMock{
-		startPid: 12345,
-	}
-
-	// Implement interface inline
-	impl := struct {
-		*failVerifyMock
-	}{mock}
-
-	_ = impl // Keep reference
-
-	// Better approach: use a verification executor
+	// Use a verification executor that starts but verification returns not running
 	exec := &verificationFailExecutor{
 		startPid: 12345,
 	}
