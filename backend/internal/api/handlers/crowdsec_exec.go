@@ -49,6 +49,9 @@ func (e *DefaultCrowdsecExecutor) Start(ctx context.Context, binPath, configDir 
 
 	// Use exec.Command (not CommandContext) to avoid context cancellation killing the process
 	// CrowdSec should run independently of the startup goroutine's lifecycle
+	//
+	// #nosec G204 -- binPath is server-controlled: sourced from CHARON_CROWDSEC_BIN env var
+	// or defaults to "/usr/local/bin/crowdsec". Not user input. Arguments are static.
 	cmd := exec.Command(binPath, "-c", configFile)
 
 	// Detach the process so it doesn't get killed when the parent exits
