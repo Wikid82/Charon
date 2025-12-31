@@ -39,7 +39,7 @@ func getBaseURL(c *gin.Context) string {
 
 // ValidateURL validates that a URL is properly formatted for use as an application URL.
 // Returns error message if invalid, empty string if valid.
-func ValidateURL(rawURL string) (normalized string, warning string, err error) {
+func ValidateURL(rawURL string) (normalized, warning string, err error) {
 	// Parse URL
 	parsed, parseErr := url.Parse(rawURL)
 	if parseErr != nil {
