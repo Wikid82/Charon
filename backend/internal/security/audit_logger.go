@@ -53,7 +53,7 @@ func (al *AuditLogger) LogURLValidation(event AuditEvent) {
 }
 
 // LogURLTest is a convenience method for logging URL connectivity tests.
-func (al *AuditLogger) LogURLTest(host, requestID, userID, sourceIP string, result string) {
+func (al *AuditLogger) LogURLTest(host, requestID, userID, sourceIP, result string) {
 	event := AuditEvent{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Action:    "url_connectivity_test",
