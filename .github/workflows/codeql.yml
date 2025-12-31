@@ -44,6 +44,9 @@ jobs:
         uses: github/codeql-action/init@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4
         with:
           languages: ${{ matrix.language }}
+          # Use custom model for Go to recognize SSRF sanitizers
+          # See: .github/codeql-custom-model.yml
+          config-file: ${{ matrix.language == 'go' && '.github/codeql-custom-model.yml' || '' }}
 
       - name: Setup Go
         if: matrix.language == 'go'

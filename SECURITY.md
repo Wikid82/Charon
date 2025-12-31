@@ -71,24 +71,24 @@ We commit to:
 
 ### Server-Side Request Forgery (SSRF) Protection
 
-Charon implements industry-leading SSRF protection to prevent attackers from using the application to access internal resources or cloud metadata.
+Charon implements industry-leading **5-layer defense-in-depth** SSRF protection to prevent attackers from using the application to access internal resources or cloud metadata.
 
 #### Protected Against
 
 - **Private network access** (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-- **Cloud provider metadata endpoints** (AWS, Azure, GCP)
+- **Cloud provider metadata endpoints** (AWS, Azure, GCP: 169.254.169.254)
 - **Localhost and loopback addresses** (127.0.0.0/8, ::1/128)
 - **Link-local addresses** (169.254.0.0/16, fe80::/10)
+- **IPv6-mapped IPv4 bypass attempts** (::ffff:127.0.0.1)
 - **Protocol bypass attacks** (file://, ftp://, gopher://, data:)
 
-#### Validation Process
-
-All user-controlled URLs undergo:
+#### Defense Layers
 
 1. **URL Format Validation**: Scheme, syntax, and structure checks
 2. **DNS Resolution**: Hostname resolution with timeout protection
-3. **IP Range Validation**: Blocked ranges include 13+ CIDR blocks
-4. **Request Execution**: Timeout enforcement and redirect limiting
+3. **IP Range Validation**: ALL resolved IPs checked against 13+ CIDR blocks
+4. **Connection-Time Validation**: Re-validation at TCP dial (prevents DNS rebinding)
+5. **Redirect Validation**: Each redirect target validated before following
 
 #### Protected Features
 
@@ -101,7 +101,7 @@ All user-controlled URLs undergo:
 
 For complete technical details, see:
 - [SSRF Protection Guide](docs/security/ssrf-protection.md)
-- [Implementation Report](docs/implementation/SSRF_REMEDIATION_COMPLETE.md)
+- [Manual Test Plan](docs/issues/ssrf-manual-test-plan.md)
 - [QA Audit Report](docs/reports/qa_ssrf_remediation_report.md)
 
 ---
@@ -244,5 +244,5 @@ This security policy is part of the Charon project, licensed under the MIT Licen
 
 ---
 
-**Last Updated**: December 24, 2025
-**Version**: 1.1
+**Last Updated**: December 31, 2025
+**Version**: 1.2

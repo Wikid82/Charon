@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -155,9 +156,10 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 
 	// Create a template that would take too long to execute
 	// This is simulated by having a large number of iterations
+	// Use a private IP (10.x) which is blocked by SSRF protection to trigger an error
 	provider := models.NotificationProvider{
 		Type:     "webhook",
-		URL:      "http://localhost:9999",
+		URL:      "http://10.0.0.1:9999",
 		Template: "custom",
 		Config:   `{"data": {{toJSON .}}}`,
 	}
@@ -172,9 +174,10 @@ func TestSendJSONPayload_TemplateTimeout(t *testing.T) {
 	defer cancel()
 
 	err = svc.sendJSONPayload(ctx, provider, data)
-	// The error might be from URL validation or template execution
-	// We're mainly testing that timeout mechanism is in place
+	// The private IP is blocked by SSRF protection
+	// We're mainly testing that the validation and timeout mechanisms are in place
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "private ip addresses is blocked")
 }
 
 func TestSendJSONPayload_TemplateSizeLimit(t *testing.T) {
@@ -297,9 +300,9 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotificationProvider{}))
 
-	called := false
+	var called atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
+		called.Store(true)
 		var payload map[string]any
 		json.NewDecoder(r.Body).Decode(&payload)
 		assert.NotNil(t, payload["content"])
@@ -322,7 +325,7 @@ func TestSendExternal_UsesJSONForSupportedServices(t *testing.T) {
 
 	// Give goroutine time to execute
 	time.Sleep(100 * time.Millisecond)
-	assert.True(t, called, "Discord notification should have been sent via JSON")
+	assert.True(t, called.Load(), "Discord notification should have been sent via JSON")
 }
 
 func TestTestProvider_UsesJSONForSupportedServices(t *testing.T) {
