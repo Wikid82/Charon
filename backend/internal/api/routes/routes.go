@@ -402,7 +402,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Ensure log directory and file exist for LogWatcher
 		// This prevents failures after container restart when log file doesn't exist yet
-		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o755); err != nil {
 			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
