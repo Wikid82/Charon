@@ -508,7 +508,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 	latency := time.Since(start).Milliseconds()
 	oldStatus := host.Status
-	newStatus := oldStatus
+	var newStatus string
 
 	// Implement failure count debouncing
 	if success {
