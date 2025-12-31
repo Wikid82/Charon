@@ -1,0 +1,27 @@
+---
+# CodeQL Custom Model - SSRF Protection Sanitizers
+# This file declares functions that sanitize user-controlled input for SSRF protection.
+#
+# Architecture: 4-Layer Defense-in-Depth
+# Layer 1: Format Validation (utils.ValidateURL)
+# Layer 2: Security Validation (security.ValidateExternalURL) - DNS resolution + IP blocking
+# Layer 3: Connection-Time Validation (ssrfSafeDialer) - Re-resolve DNS, re-validate IPs
+# Layer 4: Request Execution (TestURLConnectivity) - HEAD request, 5s timeout, max 2 redirects
+#
+# Blocked IP Ranges (13+ CIDR blocks):
+# - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+# - Loopback: 127.0.0.0/8, ::1/128
+# - Link-Local: 169.254.0.0/16 (AWS/GCP/Azure metadata), fe80::/10
+# - Reserved: 0.0.0.0/8, 240.0.0.0/4, 255.255.255.255/32
+# - IPv6 Unique Local: fc00::/7
+#
+# Reference: /docs/plans/current_spec.md
+extensions:
+  - addsTo:
+      pack: codeql/go-all
+      extensible: sourceModel
+    data:
+      # security.ValidateExternalURL is the primary SSRF sanitizer
+      # It performs DNS resolution and validates ALL resolved IPs against
+      # private/reserved ranges before returning a safe URL
+      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "", "manual", "sanitizer"]

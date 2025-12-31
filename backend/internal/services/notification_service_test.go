@@ -1205,9 +1205,9 @@ func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	callCount := 0
+	var callCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		callCount.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -1240,7 +1240,7 @@ func TestSendExternal_UnknownEventTypeSendsToAll(t *testing.T) {
 	svc.SendExternal(ctx, "unknown_event_type", "Test", "Message", nil)
 
 	time.Sleep(100 * time.Millisecond)
-	assert.Greater(t, callCount, 0, "Unknown event type should trigger notification")
+	assert.Greater(t, callCount.Load(), int32(0), "Unknown event type should trigger notification")
 }
 
 func TestCreateProvider_ValidCustomTemplate(t *testing.T) {
