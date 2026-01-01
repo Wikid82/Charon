@@ -299,3 +299,116 @@ func TestGetLAPIVersion_PlainText(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "vX.Y.Z", ver)
 }
+
+func TestValidateLAPIURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		url         string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid localhost with port",
+			url:     "http://localhost:8085",
+			wantErr: false,
+		},
+		{
+			name:    "valid 127.0.0.1",
+			url:     "http://127.0.0.1:8085",
+			wantErr: false,
+		},
+		{
+			name:        "external URL blocked",
+			url:         "http://evil.com",
+			wantErr:     true,
+			errContains: "must be localhost",
+		},
+		{
+			name:    "HTTPS localhost",
+			url:     "https://localhost:8085",
+			wantErr: false,
+		},
+		{
+			name:        "invalid scheme",
+			url:         "ftp://localhost:8085",
+			wantErr:     true,
+			errContains: "scheme",
+		},
+		{
+			name:        "no scheme",
+			url:         "localhost:8085",
+			wantErr:     true,
+			errContains: "scheme",
+		},
+		{
+			name:    "empty URL allowed (defaults to localhost)",
+			url:     "",
+			wantErr: false,
+		},
+		{
+			name:    "IPv6 localhost",
+			url:     "http://[::1]:8085",
+			wantErr: false,
+		},
+		{
+			name:        "private IP 192.168.x.x blocked (security)",
+			url:         "http://192.168.1.100:8085",
+			wantErr:     true,
+			errContains: "must be localhost",
+		},
+		{
+			name:        "private IP 10.x.x.x blocked (security)",
+			url:         "http://10.0.0.50:8085",
+			wantErr:     true,
+			errContains: "must be localhost",
+		},
+		{
+			name:        "missing hostname",
+			url:         "http://:8085",
+			wantErr:     true,
+			errContains: "missing hostname",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLAPIURL(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestEnsureBouncerRegistered_InvalidURL(t *testing.T) {
+	// Test that SSRF validation is applied
+	tests := []struct {
+		name        string
+		url         string
+		errContains string
+	}{
+		{
+			name:        "external URL rejected",
+			url:         "http://attacker.com:8085",
+			errContains: "must be localhost",
+		},
+		{
+			name:        "invalid scheme rejected",
+			url:         "ftp://localhost:8085",
+			errContains: "scheme",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := EnsureBouncerRegistered(context.Background(), tt.url)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}

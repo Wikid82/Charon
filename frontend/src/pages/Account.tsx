@@ -380,6 +380,7 @@ export default function Account() {
                 value={oldPassword}
                 onChange={(e) => setOldPassword(e.target.value)}
                 required
+                autoComplete="current-password"
               />
             </div>
             <div className="space-y-2">
@@ -390,6 +391,7 @@ export default function Account() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
+                autoComplete="new-password"
               />
               <PasswordStrengthMeter password={newPassword} />
             </div>
@@ -402,6 +404,7 @@ export default function Account() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 error={confirmPassword && newPassword !== confirmPassword ? t('account.passwordsDoNotMatch') : undefined}
+                autoComplete="new-password"
               />
             </div>
           </CardContent>

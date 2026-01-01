@@ -641,7 +641,9 @@ func TestDeleteCertificate_UsageCheckError(t *testing.T) {
 
 // Test notification rate limiting
 func TestDeleteCertificate_NotificationRateLimit(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Use unique file-based temp db to avoid shared memory locking issues
+	tmpFile := t.TempDir() + "/rate_limit_test.db"
+	db, err := gorm.Open(sqlite.Open(tmpFile), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}

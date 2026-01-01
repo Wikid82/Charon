@@ -1,11 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Switch } from '../components/ui/Switch'
+import { Alert, AlertDescription } from '../components/ui/Alert'
+import { Label } from '../components/ui/Label'
 import { toast } from '../utils/toast'
+import client from '../api/client'
 import {
   listUsers,
   inviteUser,
@@ -29,6 +33,8 @@ import {
   Clock,
   Copy,
   Loader2,
+  ExternalLink,
+  AlertTriangle,
 } from 'lucide-react'
 
 interface InviteModalProps {
@@ -49,6 +55,31 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     emailSent: boolean
     expiresAt: string
   } | null>(null)
+  const [urlPreview, setUrlPreview] = useState<{
+    preview_url: string
+    base_url: string
+    is_configured: boolean
+    warning: boolean
+    warning_message: string
+  } | null>(null)
+
+  // Fetch preview when email changes
+  useEffect(() => {
+    if (email && email.includes('@')) {
+      const fetchPreview = async () => {
+        try {
+          const response = await client.post('/users/preview-invite-url', { email })
+          setUrlPreview(response.data)
+        } catch {
+          setUrlPreview(null)
+        }
+      }
+      const debounce = setTimeout(fetchPreview, 500)
+      return () => clearTimeout(debounce)
+    } else {
+      setUrlPreview(null)
+    }
+  }, [email])
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
@@ -93,6 +124,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     setPermissionMode('allow_all')
     setSelectedHosts([])
     setInviteResult(null)
+    setUrlPreview(null)
     onClose()
   }
 
@@ -240,6 +272,32 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* URL Preview */}
+              {urlPreview && (
+                <div className="space-y-2 p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <ExternalLink className="h-4 w-4 text-gray-400" />
+                    <Label className="text-sm font-medium text-gray-300">
+                      {t('users.inviteUrlPreview')}
+                    </Label>
+                  </div>
+                  <div className="text-sm font-mono text-gray-400 break-all bg-gray-950 p-2 rounded">
+                    {urlPreview.preview_url.replace('SAMPLE_TOKEN_PREVIEW', '...')}
+                  </div>
+                  {urlPreview.warning && (
+                    <Alert variant="warning" className="mt-2">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        {t('users.inviteUrlWarning')}
+                        <Link to="/settings/system" className="ml-1 underline">
+                          {t('users.configureApplicationUrl')}
+                        </Link>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
               )}
 
               <div className="flex gap-3 pt-4 border-t border-gray-700">

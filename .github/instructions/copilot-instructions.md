@@ -80,12 +80,34 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 Before marking an implementation task as complete, perform the following in order:
 
-1. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
+1. **Security Scans** (MANDATORY - Zero Tolerance):
+    - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan (CI-Aligned)" OR `pre-commit run codeql-go-scan --all-files`
+        - Must use `security-and-quality` suite (CI-aligned)
+        - **Zero high/critical (error-level) findings allowed**
+        - Medium/low findings should be documented and triaged
+    - **CodeQL JS Scan**: Run VS Code task "Security: CodeQL JS Scan (CI-Aligned)" OR `pre-commit run codeql-js-scan --all-files`
+        - Must use `security-and-quality` suite (CI-aligned)
+        - **Zero high/critical (error-level) findings allowed**
+        - Medium/low findings should be documented and triaged
+    - **Validate Findings**: Run `pre-commit run codeql-check-findings --all-files` to check for HIGH/CRITICAL issues
+    - **Trivy Container Scan**: Run VS Code task "Security: Trivy Scan" for container/dependency vulnerabilities
+    - **Results Viewing**:
+        - Primary: VS Code SARIF Viewer extension (`MS-SarifVSCode.sarif-viewer`)
+        - Alternative: `jq` command-line parsing: `jq '.runs[].results' codeql-results-*.sarif`
+        - CI: GitHub Security tab for automated uploads
+    - **⚠️ CRITICAL:** CodeQL scans are NOT run by default pre-commit hooks (manual stage for performance). You MUST run them explicitly via VS Code tasks or pre-commit manual commands before completing any task.
+    - **Why:** CI enforces security-and-quality suite and blocks HIGH/CRITICAL findings. Local verification prevents CI failures and ensures security compliance.
+    - **CI Alignment:** Local scans now use identical parameters to CI:
+        - Query suite: `security-and-quality` (61 Go queries, 204 JS queries)
+        - Database creation: `--threads=0 --overwrite`
+        - Analysis: `--sarif-add-baseline-file-info`
+
+2. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
     - If errors occur, **fix them immediately**.
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.
 
-2. **Coverage Testing** (MANDATORY - Non-negotiable):
+3. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
         - If coverage drops below threshold, write additional tests to restore coverage.
@@ -97,16 +119,16 @@ Before marking an implementation task as complete, perform the following in orde
     - **Critical**: Coverage tests are NOT run by default pre-commit hooks (they are in manual stage for performance). You MUST run them explicitly via VS Code tasks or scripts before completing any task.
     - **Why**: CI enforces coverage in GitHub Actions. Local verification prevents CI failures and maintains code quality.
 
-3. **Type Safety** (Frontend only):
+4. **Type Safety** (Frontend only):
     - Run the VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`.
     - Fix all type errors immediately. This is non-negotiable.
     - This check is also in manual stage for performance but MUST be run before completion.
 
-4. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
+5. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
     - Backend: `cd backend && go build ./...`
     - Frontend: `cd frontend && npm run build`
 
-5. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
+6. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
     - Remove `console.log`, `fmt.Println`, and similar debugging statements.
     - Delete commented-out code blocks.
     - Remove unused imports.

@@ -4,21 +4,21 @@
 
 <h1 align="center">Charon</h1>
 
-<p align="center"><strong>Your websites, your rules—without the headaches.</strong></p>
+<p align="center"><strong>Your server, your rules—without the headaches.</strong></p>
 
 <p align="center">
-Turn multiple websites and apps into one simple dashboard. Click, save, done. No code, no config files, no PhD required.
+Simply manage multiple websites and self-hosted applications. Click, save, done. No code, no config files, no PhD required.
 </p>
 
 <br>
 
 <p align="center">
-  <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a><a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://codecov.io/gh/Wikid82/Charon" >
- <img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/>
- </a>
+  <a href="https://www.repostatus.org/#active"><img src="https://www.repostatus.org/badges/latest/active.svg" alt="Project Status: Active – The project is being actively developed." /></a>
+  <a href="https://www.bestpractices.dev/projects/11648"><img src="https://www.bestpractices.dev/projects/11648/badge"></a>
+ <br>
+ <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
-  <a href="https://github.com/Wikid82/charon/actions"><img src="https://img.shields.io/github/actions/workflow/status/Wikid82/charon/docker-publish.yml" alt="Build Status"></a>
+ <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
 ---
@@ -37,6 +37,20 @@ You want your apps accessible online. You don't want to become a networking expe
 - ✅ **Everything stays up** even when you make changes
 
 ---
+
+## 🐕 Cerberus Security Suite
+
+### 🕵️‍♂️ **CrowdSec Integration**
+  - Protects your applications from attacks using behavior-based detection and automated remediation.
+### 🔐 **Access Control Lists (ACLs)**
+  - Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+### 🧱 **Web Application Firewall (WAF)**
+  - Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+### ⏱️ **Rate Limiting**
+  - Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
+
+---
+
 
 ## ✨ Top 10 Features
 
@@ -159,6 +173,73 @@ This ensures security features (especially CrowdSec) work correctly.
 
 ---
 
+## 🔔 Smart Notifications
+
+Stay informed about your infrastructure with flexible notification support.
+
+### Supported Services
+
+Charon integrates with popular notification platforms using JSON templates for rich formatting:
+
+- **Discord** — Rich embeds with colors, fields, and custom formatting
+- **Slack** — Block Kit messages with interactive elements
+- **Gotify** — Self-hosted push notifications with priority levels
+- **Telegram** — Instant messaging with Markdown support
+- **Generic Webhooks** — Connect to any service with custom JSON payloads
+
+### JSON Template Examples
+
+**Discord Rich Embed:**
+
+```json
+{
+  "embeds": [{
+    "title": "🚨 {{.Title}}",
+    "description": "{{.Message}}",
+    "color": 15158332,
+    "timestamp": "{{.Timestamp}}",
+    "fields": [
+      {"name": "Host", "value": "{{.HostName}}", "inline": true},
+      {"name": "Event", "value": "{{.EventType}}", "inline": true}
+    ]
+  }]
+}
+```
+
+**Slack Block Kit:**
+
+```json
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {"type": "plain_text", "text": "🔔 {{.Title}}"}
+    },
+    {
+      "type": "section",
+      "text": {"type": "mrkdwn", "text": "*Event:* {{.EventType}}\n*Message:* {{.Message}}"}
+    }
+  ]
+}
+```
+
+### Available Template Variables
+
+All JSON templates support these variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{.Title}}` | Event title | "SSL Certificate Renewed" |
+| `{{.Message}}` | Event details | "Certificate for example.com renewed" |
+| `{{.EventType}}` | Type of event | "ssl_renewal", "uptime_down" |
+| `{{.Severity}}` | Severity level | "info", "warning", "error" |
+| `{{.HostName}}` | Affected host | "example.com" |
+| `{{.Timestamp}}` | ISO 8601 timestamp | "2025-12-24T10:30:00Z" |
+
+**[📖 Complete Notification Guide →](docs/features/notifications.md)**
+
+---
+
 ## Getting Help
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
@@ -167,74 +248,3 @@ This ensures security features (especially CrowdSec) work correctly.
 **[🐛 Report Problems](https://github.com/Wikid82/charon/issues)** — Something broken? Let us know
 
 ---
-
-## Agent Skills
-
-Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable, executable development tasks. Skills are self-documenting task definitions that can be executed by both humans and AI assistants like GitHub Copilot.
-
-### What are Agent Skills?
-
-Agent Skills combine YAML metadata with Markdown documentation to create standardized, AI-discoverable task definitions. Each skill represents a specific development task (testing, building, security scanning, etc.) that can be:
-
-- ✅ **Executed directly** via command line
-- ✅ **Discovered by AI** assistants (GitHub Copilot, etc.)
-- ✅ **Run from VS Code** tasks menu
-- ✅ **Integrated in CI/CD** pipelines
-
-### Available Skills
-
-Charon provides 19 operational skills across multiple categories:
-
-- **Testing** (4 skills): Backend/frontend unit tests and coverage analysis
-- **Integration** (5 skills): CrowdSec, Coraza, and full integration test suites
-- **Security** (2 skills): Trivy vulnerability scanning and Go security checks
-- **QA** (1 skill): Pre-commit hooks and code quality checks
-- **Utility** (4 skills): Version management, cache clearing, database recovery
-- **Docker** (3 skills): Development environment management
-
-### Using Skills
-
-**Command Line:**
-```bash
-# Run backend tests with coverage
-.github/skills/scripts/skill-runner.sh test-backend-coverage
-
-# Run security scan
-.github/skills/scripts/skill-runner.sh security-scan-trivy
-```
-
-**VS Code Tasks:**
-1. Open Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`)
-2. Select `Tasks: Run Task`
-3. Choose your skill (e.g., `Test: Backend with Coverage`)
-
-**GitHub Copilot:**
-Simply ask Copilot to run tasks naturally:
-- "Run backend tests with coverage"
-- "Start the development environment"
-- "Run security scans"
-
-### Learning More
-
-- **[Agent Skills Documentation](.github/skills/README.md)** — Complete skill reference
-- **[agentskills.io Specification](https://agentskills.io/specification)** — Standard format details
-- **[Migration Guide](docs/AGENT_SKILLS_MIGRATION.md)** — Transition from legacy scripts
-
----
-
-## Contributing
-
-Want to help make Charon better? Check out [CONTRIBUTING.md](CONTRIBUTING.md)
-
----
-
-<p align="center">
-  <a href="LICENSE"><strong>MIT License</strong></a> ·
-  <a href="https://wikid82.github.io/charon/"><strong>Documentation</strong></a> ·
-  <a href="https://github.com/Wikid82/charon/releases"><strong>Releases</strong></a>
-</p>
-
-<p align="center">
-  <em>Built with ❤️ by <a href="https://github.com/Wikid82">@Wikid82</a></em><br>
-  <sub>Powered by <a href="https://caddyserver.com/">Caddy Server</a></sub>
-</p>

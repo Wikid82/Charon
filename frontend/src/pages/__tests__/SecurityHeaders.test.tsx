@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi } from 'vitest';
 import SecurityHeaders from '../../pages/SecurityHeaders';
-import { securityHeadersApi } from '../../api/securityHeaders';
+import { securityHeadersApi, SecurityHeaderProfile } from '../../api/securityHeaders';
 import { createBackup } from '../../api/backups';
 
 vi.mock('../../api/securityHeaders');
@@ -68,7 +68,7 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -101,7 +101,7 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -141,7 +141,7 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(securityHeadersApi.calculateScore).mockResolvedValue({
       score: 85,
@@ -177,13 +177,13 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
     vi.mocked(securityHeadersApi.createProfile).mockResolvedValue({
       id: 2,
       name: 'Original Profile (Copy)',
       security_score: 85,
-    } as any);
+    } as SecurityHeaderProfile);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
@@ -216,9 +216,9 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
-    vi.mocked(createBackup).mockResolvedValue({ id: 1 } as any);
+    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup.tar.gz' });
     vi.mocked(securityHeadersApi.deleteProfile).mockResolvedValue(undefined);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -268,7 +268,7 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
@@ -298,7 +298,7 @@ describe('SecurityHeaders', () => {
       },
     ];
 
-    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+    vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as SecurityHeaderProfile[]);
     vi.mocked(securityHeadersApi.getPresets).mockResolvedValue([]);
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });

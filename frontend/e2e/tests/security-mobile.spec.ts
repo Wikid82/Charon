@@ -286,7 +286,6 @@ test.describe('Security Dashboard Interaction Tests', () => {
 
     if (await docButton.isVisible()) {
       // Check it has correct external link behavior
-      const onclick = await docButton.getAttribute('onclick')
       const href = await docButton.getAttribute('href')
 
       // Should open external docs

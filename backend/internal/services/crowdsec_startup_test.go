@@ -34,7 +34,7 @@ func (m *mockCrowdsecExecutor) Stop(ctx context.Context, configDir string) error
 	return nil
 }
 
-func (m *mockCrowdsecExecutor) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (m *mockCrowdsecExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	m.statusCalled = true
 	return m.running, m.pid, m.statusErr
 }
@@ -57,7 +57,7 @@ func (m *smartMockCrowdsecExecutor) Stop(ctx context.Context, configDir string) 
 	return nil
 }
 
-func (m *smartMockCrowdsecExecutor) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (m *smartMockCrowdsecExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	m.statusCalled = true
 	// Return running=true if Start was called (simulates successful start)
 	if m.startCalled {
@@ -423,24 +423,7 @@ func TestReconcileCrowdSecOnStartup_VerificationFails(t *testing.T) {
 	binPath, dataDir, cleanup := setupCrowdsecTestFixtures(t)
 	defer cleanup()
 
-	// Create mock that starts but verification returns not running
-	type failVerifyMock struct {
-		startCalled bool
-		statusCalls int
-		startPid    int
-	}
-	mock := &failVerifyMock{
-		startPid: 12345,
-	}
-
-	// Implement interface inline
-	impl := struct {
-		*failVerifyMock
-	}{mock}
-
-	_ = impl // Keep reference
-
-	// Better approach: use a verification executor
+	// Use a verification executor that starts but verification returns not running
 	exec := &verificationFailExecutor{
 		startPid: 12345,
 	}
@@ -611,7 +594,7 @@ func (m *verificationFailExecutor) Stop(ctx context.Context, configDir string) e
 	return nil
 }
 
-func (m *verificationFailExecutor) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (m *verificationFailExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	m.statusCalls++
 	// First call (pre-start check): not running
 	// Second call (post-start verify): still not running (FAIL)
@@ -639,7 +622,7 @@ func (m *verificationErrorExecutor) Stop(ctx context.Context, configDir string) 
 	return nil
 }
 
-func (m *verificationErrorExecutor) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (m *verificationErrorExecutor) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	m.statusCalls++
 	// First call: not running
 	// Second call: return error during verification

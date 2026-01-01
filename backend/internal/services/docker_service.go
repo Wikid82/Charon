@@ -2,13 +2,40 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"strings"
+	"syscall"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
+
+type DockerUnavailableError struct {
+	err error
+}
+
+func NewDockerUnavailableError(err error) *DockerUnavailableError {
+	return &DockerUnavailableError{err: err}
+}
+
+func (e *DockerUnavailableError) Error() string {
+	if e == nil || e.err == nil {
+		return "docker unavailable"
+	}
+	return fmt.Sprintf("docker unavailable: %v", e.err)
+}
+
+func (e *DockerUnavailableError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
 
 type DockerPort struct {
 	PrivatePort uint16 `json:"private_port"`
@@ -59,6 +86,9 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{All: false})
 	if err != nil {
+		if isDockerConnectivityError(err) {
+			return nil, &DockerUnavailableError{err: err}
+		}
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
@@ -104,4 +134,61 @@ func (s *DockerService) ListContainers(ctx context.Context, host string) ([]Dock
 	}
 
 	return result, nil
+}
+
+func isDockerConnectivityError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Common high-signal strings from docker client/daemon failures.
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "cannot connect to the docker daemon") ||
+		strings.Contains(msg, "is the docker daemon running") ||
+		strings.Contains(msg, "error during connect") {
+		return true
+	}
+
+	// Context timeouts typically indicate the daemon/socket is unreachable.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Unwrap()
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return true
+		}
+	}
+
+	// Walk common syscall error wrappers.
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		err = syscallErr.Unwrap()
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		err = opErr.Unwrap()
+	}
+
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case syscall.ENOENT, syscall.EACCES, syscall.EPERM, syscall.ECONNREFUSED:
+			return true
+		}
+	}
+
+	// os.ErrNotExist covers missing unix socket paths.
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+
+	return false
 }

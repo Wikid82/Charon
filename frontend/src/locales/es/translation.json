@@ -463,7 +463,7 @@
     "detailedTemplate": "Plantilla Detallada",
     "customTemplate": "Personalizada",
     "template": "Plantilla",
-    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time. Soporta webhook, Discord, Slack, Gotify y servicios genéricos.",
     "notificationEvents": "Eventos de Notificación",
     "proxyHosts": "Proxy Hosts",
     "remoteServers": "Servidores Remotos",
@@ -535,7 +535,10 @@
     "whitelist": "Lista Blanca",
     "blacklist": "Lista Negra",
     "deleteConfirm": "¿Estás seguro de que quieres eliminar este usuario?",
-    "deleteUser": "Eliminar Usuario"
+    "deleteUser": "Eliminar usuario",
+    "inviteUrlPreview": "Vista previa del enlace de invitación",
+    "inviteUrlWarning": "La URL de la aplicación no está configurada. Este enlace puede no funcionar para usuarios externos.",
+    "configureApplicationUrl": "Configurar URL de aplicación"
   },
   "dashboard": {
     "title": "Panel de Control",
@@ -735,8 +738,18 @@
       "newWindow": "Nueva Ventana",
       "domainLinkBehaviorHelper": "Controla cómo se abren los enlaces de dominio en la lista de Hosts Proxy.",
       "languageHelper": "Selecciona tu idioma preferido. Los cambios surten efecto inmediatamente."
-    },
-    "systemStatus": {
+    },    "applicationUrl": {
+      "title": "URL de aplicación",
+      "description": "Configure la URL pública utilizada para enlaces y correos electrónicos de cara al usuario.",
+      "label": "URL de aplicación",
+      "helper": "La URL pública donde los usuarios acceden a Charon (por ejemplo, https://charon.example.com). Se utiliza en correos de invitación y enlaces de restablecimiento de contraseña.",
+      "infoMessage": "Esta URL se utiliza al enviar correos electrónicos de invitación. Si no está configurada, Charon usará la URL de la solicitud actual del navegador, que puede no ser accesible desde redes externas.",
+      "invalidUrl": "Ingrese una URL válida que comience con http:// o https://",
+      "notConfiguredWarning": "La URL de la aplicación no está configurada. Los correos de invitación usarán la URL actual del navegador, que puede no ser accesible desde redes externas.",
+      "testButton": "Probar URL",
+      "testSuccess": "URL abierta exitosamente",
+      "testFailed": "Error al abrir URL"
+    },    "systemStatus": {
       "title": "Estado del Sistema",
       "service": "Servicio",
       "version": "Versión",

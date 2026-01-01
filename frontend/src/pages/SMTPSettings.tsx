@@ -174,6 +174,7 @@ export default function SMTPSettings() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="your@email.com"
+                autoComplete="username"
               />
             </div>
             <div className="space-y-2">
@@ -185,6 +186,7 @@ export default function SMTPSettings() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 helperText={t('smtp.passwordHelper')}
+                autoComplete="current-password"
               />
             </div>
           </div>

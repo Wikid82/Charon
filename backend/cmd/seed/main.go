@@ -2,13 +2,16 @@ package main
 
 import (
 	"io"
+	"log"
 	"os"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/google/uuid"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -19,7 +22,21 @@ func main() {
 	mw := io.MultiWriter(os.Stdout)
 	logger.Init(false, mw)
 
-	db, err := gorm.Open(sqlite.Open("./data/charon.db"), &gorm.Config{})
+	// Configure GORM logger to ignore "record not found" errors
+	// These are expected during seed operations when checking if records exist
+	gormLog := gormlogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  gormlogger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
+
+	db, err := gorm.Open(sqlite.Open("./data/charon.db"), &gorm.Config{
+		Logger: gormLog,
+	})
 	if err != nil {
 		logger.Log().WithError(err).Fatal("Failed to connect to database")
 	}
@@ -214,14 +231,20 @@ func main() {
 	}
 
 	var existing models.User
-	// Find by email first
-	if err := db.Where("email = ?", user.Email).First(&existing).Error; err != nil {
-		// Not found -> create
-		result := db.Create(&user)
-		if result.Error != nil {
-			logger.Log().WithError(result.Error).Error("Failed to seed user")
-		} else if result.RowsAffected > 0 {
-			logger.Log().WithField("user", user.Email).Infof("✓ Created default user: %s", user.Email)
+	// Find by email first - use Take instead of First to avoid GORM's "record not found" log
+	result := db.Where("email = ?", user.Email).Take(&existing)
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			// Not found -> create new user
+			createResult := db.Create(&user)
+			if createResult.Error != nil {
+				logger.Log().WithError(createResult.Error).Error("Failed to seed user")
+			} else if createResult.RowsAffected > 0 {
+				logger.Log().WithField("user", user.Email).Infof("✓ Created default user: %s", user.Email)
+			}
+		} else {
+			// Unexpected error
+			logger.Log().WithError(result.Error).Error("Failed to query for existing user")
 		}
 	} else {
 		// Found existing user - optionally update if forced
@@ -245,7 +268,6 @@ func main() {
 			logger.Log().WithField("user", existing.Email).Info("User already exists")
 		}
 	}
-	// result handling is done inline above
 
 	logger.Log().Info("\n✓ Database seeding completed successfully!")
 	logger.Log().Info("  You can now start the application and see sample data.")
