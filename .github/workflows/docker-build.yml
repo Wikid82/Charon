@@ -31,6 +31,8 @@ jobs:
       contents: read
       packages: write
       security-events: write
+      id-token: write      # Required for SBOM attestation
+      attestations: write  # Required for SBOM attestation
 
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
@@ -230,6 +232,25 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generate SBOM (Software Bill of Materials) for supply chain security
+      - name: Generate SBOM
+        uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a # v0.17.2
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+
+      # Create verifiable attestation for the SBOM
+      - name: Attest SBOM
+        uses: actions/attest-sbom@115c3be05ff3974bcbd596578934b3f9ce39bf68 # v2.2.0
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          sbom-path: sbom.cyclonedx.json
+          push-to-registry: true
 
       - name: Create summary
         if: steps.skip.outputs.skip_build != 'true'

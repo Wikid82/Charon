@@ -13,7 +13,12 @@ import {
   useValidateCSP,
   useBuildCSP,
 } from '../useSecurityHeaders';
-import { securityHeadersApi } from '../../api/securityHeaders';
+import {
+  securityHeadersApi,
+  SecurityHeaderProfile,
+  SecurityHeaderPreset,
+  CreateProfileRequest,
+} from '../../api/securityHeaders';
 import toast from 'react-hot-toast';
 
 vi.mock('../../api/securityHeaders');
@@ -39,12 +44,12 @@ describe('useSecurityHeaders', () => {
 
   describe('useSecurityHeaderProfiles', () => {
     it('should fetch profiles successfully', async () => {
-      const mockProfiles = [
-        { id: 1, name: 'Profile 1', security_score: 85 },
-        { id: 2, name: 'Profile 2', security_score: 90 },
+      const mockProfiles: SecurityHeaderProfile[] = [
+        { id: 1, name: 'Profile 1', security_score: 85 } as SecurityHeaderProfile,
+        { id: 2, name: 'Profile 2', security_score: 90 } as SecurityHeaderProfile,
       ];
 
-      vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles as any);
+      vi.mocked(securityHeadersApi.listProfiles).mockResolvedValue(mockProfiles);
 
       const { result } = renderHook(() => useSecurityHeaderProfiles(), {
         wrapper: createWrapper(),
@@ -71,9 +76,9 @@ describe('useSecurityHeaders', () => {
 
   describe('useSecurityHeaderProfile', () => {
     it('should fetch a single profile', async () => {
-      const mockProfile = { id: 1, name: 'Profile 1', security_score: 85 };
+      const mockProfile: SecurityHeaderProfile = { id: 1, name: 'Profile 1', security_score: 85 } as SecurityHeaderProfile;
 
-      vi.mocked(securityHeadersApi.getProfile).mockResolvedValue(mockProfile as any);
+      vi.mocked(securityHeadersApi.getProfile).mockResolvedValue(mockProfile);
 
       const { result } = renderHook(() => useSecurityHeaderProfile(1), {
         wrapper: createWrapper(),
@@ -97,16 +102,16 @@ describe('useSecurityHeaders', () => {
 
   describe('useCreateSecurityHeaderProfile', () => {
     it('should create a profile successfully', async () => {
-      const newProfile = { name: 'New Profile', hsts_enabled: true };
-      const createdProfile = { id: 1, ...newProfile, security_score: 80 };
+      const newProfile: CreateProfileRequest = { name: 'New Profile', hsts_enabled: true };
+      const createdProfile: SecurityHeaderProfile = { id: 1, ...newProfile, security_score: 80 } as SecurityHeaderProfile;
 
-      vi.mocked(securityHeadersApi.createProfile).mockResolvedValue(createdProfile as any);
+      vi.mocked(securityHeadersApi.createProfile).mockResolvedValue(createdProfile);
 
       const { result } = renderHook(() => useCreateSecurityHeaderProfile(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate(newProfile as any);
+      result.current.mutate(newProfile);
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -121,7 +126,7 @@ describe('useSecurityHeaders', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ name: 'Test' } as any);
+      result.current.mutate({ name: 'Test' });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -131,16 +136,16 @@ describe('useSecurityHeaders', () => {
 
   describe('useUpdateSecurityHeaderProfile', () => {
     it('should update a profile successfully', async () => {
-      const updateData = { name: 'Updated Profile' };
-      const updatedProfile = { id: 1, ...updateData, security_score: 85 };
+      const updateData: Partial<CreateProfileRequest> = { name: 'Updated Profile' };
+      const updatedProfile: SecurityHeaderProfile = { id: 1, ...updateData, security_score: 85 } as SecurityHeaderProfile;
 
-      vi.mocked(securityHeadersApi.updateProfile).mockResolvedValue(updatedProfile as any);
+      vi.mocked(securityHeadersApi.updateProfile).mockResolvedValue(updatedProfile);
 
       const { result } = renderHook(() => useUpdateSecurityHeaderProfile(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: 1, data: updateData as any });
+      result.current.mutate({ id: 1, data: updateData });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -155,7 +160,7 @@ describe('useSecurityHeaders', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: 1, data: { name: 'Test' } as any });
+      result.current.mutate({ id: 1, data: { name: 'Test' } });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -196,12 +201,12 @@ describe('useSecurityHeaders', () => {
 
   describe('useSecurityHeaderPresets', () => {
     it('should fetch presets successfully', async () => {
-      const mockPresets = [
-        { type: 'basic', name: 'Basic Security', score: 65 },
-        { type: 'strict', name: 'Strict Security', score: 85 },
+      const mockPresets: SecurityHeaderPreset[] = [
+        { preset_type: 'basic', name: 'Basic Security', security_score: 65 } as SecurityHeaderPreset,
+        { preset_type: 'strict', name: 'Strict Security', security_score: 85 } as SecurityHeaderPreset,
       ];
 
-      vi.mocked(securityHeadersApi.getPresets).mockResolvedValue(mockPresets as any);
+      vi.mocked(securityHeadersApi.getPresets).mockResolvedValue(mockPresets);
 
       const { result } = renderHook(() => useSecurityHeaderPresets(), {
         wrapper: createWrapper(),
@@ -215,9 +220,9 @@ describe('useSecurityHeaders', () => {
 
   describe('useApplySecurityHeaderPreset', () => {
     it('should apply preset successfully', async () => {
-      const appliedProfile = { id: 1, name: 'Basic Security', security_score: 65 };
+      const appliedProfile: SecurityHeaderProfile = { id: 1, name: 'Basic Security', security_score: 65 } as SecurityHeaderProfile;
 
-      vi.mocked(securityHeadersApi.applyPreset).mockResolvedValue(appliedProfile as any);
+      vi.mocked(securityHeadersApi.applyPreset).mockResolvedValue(appliedProfile);
 
       const { result } = renderHook(() => useApplySecurityHeaderPreset(), {
         wrapper: createWrapper(),
@@ -247,7 +252,7 @@ describe('useSecurityHeaders', () => {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ hsts_enabled: true } as any);
+      result.current.mutate({ hsts_enabled: true });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

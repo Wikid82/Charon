@@ -56,15 +56,16 @@ export function SecurityHeaderProfileForm({
   const [, setCspErrors] = useState<string[]>([]);
 
   const calculateScoreMutation = useCalculateSecurityScore();
+  const { mutate: calculateScore } = calculateScoreMutation;
 
   // Calculate score when form data changes
   useEffect(() => {
     const timer = setTimeout(() => {
-      calculateScoreMutation.mutate(formData);
+      calculateScore(formData);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [formData]);
+  }, [formData, calculateScore]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

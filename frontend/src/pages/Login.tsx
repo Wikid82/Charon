@@ -86,6 +86,7 @@ export default function Login() {
               required
               placeholder="admin@example.com"
               disabled={loading}
+              autoComplete="email"
             />
             <div className="space-y-1">
               <Input
@@ -96,6 +97,7 @@ export default function Login() {
                 required
                 placeholder="••••••••"
                 disabled={loading}
+                autoComplete="current-password"
               />
               <div className="flex justify-end">
                 <button

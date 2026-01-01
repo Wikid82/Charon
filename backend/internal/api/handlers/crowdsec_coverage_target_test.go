@@ -86,7 +86,7 @@ func (f *fakeExecWithOutput) Stop(ctx context.Context, configDir string) error {
 	return f.err
 }
 
-func (f *fakeExecWithOutput) Status(ctx context.Context, configDir string) (bool, int, error) {
+func (f *fakeExecWithOutput) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
 	return false, 0, f.err
 }
 

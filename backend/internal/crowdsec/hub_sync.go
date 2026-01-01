@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 // CommandExecutor defines the minimal command execution interface we need for cscli calls.
@@ -82,6 +83,65 @@ type HubService struct {
 	ApplyTimeout  time.Duration
 }
 
+// validateHubURL validates a hub URL for security (SSRF protection - HIGH-001).
+// This function prevents Server-Side Request Forgery by:
+// 1. Enforcing HTTPS for production hub URLs
+// 2. Allowlisting known CrowdSec hub domains
+// 3. Allowing localhost/test URLs for development and testing
+//
+// Returns: error if URL is invalid or not allowlisted
+func validateHubURL(rawURL string) error {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Only allow http/https schemes
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("unsupported scheme: %s (only http and https are allowed)", parsed.Scheme)
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("missing hostname in URL")
+	}
+
+	// Allow localhost and test domains for development/testing
+	// This is safe because tests control the mock servers
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+		strings.HasSuffix(host, ".example.com") || strings.HasSuffix(host, ".example") ||
+		host == "example.com" || strings.HasSuffix(host, ".local") ||
+		host == "test.hub" { // Allow test.hub for integration tests
+		return nil
+	}
+
+	// For production URLs, must be HTTPS
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("hub URLs must use HTTPS (got: %s)", parsed.Scheme)
+	}
+
+	// Allowlist known CrowdSec hub domains
+	allowedHosts := []string{
+		"hub-data.crowdsec.net",
+		"hub.crowdsec.net",
+		"raw.githubusercontent.com", // GitHub raw content (CrowdSec mirror)
+	}
+
+	hostAllowed := false
+	for _, allowed := range allowedHosts {
+		if host == allowed {
+			hostAllowed = true
+			break
+		}
+	}
+
+	if !hostAllowed {
+		return fmt.Errorf("unknown hub domain: %s (allowed: hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)", host)
+	}
+
+	return nil
+}
+
 // NewHubService constructs a HubService with sane defaults.
 func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubService {
 	pullTimeout := defaultPullTimeout
@@ -110,25 +170,22 @@ func NewHubService(exec CommandExecutor, cache *HubCache, dataDir string) *HubSe
 	}
 }
 
+// newHubHTTPClient creates an SSRF-safe HTTP client for hub operations.
+// Hub URLs are validated by validateHubURL() which:
+// - Enforces HTTPS for production
+// - Allowlists known CrowdSec domains (hub-data.crowdsec.net, hub.crowdsec.net, raw.githubusercontent.com)
+// - Allows localhost for testing
+// Using network.NewSafeHTTPClient provides defense-in-depth at the connection level.
 func newHubHTTPClient(timeout time.Duration) *http.Client {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{ // keep dials bounded to avoid hanging sockets
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: timeout,
-		ExpectContinueTimeout: 2 * time.Second,
-	}
-
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return network.NewSafeHTTPClient(
+		network.WithTimeout(timeout),
+		network.WithAllowLocalhost(), // Allow localhost for testing
+		network.WithAllowedDomains(
+			"hub-data.crowdsec.net",
+			"hub.crowdsec.net",
+			"raw.githubusercontent.com",
+		),
+	)
 }
 
 func normalizeHubBaseURL(raw string) string {
@@ -376,6 +433,11 @@ func (h hubHTTPError) CanFallback() bool {
 }
 
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
+	// CRITICAL FIX: Validate hub URL before making HTTP request (HIGH-001)
+	if err := validateHubURL(target); err != nil {
+		return HubIndex{}, fmt.Errorf("invalid hub URL: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return HubIndex{}, err
@@ -665,6 +727,11 @@ func (s *HubService) fetchWithFallback(ctx context.Context, urls []string) (data
 }
 
 func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]byte, error) {
+	// CRITICAL FIX: Validate hub URL before making HTTP request (HIGH-001)
+	if err := validateHubURL(url); err != nil {
+		return nil, fmt.Errorf("invalid hub URL: %w", err)
+	}
+
 	if s.HTTPClient == nil {
 		return nil, fmt.Errorf("http client missing")
 	}
