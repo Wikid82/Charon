@@ -413,7 +413,7 @@ func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
 
 // computeEffectiveFlags reads runtime settings to determine whether Cerberus
 // suite and each sub-component (ACL, WAF, RateLimit, CrowdSec) are effectively enabled.
-func (m *Manager) computeEffectiveFlags(ctx context.Context) (cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled bool) {
+func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnabled, wafEnabled, rateLimitEnabled, crowdsecEnabled bool) {
 	// Start with base flags from static config (environment variables)
 	cerbEnabled = m.securityCfg.CerberusEnabled
 	wafEnabled = m.securityCfg.WAFMode != "" && m.securityCfg.WAFMode != "disabled"

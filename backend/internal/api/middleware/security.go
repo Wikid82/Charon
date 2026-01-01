@@ -59,7 +59,11 @@ func SecurityHeaders(cfg SecurityHeadersConfig) gin.HandlerFunc {
 		c.Header("Permissions-Policy", buildPermissionsPolicy())
 
 		// Cross-Origin-Opener-Policy: Isolate browsing context
-		c.Header("Cross-Origin-Opener-Policy", "same-origin")
+		// Skip in development mode to avoid browser warnings on HTTP
+		// In production, Caddy always uses HTTPS, so safe to set unconditionally
+		if !cfg.IsDevelopment {
+			c.Header("Cross-Origin-Opener-Policy", "same-origin")
+		}
 
 		// Cross-Origin-Resource-Policy: Prevent cross-origin reads
 		c.Header("Cross-Origin-Resource-Policy", "same-origin")

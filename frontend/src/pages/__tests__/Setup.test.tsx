@@ -147,4 +147,20 @@ describe('Setup Page', () => {
       expect(screen.getByText('Setup failed')).toBeTruthy();
     });
   });
+
+  it('has proper autocomplete attributes for password managers', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true });
+
+    renderWithProviders(<Setup />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
+    });
+
+    const emailInput = screen.getByLabelText('Email Address')
+    const passwordInput = screen.getByLabelText('Password')
+
+    expect(emailInput).toHaveAttribute('autocomplete', 'email')
+    expect(passwordInput).toHaveAttribute('autocomplete', 'new-password')
+  });
 });

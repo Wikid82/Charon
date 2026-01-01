@@ -34,6 +34,116 @@ We welcome translation contributions! See our [Translation Contributing Guide](h
 
 ---
 
+## 🌐 Application URL Configuration
+
+**What it does:** Configures the public URL used in user invitation emails and system-generated links.
+
+**Why you care:** Without this, invite links will use the server's local address (like `http://localhost:8080`), which won't work for users on external networks. Configuring this ensures invitations work correctly.
+
+**Where to find it:** System Settings → Application URL section
+
+### Configuration
+
+**URL Requirements:**
+
+- Must start with `http://` or `https://`
+- Should be the URL users use to access Charon
+- Cannot include path components (e.g., `/admin`)
+- Port numbers are allowed (e.g., `:8080`)
+
+**Validation:**
+
+1. Enter your URL in the input field
+2. Click **"Validate"** to check the format
+   - Displays normalized URL if valid
+   - Shows error message if invalid
+   - Warns if using `http://` instead of `https://` in production
+3. Click **"Test"** to open the URL in a new browser tab
+4. Click **"Save Changes"** to persist the configuration
+
+**Examples:**
+
+✅ **Valid URLs:**
+
+- `https://charon.example.com`
+- `https://proxy.mydomain.net`
+- `https://charon.example.com:8443` (custom port)
+- `http://192.168.1.100:8080` (for internal testing only)
+
+❌ **Invalid URLs:**
+
+- `charon.example.com` (missing protocol)
+- `https://charon.example.com/admin` (path not allowed)
+- `ftp://charon.example.com` (wrong protocol)
+- `https://charon.example.com/` (trailing slash not allowed)
+
+### User Invitation Preview
+
+**What it does:** Preview how invite URLs will look before sending invitations.
+
+**Where to find it:** Users page → "Preview Invite" button when creating a new user
+
+**How it works:**
+
+1. Enter a user's email address in the invitation form
+2. Click **"Preview Invite"**
+3. See the exact invite URL that will be sent
+4. View warning if Application URL is not configured
+
+**Preview includes:**
+
+- Full invite URL with sample token
+- Base URL being used
+- Configuration status indicator
+- Warning message if not configured
+
+**Example preview:**
+
+```
+Invite URL Preview:
+https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW
+
+Base URL: https://charon.example.com
+Status: ✅ Configured
+```
+
+**Warning state:**
+
+```
+⚠️ Application URL not configured
+
+Invite URL Preview:
+http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW
+
+This link may not be accessible from external networks.
+Configure the Application URL in System Settings.
+```
+
+### Multi-Language Support
+
+The Application URL configuration is fully localized and available in all supported languages:
+
+- English, Spanish, French, German, Chinese
+- All validation messages are translated
+- Error messages and warnings respect language settings
+
+### Admin-Only Access
+
+Application URL configuration is restricted to administrators:
+
+- Only users with admin role can modify the setting
+- Non-admin users cannot access the validation or test endpoints
+- API endpoints return 403 Forbidden for non-admin attempts
+
+### API Integration
+
+See [API Documentation](api.md#application-url-endpoints) for programmatic access to:
+
+- `POST /settings/validate-url` - Validate URL format
+- `POST /users/preview-invite-url` - Preview invite URL for a user
+
+---
+
 ## ⚙️ Optional Features
 
 Charon includes optional features that can be toggled on or off based on your needs.
@@ -639,14 +749,137 @@ The animations tell you what's happening so you don't think it's broken.
 
 ## \ud83d\udcca Uptime Monitoring
 
-**What it does:** Automatically checks if your websites are responding every minute.
+**What it does:** Continuously monitors your proxy hosts for availability with intelligent failure detection to minimize false positives.
 
-**Why you care:** Get visibility into uptime history and response times for all your proxy hosts.
+**Why you care:** Get accurate visibility into uptime history, response times, and real outages without noise from transient network issues.
 
-**What you do:** View the "Uptime" page in the sidebar. Uptime checks run automatically in the background.
+**What you do:** Enable uptime monitoring per proxy host or use bulk operations. View status on the "Uptime" page in the sidebar.
 
 **Optional:** You can disable this feature in System Settings → Optional Features if you don't need it.
 Your uptime history will be preserved.
+
+### Key Features
+
+**Failure Debouncing**: Requires **2 consecutive failures** before marking a host as "down"
+- Prevents false alarms from transient network hiccups
+- Container restarts don't trigger unnecessary alerts
+- Single TCP timeouts are logged but don't change status
+
+**Automatic Retries**: Up to 2 retry attempts per check with 2-second delay
+- Handles slow networks and warm-up periods
+- 10-second timeout per attempt (increased from 5s)
+- Total check time: up to 22 seconds for marginal hosts
+
+**Concurrent Processing**: All host checks run in parallel
+- Fast overall check times even with many hosts
+- No single slow host blocks others
+- Synchronized completion prevents race conditions
+
+**Status Consistency**: Checks complete before UI reads database
+- Eliminates stale status during page refreshes
+- No race conditions between checks and API calls
+- Reliable status display across rapid refreshes
+
+### How Uptime Checks Work
+
+Charon uses a **two-level check system** with enhanced reliability:
+
+#### Level 1: Host-Level Pre-Check (TCP with Retries)
+
+**What it does:** Tests if the backend host/container is reachable via TCP connection with automatic retry on failure.
+
+**How it works:**
+- Groups monitors by their backend IP address (e.g., `172.20.0.11`)
+- Attempts TCP connection to the actual backend port (e.g., port `5690` for Wizarr)
+- **First failure**: Increments failure counter, status unchanged, waits 2s and retries
+- **Retry success**: Resets failure counter to 0, marks host as "up"
+- **Second consecutive failure**: Marks host as "down" after reaching threshold
+- If failed → Marks all monitors on that host as "down" (skips Level 2)
+- If successful → Proceeds to Level 2 checks
+
+**Why it matters:**
+- Avoids redundant HTTP checks when an entire backend container is stopped or unreachable
+- Prevents false "down" alerts from single network hiccups
+- Handles slow container startups gracefully
+
+**Technical detail:** Uses the `forward_port` from your proxy host configuration, not the public URL port.
+This ensures correct connectivity checks for services on non-standard ports.
+
+#### Level 2: Service-Level Check (HTTP/HTTPS)
+
+**What it does:** Verifies the specific service is responding correctly via HTTP request.
+
+**How it works:**
+- Only runs if Level 1 passes
+- Performs HTTP GET to the public URL (e.g., `https://wizarr.hatfieldhosted.com`)
+- Accepts these as "up": 2xx (success), 3xx (redirect), 401 (auth required), 403 (forbidden)
+- Measures response latency
+- Records heartbeat with status
+
+**Why it matters:** Detects service-specific issues like crashes, misconfigurations, or certificate problems.
+
+**Example:** A service might be running (Level 1 passes) but return 500 errors (Level 2 catches this).
+
+### When Things Go Wrong
+
+**Scenario 1: Backend container stopped**
+- Level 1: TCP connection fails (attempt 1) ❌
+- Level 1: TCP connection fails (attempt 2) ❌
+- Failure count: 2 → Host marked "down"
+- Level 2: Skipped
+- Status: "down" with message "Host unreachable"
+
+**Scenario 2: Transient network issue**
+- Level 1: TCP connection fails (attempt 1) ❌
+- Failure count: 1 (threshold not met)
+- Status: Remains "up"
+- Next check: Success ✅ → Failure count reset to 0
+
+**Scenario 3: Service crashed but container running**
+- Level 1: TCP connection succeeds ✅
+- Level 2: HTTP request fails or returns 500 ❌
+- Status: "down" with specific HTTP error
+
+**Scenario 4: Everything working**
+- Level 1: TCP connection succeeds ✅
+- Level 2: HTTP request succeeds ✅
+- Status: "up" with latency measurement
+- Failure count: 0
+
+### Troubleshooting False Positives
+
+**Issue**: Host shows "down" but service is accessible
+
+**Common causes**:
+1. **Timeout too short**: Increase from 10s if network is slow
+2. **Container warmup**: Service takes >10s to respond during startup
+3. **Firewall blocking**: Ensure Charon container can reach proxy host ports
+
+**Check logs**:
+```bash
+docker logs charon 2>&1 | grep "Host TCP check completed"
+docker logs charon 2>&1 | grep "Retrying TCP check"
+docker logs charon 2>&1 | grep "failure_count"
+```
+
+**Solution**: The improved debouncing should handle most transient issues automatically. If problems persist, see [Uptime Monitoring Troubleshooting Guide](features/uptime-monitoring.md#troubleshooting).
+
+### Configuration
+
+**Per-Host**: Edit any proxy host and toggle "Enable Uptime Monitoring"
+
+**Bulk Operations**:
+1. Select multiple hosts (checkboxes)
+2. Click "Bulk Apply"
+3. Toggle "Uptime Monitoring" section
+4. Apply changes
+
+**Default check interval**: 60 seconds
+**Default timeout per attempt**: 10 seconds
+**Default max retries**: 2 attempts
+**Failure threshold**: 2 consecutive failures
+
+**For complete troubleshooting guide and advanced topics, see [Uptime Monitoring Guide](features/uptime-monitoring.md).**
 
 ---
 
@@ -777,43 +1010,103 @@ Uses WebSocket technology to stream logs with zero delay.
 
 ### Notification System
 
-**What it does:** Sends alerts when security events match your configured criteria.
+**What it does:** Sends alerts when security events, uptime changes, or SSL certificate events occur through multiple channels with rich formatting support.
 
-**Where to configure:** Cerberus Dashboard → "Notification Settings" button (top-right)
+**Where to configure:** Settings → Notifications
+
+**Supported Services:**
+
+| Service | JSON Templates | Rich Formatting | Notes |
+|---------|----------------|-----------------|-------|
+| Discord | ✅ Yes | Embeds, colors, fields | Webhook-based, rich embeds |
+| Slack | ✅ Yes | Block Kit, markdown | Incoming webhooks |
+| Gotify | ✅ Yes | Priority, extras | Self-hosted push notifications |
+| Generic | ✅ Yes | Custom JSON | Any webhook-compatible service |
+| Telegram | ❌ No | Markdown only | Bot API, URL parameters |
 
 **Settings:**
 
-- **Enable/Disable** — Master toggle for all notifications
-- **Minimum Log Level** — Only notify for warnings and errors (ignore info/debug)
+- **Provider Type** — Choose your notification service
+- **Template Style** — Minimal, Detailed, or Custom JSON
 - **Event Types:**
+  - SSL certificate events (issued, renewed, failed)
+  - Uptime monitoring (host down, host recovered)
   - WAF blocks (when the firewall stops an attack)
   - ACL denials (when access control rules block a request)
   - Rate limit hits (when traffic thresholds are exceeded)
-- **Webhook URL** — Send alerts to Discord, Slack, or custom integrations
-- **Email Recipients** — Comma-separated list of email addresses
+- **Webhook URL** — Service-specific webhook endpoint
+- **Custom JSON** — Full control over notification format
+
+**Template Styles:**
+
+**Minimal Template** — Clean, simple text notifications:
+```json
+{
+  "content": "{{.Title}}: {{.Message}}"
+}
+```
+
+**Detailed Template** — Rich formatting with all event details:
+```json
+{
+  "embeds": [{
+    "title": "{{.Title}}",
+    "description": "{{.Message}}",
+    "color": {{.Color}},
+    "timestamp": "{{.Timestamp}}",
+    "fields": [
+      {"name": "Event Type", "value": "{{.EventType}}", "inline": true},
+      {"name": "Host", "value": "{{.HostName}}", "inline": true}
+    ]
+  }]
+}
+```
+
+**Custom Template** — Design your own structure with template variables:
+- `{{.Title}}` — Event title (e.g., "SSL Certificate Renewed")
+- `{{.Message}}` — Event details
+- `{{.EventType}}` — Event classification (ssl_renewal, uptime_down, waf_block)
+- `{{.Severity}}` — Alert level (info, warning, error)
+- `{{.HostName}}` — Affected proxy host
+- `{{.Timestamp}}` — ISO 8601 formatted timestamp
+- `{{.Color}}` — Color code for Discord embeds
+- `{{.Priority}}` — Numeric priority for Gotify (1-10)
 
 **Example use cases:**
 
-- Get a Slack message when your site is under attack
-- Email yourself when ACL rules block legitimate traffic (false positive alert)
-- Send all WAF blocks to your SIEM system for analysis
+- Get a Discord notification with rich embed when SSL certificates renew
+- Receive Slack Block Kit messages when monitored hosts go down
+- Send all WAF blocks to your SIEM system with custom JSON format
+- Get high-priority Gotify alerts for critical security events
+- Email yourself when ACL rules block legitimate traffic (future feature)
 
 **What you do:**
 
-1. Go to Cerberus Dashboard
-2. Click "Notification Settings"
-3. Enable notifications
-4. Set minimum level to "warn" or "error"
-5. Choose which event types to monitor
-6. Add your webhook URL or email addresses
-7. Save
+1. Go to **Settings → Notifications**
+2. Click **"Add Provider"**
+3. Select service type (Discord, Slack, Gotify, etc.)
+4. Enter webhook URL
+5. Choose template style or create custom JSON
+6. Select event types to monitor
+7. Click **"Send Test"** to verify
+8. Save configuration
 
 **Technical details:**
 
-- Notifications respect the minimum log level (e.g., only send errors)
-- Webhook payloads include full event context (IP, request details, rule matched)
-- Email delivery requires SMTP configuration (future feature)
+- Templates support Go text/template syntax for advanced formatting
+- SSRF protection validates all webhook URLs before saving and sending
 - Webhook retries with exponential backoff on failure
+- Failed notifications are logged for troubleshooting
+- Custom templates are validated before saving
+
+**For complete examples and service-specific guides, see [Notification Configuration Guide](features/notifications.md).**
+
+**Minimum Log Level** (Legacy Setting):
+
+For backward compatibility, you can still configure minimum log level for security event notifications:
+- Only notify for warnings and errors (ignore info/debug)
+- Applies to Cerberus security events only
+- Accessible via Cerberus Dashboard → "Notification Settings"
 
 ---
 

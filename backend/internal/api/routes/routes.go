@@ -191,6 +191,10 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.POST("/settings/smtp/test", settingsHandler.TestSMTPConfig)
 		protected.POST("/settings/smtp/test-email", settingsHandler.SendTestEmail)
 
+		// URL Validation
+		protected.POST("/settings/validate-url", settingsHandler.ValidatePublicURL)
+		protected.POST("/settings/test-url", settingsHandler.TestPublicURL)
+
 		// Auth related protected routes
 		protected.GET("/auth/accessible-hosts", authHandler.GetAccessibleHosts)
 		protected.GET("/auth/check-host/:hostId", authHandler.CheckHostAccess)
@@ -209,6 +213,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/users", userHandler.ListUsers)
 		protected.POST("/users", userHandler.CreateUser)
 		protected.POST("/users/invite", userHandler.InviteUser)
+		protected.POST("/users/preview-invite-url", userHandler.PreviewInviteURL)
 		protected.GET("/users/:id", userHandler.GetUser)
 		protected.PUT("/users/:id", userHandler.UpdateUser)
 		protected.DELETE("/users/:id", userHandler.DeleteUser)
@@ -386,8 +391,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		crowdsecHandler := handlers.NewCrowdsecHandler(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 		crowdsecHandler.RegisterRoutes(protected)
 
-		// Reconcile CrowdSec state on startup (handles container restarts)
-		go services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+		// NOTE: CrowdSec reconciliation now happens in main.go BEFORE HTTP server starts
+		// This ensures proper initialization order and prevents race conditions
 		// The log path follows CrowdSec convention: /var/log/caddy/access.log in production
 		// or falls back to the configured storage directory for development
 		accessLogPath := os.Getenv("CHARON_CADDY_ACCESS_LOG")
@@ -397,7 +402,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 
 		// Ensure log directory and file exist for LogWatcher
 		// This prevents failures after container restart when log file doesn't exist yet
-		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(accessLogPath), 0o755); err != nil {
 			logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log directory for LogWatcher")
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
@@ -448,7 +453,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 	// Caddy Manager already created above
 
 	proxyHostHandler := handlers.NewProxyHostHandler(db, caddyManager, notificationService, uptimeService)
-	proxyHostHandler.RegisterRoutes(api)
+	proxyHostHandler.RegisterRoutes(protected)
 
 	remoteServerHandler := handlers.NewRemoteServerHandler(remoteServerService, notificationService)
 	remoteServerHandler.RegisterRoutes(api)

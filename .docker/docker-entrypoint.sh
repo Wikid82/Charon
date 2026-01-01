@@ -31,6 +31,36 @@ mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
 # ============================================================================
+# Docker Socket Permission Handling
+# ============================================================================
+# The Docker integration feature requires access to the Docker socket.
+# This section runs as root to configure group membership, then privileges
+# are dropped to the charon user at the end of this script.
+
+if [ -S "/var/run/docker.sock" ]; then
+    DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
+    if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
+        # Check if a group with this GID exists
+        if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
+            echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
+            # Create docker group with the socket's GID
+            addgroup -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            # Add charon user to the docker group
+            addgroup charon docker 2>/dev/null || true
+            echo "Docker integration enabled for charon user"
+        else
+            # Group exists, just add charon to it
+            GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
+            echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
+            addgroup charon "$GROUP_NAME" 2>/dev/null || true
+            echo "Docker integration enabled for charon user"
+        fi
+    fi
+else
+    echo "Note: Docker socket not found. Docker container discovery will be unavailable."
+fi
+
+# ============================================================================
 # CrowdSec Initialization
 # ============================================================================
 # Note: CrowdSec agent is not auto-started. Lifecycle is GUI-controlled via backend handlers.
@@ -43,10 +73,12 @@ if command -v cscli >/dev/null; then
     CS_PERSIST_DIR="/app/data/crowdsec"
     CS_CONFIG_DIR="$CS_PERSIST_DIR/config"
     CS_DATA_DIR="$CS_PERSIST_DIR/data"
+    CS_LOG_DIR="/var/log/crowdsec"
 
     # Ensure persistent directories exist (within writable volume)
     mkdir -p "$CS_CONFIG_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_CONFIG_DIR"
     mkdir -p "$CS_DATA_DIR" 2>/dev/null || echo "Warning: Cannot create $CS_DATA_DIR"
+    mkdir -p "$CS_PERSIST_DIR/hub_cache"
     # Log directories are created at build time with correct ownership
     # Only attempt to create if they don't exist (first run scenarios)
     mkdir -p /var/log/crowdsec 2>/dev/null || true
@@ -55,20 +87,33 @@ if command -v cscli >/dev/null; then
     # Initialize persistent config if key files are missing
     if [ ! -f "$CS_CONFIG_DIR/config.yaml" ]; then
         echo "Initializing persistent CrowdSec configuration..."
-        if [ -d "/etc/crowdsec.dist" ]; then
-            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy dist config"
-        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ]; then
-            # Fallback if .dist is missing
-            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" 2>/dev/null || echo "Warning: Could not copy config"
+        if [ -d "/etc/crowdsec.dist" ] && [ -n "$(ls -A /etc/crowdsec.dist 2>/dev/null)" ]; then
+            cp -r /etc/crowdsec.dist/* "$CS_CONFIG_DIR/" || {
+                echo "ERROR: Failed to copy config from /etc/crowdsec.dist"
+                exit 1
+            }
+            echo "Successfully initialized config from .dist directory"
+        elif [ -d "/etc/crowdsec" ] && [ ! -L "/etc/crowdsec" ] && [ -n "$(ls -A /etc/crowdsec 2>/dev/null)" ]; then
+            cp -r /etc/crowdsec/* "$CS_CONFIG_DIR/" || {
+                echo "ERROR: Failed to copy config from /etc/crowdsec"
+                exit 1
+            }
+            echo "Successfully initialized config from /etc/crowdsec"
+        else
+            echo "ERROR: No config source found (neither .dist nor /etc/crowdsec available)"
+            exit 1
         fi
     fi
 
-    # Link /etc/crowdsec to persistent config for runtime compatibility
-    # Note: This symlink is created at build time; verify it exists
+    # Verify symlink exists (created at build time)
+    # Note: Symlink is created in Dockerfile as root before switching to non-root user
+    # Non-root users cannot create symlinks in /etc, so this must be done at build time
     if [ -L "/etc/crowdsec" ]; then
         echo "CrowdSec config symlink verified: /etc/crowdsec -> $CS_CONFIG_DIR"
     else
-        echo "Warning: /etc/crowdsec symlink not found. CrowdSec may use volume config directly."
+        echo "WARNING: /etc/crowdsec symlink not found. This may indicate a build issue."
+        echo "Expected: /etc/crowdsec -> /app/data/crowdsec/config"
+        # Try to continue anyway - config may still work if CrowdSec uses CFG env var
     fi
 
     # Create/update acquisition config for Caddy logs
@@ -93,13 +138,14 @@ ACQUIS_EOF
     export CFG=/etc/crowdsec
     export DATA="$CS_DATA_DIR"
     export PID=/var/run/crowdsec.pid
-    export LOG=/var/log/crowdsec.log
+    export LOG="$CS_LOG_DIR/crowdsec.log"
 
     # Process config.yaml and user.yaml with envsubst
     # We use a temp file to avoid issues with reading/writing same file
     for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
         if [ -f "$file" ]; then
             envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            chown charon:charon "$file" 2>/dev/null || true
         fi
     done
 
@@ -113,6 +159,18 @@ ACQUIS_EOF
     if [ -f "/etc/crowdsec/local_api_credentials.yaml" ]; then
         sed -i 's|url: http://127.0.0.1:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
         sed -i 's|url: http://localhost:8080|url: http://127.0.0.1:8085|g' /etc/crowdsec/local_api_credentials.yaml
+    fi
+
+    # Fix log directory path (ensure it points to /var/log/crowdsec/ not /var/log/)
+    sed -i 's|log_dir: /var/log/$|log_dir: /var/log/crowdsec/|g' "$CS_CONFIG_DIR/config.yaml"
+    # Also handle case where it might be without trailing slash
+    sed -i 's|log_dir: /var/log$|log_dir: /var/log/crowdsec|g' "$CS_CONFIG_DIR/config.yaml"
+
+    # Verify LAPI configuration was applied correctly
+    if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
+        echo "✓ CrowdSec LAPI configured for port 8085"
+    else
+        echo "✗ WARNING: LAPI port configuration may be incorrect"
     fi
 
     # Update hub index to ensure CrowdSec can start
@@ -133,6 +191,12 @@ ACQUIS_EOF
             /usr/local/bin/install_hub_items.sh 2>/dev/null || echo "Warning: Some hub items may not have installed"
         fi
     fi
+
+    # Fix ownership AFTER cscli commands (they run as root and create root-owned files)
+    echo "Fixing CrowdSec file ownership..."
+    chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+    chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
 fi
 
 # CrowdSec Lifecycle Management:
@@ -151,9 +215,10 @@ fi
 echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
+# Run Caddy as charon user for security (preserves supplementary groups)
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-caddy run --config /config/caddy.json &
+su-exec charon caddy run --config /config/caddy.json &
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
@@ -170,6 +235,9 @@ while [ "$i" -le 30 ]; do
 done
 
 # Start Charon management application
+# Drop privileges to charon user before starting the application
+# This maintains security while allowing Docker socket access via group membership
+# Note: Using 'su-exec charon' without explicit group to preserve supplementary groups (docker)
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
@@ -179,13 +247,13 @@ if [ "$DEBUG_FLAG" = "1" ]; then
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+    su-exec charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     bin_path=/app/charon
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    "$bin_path" &
+    su-exec charon "$bin_path" &
 fi
 APP_PID=$!
 echo "Charon started (PID: $APP_PID)"

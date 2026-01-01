@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1323,39 +1324,129 @@ func TestUserHandler_InviteUser_WithPermittedHosts(t *testing.T) {
 	assert.Equal(t, models.PermissionModeDenyAll, user.PermissionMode)
 }
 
-func TestGetBaseURL(t *testing.T) {
+func TestUserHandler_InviteUser_WithSMTPConfigured(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-smtp@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	// Configure SMTP settings to trigger email code path and getAppName call
+	smtpSettings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		{Key: "app_name", Value: "TestApp", Type: "string", Category: "app"},
+	}
+	for _, setting := range smtpSettings {
+		db.Create(&setting)
+	}
+
+	// Reinitialize mail service to pick up new settings
+	handler.MailService = services.NewMailService(db)
+
 	gin.SetMode(gin.TestMode)
-
-	// Test with X-Forwarded-Proto header
 	r := gin.New()
-	r.GET("/test", func(c *gin.Context) {
-		url := getBaseURL(c)
-		c.String(200, url)
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
 	})
+	r.POST("/users/invite", handler.InviteUser)
 
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
-	req.Host = "example.com"
-	req.Header.Set("X-Forwarded-Proto", "https")
+	body := map[string]any{
+		"email": "smtp-test@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, "https://example.com", w.Body.String())
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created
+	var user models.User
+	db.Where("email = ?", "smtp-test@example.com").First(&user)
+	assert.Equal(t, "pending", user.InviteStatus)
+	assert.False(t, user.Enabled)
+
+	// Note: email_sent will be false because we can't actually send email in tests,
+	// but the code path through IsConfigured() and getAppName() is still executed
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
 }
 
-func TestGetAppName(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:appname?mode=memory&cache=shared"), &gorm.Config{})
-	require.NoError(t, err)
-	db.AutoMigrate(&models.Setting{})
+func TestUserHandler_InviteUser_WithSMTPConfigured_DefaultAppName(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
 
-	// Test default
-	name := getAppName(db)
-	assert.Equal(t, "Charon", name)
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin-smtp-default@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
 
-	// Test with custom setting
-	db.Create(&models.Setting{Key: "app_name", Value: "CustomApp"})
-	name = getAppName(db)
-	assert.Equal(t, "CustomApp", name)
+	// Configure SMTP settings WITHOUT app_name to trigger default "Charon" path
+	smtpSettings := []models.Setting{
+		{Key: "smtp_host", Value: "smtp.example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_port", Value: "587", Type: "integer", Category: "smtp"},
+		{Key: "smtp_username", Value: "user@example.com", Type: "string", Category: "smtp"},
+		{Key: "smtp_password", Value: "password", Type: "string", Category: "smtp"},
+		{Key: "smtp_from_address", Value: "noreply@example.com", Type: "string", Category: "smtp"},
+		// Intentionally NOT setting app_name to test default path
+	}
+	for _, setting := range smtpSettings {
+		db.Create(&setting)
+	}
+
+	// Reinitialize mail service to pick up new settings
+	handler.MailService = services.NewMailService(db)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	body := map[string]any{
+		"email": "smtp-test-default@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created
+	var user models.User
+	db.Where("email = ?", "smtp-test-default@example.com").First(&user)
+	assert.Equal(t, "pending", user.InviteStatus)
+	assert.False(t, user.Enabled)
+
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NotEmpty(t, resp["invite_token"])
 }
+
+// Note: TestGetBaseURL and TestGetAppName have been removed as these internal helper
+// functions have been refactored into the utils package. URL functionality is tested
+// via integration tests and the utils package should have its own unit tests.
 
 func TestUserHandler_AcceptInvite_ExpiredToken(t *testing.T) {
 	handler, db := setupUserHandlerWithProxyHosts(t)
@@ -1420,4 +1511,476 @@ func TestUserHandler_AcceptInvite_AlreadyAccepted(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+// ============= Priority 1: Zero Coverage Functions =============
+
+// PreviewInviteURL Tests
+func TestUserHandler_PreviewInviteURL_NonAdmin(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "user")
+		c.Next()
+	})
+	r.POST("/users/preview-invite-url", handler.PreviewInviteURL)
+
+	body := map[string]string{"email": "test@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/preview-invite-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "Admin access required")
+}
+
+func TestUserHandler_PreviewInviteURL_InvalidJSON(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/preview-invite-url", handler.PreviewInviteURL)
+
+	req := httptest.NewRequest("POST", "/users/preview-invite-url", bytes.NewBufferString("invalid"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_PreviewInviteURL_Success_Unconfigured(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/preview-invite-url", handler.PreviewInviteURL)
+
+	body := map[string]string{"email": "test@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/preview-invite-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	assert.Equal(t, false, resp["is_configured"].(bool))
+	assert.Equal(t, true, resp["warning"].(bool))
+	assert.Contains(t, resp["warning_message"].(string), "not configured")
+	assert.Contains(t, resp["preview_url"].(string), "SAMPLE_TOKEN_PREVIEW")
+	assert.Equal(t, "test@example.com", resp["email"].(string))
+}
+
+func TestUserHandler_PreviewInviteURL_Success_Configured(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create public_url setting
+	publicURLSetting := &models.Setting{
+		Key:      "app.public_url",
+		Value:    "https://charon.example.com",
+		Type:     "string",
+		Category: "app",
+	}
+	db.Create(publicURLSetting)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/preview-invite-url", handler.PreviewInviteURL)
+
+	body := map[string]string{"email": "test@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/preview-invite-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	assert.Equal(t, true, resp["is_configured"].(bool))
+	assert.Equal(t, false, resp["warning"].(bool))
+	assert.Contains(t, resp["preview_url"].(string), "https://charon.example.com")
+	assert.Contains(t, resp["preview_url"].(string), "SAMPLE_TOKEN_PREVIEW")
+	assert.Equal(t, "https://charon.example.com", resp["base_url"].(string))
+	assert.Equal(t, "test@example.com", resp["email"].(string))
+}
+
+// getAppName Tests
+func TestGetAppName_Default(t *testing.T) {
+	_, db := setupUserHandlerWithProxyHosts(t)
+
+	appName := getAppName(db)
+
+	assert.Equal(t, "Charon", appName)
+}
+
+func TestGetAppName_FromSettings(t *testing.T) {
+	_, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create app_name setting
+	appNameSetting := &models.Setting{
+		Key:      "app_name",
+		Value:    "MyCustomApp",
+		Type:     "string",
+		Category: "app",
+	}
+	db.Create(appNameSetting)
+
+	appName := getAppName(db)
+
+	assert.Equal(t, "MyCustomApp", appName)
+}
+
+func TestGetAppName_EmptyValue(t *testing.T) {
+	_, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create app_name setting with empty value
+	appNameSetting := &models.Setting{
+		Key:      "app_name",
+		Value:    "",
+		Type:     "string",
+		Category: "app",
+	}
+	db.Create(appNameSetting)
+
+	appName := getAppName(db)
+
+	// Should return default when value is empty
+	assert.Equal(t, "Charon", appName)
+}
+
+// ============= Priority 2: Error Paths =============
+
+func TestUserHandler_UpdateUser_EmailConflict(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create two users
+	user1 := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "user1@example.com",
+		Name:   "User 1",
+	}
+	user2 := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "user2@example.com",
+		Name:   "User 2",
+	}
+	db.Create(user1)
+	db.Create(user2)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.PUT("/users/:id", handler.UpdateUser)
+
+	// Try to update user1's email to user2's email
+	body := map[string]string{
+		"email": "user2@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("PUT", "/users/1", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "Email already in use")
+}
+
+// ============= Priority 3: Edge Cases and Defaults =============
+
+func TestUserHandler_CreateUser_EmailNormalization(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	// Create user with mixed-case email
+	body := map[string]any{
+		"email":    "User@Example.COM",
+		"name":     "Test User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify email is stored lowercase
+	var user models.User
+	db.Where("email = ?", "user@example.com").First(&user)
+	assert.Equal(t, "user@example.com", user.Email)
+}
+
+func TestUserHandler_InviteUser_EmailNormalization(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	// Invite user with mixed-case email
+	body := map[string]any{
+		"email": "Invite@Example.COM",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify email is stored lowercase
+	var user models.User
+	db.Where("email = ?", "invite@example.com").First(&user)
+	assert.Equal(t, "invite@example.com", user.Email)
+}
+
+func TestUserHandler_CreateUser_DefaultPermissionMode(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	// Create user without specifying permission_mode
+	body := map[string]any{
+		"email":    "defaultperms@example.com",
+		"name":     "Default Perms User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify permission_mode defaults to "allow_all"
+	var user models.User
+	db.Where("email = ?", "defaultperms@example.com").First(&user)
+	assert.Equal(t, models.PermissionModeAllowAll, user.PermissionMode)
+}
+
+func TestUserHandler_InviteUser_DefaultPermissionMode(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	// Invite user without specifying permission_mode
+	body := map[string]any{
+		"email": "defaultinvite@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify permission_mode defaults to "allow_all"
+	var user models.User
+	db.Where("email = ?", "defaultinvite@example.com").First(&user)
+	assert.Equal(t, models.PermissionModeAllowAll, user.PermissionMode)
+}
+
+func TestUserHandler_CreateUser_DefaultRole(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	// Create user without specifying role
+	body := map[string]any{
+		"email":    "defaultrole@example.com",
+		"name":     "Default Role User",
+		"password": "password123",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify role defaults to "user"
+	var user models.User
+	db.Where("email = ?", "defaultrole@example.com").First(&user)
+	assert.Equal(t, "user", user.Role)
+}
+
+func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+
+	// Create admin user
+	admin := &models.User{
+		UUID:   uuid.NewString(),
+		APIKey: uuid.NewString(),
+		Email:  "admin@example.com",
+		Role:   "admin",
+	}
+	db.Create(admin)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Set("userID", admin.ID)
+		c.Next()
+	})
+	r.POST("/users/invite", handler.InviteUser)
+
+	// Invite user without specifying role
+	body := map[string]any{
+		"email": "defaultroleinvite@example.com",
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/invite", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify role defaults to "user"
+	var user models.User
+	db.Where("email = ?", "defaultroleinvite@example.com").First(&user)
+	assert.Equal(t, "user", user.Role)
+}
+
+// ============= Priority 4: Integration Edge Cases =============
+
+func TestUserHandler_CreateUser_EmptyPermittedHosts(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	// Create user with deny_all mode but empty permitted_hosts
+	body := map[string]any{
+		"email":           "emptyhosts@example.com",
+		"name":            "Empty Hosts User",
+		"password":        "password123",
+		"permission_mode": "deny_all",
+		"permitted_hosts": []uint{},
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created with deny_all mode and no permitted hosts
+	var user models.User
+	db.Preload("PermittedHosts").Where("email = ?", "emptyhosts@example.com").First(&user)
+	assert.Equal(t, models.PermissionModeDenyAll, user.PermissionMode)
+	assert.Len(t, user.PermittedHosts, 0)
+}
+
+func TestUserHandler_CreateUser_NonExistentPermittedHosts(t *testing.T) {
+	handler, db := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users", handler.CreateUser)
+
+	// Create user with non-existent host IDs
+	body := map[string]any{
+		"email":           "nonexistenthosts@example.com",
+		"name":            "Non-Existent Hosts User",
+		"password":        "password123",
+		"permission_mode": "deny_all",
+		"permitted_hosts": []uint{999, 1000},
+	}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	// Verify user was created but no hosts were associated (non-existent IDs are ignored)
+	var user models.User
+	db.Preload("PermittedHosts").Where("email = ?", "nonexistenthosts@example.com").First(&user)
+	assert.Len(t, user.PermittedHosts, 0)
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -13,9 +14,42 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/utils"
 )
+
+// ProxyHostWarning represents an advisory warning about proxy host configuration.
+type ProxyHostWarning struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// ProxyHostResponse wraps a proxy host with optional advisory warnings.
+type ProxyHostResponse struct {
+	models.ProxyHost
+	Warnings []ProxyHostWarning `json:"warnings,omitempty"`
+}
+
+// generateForwardHostWarnings checks the forward_host value and returns advisory warnings.
+func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
+	var warnings []ProxyHostWarning
+
+	if utils.IsDockerBridgeIP(forwardHost) {
+		warnings = append(warnings, ProxyHostWarning{
+			Field:   "forward_host",
+			Message: "This looks like a Docker container IP address. Docker IPs can change when containers restart. Consider using the container name for more reliable connections.",
+		})
+	} else if ip := net.ParseIP(forwardHost); ip != nil && network.IsPrivateIP(ip) {
+		warnings = append(warnings, ProxyHostWarning{
+			Field:   "forward_host",
+			Message: "Using a private IP address. If this is a Docker container, the IP may change on restart. Container names are more reliable for Docker services.",
+		})
+	}
+
+	return warnings
+}
 
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
@@ -135,6 +169,18 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 				"Action":  "created",
 			},
 		)
+	}
+
+	// Generate advisory warnings for private/Docker IPs
+	warnings := generateForwardHostWarnings(host.ForwardHost)
+
+	// Return response with warnings if any
+	if len(warnings) > 0 {
+		c.JSON(http.StatusCreated, ProxyHostResponse{
+			ProxyHost: host,
+			Warnings:  warnings,
+		})
+		return
 	}
 
 	c.JSON(http.StatusCreated, host)
@@ -286,44 +332,46 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	// Security Header Profile: update only if provided
 	if v, ok := payload["security_header_profile_id"]; ok {
 		logger := middleware.GetRequestLogger(c)
-		logger.WithField("host_uuid", uuidStr).WithField("raw_value", v).Debug("Processing security_header_profile_id update")
+		// Sanitize user-provided values for log injection protection (CWE-117)
+		safeUUID := sanitizeForLog(uuidStr)
+		logger.WithField("host_uuid", safeUUID).WithField("raw_value", fmt.Sprintf("%v", v)).Debug("Processing security_header_profile_id update")
 
 		if v == nil {
-			logger.WithField("host_uuid", uuidStr).Debug("Setting security_header_profile_id to nil")
+			logger.WithField("host_uuid", safeUUID).Debug("Setting security_header_profile_id to nil")
 			host.SecurityHeaderProfileID = nil
 		} else {
 			conversionSuccess := false
 			switch t := v.(type) {
 			case float64:
-				logger.WithField("host_uuid", uuidStr).WithField("type", "float64").WithField("value", t).Debug("Received security_header_profile_id as float64")
+				logger.WithField("host_uuid", safeUUID).WithField("type", "float64").WithField("value", t).Debug("Received security_header_profile_id as float64")
 				if id, ok := safeFloat64ToUint(t); ok {
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
-					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from float64")
+					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from float64")
 				} else {
-					logger.WithField("host_uuid", uuidStr).WithField("value", t).Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
+					logger.WithField("host_uuid", safeUUID).WithField("value", t).Warn("Failed to convert security_header_profile_id from float64: value is negative or not a valid uint")
 				}
 			case int:
-				logger.WithField("host_uuid", uuidStr).WithField("type", "int").WithField("value", t).Debug("Received security_header_profile_id as int")
+				logger.WithField("host_uuid", safeUUID).WithField("type", "int").WithField("value", t).Debug("Received security_header_profile_id as int")
 				if id, ok := safeIntToUint(t); ok {
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
-					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from int")
+					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from int")
 				} else {
-					logger.WithField("host_uuid", uuidStr).WithField("value", t).Warn("Failed to convert security_header_profile_id from int: value is negative")
+					logger.WithField("host_uuid", safeUUID).WithField("value", t).Warn("Failed to convert security_header_profile_id from int: value is negative")
 				}
 			case string:
-				logger.WithField("host_uuid", uuidStr).WithField("type", "string").WithField("value", t).Debug("Received security_header_profile_id as string")
+				logger.WithField("host_uuid", safeUUID).WithField("type", "string").WithField("value", sanitizeForLog(t)).Debug("Received security_header_profile_id as string")
 				if n, err := strconv.ParseUint(t, 10, 32); err == nil {
 					id := uint(n)
 					host.SecurityHeaderProfileID = &id
 					conversionSuccess = true
-					logger.WithField("host_uuid", uuidStr).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
+					logger.WithField("host_uuid", safeUUID).WithField("profile_id", id).Info("Successfully converted security_header_profile_id from string")
 				} else {
-					logger.WithField("host_uuid", uuidStr).WithField("value", t).WithError(err).Warn("Failed to parse security_header_profile_id from string")
+					logger.WithField("host_uuid", safeUUID).WithField("value", sanitizeForLog(t)).WithError(err).Warn("Failed to parse security_header_profile_id from string")
 				}
 			default:
-				logger.WithField("host_uuid", uuidStr).WithField("type", fmt.Sprintf("%T", v)).WithField("value", v).Warn("Unsupported type for security_header_profile_id")
+				logger.WithField("host_uuid", safeUUID).WithField("type", fmt.Sprintf("%T", v)).WithField("value", fmt.Sprintf("%v", v)).Warn("Unsupported type for security_header_profile_id")
 			}
 
 			if !conversionSuccess {
@@ -393,6 +441,18 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
 			// Don't fail the request if sync fails - the host update succeeded
 		}
+	}
+
+	// Generate advisory warnings for private/Docker IPs
+	warnings := generateForwardHostWarnings(host.ForwardHost)
+
+	// Return response with warnings if any
+	if len(warnings) > 0 {
+		c.JSON(http.StatusOK, ProxyHostResponse{
+			ProxyHost: *host,
+			Warnings:  warnings,
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, host)

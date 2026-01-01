@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
-	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/Wikid82/charon/backend/internal/utils"
 )
 
 type UserHandler struct {
@@ -481,7 +482,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	// Try to send invite email
 	emailSent := false
 	if h.MailService.IsConfigured() {
-		baseURL := getBaseURL(c)
+		baseURL := utils.GetPublicURL(h.DB, c)
 		appName := getAppName(h.DB)
 		if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
 			emailSent = true
@@ -499,18 +500,47 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	})
 }
 
-// getBaseURL extracts the base URL from the request.
-func getBaseURL(c *gin.Context) string {
-	scheme := "https"
-	if c.Request.TLS == nil {
-		// Check for X-Forwarded-Proto header
-		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-			scheme = proto
-		} else {
-			scheme = "http"
-		}
+// PreviewInviteURLRequest represents the request for previewing an invite URL.
+type PreviewInviteURLRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// PreviewInviteURL returns what the invite URL would look like with current settings.
+func (h *UserHandler) PreviewInviteURL(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
 	}
-	return scheme + "://" + c.Request.Host
+
+	var req PreviewInviteURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	baseURL := utils.GetPublicURL(h.DB, c)
+	// Generate a sample token for preview (not stored)
+	sampleToken := "SAMPLE_TOKEN_PREVIEW"
+	inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), sampleToken)
+
+	// Check if public URL is configured
+	var setting models.Setting
+	isConfigured := h.DB.Where("key = ?", "app.public_url").First(&setting).Error == nil && setting.Value != ""
+
+	warningMessage := ""
+	if !isConfigured {
+		warningMessage = "Application URL not configured. The invite link may not be accessible from external networks."
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"preview_url":     inviteURL,
+		"base_url":        baseURL,
+		"is_configured":   isConfigured,
+		"email":           req.Email,
+		"warning":         !isConfigured,
+		"warning_message": warningMessage,
+	})
 }
 
 // getAppName retrieves the application name from settings or returns a default.
@@ -791,13 +821,6 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 	var user models.User
 	if err := h.DB.Where("invite_token = ?", req.Token).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
-		return
-	}
-
-	// Verify token in constant time as defense-in-depth against timing attacks.
-	// The DB lookup itself has timing variance, but this prevents comparison timing leaks.
-	if !util.ConstantTimeCompare(user.InviteToken, req.Token) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid invite token"})
 		return
 	}
 

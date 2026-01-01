@@ -68,4 +68,122 @@ describe('users api', () => {
     await acceptInvite({ token: 't', name: 'n', password: 'p' })
     expect(client.post).toHaveBeenCalledWith('/invite/accept', { token: 't', name: 'n', password: 'p' })
   })
+
+  describe('previewInviteURL', () => {
+    it('should call POST /users/preview-invite-url with email', async () => {
+      const mockResponse = {
+        preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+        base_url: 'https://example.com',
+        is_configured: true,
+        email: 'test@example.com',
+        warning: false,
+        warning_message: ''
+      }
+      vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
+
+      const result = await import('../users').then(m => m.previewInviteURL('test@example.com'))
+
+      expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      expect(result).toEqual(mockResponse)
+    })
+
+    it('should return complete PreviewInviteURLResponse structure', async () => {
+      const mockResponse = {
+        preview_url: 'https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+        base_url: 'https://charon.example.com',
+        is_configured: true,
+        email: 'user@test.com',
+        warning: false,
+        warning_message: ''
+      }
+      vi.mocked(client.post).mockResolvedValue({ data: mockResponse })
+
+      const result = await import('../users').then(m => m.previewInviteURL('user@test.com'))
+
+      expect(result.preview_url).toBeDefined()
+      expect(result.base_url).toBeDefined()
+      expect(result.is_configured).toBeDefined()
+      expect(result.email).toBeDefined()
+      expect(result.warning).toBeDefined()
+      expect(result.warning_message).toBeDefined()
+    })
+
+    it('should return preview_url with sample token', async () => {
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'http://localhost:8080',
+          is_configured: false,
+          email: 'test@example.com',
+          warning: true,
+          warning_message: 'Public URL not configured'
+        }
+      })
+
+      const result = await import('../users').then(m => m.previewInviteURL('test@example.com'))
+
+      expect(result.preview_url).toContain('SAMPLE_TOKEN_PREVIEW')
+    })
+
+    it('should return is_configured flag', async () => {
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'https://example.com',
+          is_configured: true,
+          email: 'test@example.com',
+          warning: false,
+          warning_message: ''
+        }
+      })
+
+      const result = await import('../users').then(m => m.previewInviteURL('test@example.com'))
+
+      expect(result.is_configured).toBe(true)
+    })
+
+    it('should return warning flag when public URL not configured', async () => {
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'http://localhost:8080',
+          is_configured: false,
+          email: 'admin@test.com',
+          warning: true,
+          warning_message: 'Using default localhost URL'
+        }
+      })
+
+      const result = await import('../users').then(m => m.previewInviteURL('admin@test.com'))
+
+      expect(result.warning).toBe(true)
+      expect(result.warning_message).toBe('Using default localhost URL')
+    })
+
+    it('should return the provided email in response', async () => {
+      const testEmail = 'specific@email.com'
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'https://example.com',
+          is_configured: true,
+          email: testEmail,
+          warning: false,
+          warning_message: ''
+        }
+      })
+
+      const result = await import('../users').then(m => m.previewInviteURL(testEmail))
+
+      expect(result.email).toBe(testEmail)
+    })
+
+    it('should handle request errors', async () => {
+      vi.mocked(client.post).mockRejectedValue(new Error('Network error'))
+
+      await expect(
+        import('../users').then(m => m.previewInviteURL('test@example.com'))
+      ).rejects.toThrow('Network error')
+    })
+  })
 })
