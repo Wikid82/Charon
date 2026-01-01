@@ -80,10 +80,10 @@ Restart again. Now bad guys actually get blocked.
 
 When you toggle CrowdSec ON, Charon:
 
-1. Starts the CrowdSec process
+1. Starts the CrowdSec process as the `charon` user (not root)
 2. Loads configuration, parsers, and security scenarios
 3. Initializes the Local API (LAPI) on port 8085
-4. Polls LAPI health every 500ms for up to 30 seconds
+4. Polls LAPI health every 500ms for up to 60 seconds
 5. Returns one of two states:
    - ✅ **LAPI Ready** — "CrowdSec started and LAPI is ready" — You can immediately proceed to console enrollment
    - ⚠️ **LAPI Initializing** — "CrowdSec started but LAPI is still initializing" — Wait 10 more seconds before enrolling
@@ -92,7 +92,7 @@ When you toggle CrowdSec ON, Charon:
 
 - **Initial start:** 5-10 seconds
 - **First start after container restart:** 10-15 seconds
-- **Maximum wait:** 30 seconds (with automatic health checks)
+- **Maximum wait:** 60 seconds (with automatic health checks)
 
 **What you'll see in the UI:**
 
@@ -114,9 +114,12 @@ Once enabled, CrowdSec **automatically starts** when the container restarts:
 
 **How it works:**
 
-- Your preference is stored in two places (Settings and SecurityConfig tables)
-- Reconciliation function runs at container startup
+- Your preference is stored in the database (Settings and SecurityConfig tables)
+- Reconciliation function runs at container startup **before** HTTP server starts
+- Protected by mutex to prevent race conditions
 - Checks both tables to determine if CrowdSec should auto-start
+- Validates binary and config paths before starting
+- Verifies process is running after start (2-second health check)
 - Logs show: "CrowdSec reconciliation: starting based on SecurityConfig mode='local'"
 
 **Verification after restart:**
@@ -133,9 +136,15 @@ Expected output:
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
-**Troubleshooting auto-start:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart)
+**Troubleshooting auto-start:**
 
-⚠️ **DEPRECATED:** Environment variables like `CHARON_SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
+See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md) for detailed troubleshooting including:
+- Permission issues
+- Missing SecurityConfig table
+- Binary not found errors
+- Process crashes on startup
+
+⚠️ **DEPRECATED:** Environment variables like `SECURITY_CROWDSEC_MODE=local` are **no longer used**. CrowdSec is now GUI-controlled, just like WAF, ACL, and Rate Limiting. If you have these environment variables in your docker-compose.yml, remove them and use the GUI toggle instead. See [Migration Guide](migration-guide.md).
 
 **What you'll see:** The Cerberus pages show blocked IPs and why they were blocked.
 
@@ -534,7 +543,9 @@ Allows friends to access, blocks obvious threat countries.
 
 **Discord webhook format:**
 
-Charon automatically formats notifications for Discord:
+Charon supports rich notification formatting for multiple services using customizable JSON templates:
+
+**Discord Rich Embed Example:**
 
 ```json
 {
@@ -552,19 +563,91 @@ Charon automatically formats notifications for Discord:
 }
 ```
 
+**Slack Block Kit Example:**
+
+```json
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {"type": "plain_text", "text": "🛡️ Security Alert"}
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*WAF Block*\nSQL injection attempt detected and blocked"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {"type": "mrkdwn", "text": "*IP:*\n203.0.113.42"},
+        {"type": "mrkdwn", "text": "*Rule:*\n942100"}
+      ]
+    }
+  ]
+}
+```
+
+**Gotify JSON Payload Example:**
+
+```json
+{
+  "title": "🛡️ Security Alert",
+  "message": "**WAF Block**: SQL injection attempt blocked from 203.0.113.42",
+  "priority": 8,
+  "extras": {
+    "client::display": {"contentType": "text/markdown"},
+    "security": {
+      "event_type": "waf_block",
+      "ip": "203.0.113.42",
+      "rule_id": "942100"
+    }
+  }
+}
+```
+
+**Configuring Notification Templates:**
+
+1. Navigate to **Settings → Notifications**
+2. Add or edit a notification provider
+3. Select service type: Discord, Slack, Gotify, or Generic
+4. Choose template style:
+   - **Minimal**: Simple text-based notifications
+   - **Detailed**: Rich formatting with comprehensive event data
+   - **Custom**: Define your own JSON structure
+5. Use template variables for dynamic content:
+   - `{{.Title}}` — Event title (e.g., "WAF Block")
+   - `{{.Message}}` — Detailed event description
+   - `{{.EventType}}` — Event classification (waf_block, uptime_down, ssl_renewal)
+   - `{{.Severity}}` — Alert level (info, warning, error)
+   - `{{.HostName}}` — Affected proxy host domain
+   - `{{.Timestamp}}` — ISO 8601 formatted timestamp
+6. Click **"Send Test Notification"** to preview output
+7. Save the provider configuration
+
+**For complete examples with all variables and service-specific features, see [Notification Guide](features/notifications.md).**
+
 **Testing your webhook:**
 
 1. Add your webhook URL in Notification Settings
-2. Save the settings
-3. Trigger a test event (try accessing a blocked URL)
-4. Check your Discord/Slack channel for the notification
+2. Select events to monitor (WAF blocks, uptime changes, SSL renewals)
+3. Choose or customize a JSON template
+4. Save the settings
+5. Click **"Send Test"** to verify the integration
+6. Trigger a real event (e.g., attempt to access a blocked URL)
+7. Confirm notification appears in your Discord/Slack/Gotify channel
 
 **Troubleshooting webhooks:**
 
-- No notifications? Check webhook URL is correct and HTTPS
-- Wrong format? Verify your platform's webhook documentation
-- Too many notifications? Increase minimum log level to "error" only
-- Notifications delayed? Check your network connection and firewall rules
+- No notifications? Verify webhook URL is correct and uses HTTPS
+- Invalid template? Use **"Send Test"** to validate JSON structure
+- Wrong format? Consult your platform's webhook API documentation
+- Template variables not replaced? Check variable names match exactly (case-sensitive)
+- Too many notifications? Adjust event filters or increase severity threshold to "error" only
+- Notifications delayed? Check network connectivity and firewall rules
+- Template rendering errors? View logs: `docker logs charon | grep "notification"`
 
 ### Log Privacy Considerations
 
@@ -615,6 +698,289 @@ Remove the security lines from `docker-compose.yml` and restart.
 
 ---
 
+## TLS Security
+
+### TLS Version Enforcement
+
+Charon (via Caddy) enforces a minimum TLS version of 1.2 by default. This prevents TLS downgrade attacks that attempt to force connections to use vulnerable TLS 1.0 or 1.1.
+
+**What's Protected:**
+
+- ✅ TLS 1.0/1.1 downgrade attacks
+- ✅ BEAST, POODLE, and similar protocol-level attacks
+- ✅ Weak cipher suite negotiation
+
+**HSTS (HTTP Strict Transport Security):**
+
+Charon sets HSTS headers with:
+
+- `max-age=31536000` (1 year)
+- `includeSubDomains`
+- `preload` (for browser preload lists)
+
+This ensures browsers always use HTTPS after the first visit.
+
+---
+
+## DNS Security
+
+### Protecting Against DNS Hijacking
+
+While Charon cannot directly control your DNS resolver, you can protect against DNS hijacking and cache poisoning by configuring your host to use encrypted DNS.
+
+**Docker Host Configuration (systemd-resolved):**
+
+```bash
+# /etc/systemd/resolved.conf
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com
+DNSOverTLS=yes
+```
+
+Then restart: `sudo systemctl restart systemd-resolved`
+
+**Alternative DNS Providers with DoH/DoT:**
+
+- Cloudflare: `1.1.1.1` / `1.0.0.1`
+- Google: `8.8.8.8` / `8.8.4.4`
+- Quad9: `9.9.9.9`
+
+**Additional DNS Protections:**
+
+1. **DNSSEC**: Enable at your domain registrar to prevent DNS spoofing
+2. **CAA Records**: Restrict which Certificate Authorities can issue certificates for your domain
+
+---
+
+## Container Hardening
+
+### Running Charon with Maximum Security
+
+Charon supports a fully hardened container configuration with a read-only root filesystem. This section explains the correct configuration based on research of where Charon writes data at runtime.
+
+#### Understanding Charon's Data Storage
+
+Charon uses two types of storage:
+
+1. **Persistent Data** (`/app/data` volume) - Data that must survive container restarts:
+   - **Database**: `/app/data/charon.db` - SQLite database with WAL mode
+   - **Backups**: `/app/data/backups/` - Daily automated backups (3 AM cron job)
+   - **Caddy Certificates**: `/app/data/caddy/` - TLS certificates from Let's Encrypt, ZeroSSL, or custom CAs
+   - **Import Directory**: `/app/data/imports/` - Uploaded Caddyfile configurations
+   - **CrowdSec Data**: `/app/data/crowdsec/` - CrowdSec configuration, database, and hub cache
+   - **GeoIP Database**: `/app/data/geoip/GeoLite2-Country.mmdb` - Pre-populated at build time (read-only at runtime)
+
+2. **Ephemeral Data** (tmpfs mounts) - Temporary data that doesn't need persistence:
+   - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec
+   - **CrowdSec Logs**: `/var/log/crowdsec/` - Agent and LAPI logs
+   - **Runtime Config**: `/config/` - Dynamically generated Caddy JSON configuration
+   - **CrowdSec Runtime**: `/var/lib/crowdsec/` - CrowdSec agent runtime data
+   - **Temporary Files**: `/tmp/` - Used by CrowdSec hub operations
+   - **Runtime State**: `/run/` - PIDs and runtime state files
+
+#### Complete Hardened Configuration
+
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+
+    # Security: Read-only root filesystem
+    read_only: true
+
+    # Drop all capabilities except NET_BIND_SERVICE (for ports 80/443)
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+    # Prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+
+    environment:
+      - CHARON_ENV=production
+      - TZ=UTC
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
+      - CHARON_IMPORT_DIR=/app/data/imports
+      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      # Persistent data (database, certificates, backups, CrowdSec config)
+      - charon_data:/app/data
+
+      # Ephemeral tmpfs mounts for writable directories
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+          mode: 1777  # Sticky bit for multi-user temp directory
+
+      - type: tmpfs
+        target: /var/log/caddy
+        tmpfs:
+          size: 100M
+          mode: 0755
+
+      - type: tmpfs
+        target: /var/log/crowdsec
+        tmpfs:
+          size: 100M
+          mode: 0755
+
+      - type: tmpfs
+        target: /config
+        tmpfs:
+          size: 10M
+          mode: 0755
+
+      - type: tmpfs
+        target: /var/lib/crowdsec
+        tmpfs:
+          size: 50M
+          mode: 0755
+
+      - type: tmpfs
+        target: /run
+        tmpfs:
+          size: 10M
+          mode: 0755
+
+      # Docker socket for container discovery (read-only)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Optional: Import existing Caddyfile (read-only)
+      # - ./my-existing-Caddyfile:/import/Caddyfile:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  charon_data:
+    driver: local
+```
+
+#### Security Features Explained
+
+**Read-Only Root Filesystem:**
+- `read_only: true` prevents unauthorized file modifications
+- Blocks malware from persisting on the container filesystem
+- Requires explicit tmpfs mounts for directories that need write access
+
+**Capability Dropping:**
+- `cap_drop: ALL` removes all Linux capabilities
+- `cap_add: NET_BIND_SERVICE` only allows binding to privileged ports 80/443
+- Follows the principle of least privilege
+
+**No Privilege Escalation:**
+- `no-new-privileges:true` prevents processes from gaining additional privileges
+- Protects against setuid binary exploits and capability escalation
+
+**Tmpfs Mounts:**
+- Ephemeral storage that exists only in memory
+- Automatically cleared on container restart
+- Prevents logs and temporary files from filling disk space
+- Size limits prevent memory exhaustion attacks
+
+#### What About the `caddy_data` Volume?
+
+If you're migrating from older documentation, you may notice the `caddy_data:/data` volume has been removed. This volume was never used by Charon. Here's why:
+
+- **Caddy in standalone mode** uses `/data` for certificates
+- **Charon configures Caddy** to use `/app/data/caddy/` instead
+- The `caddy_data` volume was redundant and has been removed
+
+#### Validation Checklist
+
+Before deploying this configuration, validate that all features work correctly:
+
+- [ ] Charon starts successfully with `read_only: true`
+- [ ] Database operations work (create/read/update/delete proxy hosts)
+- [ ] Caddy can obtain and renew TLS certificates
+- [ ] Backups are created successfully (check `/app/data/backups/`)
+- [ ] CrowdSec can start and update hub items (if enabled)
+- [ ] Log files are written to `/var/log/caddy/access.log`
+- [ ] Container discovery works with Docker socket
+- [ ] Import directory accepts uploaded Caddyfiles
+- [ ] No "read-only filesystem" errors in logs
+
+**Quick Validation Commands:**
+
+```bash
+# Check startup logs
+docker logs charon
+
+# Verify database is writable
+docker exec charon ls -la /app/data/charon.db
+
+# Verify tmpfs mounts are correct
+docker inspect charon | grep -A 10 Tmpfs
+
+# Verify read-only root filesystem
+docker inspect charon | grep '"ReadonlyRootfs": true'
+
+# Test certificate directory is writable
+docker exec charon touch /app/data/caddy/test.txt && docker exec charon rm /app/data/caddy/test.txt
+
+# Verify logs are being written
+docker exec charon ls -la /var/log/caddy/
+
+# Check filesystem permissions
+docker exec charon ls -la /app/data
+```
+
+#### Troubleshooting
+
+**"read-only filesystem" errors:**
+- Verify all tmpfs mounts are configured correctly
+- Check that `/app/data` is mounted as a volume (not tmpfs)
+- Ensure tmpfs sizes are adequate for your log volume
+
+**CrowdSec fails to start:**
+- Verify `/var/lib/crowdsec` tmpfs mount exists
+- Check `/app/data/crowdsec` volume is writable
+- Ensure symlink `/etc/crowdsec -> /app/data/crowdsec/config` is preserved
+
+**Certificates not persisting:**
+- Verify `charon_data` volume is mounted at `/app/data`
+- Check that `CHARON_CADDY_CONFIG_DIR=/app/data/caddy` is set
+- Ensure `/app/data/caddy` directory exists in the volume
+
+**Security vs Functionality Trade-off:**
+
+If you encounter issues with the hardened configuration, you can gradually relax security settings:
+
+1. **Start with** `read_only: true` + all tmpfs mounts (recommended)
+2. **If issues occur**, temporarily remove `read_only: true` to isolate the problem
+3. **Identify the directory** that needs write access
+4. **Add a tmpfs mount** for that directory (if ephemeral) or bind mount (if persistent)
+5. **Re-enable** `read_only: true` once all write locations are properly mounted
+
+⚠️ **Warning:** Do not skip tmpfs mounts and just remove `read_only: true`. This defeats the purpose of container hardening
+
+---
+
 ## Common Questions
 
 ### "Will this slow down my websites?"
@@ -649,7 +1015,32 @@ No. Use what you need:
 - ✅ Cross-Site Scripting (XSS) — new XSS vectors caught by pattern matching
 - ✅ Remote Code Execution (RCE) — command injection patterns
 - ✅ Path Traversal — attempts to read system files
+- ✅ Server-Side Request Forgery (SSRF) — defense-in-depth architecture (CWE-918 resolved, PR #450)
 - ⚠️ CrowdSec — protects hours/days after first exploitation (crowd-sourced)
+
+**SSRF Protection Details** (PR #450):
+
+Charon implements four-layer SSRF protection to prevent attacks against internal services, cloud metadata endpoints, and private networks:
+
+1. **Format Validation**: URL scheme and path validation
+2. **Pre-Connection Validation**: DNS resolution and IP address validation against 13+ blocked CIDR ranges
+3. **Connectivity Testing**: Controlled HEAD requests with strict timeouts
+4. **Runtime Re-Validation**: Connection-time IP checks to prevent DNS rebinding (TOCTOU protection)
+
+**Protected Against**:
+- Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Loopback addresses (127.0.0.0/8, ::1/128)
+- Link-local addresses (169.254.0.0/16, fe80::/10)
+- Cloud metadata endpoints (169.254.169.254/32)
+- IPv6 private ranges (fc00::/7)
+
+**Where Applied**:
+- Security notification webhooks
+- URL connectivity testing endpoint
+- CrowdSec hub URL validation
+- GitHub update URL validation
+
+See [SSRF Complete Implementation](implementation/SSRF_COMPLETE.md) for technical details.
 
 ### How It Works
 
@@ -691,7 +1082,178 @@ https://yourapp.com/search?q=' OR '1'='1
 
 ---
 
+## COOP (Cross-Origin-Opener-Policy) Behavior
+
+### Development Mode
+
+When accessing Charon over HTTP on non-localhost IP addresses (e.g., `http://192.168.1.100:8080`), you may see this browser console warning:
+
+```
+Cross-Origin-Opener-Policy policy would block the window.closed call.
+```
+
+**This is expected behavior and safe to ignore in local development.**
+
+### Why Does This Happen?
+
+The COOP header is conditionally applied based on the environment:
+
+- **Development (HTTP):** COOP header is **disabled** to allow convenient local testing
+- **Production (HTTPS):** COOP header is **enabled** with `same-origin-allow-popups` to protect against Spectre-class attacks
+
+The browser warning appears because:
+
+1. Your development server is accessed via HTTP (not HTTPS)
+2. The IP address is not `localhost` (e.g., accessing from another device on your network)
+3. Browsers enforce stricter security checks for non-localhost HTTP connections
+
+### Production HTTPS Requirements
+
+**⚠️ All production deployments MUST use HTTPS.** Running Charon in production over HTTP disables critical security protections:
+
+**Security Headers Disabled on HTTP:**
+
+- ✅ HSTS (HTTP Strict Transport Security)
+- ✅ COOP (Cross-Origin-Opener-Policy)
+- ✅ Secure cookie attributes
+
+**Why HTTPS is Required:**
+
+1. **Spectre Attack Protection:** COOP isolates browsing contexts to prevent cross-origin memory leaks
+2. **Secure Cookies:** Session cookies with `Secure` flag only work over HTTPS
+3. **Mixed Content:** Modern browsers block HTTP content loaded from HTTPS pages
+4. **Compliance:** PCI-DSS, HIPAA, and other regulations mandate encryption in transit
+
+### Load Balancer Configuration
+
+If Charon runs behind a load balancer or reverse proxy (Cloudflare, nginx, Traefik):
+
+**Required Header Forwarding:**
+
+```nginx
+# nginx example
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+**Why this matters:** Charon detects HTTPS mode via the `X-Forwarded-Proto` header. If your load balancer terminates TLS but doesn't forward this header, Charon thinks it's running in HTTP mode and disables security features.
+
+**Verification:**
+
+Check your browser's developer tools → Network → Response Headers:
+
+```
+Cross-Origin-Opener-Policy: same-origin-allow-popups
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
+
+If these headers are missing on HTTPS, verify your load balancer configuration.
+
+### Caddy TLS Termination
+
+When using Charon's built-in Caddy reverse proxy:
+
+- ✅ TLS termination happens at Caddy (port 443)
+- ✅ Charon backend receives `X-Forwarded-Proto: https` automatically
+- ✅ Security headers applied correctly
+- ✅ No additional configuration needed
+
+**Docker Network:** Caddy and Charon communicate internally over HTTP, but the `X-Forwarded-Proto` header ensures Charon knows the client connection was HTTPS.
+
+---
+
+## Autocomplete Security
+
+### Why Autocomplete is Enabled
+
+Charon enables the `autocomplete` attribute on password and authentication fields. This is a **security best practice** recommended by OWASP and NIST.
+
+**Benefits:**
+
+1. **Stronger Passwords:** Password managers generate cryptographically secure passwords (20+ characters, high entropy)
+2. **Unique Passwords:** Users are more likely to use unique passwords per-site when managers handle storage
+3. **Reduced Phishing:** Password managers verify domain names before autofilling, protecting against phishing sites
+4. **Better UX:** Improves accessibility and reduces password reuse
+
+### OWASP Recommendations
+
+From [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html):
+
+> "Do not disable the browser autocomplete on credential inputs. Modern password managers and browsers have secure implementations that rely on autocomplete attributes."
+
+### NIST Guidelines
+
+From [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html):
+
+> "Verifiers SHOULD permit the use of paste functionality and password managers."
+
+### Implementation in Charon
+
+```html
+<!-- Login form -->
+<input
+  type="text"
+  name="username"
+  autocomplete="username"
+  required
+/>
+<input
+  type="password"
+  name="password"
+  autocomplete="current-password"
+  required
+/>
+```
+
+**Autocomplete values used:**
+
+- `username` — For login username/email fields
+- `current-password` — For password login fields
+- `new-password` — For password creation/change fields (future implementation)
+
+### Compliance Considerations
+
+**For most organizations:** Autocomplete is secure and recommended.
+
+**For highly regulated industries (PCI-DSS Level 1, HIPAA, government):** Some compliance frameworks may require disabling autocomplete. If your organization has specific policies against password managers, you can:
+
+1. Enforce company-wide password managers (preferred)
+2. Disable browser autocomplete via group policy (not recommended)
+3. Use hardware security keys (WebAuthn, FIDO2) as primary authentication
+
+**Charon's position:** We follow modern security best practices. Disabling autocomplete reduces security for 99% of users to accommodate legacy compliance interpretations.
+
+---
+
 ## Testing & Validation
+
+### Test Coverage Metrics (PR #450)
+
+Charon maintains comprehensive test coverage to ensure security features work correctly:
+
+**Backend Coverage**: **86.2%** (exceeds 85% threshold)
+- Security handlers: 85.6%
+- Security middleware: 99.1%
+- URL validation utilities: 91.8%
+- SSRF protection: 90.2%
+- IP helpers: 100%
+
+**Frontend Coverage**: **87.27%** (exceeds 85% threshold)
+- Security API: 92.19%
+- Security hooks: 96.56%
+- Security pages: 85.61%
+- UI components: 97.35%
+
+**Security-Specific Test Patterns**:
+- ✅ SSRF protection for webhook URLs (HTTPS enforcement, private IP blocking)
+- ✅ DNS resolution validation with timeout handling
+- ✅ IPv4/IPv6 private address detection (13+ CIDR ranges)
+- ✅ Cloud metadata endpoint blocking (169.254.169.254)
+- ✅ DNS rebinding/TOCTOU attack prevention
+- ✅ URL parser differential attack protection
+
+See [PR #450 Implementation Summary](implementation/PR450_TEST_COVERAGE_COMPLETE.md) for detailed test metrics.
 
 ### Integration Testing
 

@@ -482,9 +482,10 @@ describe('consoleEnrollment API', () => {
 
       try {
         await consoleEnrollment.enrollConsole(payload)
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Error message should NOT contain the key
-        expect(e.response?.data?.error).not.toContain('cs-enroll-sensitive-key')
+        const error = e as { response?: { data?: { error?: string } } }
+        expect(error.response?.data?.error).not.toContain('cs-enroll-sensitive-key')
       }
     })
 

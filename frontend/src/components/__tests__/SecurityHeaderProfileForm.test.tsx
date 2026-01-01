@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, it, expect, vi } from 'vitest';
 import { SecurityHeaderProfileForm } from '../SecurityHeaderProfileForm';
-import { securityHeadersApi } from '../../api/securityHeaders';
+import { securityHeadersApi, type SecurityHeaderProfile } from '../../api/securityHeaders';
 
 vi.mock('../../api/securityHeaders');
 
@@ -47,7 +47,7 @@ describe('SecurityHeaderProfileForm', () => {
   });
 
   it('should render with initial data', () => {
-    const initialData = {
+    const initialData: Partial<SecurityHeaderProfile> = {
       id: 1,
       name: 'Test Profile',
       description: 'Test description',
@@ -57,7 +57,7 @@ describe('SecurityHeaderProfileForm', () => {
     };
 
     render(
-      <SecurityHeaderProfileForm {...defaultProps} initialData={initialData as any} />,
+      <SecurityHeaderProfileForm {...defaultProps} initialData={initialData as SecurityHeaderProfile} />,
       { wrapper: createWrapper() }
     );
 
@@ -162,7 +162,7 @@ describe('SecurityHeaderProfileForm', () => {
   });
 
   it('should disable form for presets', () => {
-    const presetData = {
+    const presetData: Partial<SecurityHeaderProfile> = {
       id: 1,
       name: 'Basic Security',
       is_preset: true,
@@ -171,7 +171,7 @@ describe('SecurityHeaderProfileForm', () => {
     };
 
     render(
-      <SecurityHeaderProfileForm {...defaultProps} initialData={presetData as any} />,
+      <SecurityHeaderProfileForm {...defaultProps} initialData={presetData as SecurityHeaderProfile} />,
       { wrapper: createWrapper() }
     );
 
@@ -182,7 +182,7 @@ describe('SecurityHeaderProfileForm', () => {
   });
 
   it('should show delete button for non-presets', () => {
-    const profileData = {
+    const profileData: Partial<SecurityHeaderProfile> = {
       id: 1,
       name: 'Custom Profile',
       is_preset: false,
@@ -192,7 +192,7 @@ describe('SecurityHeaderProfileForm', () => {
     render(
       <SecurityHeaderProfileForm
         {...defaultProps}
-        initialData={profileData as any}
+        initialData={profileData as SecurityHeaderProfile}
         onDelete={mockOnDelete}
       />,
       { wrapper: createWrapper() }
@@ -202,7 +202,7 @@ describe('SecurityHeaderProfileForm', () => {
   });
 
   it('should not show delete button for presets', () => {
-    const presetData = {
+    const presetData: Partial<SecurityHeaderProfile> = {
       id: 1,
       name: 'Basic Security',
       is_preset: true,
@@ -213,7 +213,7 @@ describe('SecurityHeaderProfileForm', () => {
     render(
       <SecurityHeaderProfileForm
         {...defaultProps}
-        initialData={presetData as any}
+        initialData={presetData as SecurityHeaderProfile}
         onDelete={mockOnDelete}
       />,
       { wrapper: createWrapper() }
@@ -247,7 +247,7 @@ describe('SecurityHeaderProfileForm', () => {
   });
 
   it('should show deleting state', () => {
-    const profileData = {
+    const profileData: Partial<SecurityHeaderProfile> = {
       id: 1,
       name: 'Custom Profile',
       is_preset: false,
@@ -257,7 +257,7 @@ describe('SecurityHeaderProfileForm', () => {
     render(
       <SecurityHeaderProfileForm
         {...defaultProps}
-        initialData={profileData as any}
+        initialData={profileData as SecurityHeaderProfile}
         onDelete={mockOnDelete}
         isDeleting={true}
       />,

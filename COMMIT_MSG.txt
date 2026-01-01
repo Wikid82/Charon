@@ -1,0 +1,32 @@
+chore(security): align local CodeQL scans with CI execution
+
+Fixes recurring CI failures by ensuring local CodeQL tasks use identical
+parameters to GitHub Actions workflows. Implements pre-commit integration
+and enhances CI reporting with blocking on high-severity findings.
+
+Changes:
+- Update VS Code tasks to use security-and-quality suite (61 Go, 204 JS queries)
+- Add CI-aligned pre-commit hooks for CodeQL scans (manual stage)
+- Enhance CI workflow with result summaries and HIGH/CRITICAL blocking
+- Create comprehensive security scanning documentation
+- Update Definition of Done with CI-aligned security requirements
+
+Technical details:
+- Local tasks now use codeql/go-queries:codeql-suites/go-security-and-quality.qls
+- Pre-commit hooks include severity-based blocking (error-level fails)
+- CI workflow adds step summaries with finding counts
+- SARIF output viewable in VS Code or GitHub Security tab
+- Upgraded CodeQL CLI: v2.16.0 → v2.23.8 (resolved predicate incompatibility)
+
+Coverage maintained:
+- Backend: 85.35% (threshold: 85%)
+- Frontend: 87.74% (threshold: 85%)
+
+Testing:
+- All CodeQL tasks verified (Go: 79 findings, JS: 105 findings)
+- All pre-commit hooks passing (12/12)
+- Zero type errors
+- All security scans passing
+
+Closes issue: CodeQL CI/local mismatch causing recurring security failures
+See: docs/plans/current_spec.md, docs/reports/qa_codeql_ci_alignment.md

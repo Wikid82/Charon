@@ -77,4 +77,17 @@ describe('<Login />', () => {
     await waitFor(() => expect(postSpy).toHaveBeenCalled())
     expect(loginFn).toHaveBeenCalledWith('bearer-token')
   })
+
+  it('has proper autocomplete attributes for password managers', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
+    renderWithProviders(<Login />)
+
+    await waitFor(() => screen.getByPlaceholderText(/admin@example.com/i))
+
+    const emailInput = screen.getByPlaceholderText(/admin@example.com/i)
+    const passwordInput = screen.getByPlaceholderText(/••••••••/i)
+
+    expect(emailInput).toHaveAttribute('autocomplete', 'email')
+    expect(passwordInput).toHaveAttribute('autocomplete', 'current-password')
+  })
 })

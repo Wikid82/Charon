@@ -43,7 +43,8 @@ func NewLogsWSHandler(tracker *services.WebSocketTracker) *LogsWSHandler {
 }
 
 // LogsWebSocketHandler handles WebSocket connections for live log streaming.
-// DEPRECATED: Use NewLogsWSHandler().HandleWebSocket instead. Kept for backward compatibility.
+//
+// Deprecated: Use NewLogsWSHandler().HandleWebSocket instead. Kept for backward compatibility.
 func LogsWebSocketHandler(c *gin.Context) {
 	// For backward compatibility, create a nil tracker if called directly
 	handler := NewLogsWSHandler(nil)

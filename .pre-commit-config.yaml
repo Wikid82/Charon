@@ -116,6 +116,32 @@ repos:
         verbose: true
         stages: [manual]  # Only runs when explicitly called
 
+      - id: codeql-go-scan
+        name: CodeQL Go Security Scan (Manual - Slow)
+        entry: scripts/pre-commit-hooks/codeql-go-scan.sh
+        language: script
+        files: '\.go$'
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Performance: 30-60s, only run on-demand
+
+      - id: codeql-js-scan
+        name: CodeQL JavaScript/TypeScript Security Scan (Manual - Slow)
+        entry: scripts/pre-commit-hooks/codeql-js-scan.sh
+        language: script
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Performance: 30-60s, only run on-demand
+
+      - id: codeql-check-findings
+        name: Block HIGH/CRITICAL CodeQL Findings
+        entry: scripts/pre-commit-hooks/codeql-check-findings.sh
+        language: script
+        pass_filenames: false
+        verbose: true
+        stages: [manual]  # Only runs after CodeQL scans
+
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.43.0
     hooks:

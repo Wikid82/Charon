@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/server"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/version"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -158,6 +159,20 @@ func main() {
 		}
 		logger.Log().Info("Security tables migrated successfully")
 	}
+
+	// Reconcile CrowdSec state after migrations, before HTTP server starts
+	// This ensures CrowdSec is running if user preference was to have it enabled
+	crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
+	if crowdsecBinPath == "" {
+		crowdsecBinPath = "/usr/local/bin/crowdsec"
+	}
+	crowdsecDataDir := os.Getenv("CHARON_CROWDSEC_DATA")
+	if crowdsecDataDir == "" {
+		crowdsecDataDir = "/app/data/crowdsec"
+	}
+
+	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
+	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 
 	router := server.NewRouter(cfg.FrontendDir)
 	// Initialize structured logger with same writer as stdlib log so both capture logs

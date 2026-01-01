@@ -46,7 +46,7 @@ func TestWebSocketStatusHandler_GetConnections(t *testing.T) {
 	// Create test request
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/connections", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/connections", http.NoBody)
 
 	// Call handler
 	handler.GetConnections(c)
@@ -73,7 +73,7 @@ func TestWebSocketStatusHandler_GetConnectionsEmpty(t *testing.T) {
 	// Create test request
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/connections", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/connections", http.NoBody)
 
 	// Call handler
 	handler.GetConnections(c)
@@ -121,7 +121,7 @@ func TestWebSocketStatusHandler_GetStats(t *testing.T) {
 	// Create test request
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/stats", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/stats", http.NoBody)
 
 	// Call handler
 	handler.GetStats(c)
@@ -149,7 +149,7 @@ func TestWebSocketStatusHandler_GetStatsEmpty(t *testing.T) {
 	// Create test request
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/stats", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/websocket/stats", http.NoBody)
 
 	// Call handler
 	handler.GetStats(c)

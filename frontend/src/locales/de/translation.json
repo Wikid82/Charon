@@ -463,7 +463,7 @@
     "detailedTemplate": "Detaillierte Vorlage",
     "customTemplate": "Benutzerdefiniert",
     "template": "Vorlage",
-    "availableVariables": "Verfügbare Variablen: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Verfügbare Variablen: .Title, .Message, .Status, .Name, .Latency, .Time. Unterstützt webhook, Discord, Slack, Gotify und generische Dienste.",
     "notificationEvents": "Benachrichtigungsereignisse",
     "proxyHosts": "Proxy-Hosts",
     "remoteServers": "Remote-Server",
@@ -535,7 +535,10 @@
     "whitelist": "Whitelist",
     "blacklist": "Blacklist",
     "deleteConfirm": "Sind Sie sicher, dass Sie diesen Benutzer löschen möchten?",
-    "deleteUser": "Benutzer löschen"
+    "deleteUser": "Benutzer löschen",
+    "inviteUrlPreview": "Einladungslink-Vorschau",
+    "inviteUrlWarning": "Anwendungs-URL ist nicht konfiguriert. Dieser Link funktioniert möglicherweise nicht für externe Benutzer.",
+    "configureApplicationUrl": "Anwendungs-URL konfigurieren"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -735,6 +738,16 @@
       "newWindow": "Neues Fenster",
       "domainLinkBehaviorHelper": "Steuern Sie, wie Domain-Links in der Proxy-Hosts-Liste geöffnet werden.",
       "languageHelper": "Wählen Sie Ihre bevorzugte Sprache. Änderungen werden sofort wirksam."
+    },
+    "applicationUrl": {
+      "title": "Anwendungs-URL",
+      "description": "Konfigurieren Sie die öffentliche URL für benutzerseitige Links und E-Mails.",
+      "label": "Anwendungs-URL",
+      "helper": "Die öffentliche URL, über die Benutzer auf Charon zugreifen (z. B. https://charon.example.com). Wird in Einladungs-E-Mails und Passwort-Reset-Links verwendet.",
+      "infoMessage": "Diese URL wird beim Versenden von Einladungs-E-Mails verwendet. Wenn sie nicht konfiguriert ist, verwendet Charon die URL aus der aktuellen Browser-Anfrage, die möglicherweise nicht von externen Netzwerken aus zugänglich ist.",
+      "invalidUrl": "Bitte geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt",
+      "notConfiguredWarning": "Anwendungs-URL ist nicht konfiguriert. Einladungs-E-Mails verwenden die aktuelle Browser-URL, die möglicherweise nicht von externen Netzwerken aus zugänglich ist.",
+      "testButton": "URL testen"
     },
     "systemStatus": {
       "title": "Systemstatus",

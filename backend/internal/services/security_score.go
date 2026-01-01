@@ -66,11 +66,12 @@ func CalculateSecurityScore(profile *models.SecurityHeaderProfile) ScoreBreakdow
 
 	// X-Frame-Options (10 points)
 	xfoScore := 0
-	if profile.XFrameOptions == "DENY" {
+	switch profile.XFrameOptions {
+	case "DENY":
 		xfoScore = 10
-	} else if profile.XFrameOptions == "SAMEORIGIN" {
+	case "SAMEORIGIN":
 		xfoScore = 7
-	} else {
+	default:
 		suggestions = append(suggestions, "Set X-Frame-Options to DENY or SAMEORIGIN")
 	}
 	breakdown["x_frame_options"] = xfoScore

@@ -197,7 +197,9 @@ func TestRecoveryNoPanicNormalFlow(t *testing.T) {
 	}
 }
 
-// TestRecoveryPanicWithNilValue tests recovery from panic(nil).
+// TestRecoveryPanicWithNilValue tests recovery from panic with a nil-like value.
+// Note: panic(nil) behavior changed in Go 1.21+ and triggers linter warnings,
+// so we use an explicit error value instead.
 func TestRecoveryPanicWithNilValue(t *testing.T) {
 	old := log.Writer()
 	buf := &bytes.Buffer{}
@@ -210,22 +212,20 @@ func TestRecoveryPanicWithNilValue(t *testing.T) {
 	router.Use(RequestID())
 	router.Use(Recovery(false))
 	router.GET("/panic-nil", func(c *gin.Context) {
-		panic(nil)
+		panic("intentional test panic with nil-like value")
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/panic-nil", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// panic(nil) does not trigger recovery in Go 1.21+ (returns nil from recover())
-	// Prior versions would catch it. This test documents the expected behavior.
-	// With Go 1.21+, the request should complete normally since recover() returns nil
-	if w.Code == http.StatusInternalServerError {
-		out := buf.String()
-		// If it was caught, should log the nil panic
-		if !strings.Contains(out, "PANIC") {
-			t.Log("panic(nil) was caught but no PANIC in log")
-		}
+	// Verify the panic was recovered and returned 500
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
 	}
-	// Either outcome is acceptable depending on Go version
+
+	out := buf.String()
+	if !strings.Contains(out, "PANIC") {
+		t.Error("expected PANIC in log output")
+	}
 }

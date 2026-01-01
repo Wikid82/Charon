@@ -176,6 +176,11 @@ for i in {1..20}; do
   sleep 1
 done
 
+echo "Registering admin user and logging in to retrieve session cookie..."
+TMP_COOKIE=$(mktemp)
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
+
 echo "Creating proxy host 'integration.local' pointing to backend..."
 PROXY_HOST_PAYLOAD=$(cat <<EOF
 {
@@ -189,25 +194,20 @@ PROXY_HOST_PAYLOAD=$(cat <<EOF
 }
 EOF
 )
-CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" http://localhost:8080/api/v1/proxy-hosts)
+CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts)
 CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
 if [ "$CREATE_STATUS" != "201" ]; then
   echo "Proxy host create failed or already exists; attempting to update existing host..."
   # Find the existing host UUID by searching for the domain in the proxy-hosts list
-  EXISTING_UUID=$(curl -s http://localhost:8080/api/v1/proxy-hosts | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+  EXISTING_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | grep -o '{[^}]*"domain_names":"integration.local"[^}]*}' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
   if [ -n "$EXISTING_UUID" ]; then
     echo "Updating existing host $EXISTING_UUID with Coraza handler"
-    curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" http://localhost:8080/api/v1/proxy-hosts/$EXISTING_UUID
+    curl -s -X PUT -H "Content-Type: application/json" -d "${PROXY_HOST_PAYLOAD}" -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts/$EXISTING_UUID
   else
     echo "Could not find existing host; create response:"
     echo "$CREATE_RESP"
   fi
 fi
-
-echo "Registering admin user and logging in to retrieve session cookie..."
-TMP_COOKIE=$(mktemp)
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' http://localhost:8080/api/v1/auth/register >/dev/null || true
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c ${TMP_COOKIE} http://localhost:8080/api/v1/auth/login >/dev/null
 
 echo "Give Caddy a moment to apply configuration..."
 sleep 3
@@ -304,7 +304,7 @@ echo "Cleaning up..."
 
 # Delete the integration test proxy host from DB before stopping container
 echo "Removing integration test proxy host from database..."
-INTEGRATION_UUID=$(curl -s http://localhost:8080/api/v1/proxy-hosts | grep -o '"uuid":"[^"]*"[^}]*"domain_names":"integration.local"' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+INTEGRATION_UUID=$(curl -s -b ${TMP_COOKIE} http://localhost:8080/api/v1/proxy-hosts | grep -o '"uuid":"[^"]*"[^}]*"domain_names":"integration.local"' | head -n1 | grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
 if [ -n "$INTEGRATION_UUID" ]; then
   curl -s -X DELETE -b ${TMP_COOKIE} "http://localhost:8080/api/v1/proxy-hosts/${INTEGRATION_UUID}?delete_uptime=true" >/dev/null
   echo "✓ Deleted integration proxy host ${INTEGRATION_UUID}"

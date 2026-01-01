@@ -990,9 +990,10 @@ func TestGenerateConfig_WithWAFPerHostDisabled(t *testing.T) {
 	var wafEnabledRoute, wafDisabledRoute *Route
 	for _, route := range server.Routes {
 		if len(route.Match) > 0 && len(route.Match[0].Host) > 0 {
-			if route.Match[0].Host[0] == "waf-enabled.example.com" {
+			switch route.Match[0].Host[0] {
+			case "waf-enabled.example.com":
 				wafEnabledRoute = route
-			} else if route.Match[0].Host[0] == "waf-disabled.example.com" {
+			case "waf-disabled.example.com":
 				wafDisabledRoute = route
 			}
 		}
