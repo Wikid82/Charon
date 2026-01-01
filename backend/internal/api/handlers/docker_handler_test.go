@@ -51,7 +51,7 @@ func TestDockerHandler_ListContainers_InvalidHostRejected(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=tcp://127.0.0.1:2375", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=tcp://127.0.0.1:2375", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -70,7 +70,7 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -89,7 +89,7 @@ func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=abc-123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=abc-123", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -110,7 +110,7 @@ func TestDockerHandler_ListContainers_ServerIDNotFoundReturns404(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=missing", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -147,7 +147,7 @@ func TestDockerHandler_ListContainers_Local(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -187,7 +187,7 @@ func TestDockerHandler_ListContainers_RemoteServerSuccess(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=server-uuid-123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=server-uuid-123", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -212,7 +212,7 @@ func TestDockerHandler_ListContainers_RemoteServerNotFound(t *testing.T) {
 	api := router.Group("/api/v1")
 	h.RegisterRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=nonexistent-uuid", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=nonexistent-uuid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -245,7 +245,7 @@ func TestDockerHandler_ListContainers_InvalidHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?"+tt.hostParam, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?"+tt.hostParam, http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
@@ -296,7 +296,7 @@ func TestDockerHandler_ListContainers_DockerUnavailable(t *testing.T) {
 			api := router.Group("/api/v1")
 			h.RegisterRoutes(api)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
@@ -347,7 +347,7 @@ func TestDockerHandler_ListContainers_GenericError(t *testing.T) {
 			api := router.Group("/api/v1")
 			h.RegisterRoutes(api)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 
