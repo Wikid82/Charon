@@ -137,7 +137,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 	// - Production code performs full DNS/IP validation
 	// - Test code uses mock transport (bypasses network entirely)
 	// - ssrfSafeDialer() provides defense-in-depth at connection time
-	var requestURL string // Final URL for HTTP request (always validated)
+	var validatedRequestURL string // Validated/sanitized URL for HTTP request (security-verified)
 	if len(transport) == 0 || transport[0] == nil {
 		// Production path: Full security validation with DNS/IP checks
 		validatedURL, err := security.ValidateExternalURL(rawURL,
@@ -184,7 +184,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 		metrics.RecordURLValidation("allowed", "validated")
 		// ENHANCEMENT: Audit log successful validation
 		security.LogURLTest(parsed.Hostname(), requestID, "system", "", "allowed")
-		requestURL = validatedURL // Use validated URL for production requests (breaks taint chain)
+		validatedRequestURL = validatedURL // Use validated URL for production requests (breaks taint chain)
 	} else {
 		// Test path: Basic validation without DNS (test transport handles network)
 		// Reconstruct URL to break taint chain for static analysis
@@ -198,7 +198,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 			return false, 0, fmt.Errorf("only http and https schemes are allowed")
 		}
 		// Reconstruct URL to break taint chain (creates new string value)
-		requestURL = testParsed.String()
+		validatedRequestURL = testParsed.String()
 	}
 
 	// Create HTTP client with optional custom transport
@@ -238,7 +238,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 
 	// Parse the validated URL to construct request from validated components
 	// This breaks the taint chain for static analysis by using parsed URL components
-	validatedParsed, err := url.Parse(requestURL)
+	validatedParsed, err := url.Parse(validatedRequestURL)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to parse validated URL: %w", err)
 	}
