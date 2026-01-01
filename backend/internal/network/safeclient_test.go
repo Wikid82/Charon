@@ -372,7 +372,7 @@ func TestValidateRedirectTarget_EmptyHostname(t *testing.T) {
 	}
 
 	// Create request with empty hostname
-	req, _ := http.NewRequest("GET", "http:///path", nil)
+	req, _ := http.NewRequest("GET", "http:///path", http.NoBody)
 	err := validateRedirectTarget(req, opts)
 	if err == nil {
 		t.Error("expected error for empty hostname")
@@ -386,7 +386,7 @@ func TestValidateRedirectTarget_Localhost(t *testing.T) {
 	}
 
 	// Test localhost blocked
-	req, _ := http.NewRequest("GET", "http://localhost/path", nil)
+	req, _ := http.NewRequest("GET", "http://localhost/path", http.NoBody)
 	err := validateRedirectTarget(req, opts)
 	if err == nil {
 		t.Error("expected error for localhost when AllowLocalhost=false")
@@ -406,7 +406,7 @@ func TestValidateRedirectTarget_127(t *testing.T) {
 		DialTimeout:    time.Second,
 	}
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1/path", nil)
+	req, _ := http.NewRequest("GET", "http://127.0.0.1/path", http.NoBody)
 	err := validateRedirectTarget(req, opts)
 	if err == nil {
 		t.Error("expected error for 127.0.0.1 when AllowLocalhost=false")
@@ -425,7 +425,7 @@ func TestValidateRedirectTarget_IPv6Loopback(t *testing.T) {
 		DialTimeout:    time.Second,
 	}
 
-	req, _ := http.NewRequest("GET", "http://[::1]/path", nil)
+	req, _ := http.NewRequest("GET", "http://[::1]/path", http.NoBody)
 	err := validateRedirectTarget(req, opts)
 	if err == nil {
 		t.Error("expected error for ::1 when AllowLocalhost=false")
@@ -550,7 +550,7 @@ func TestValidateRedirectTarget_DNSFailure(t *testing.T) {
 	}
 
 	// Use a domain that will fail DNS resolution
-	req, _ := http.NewRequest("GET", "http://this-domain-does-not-exist-12345.invalid/path", nil)
+	req, _ := http.NewRequest("GET", "http://this-domain-does-not-exist-12345.invalid/path", http.NoBody)
 	err := validateRedirectTarget(req, opts)
 	if err == nil {
 		t.Error("expected error for DNS resolution failure")
@@ -578,7 +578,7 @@ func TestValidateRedirectTarget_PrivateIPInRedirect(t *testing.T) {
 
 	for _, url := range privateHosts {
 		t.Run(url, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", url, nil)
+			req, _ := http.NewRequest("GET", url, http.NoBody)
 			err := validateRedirectTarget(req, opts)
 			if err == nil {
 				t.Errorf("expected error for redirect to private IP: %s", url)
@@ -725,7 +725,7 @@ func TestValidateRedirectTarget_AllowedLocalhost(t *testing.T) {
 
 	for _, url := range localhostURLs {
 		t.Run(url, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", url, nil)
+			req, _ := http.NewRequest("GET", url, http.NoBody)
 			err := validateRedirectTarget(req, opts)
 			if err != nil {
 				t.Errorf("expected no error for %s when AllowLocalhost=true, got: %v", url, err)

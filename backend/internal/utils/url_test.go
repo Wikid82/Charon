@@ -43,7 +43,7 @@ func TestGetPublicURL_WithConfiguredURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", http.NoBody)
 	c.Request = req
 
 	// Test GetPublicURL
@@ -68,7 +68,7 @@ func TestGetPublicURL_WithTrailingSlash(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", http.NoBody)
 	c.Request = req
 
 	publicURL := GetPublicURL(db, c)
@@ -87,7 +87,7 @@ func TestGetPublicURL_Fallback_HTTPSWithTLS(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 
 	// Create request with TLS
-	req := httptest.NewRequest(http.MethodGet, "https://myapp.com:8443/path", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://myapp.com:8443/path", http.NoBody)
 	req.TLS = &tls.ConnectionState{} // Simulate TLS connection
 	c.Request = req
 
@@ -104,7 +104,7 @@ func TestGetPublicURL_Fallback_HTTP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:8080/test", http.NoBody)
 	c.Request = req
 
 	publicURL := GetPublicURL(db, c)
@@ -120,7 +120,7 @@ func TestGetPublicURL_Fallback_XForwardedProto(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://internal-server:8080/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://internal-server:8080/test", http.NoBody)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	c.Request = req
 
@@ -145,7 +145,7 @@ func TestGetPublicURL_EmptyValue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:9000/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9000/test", http.NoBody)
 	c.Request = req
 
 	publicURL := GetPublicURL(db, c)
@@ -162,7 +162,7 @@ func TestGetPublicURL_NoSettingInDB(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http://fallback-host.com/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://fallback-host.com/test", http.NoBody)
 	c.Request = req
 
 	publicURL := GetPublicURL(db, c)
@@ -423,7 +423,7 @@ func TestGetBaseURL(t *testing.T) {
 			if tc.hasTLS {
 				scheme = "https"
 			}
-			req := httptest.NewRequest(http.MethodGet, scheme+"://"+tc.host+"/test", nil)
+			req := httptest.NewRequest(http.MethodGet, scheme+"://"+tc.host+"/test", http.NoBody)
 
 			// Set TLS if needed
 			if tc.hasTLS {
@@ -451,7 +451,7 @@ func TestGetBaseURL_PrecedenceOrder(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 
 	// Request with TLS but also X-Forwarded-Proto
-	req := httptest.NewRequest(http.MethodGet, "https://example.com/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/test", http.NoBody)
 	req.TLS = &tls.ConnectionState{}
 	req.Header.Set("X-Forwarded-Proto", "http") // Should be ignored when TLS is present
 	c.Request = req
@@ -467,7 +467,7 @@ func TestGetBaseURL_EmptyHost(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "http:///test", nil)
+	req := httptest.NewRequest(http.MethodGet, "http:///test", http.NoBody)
 	req.Host = "" // Empty host
 	c.Request = req
 
