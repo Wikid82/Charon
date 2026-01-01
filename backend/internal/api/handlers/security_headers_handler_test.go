@@ -49,7 +49,7 @@ func TestListProfiles(t *testing.T) {
 	}
 	db.Create(&profile2)
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -70,7 +70,7 @@ func TestGetProfile_ByID(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -92,7 +92,7 @@ func TestGetProfile_ByUUID(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/"+testUUID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/"+testUUID, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -108,7 +108,7 @@ func TestGetProfile_ByUUID(t *testing.T) {
 func TestGetProfile_NotFound(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/99999", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/99999", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -222,7 +222,7 @@ func TestDeleteProfile(t *testing.T) {
 	}
 	db.Create(&profile)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -244,7 +244,7 @@ func TestDeleteProfile_CannotDeletePreset(t *testing.T) {
 	}
 	db.Create(&preset)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", preset.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", preset.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -270,7 +270,7 @@ func TestDeleteProfile_InUse(t *testing.T) {
 	}
 	db.Create(&host)
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -280,7 +280,7 @@ func TestDeleteProfile_InUse(t *testing.T) {
 func TestGetPresets(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/presets", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/presets", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -491,7 +491,7 @@ func TestListProfiles_DBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -502,7 +502,7 @@ func TestGetProfile_UUID_NotFound(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
 	// Use a UUID that doesn't exist
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/non-existent-uuid-12345", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/non-existent-uuid-12345", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -516,7 +516,7 @@ func TestGetProfile_ID_DBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -530,7 +530,7 @@ func TestGetProfile_UUID_DBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/some-uuid-format", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/some-uuid-format", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -661,7 +661,7 @@ func TestUpdateProfile_LookupDBError(t *testing.T) {
 func TestDeleteProfile_InvalidID(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/invalid", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/invalid", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -671,7 +671,7 @@ func TestDeleteProfile_InvalidID(t *testing.T) {
 func TestDeleteProfile_NotFound(t *testing.T) {
 	router, _ := setupSecurityHeadersTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/99999", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/99999", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -695,7 +695,7 @@ func TestDeleteProfile_LookupDBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/security/headers/profiles/1", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -722,7 +722,7 @@ func TestDeleteProfile_CountDBError(t *testing.T) {
 	handler := NewSecurityHeadersHandler(db, nil)
 	handler.RegisterRoutes(router.Group("/"))
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -752,7 +752,7 @@ func TestDeleteProfile_DeleteDBError(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.Close()
 
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/security/headers/profiles/%d", profile.ID), http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -863,7 +863,7 @@ func TestGetProfile_UUID_DBError_NonNotFound(t *testing.T) {
 	sqlDB.Close()
 
 	// Use a valid UUID format to ensure we hit the UUID lookup path
-	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/550e8400-e29b-41d4-a716-446655440000", nil)
+	req := httptest.NewRequest(http.MethodGet, "/security/headers/profiles/550e8400-e29b-41d4-a716-446655440000", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
