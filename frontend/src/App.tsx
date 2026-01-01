@@ -67,7 +67,6 @@ export default function App() {
               <Route path="security/headers" element={<SecurityHeaders />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
-              <Route path="notifications" element={<Notifications />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
@@ -75,6 +74,7 @@ export default function App() {
               <Route path="settings" element={<Settings />}>
                 <Route index element={<SystemSettings />} />
                 <Route path="system" element={<SystemSettings />} />
+                <Route path="notifications" element={<Notifications />} />
                 <Route path="smtp" element={<SMTPSettings />} />
                 <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
                 <Route path="account" element={<Account />} />

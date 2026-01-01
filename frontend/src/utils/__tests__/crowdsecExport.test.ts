@@ -139,7 +139,7 @@ describe('crowdsecExport', () => {
     })
 
     it('should handle undefined return from prompt', () => {
-      vi.mocked(window.prompt).mockReturnValue(undefined as any)
+      vi.mocked(window.prompt).mockReturnValue(undefined as unknown as string | null)
       const result = promptCrowdsecFilename('default.tar.gz')
       expect(result).toBeNull()
     })
@@ -151,7 +151,12 @@ describe('crowdsecExport', () => {
     let clickSpy: ReturnType<typeof vi.fn>
     let removeSpy: ReturnType<typeof vi.fn>
     let appendChildSpy: ReturnType<typeof vi.fn>
-    let anchorElement: any
+    let anchorElement: {
+      href: string
+      download: string
+      click: ReturnType<typeof vi.fn>
+      remove: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       createObjectURLSpy = vi.fn(() => 'blob:mock-url-12345')
@@ -172,13 +177,13 @@ describe('crowdsecExport', () => {
 
       vi.spyOn(document, 'createElement').mockImplementation((tag) => {
         if (tag === 'a') {
-          return anchorElement
+          return anchorElement as unknown as HTMLAnchorElement
         }
         return document.createElement(tag)
       })
 
       appendChildSpy = vi.fn((node: Node) => node)
-      vi.spyOn(document.body, 'appendChild').mockImplementation(appendChildSpy as any)
+      vi.spyOn(document.body, 'appendChild').mockImplementation(appendChildSpy as (node: Node) => Node)
     })
 
     afterEach(() => {
@@ -424,12 +429,12 @@ describe('crowdsecExport', () => {
             download: '',
             click: vi.fn(),
             remove: vi.fn(),
-          } as any
+          } as unknown as HTMLAnchorElement
         }
         return document.createElement(tag)
       })
 
-      vi.spyOn(document.body, 'appendChild').mockImplementation(() => null as any)
+      vi.spyOn(document.body, 'appendChild').mockImplementation(() => null as unknown as HTMLElement)
     })
 
     afterEach(() => {

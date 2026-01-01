@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest'
 import UsersPage from '../UsersPage'
 import * as usersApi from '../../api/users'
 import * as proxyHostsApi from '../../api/proxyHosts'
+import client from '../../api/client'
 import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import { toast } from '../../utils/toast'
 
@@ -18,10 +19,18 @@ vi.mock('../../api/users', () => ({
   updateUserPermissions: vi.fn(),
   validateInvite: vi.fn(),
   acceptInvite: vi.fn(),
+  previewInviteURL: vi.fn(),
 }))
 
 vi.mock('../../api/proxyHosts', () => ({
   getProxyHosts: vi.fn(),
+}))
+
+vi.mock('../../api/client', () => ({
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+  },
 }))
 
 vi.mock('../../utils/toast', () => ({
@@ -348,5 +357,168 @@ describe('UsersPage', () => {
     } else {
       delete (navigator as unknown as { clipboard?: unknown }).clipboard
     }
+  })
+
+  describe('URL Preview in InviteModal', () => {
+    it('shows URL preview when valid email is entered', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'https://charon.example.com',
+          is_configured: true,
+          warning: false,
+          warning_message: '',
+        },
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'test@example.com')
+
+      await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      }, { timeout: 1000 })
+
+      // Look for the preview URL content with ellipsis replacing the token
+      await waitFor(() => {
+        const previewText = screen.getByText(/charon\.example\.com.*accept-invite.*\.\.\./)
+        expect(previewText).toBeTruthy()
+      }, { timeout: 1000 })
+    })
+
+    it('debounces URL preview for 500ms', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'https://example.com',
+          is_configured: true,
+          warning: false,
+          warning_message: '',
+        },
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'test@example.com')
+
+      // Wait 600ms to ensure debounce has completed
+      await new Promise(resolve => setTimeout(resolve, 600))
+
+      await waitFor(() => {
+        expect(client.post).toHaveBeenCalledTimes(1)
+        expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      }, { timeout: 1000 })
+    })
+
+    it('replaces sample token with ellipsis in preview', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'https://example.com',
+          is_configured: true,
+          warning: false,
+          warning_message: '',
+        },
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'test@example.com')
+
+      await waitFor(() => {
+        const preview = screen.getByText(/example\.com.*accept-invite/)
+        expect(preview.textContent).toContain('...')
+        expect(preview.textContent).not.toContain('SAMPLE_TOKEN_PREVIEW')
+      }, { timeout: 1000 })
+    })
+
+    it('shows warning when not configured', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(client.post).mockResolvedValue({
+        data: {
+          preview_url: 'http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW',
+          base_url: 'http://localhost:8080',
+          is_configured: false,
+          warning: true,
+          warning_message: 'Application URL not configured',
+        },
+      })
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'test@example.com')
+
+      await waitFor(() => {
+        // Look for link to system settings
+        const link = screen.getByRole('link')
+        expect(link.getAttribute('href')).toContain('/settings/system')
+      }, { timeout: 1000 })
+    })
+
+    it('does not show preview when email is invalid', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'invalid')
+
+      await new Promise(resolve => setTimeout(resolve, 600))
+
+      // Preview should not be fetched or displayed
+      expect(client.post).not.toHaveBeenCalled()
+    })
+
+    it('handles preview API error gracefully', async () => {
+      vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+      vi.mocked(client.post).mockRejectedValue(new Error('API error'))
+
+      renderWithQueryClient(<UsersPage />)
+
+      const user = userEvent.setup()
+      await waitFor(() => expect(screen.getByText('Invite User')).toBeInTheDocument())
+      await user.click(screen.getByRole('button', { name: /Invite User/i }))
+
+      const emailInput = screen.getByPlaceholderText('user@example.com')
+      await user.type(emailInput, 'test@example.com')
+
+      // Wait for debounce
+      await new Promise(resolve => setTimeout(resolve, 600))
+
+      await waitFor(() => {
+        expect(client.post).toHaveBeenCalledWith('/users/preview-invite-url', { email: 'test@example.com' })
+      }, { timeout: 1000 })
+
+      // Verify preview is not displayed after error
+      const previewQuery = screen.queryByText(/accept-invite/)
+      expect(previewQuery).toBeNull()
+    })
   })
 })

@@ -133,6 +133,29 @@ Request Body (example):
 
 Response 200: `{ "config": { ... } }`
 
+**Security Considerations**:
+
+Webhook URLs configured in security settings are validated to prevent Server-Side Request Forgery (SSRF) attacks. The following destinations are blocked:
+
+- Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Cloud metadata endpoints (169.254.169.254)
+- Loopback addresses (127.0.0.0/8)
+- Link-local addresses
+
+**Error Response**:
+```json
+{
+  "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
+}
+```
+
+**Example Valid URL**:
+```json
+{
+  "webhook_url": "https://webhook.example.com/receive"
+}
+```
+
 #### Enable Cerberus
 
 ```http
@@ -221,6 +244,447 @@ DELETE /security/rulesets/:id
 ```
 
 Response 200: `{ "deleted": true }`
+
+---
+
+### Application URL Endpoints
+
+#### Validate Application URL
+
+Validates that a URL is properly formatted for use as the application's public URL.
+
+```http
+POST /settings/validate-url
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+
+```json
+{
+  "url": "https://charon.example.com"
+}
+```
+
+**Required Fields:**
+
+- `url` (string) - The URL to validate
+
+**Response 200 (Valid URL):**
+
+```json
+{
+  "valid": true,
+  "normalized": "https://charon.example.com"
+}
+```
+
+**Response 200 (Valid with Warning):**
+
+```json
+{
+  "valid": true,
+  "normalized": "http://charon.example.com",
+  "warning": "Using http:// instead of https:// is not recommended for production environments"
+}
+```
+
+**Response 400 (Invalid URL):**
+
+```json
+{
+  "valid": false,
+  "error": "URL must start with http:// or https:// and cannot include path components"
+}
+```
+
+**Response 403:**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Validation Rules:**
+
+- URL must start with `http://` or `https://`
+- URL cannot include path components (e.g., `/admin`)
+- Trailing slashes are automatically removed
+- Port numbers are allowed (e.g., `:8080`)
+- Warning is returned if using `http://` (insecure)
+
+**Examples:**
+
+```bash
+# Valid HTTPS URL
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com"}'
+
+# Valid with port
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com:8443"}'
+
+# Invalid - no protocol
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "charon.example.com"}'
+
+# Invalid - includes path
+curl -X POST http://localhost:8080/api/v1/settings/validate-url \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://charon.example.com/admin"}'
+```
+
+---
+
+#### Preview User Invite URL
+
+Generates a preview of the invite URL that would be sent to a user, without actually creating the invitation.
+
+```http
+POST /users/preview-invite-url
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+
+```json
+{
+  "email": "newuser@example.com"
+}
+```
+
+**Required Fields:**
+
+- `email` (string) - Email address for the preview
+
+**Response 200 (Configured):**
+
+```json
+{
+  "preview_url": "https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "https://charon.example.com",
+  "is_configured": true,
+  "email": "newuser@example.com",
+  "warning": false,
+  "warning_message": ""
+}
+```
+
+**Response 200 (Not Configured):**
+
+```json
+{
+  "preview_url": "http://localhost:8080/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "http://localhost:8080",
+  "is_configured": false,
+  "email": "newuser@example.com",
+  "warning": true,
+  "warning_message": "Application URL not configured. The invite link may not be accessible from external networks."
+}
+```
+
+**Response 400:**
+
+```json
+{
+  "error": "email is required"
+}
+```
+
+**Response 403:**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Field Descriptions:**
+
+- `preview_url` - Complete invite URL with sample token
+- `base_url` - The base URL being used (configured or fallback)
+- `is_configured` - Whether Application URL is configured in settings
+- `email` - Email address from the request (echoed back)
+- `warning` - Boolean indicating if there's a configuration warning
+- `warning_message` - Human-readable warning (empty if no warning)
+
+**Use Cases:**
+
+1. **Pre-flight check:** Verify invite URLs before creating users
+2. **Configuration validation:** Confirm Application URL is set correctly
+3. **UI preview:** Show users what invite link will look like
+4. **Testing:** Validate invite flow without creating actual invitations
+
+**Examples:**
+
+```bash
+# Preview invite URL
+curl -X POST http://localhost:8080/api/v1/users/preview-invite-url \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com"}'
+
+# Response when configured:
+{
+  "preview_url": "https://charon.example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW",
+  "base_url": "https://charon.example.com",
+  "is_configured": true,
+  "email": "admin@example.com",
+  "warning": false,
+  "warning_message": ""
+}
+```
+
+**JavaScript Example:**
+
+```javascript
+const previewInvite = async (email) => {
+  const response = await fetch('http://localhost:8080/api/v1/users/preview-invite-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer <admin-token>'
+    },
+    body: JSON.stringify({ email })
+  });
+
+  const data = await response.json();
+
+  if (data.warning) {
+    console.warn(data.warning_message);
+    console.log('Configure Application URL in System Settings');
+  } else {
+    console.log('Invite URL:', data.preview_url);
+  }
+};
+
+previewInvite('newuser@example.com');
+```
+
+**Python Example:**
+
+```python
+import requests
+
+def preview_invite(email, api_base='http://localhost:8080/api/v1'):
+    response = requests.post(
+        f'{api_base}/users/preview-invite-url',
+        headers={'Content-Type': 'application/json'},
+        json={'email': email}
+    )
+
+    data = response.json()
+
+    if data.get('warning'):
+        print(f"Warning: {data['warning_message']}")
+    else:
+        print(f"Invite URL: {data['preview_url']}")
+
+    return data
+
+preview_invite('admin@example.com')
+```
+
+---
+
+#### Test URL Connectivity
+
+Test if a URL is reachable from the server with comprehensive SSRF (Server-Side Request Forgery) protection.
+
+```http
+POST /settings/test-url
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+**Request Body:**
+
+```json
+{
+  "url": "https://api.example.com"
+}
+```
+
+**Required Fields:**
+
+- `url` (string) - The URL to test for connectivity
+
+**Response 200 (Reachable):**
+
+```json
+{
+  "reachable": true,
+  "latency": 145,
+  "message": "URL is reachable",
+  "error": ""
+}
+```
+
+**Response 200 (Unreachable):**
+
+```json
+{
+  "reachable": false,
+  "latency": 0,
+  "message": "",
+  "error": "connection timeout after 5s"
+}
+```
+
+**Response 400 (Invalid URL):**
+
+```json
+{
+  "error": "invalid URL format"
+}
+```
+
+**Response 403 (Security Block):**
+
+```json
+{
+  "error": "URL resolves to a private IP address (blocked for security)",
+  "details": "SSRF protection: private IP ranges are not allowed"
+}
+```
+
+**Response 403 (Admin Required):**
+
+```json
+{
+  "error": "Admin access required"
+}
+```
+
+**Field Descriptions:**
+
+- `reachable` - Boolean indicating if the URL is accessible
+- `latency` - Response time in milliseconds (0 if unreachable)
+- `message` - Success message describing the result
+- `error` - Error message if the test failed (empty on success)
+
+**Security Features:**
+
+This endpoint implements comprehensive SSRF protection:
+
+1. **DNS Resolution Validation** - Resolves hostname with 3-second timeout
+2. **Private IP Blocking** - Blocks 13+ CIDR ranges:
+   - RFC 1918 private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+   - Loopback addresses (`127.0.0.0/8`, `::1/128`)
+   - Link-local addresses (`169.254.0.0/16`, `fe80::/10`)
+   - IPv6 Unique Local Addresses (`fc00::/7`)
+   - Multicast and other reserved ranges
+3. **Cloud Metadata Protection** - Blocks AWS (`169.254.169.254`) and GCP (`metadata.google.internal`) metadata endpoints
+4. **Controlled HTTP Request** - HEAD request with 5-second timeout
+5. **Limited Redirects** - Maximum 2 redirects allowed
+6. **Admin-Only Access** - Requires authenticated admin user
+
+**Use Cases:**
+
+1. **Webhook validation:** Verify webhook endpoints before saving
+2. **Application URL testing:** Confirm configured URLs are reachable
+3. **Integration setup:** Test external service connectivity
+4. **Health checks:** Verify upstream service availability
+
+**Examples:**
+
+```bash
+# Test a public URL
+curl -X POST http://localhost:8080/api/v1/settings/test-url \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{"url": "https://api.github.com"}'
+
+# Response:
+{
+  "reachable": true,
+  "latency": 152,
+  "message": "URL is reachable",
+  "error": ""
+}
+
+# Attempt to test a private IP (blocked)
+curl -X POST http://localhost:8080/api/v1/settings/test-url \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{"url": "http://192.168.1.1"}'
+
+# Response:
+{
+  "error": "URL resolves to a private IP address (blocked for security)",
+  "details": "SSRF protection: private IP ranges are not allowed"
+}
+```
+
+**JavaScript Example:**
+
+```javascript
+const testURL = async (url) => {
+  const response = await fetch('http://localhost:8080/api/v1/settings/test-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer <admin-token>'
+    },
+    body: JSON.stringify({ url })
+  });
+
+  const data = await response.json();
+
+  if (data.reachable) {
+    console.log(`✓ ${url} is reachable (${data.latency}ms)`);
+  } else {
+    console.error(`✗ ${url} failed: ${data.error}`);
+  }
+
+  return data;
+};
+
+testURL('https://api.example.com');
+```
+
+**Python Example:**
+
+```python
+import requests
+
+def test_url(url, api_base='http://localhost:8080/api/v1'):
+    response = requests.post(
+        f'{api_base}/settings/test-url',
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer <admin-token>'
+        },
+        json={'url': url}
+    )
+
+    data = response.json()
+
+    if response.status_code == 403:
+        print(f"Security block: {data.get('error')}")
+    elif data.get('reachable'):
+        print(f"✓ {url} is reachable ({data['latency']}ms)")
+    else:
+        print(f"✗ {url} failed: {data['error']}")
+
+    return data
+
+test_url('https://api.github.com')
+```
+
+**Security Considerations:**
+
+- Only admin users can access this endpoint
+- Private IPs and cloud metadata endpoints are always blocked
+- DNS rebinding attacks are prevented by resolving before the HTTP request
+- Request timeouts prevent slowloris-style attacks
+- Limited redirects prevent redirect loops and excessive resource consumption
+- Consider rate limiting this endpoint in production environments
 
 ---
 
@@ -835,6 +1299,22 @@ Content-Type: application/json
   "notify_rate_limit_hits": false,
   "webhook_url": "https://discord.com/api/webhooks/123456789/abcdefgh",
   "email_recipients": "alerts@example.com"
+}
+```
+
+**Security Considerations**:
+
+Webhook URLs are validated to prevent SSRF attacks. Blocked destinations:
+
+- Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+- Cloud metadata endpoints (169.254.169.254)
+- Loopback addresses (127.0.0.0/8)
+- Link-local addresses
+
+**Error Response**:
+```json
+{
+  "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
 }
 ```
 

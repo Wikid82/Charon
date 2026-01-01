@@ -7,6 +7,23 @@ import { Button } from '../components/ui/Button';
 import { Bell, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 
+// supportsJSONTemplates returns true if the provider type can use JSON templates
+const supportsJSONTemplates = (providerType: string | undefined): boolean => {
+  if (!providerType) return false;
+  switch (providerType.toLowerCase()) {
+    case 'webhook':
+    case 'discord':
+    case 'slack':
+    case 'gotify':
+    case 'generic':
+      return true;
+    case 'telegram':
+      return false; // Telegram uses URL parameters
+    default:
+      return false;
+  }
+};
+
 const ProviderForm: FC<{
   initialData?: Partial<NotificationProvider>;
   onClose: () => void;
@@ -111,14 +128,14 @@ const ProviderForm: FC<{
           placeholder="https://discord.com/api/webhooks/..."
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
         />
-        {type !== 'webhook' && (
+        {!supportsJSONTemplates(type) && (
           <p className="text-xs text-gray-500 mt-1">
             {t('notificationProviders.shoutrrrHelp')} <a href="https://containrrr.dev/shoutrrr/" target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{t('common.docs')}</a>.
           </p>
         )}
       </div>
 
-      {type === 'webhook' && (
+      {supportsJSONTemplates(type) && (
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{t('notificationProviders.jsonPayloadTemplate')}</label>
           <div className="flex gap-2 mb-2 mt-1">

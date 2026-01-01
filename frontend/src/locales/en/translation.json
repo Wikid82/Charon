@@ -509,7 +509,7 @@
     "detailedTemplate": "Detailed Template",
     "customTemplate": "Custom",
     "template": "Template",
-    "availableVariables": "Available variables: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Available variables: .Title, .Message, .Status, .Name, .Latency, .Time. Supports webhook, Discord, Slack, Gotify, and generic services.",
     "notificationEvents": "Notification Events",
     "proxyHosts": "Proxy Hosts",
     "remoteServers": "Remote Servers",
@@ -581,7 +581,10 @@
     "whitelist": "Whitelist",
     "blacklist": "Blacklist",
     "deleteConfirm": "Are you sure you want to delete this user?",
-    "deleteUser": "Delete User"
+    "deleteUser": "Delete User",
+    "inviteUrlPreview": "Invite Link Preview",
+    "inviteUrlWarning": "Application URL is not configured. This link may not work for external users.",
+    "configureApplicationUrl": "Configure Application URL"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -781,6 +784,16 @@
       "newWindow": "New Window",
       "domainLinkBehaviorHelper": "Control how domain links open in the Proxy Hosts list.",
       "languageHelper": "Select your preferred language. Changes take effect immediately."
+    },
+    "applicationUrl": {
+      "title": "Application URL",
+      "description": "Configure the public URL used for user-facing links and emails.",
+      "label": "Application URL",
+      "helper": "The public URL where users access Charon (e.g., https://charon.example.com). Used in invitation emails and password reset links.",
+      "infoMessage": "This URL is used when sending invitation emails. If not configured, Charon will use the URL from the current browser request, which may not be accessible from external networks.",
+      "invalidUrl": "Please enter a valid URL starting with http:// or https://",
+      "notConfiguredWarning": "Application URL is not configured. Invitation emails will use the current browser URL, which may not be accessible from external networks.",
+      "testButton": "Test URL"
     },
     "systemStatus": {
       "title": "System Status",

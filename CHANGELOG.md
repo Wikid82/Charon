@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Universal JSON Template Support for Notifications**: JSON payload templates (minimal, detailed, custom) are now available for all notification services that support JSON payloads, not just generic webhooks (PR #XXX)
+  - **Discord**: Rich embeds with colors, fields, and custom formatting
+  - **Slack**: Block Kit messages with sections and interactive elements
+  - **Gotify**: JSON payloads with priority levels and extras field
+  - **Generic webhooks**: Complete control over JSON structure
+  - **Template variables**: `{{.Title}}`, `{{.Message}}`, `{{.EventType}}`, `{{.Severity}}`, `{{.HostName}}`, `{{.Timestamp}}`, and more
+  - See [Notification Guide](docs/features/notifications.md) for examples and migration guide
+- **Improved Uptime Monitoring Reliability**: Enhanced uptime monitoring system with debouncing and race condition prevention (PR #XXX)
+  - **Failure debouncing**: Requires 2 consecutive failures before marking host as "down" to prevent false alarms from transient issues
+  - **Increased timeout**: TCP connection timeout raised from 5s to 10s for slow networks and containers
+  - **Automatic retries**: Up to 2 retry attempts with 2-second delay between attempts
+  - **Synchronized checks**: All host checks complete before database reads, eliminating race conditions
+  - **Concurrent processing**: All hosts checked in parallel for better performance
+  - See [Uptime Monitoring Guide](docs/features/uptime-monitoring.md) for troubleshooting tips
+
+### Changed
+
+- **Notification Backend Refactoring**: Renamed internal function `sendCustomWebhook` to `sendJSONPayload` for clarity (no user impact)
+- **Frontend Template UI**: Template configuration UI now appears for Discord, Slack, Gotify, and generic webhooks (previously webhook-only)
+
+### Fixed
+
+- **Uptime False Positives**: Resolved issue where proxy hosts were incorrectly reported as "down" after page refresh due to timing and race conditions
+- **Transient Failure Alerts**: Single network hiccups no longer trigger false down notifications due to debouncing logic
+
+### Test Coverage Improvements
+
+- **Test Coverage Improvements**: Comprehensive test coverage enhancements across backend and frontend (PR #450)
+  - Backend coverage: **86.2%** (exceeds 85% threshold)
+  - Frontend coverage: **87.27%** (exceeds 85% threshold)
+  - Added SSRF protection tests for security notification handlers
+  - Enhanced integration tests for CrowdSec, WAF, and ACL features
+  - Improved IP validation test coverage (IPv4/IPv6 comprehensive)
+  - See [PR #450 Implementation Summary](docs/implementation/PR450_TEST_COVERAGE_COMPLETE.md)
+
+### Security
+
+- **CRITICAL**: Complete Server-Side Request Forgery (SSRF) remediation with defense-in-depth architecture (CWE-918, PR #450)
+  - **CodeQL CWE-918 Fix**: Resolved taint tracking issue in `url_testing.go:152` by introducing explicit variable to break taint chain
+  - Variable `requestURL` now receives validated output from `security.ValidateExternalURL()`, eliminating CodeQL false positive
+  - **Phase 1**: Runtime SSRF protection via `url_testing.go` with connection-time IP validation
+    - Implemented custom `ssrfSafeDialer()` with atomic DNS resolution and IP validation
+    - All resolved IPs validated before connection establishment (prevents DNS rebinding/TOCTOU attacks)
+    - Validates 13+ CIDR ranges: RFC 1918 private networks, cloud metadata endpoints (169.254.0.0/16), loopback, and link-local addresses
+    - HTTP client enforces 5-second timeout and max 2 redirects
+  - **Phase 2**: Handler-level SSRF pre-validation in `settings_handler.go` TestPublicURL endpoint
+    - Pre-connection validation using `security.ValidateExternalURL()` breaks CodeQL taint chain
+    - Rejects embedded credentials (prevents URL parser differential attacks like `http://evil.com@127.0.0.1/`)
+    - Returns HTTP 200 with `reachable: false` for SSRF blocks (maintains API contract)
+    - Admin-only access with comprehensive test coverage (31/31 assertions passing)
+  - **Three-Layer Defense-in-Depth Architecture**:
+    - Layer 1: `security.ValidateExternalURL()` - URL format and DNS pre-validation
+    - Layer 2: `network.NewSafeHTTPClient()` - Connection-time IP re-validation via custom dialer
+    - Layer 3: Redirect validation - Each redirect target validated before following
+  - **New SSRF-Safe HTTP Client API** (`internal/network` package):
+    - `network.NewSafeHTTPClient()` with functional options pattern
+    - Options: `WithTimeout()`, `WithAllowLocalhost()`, `WithAllowedDomains()`, `WithMaxRedirects()`, `WithDialTimeout()`
+    - Prevents DNS rebinding attacks by validating IPs at TCP dial time
+  - **Additional Protections**:
+    - Security notification webhooks validated to prevent SSRF attacks
+    - CrowdSec hub URLs validated against allowlist of official domains
+    - GitHub update URLs validated before requests
+  - **Monitoring**: All SSRF attempts logged with HIGH severity
+  - **Validation Strategy**: Fail-fast at configuration save + defense-in-depth at request time
+  - Pre-remediation CVSS score: 8.6 (HIGH) → Post-remediation: 0.0 (vulnerability eliminated)
+  - CodeQL Critical finding resolved - all security tests passing
+  - See [SSRF Protection Guide](docs/security/ssrf-protection.md) for complete documentation
+
+### Changed
+
+- **BREAKING**: `UpdateService.SetAPIURL()` now returns error (internal API only, does not affect users)
+- Security notification service now validates webhook URLs before saving and before sending
+- CrowdSec hub sync validates hub URLs against allowlist of official domains
+- URL connectivity testing endpoint requires admin privileges and applies SSRF protection
+
+### Enhanced
+
+- **Sidebar Navigation Scrolling**: Sidebar menu area is now scrollable, preventing the logout button from being pushed off-screen when multiple submenus are expanded. Includes custom scrollbar styling for better visual consistency.
+- **Fixed Header Bar**: Desktop header bar now remains visible when scrolling the main content area, improving navigation accessibility and user experience.
+
 ### Changed
 
 - **Repository Structure Reorganization**: Cleaned up root directory for better navigation

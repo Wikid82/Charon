@@ -12,6 +12,8 @@ import AccessListSelector from './AccessListSelector'
 import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
+import { Alert } from './ui/Alert'
+import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
 
 // Application preset configurations
 const APPLICATION_PRESETS: { value: ApplicationPreset; label: string; description: string }[] = [
@@ -272,9 +274,28 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
+  // Validate forward_host for IP address warnings
+  useEffect(() => {
+    const host = formData.forward_host?.trim() || ''
+    if (isLikelyDockerContainerIP(host)) {
+      setForwardHostWarning(
+        'This looks like a Docker container IP address. Docker IPs can change when containers restart. ' +
+        'Consider using the container name (e.g., "my-app" or "my-app:8080") for more reliable connections.'
+      )
+    } else if (isPrivateOrDockerIP(host)) {
+      setForwardHostWarning(
+        'Using a private IP address. If this is a Docker container, the IP may change on restart. ' +
+        'Container names are more reliable for Docker services.'
+      )
+    } else {
+      setForwardHostWarning(null)
+    }
+  }, [formData.forward_host])
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
+  const [forwardHostWarning, setForwardHostWarning] = useState<string | null>(null)
   const [addUptime, setAddUptime] = useState(false)
   const [uptimeInterval, setUptimeInterval] = useState(60)
   const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)
@@ -332,9 +353,15 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     setSelectedContainerId(containerId)
     const container = dockerContainers.find(c => c.id === containerId)
     if (container) {
-      // Default to internal IP and private port
-      let host = container.ip || container.names[0]
+      // Prefer container name over IP for stability across restarts
+      // Container names work when both Charon and the target are on the same Docker network
+      let host = container.names[0] || container.ip
       let port = container.ports && container.ports.length > 0 ? container.ports[0].private_port : 80
+
+      // If using local Docker and we have a container name, show info toast
+      if (connectionSource === 'local' && container.names[0]) {
+        toast.success(`Using container name "${container.names[0]}" for stable addressing`, { duration: 3000 })
+      }
 
       // If using a Remote Server, try to use the Host IP and Mapped Public Port
       if (connectionSource !== 'local' && connectionSource !== 'custom') {
@@ -550,16 +577,29 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               </select>
             </div>
             <div>
-              <label htmlFor="forward-host" className="block text-sm font-medium text-gray-300 mb-2">Host</label>
+              <label htmlFor="forward-host" className="block text-sm font-medium text-gray-300 mb-2">
+                Host
+                <div
+                  title="Enter a hostname, container name, or IP address. For Docker containers, using the container name (e.g., 'my-nginx') is recommended as it remains stable across container restarts."
+                  className="inline-block ml-1 text-gray-500 hover:text-gray-300 cursor-help"
+                >
+                  <CircleHelp size={14} />
+                </div>
+              </label>
               <input
                 id="forward-host"
                 type="text"
                 required
                 value={formData.forward_host}
                 onChange={e => setFormData({ ...formData, forward_host: e.target.value })}
-                placeholder="192.168.1.100"
+                placeholder="my-container or 192.168.1.100"
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {forwardHostWarning && (
+                <Alert variant="warning" className="mt-2" title="IP Address Detected">
+                  {forwardHostWarning}
+                </Alert>
+              )}
             </div>
             <div>
               <label htmlFor="forward-port" className="block text-sm font-medium text-gray-300 mb-2">Port</label>
