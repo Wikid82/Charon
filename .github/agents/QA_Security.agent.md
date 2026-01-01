@@ -29,14 +29,14 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
 3. **Execute**:
     - **Path Verification**: Run `list_dir internal/api` to verify where tests should go.
     - **Creation**: Write a new test file (e.g., `internal/api/tests/audit_test.go`) to test the *flow*.
-    - **Run**: Execute `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
-        - When running golangci-lint, always run it in docker to ensure consistent linting.
-        - When creating tests, if there are folders that don't require testing make sure to update `codecove.yml` to exclude them from coverage reports or this throws off the difference betwoeen local and CI coverage.
+    - **Run**: Execute `.github/skills`, `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
+        - **GolangCI-Lint (CRITICAL)**: Always run VS Code task "Lint: GolangCI-Lint (Docker)" - NOT "Lint: Go Vet". The Go Vet task only runs `go vet` which misses gocritic, bodyclose, and other linters that CI runs. GolangCI-Lint in Docker ensures parity with CI.
+        - When creating tests, if there are folders that don't require testing make sure to update `codecov.yml` to exclude them from coverage reports or this throws off the difference between local and CI coverage.
     - **Cleanup**: If the test was temporary, delete it. If it's valuable, keep it.
 </workflow>
 
-<trivy-cve-remediation>
-When Trivy reports CVEs in container dependencies (especially Caddy transitive deps):
+<security-remediation>
+When Trivy or CodeQLreports CVEs in container dependencies (especially Caddy transitive deps):
 
 1. **Triage**: Determine if CVE is in OUR code or a DEPENDENCY.
     - If ours: Fix immediately.
@@ -68,31 +68,39 @@ When Trivy reports CVEs in container dependencies (especially Caddy transitive d
 
 The task is not complete until ALL of the following pass with zero issues:
 
-1. **Coverage Tests (MANDATORY - Run Explicitly)**:
+1. **Security Scans**:
+    - CodeQL: Run VS Code task "Security: CodeQL All (CI-Aligned)" or individual Go/JS tasks
+    - Trivy: Run VS Code task "Security: Trivy Scan"
+    - Go Vulnerabilities: Run VS Code task "Security: Go Vulnerability Check"
+    - Zero Critical/High issues allowed
+
+2. **Coverage Tests (MANDATORY - Run Explicitly)**:
     - **Backend**: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
     - **Frontend**: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
     - **Why**: These are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts.
     - Minimum coverage: 85% for both backend and frontend.
     - All tests must pass with zero failures.
 
-2. **Type Safety (Frontend)**:
+3. **Type Safety (Frontend)**:
     - Run VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`
     - **Why**: This check is in manual stage of pre-commit for performance. You MUST run it explicitly.
     - Fix all type errors immediately.
 
-3. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
+4. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
 
-4. **Security Scans**:
-    - CodeQL: Run as VS Code task or via GitHub Actions
-    - Trivy: Run as VS Code task or via Docker
-    - Zero Critical or High severity issues allowed
-
-5. **Linting**: All language-specific linters must pass (Go vet, ESLint, markdownlint)
+5. **Linting (MANDATORY - Run All Explicitly)**:
+    - **Backend GolangCI-Lint**: Run VS Code task "Lint: GolangCI-Lint (Docker)" - This is the FULL linter suite including gocritic, bodyclose, etc.
+        - **Why**: "Lint: Go Vet" only runs `go vet`, NOT the full golangci-lint suite. CI runs golangci-lint, so you MUST run this task to match CI behavior.
+        - **Command**: `cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v`
+    - **Frontend ESLint**: Run VS Code task "Lint: Frontend"
+    - **Markdownlint**: Run VS Code task "Lint: Markdownlint"
+    - **Hadolint**: Run VS Code task "Lint: Hadolint Dockerfile" (if Dockerfile was modified)
 
 **Critical Note**: Leaving this unfinished prevents commit, push, and leaves users open to security concerns. All issues must be fixed regardless of whether they are unrelated to the original task. This rule must never be skipped. It is non-negotiable anytime any bit of code is added or changed.
 
 <constraints>
 
+- **NO** Truncating of coverage tests runs. These require user interaction and hang if ran with Tail or Head. Use the provided skills to run the full coverage script.
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY the code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE".
 - **NO HALLUCINATIONS**: Do not guess file paths. Verify them with `list_dir`.

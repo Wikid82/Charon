@@ -463,7 +463,7 @@
     "detailedTemplate": "Modèle Détaillé",
     "customTemplate": "Personnalisé",
     "template": "Modèle",
-    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time",
+    "availableVariables": "Variables disponibles: .Title, .Message, .Status, .Name, .Latency, .Time. Prend en charge webhook, Discord, Slack, Gotify et services génériques.",
     "notificationEvents": "Événements de Notification",
     "proxyHosts": "Hôtes Proxy",
     "remoteServers": "Serveurs Distants",
@@ -535,7 +535,10 @@
     "whitelist": "Liste Blanche",
     "blacklist": "Liste Noire",
     "deleteConfirm": "Êtes-vous sûr de vouloir supprimer cet utilisateur?",
-    "deleteUser": "Supprimer l'Utilisateur"
+    "deleteUser": "Supprimer l'utilisateur",
+    "inviteUrlPreview": "Aperçu du lien d'invitation",
+    "inviteUrlWarning": "L'URL de l'application n'est pas configurée. Ce lien peut ne pas fonctionner pour les utilisateurs externes.",
+    "configureApplicationUrl": "Configurer l'URL de l'application"
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -735,8 +738,18 @@
       "newWindow": "Nouvelle Fenêtre",
       "domainLinkBehaviorHelper": "Contrôle comment les liens de domaine s'ouvrent dans la liste des Hôtes Proxy.",
       "languageHelper": "Sélectionnez votre langue préférée. Les modifications prennent effet immédiatement."
-    },
-    "systemStatus": {
+    },    "applicationUrl": {
+      "title": "URL de l'application",
+      "description": "Configurez l'URL publique utilisée pour les liens et les e-mails destinés aux utilisateurs.",
+      "label": "URL de l'application",
+      "helper": "L'URL publique où les utilisateurs accèdent à Charon (par exemple, https://charon.example.com). Utilisée dans les e-mails d'invitation et les liens de réinitialisation de mot de passe.",
+      "infoMessage": "Cette URL est utilisée lors de l'envoi d'e-mails d'invitation. Si elle n'est pas configurée, Charon utilisera l'URL de la requête actuelle du navigateur, qui peut ne pas être accessible depuis les réseaux externes.",
+      "invalidUrl": "Veuillez entrer une URL valide commençant par http:// ou https://",
+      "notConfiguredWarning": "L'URL de l'application n'est pas configurée. Les e-mails d'invitation utiliseront l'URL actuelle du navigateur, qui peut ne pas être accessible depuis les réseaux externes.",
+      "testButton": "Tester l'URL",
+      "testSuccess": "URL ouvert avec succès",
+      "testFailed": "Échec de l'ouverture de l'URL"
+    },    "systemStatus": {
       "title": "État du Système",
       "service": "Service",
       "version": "Version",

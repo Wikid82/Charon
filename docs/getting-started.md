@@ -133,10 +133,18 @@ CrowdSec will automatically start if it was previously enabled. The reconciliati
 2. **Settings table** for `security.crowdsec.enabled = "true"`
 3. **Starts CrowdSec** if either condition is true
 
+**How it works:**
+- Reconciliation happens **before** the HTTP server starts (during container boot)
+- Protected by mutex to prevent race conditions
+- Validates binary and config paths before starting
+- Verifies process is running after start (2-second health check)
+
 You'll see this in the logs:
 
 ```json
+{"level":"info","msg":"CrowdSec reconciliation: starting startup check"}
 {"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'"}
+{"level":"info","msg":"CrowdSec reconciliation: successfully started and verified CrowdSec","pid":123}
 ```
 
 **Verification:**
@@ -155,11 +163,70 @@ Expected output:
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
-**If auto-start didn't work:** See [CrowdSec Not Starting After Restart](troubleshooting/crowdsec.md#crowdsec-not-starting-after-container-restart) for detailed troubleshooting steps.
+**Troubleshooting:**
+
+If CrowdSec doesn't auto-start:
+
+1. **Check reconciliation logs:**
+   ```bash
+   docker logs charon 2>&1 | grep "CrowdSec reconciliation"
+   ```
+
+2. **Verify SecurityConfig mode:**
+   ```bash
+   docker exec charon sqlite3 /app/data/charon.db \
+     "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
+   ```
+   Expected: `local`
+
+3. **Check directory permissions:**
+   ```bash
+   docker exec charon ls -la /var/lib/crowdsec/data/
+   ```
+   Expected: `charon:charon` ownership
+
+4. **Manual start:**
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
+   ```
+
+**For detailed troubleshooting:** See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md)
 
 ---
 
-## Step 2: Add Your First Website
+## Step 2: Configure Application URL (Recommended)
+
+Before inviting users, you should configure your Application URL. This ensures invite links work correctly from external networks.
+
+**What it does:** Sets the public URL used in user invitation emails and links.
+
+**When you need it:** If you plan to invite users or access Charon from external networks.
+
+**How to configure:**
+
+1. **Go to System Settings** (gear icon in sidebar)
+2. **Scroll to "Application URL" section**
+3. **Enter your public URL** (e.g., `https://charon.example.com`)
+   - Must start with `http://` or `https://`
+   - Should be the URL users use to access Charon
+   - No path components (e.g., `/admin`)
+4. **Click "Validate"** to check the format
+5. **Click "Test"** to verify the URL opens in a new tab
+6. **Click "Save Changes"**
+
+**What happens if you skip this?** User invitation emails will use the server's local address (like `http://localhost:8080`), which won't work from external networks. You'll see a warning when previewing invite links.
+
+**Examples:**
+
+- ✅ `https://charon.example.com`
+- ✅ `https://proxy.mydomain.net`
+- ✅ `http://192.168.1.100:8080` (for internal networks only)
+- ❌ `charon.example.com` (missing protocol)
+- ❌ `https://charon.example.com/admin` (no paths allowed)
+
+---
+
+## Step 3: Add Your First Website
 
 Let's say you have an app running at `192.168.1.100:3000` and you want it available at `myapp.example.com`.
 
@@ -189,7 +256,7 @@ By default (and recommended), Charon adds special headers to requests so your ap
 
 ---
 
-## Step 3: Get HTTPS (The Green Lock)
+## Step 4: Get HTTPS (The Green Lock)
 
 For this to work, you need:
 
@@ -253,6 +320,69 @@ Absolutely. Charon can even detect them automatically:
 
 ---
 
+## Common Development Warnings
+
+### Expected Browser Console Warnings
+
+When developing locally, you may encounter these browser warnings. They are **normal and safe to ignore** in development mode:
+
+#### COOP Warning on HTTP Non-Localhost IPs
+
+```
+Cross-Origin-Opener-Policy policy would block the window.closed call.
+```
+
+**When you'll see this:**
+
+- Accessing Charon via HTTP (not HTTPS)
+- Using a non-localhost IP address (e.g., `http://192.168.1.100:8080`)
+- Testing from a different device on your local network
+
+**Why it appears:**
+
+- COOP header is disabled in development mode for convenience
+- Browsers enforce stricter security checks on HTTP connections to non-localhost IPs
+- This protection is enabled automatically in production HTTPS mode
+
+**What to do:** Nothing! This is expected behavior. The warning disappears when you deploy to production with HTTPS.
+
+**Learn more:** See [COOP Behavior](security.md#coop-cross-origin-opener-policy-behavior) in the security documentation.
+
+#### 401 Errors During Authentication Checks
+
+```
+GET /api/auth/me → 401 Unauthorized
+```
+
+**When you'll see this:**
+
+- Opening Charon before logging in
+- Session expired or cookies cleared
+- Browser making auth validation requests
+
+**Why it appears:**
+
+- Charon checks authentication status on page load
+- 401 responses are the expected way to indicate "not authenticated"
+- The frontend handles this gracefully by showing the login page
+
+**What to do:** Nothing! This is normal application behavior. Once you log in, these errors stop appearing.
+
+**Learn more:** See [Authentication Flow](README.md#authentication-flow) for details on how Charon validates user sessions.
+
+### Development Mode Behavior
+
+**Features that behave differently in development:**
+
+- **Security Headers:** COOP, HSTS disabled on HTTP
+- **Cookies:** `Secure` flag not set (allows HTTP cookies)
+- **CORS:** More permissive for local testing
+- **Logging:** More verbose debugging output
+
+**Production mode automatically enables full security** when accessed over HTTPS.
+
+---
+
 ## What's Next?
 
 Now that you have the basics:
@@ -261,6 +391,42 @@ Now that you have the basics:
 - **[Import Your Old Config](import-guide.md)** — Bring your existing Caddy setup
 - **[Configure Optional Features](features.md#%EF%B8%8F-optional-features)** — Enable/disable features like security and uptime monitoring
 - **[Turn On Security](security.md)** — Block attackers (enabled by default, highly recommended)
+
+---
+
+## Staying Updated
+
+### Security Update Notifications
+
+To receive notifications about security updates:
+
+**1. GitHub Watch**
+
+Click "Watch" → "Custom" → Select "Security advisories" on the [Charon repository](https://github.com/Wikid82/Charon)
+
+**2. Automatic Updates with Watchtower**
+
+```yaml
+services:
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=86400  # Check daily
+```
+
+**3. Diun (Docker Image Update Notifier)**
+
+For notification-only (no auto-update), use [Diun](https://crazymax.dev/diun/). This sends alerts when new images are available without automatically updating.
+
+**Best Practices:**
+
+- Subscribe to GitHub security advisories for early vulnerability warnings
+- Review changelogs before updating production deployments
+- Test updates in a staging environment first
+- Keep backups before major version upgrades
 
 ---
 

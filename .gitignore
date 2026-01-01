@@ -52,6 +52,7 @@ backend/*.coverage.out
 backend/handler_coverage.txt
 backend/handlers.out
 backend/services.test
+backend/*.test
 backend/test-output.txt
 backend/tr_no_cover.txt
 backend/nohup.out
@@ -230,6 +231,15 @@ test-results/local.har
 /trivy-*.txt
 
 # -----------------------------------------------------------------------------
+# SBOM artifacts
+# -----------------------------------------------------------------------------
+sbom*.json
+
+# -----------------------------------------------------------------------------
 # Docker Overrides (new location)
 # -----------------------------------------------------------------------------
 .docker/compose/docker-compose.override.yml
+docker-compose.test.yml
+.github/agents/prompt_template/
+my-codeql-db/**
+codeql-linux64.zip

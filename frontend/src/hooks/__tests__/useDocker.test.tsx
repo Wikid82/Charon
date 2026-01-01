@@ -81,6 +81,15 @@ describe('useDocker', () => {
     expect(result.current.containers).toEqual([]);
   });
 
+  it('does not fetch when both host and serverId are undefined', async () => {
+    const { result } = renderHook(() => useDocker(undefined, undefined), {
+      wrapper: createWrapper(),
+    });
+
+    expect(dockerApi.listContainers).not.toHaveBeenCalled();
+    expect(result.current.containers).toEqual([]);
+  });
+
   it('returns empty array as default when no data', async () => {
     vi.mocked(dockerApi.listContainers).mockResolvedValue([]);
 

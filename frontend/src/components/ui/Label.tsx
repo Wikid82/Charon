@@ -41,4 +41,5 @@ const Label = React.forwardRef<HTMLLabelElement, LabelProps>(
 )
 Label.displayName = 'Label'
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { Label, labelVariants }

@@ -18,10 +18,11 @@ type UptimeHost struct {
 	Latency   int64     `json:"latency"` // ms for ping/TCP check
 
 	// Notification tracking
-	LastNotifiedDown     time.Time `json:"last_notified_down"`     // When we last sent DOWN notification
-	LastNotifiedUp       time.Time `json:"last_notified_up"`       // When we last sent UP notification
-	NotifiedServiceCount int       `json:"notified_service_count"` // Number of services in last notification
-	LastStatusChange     time.Time `json:"last_status_change"`     // When status last changed
+	LastNotifiedDown     time.Time `json:"last_notified_down"`             // When we last sent DOWN notification
+	LastNotifiedUp       time.Time `json:"last_notified_up"`               // When we last sent UP notification
+	NotifiedServiceCount int       `json:"notified_service_count"`         // Number of services in last notification
+	LastStatusChange     time.Time `json:"last_status_change"`             // When status last changed
+	FailureCount         int       `json:"failure_count" gorm:"default:0"` // Consecutive failures for debouncing
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

@@ -1,21 +1,28 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wikid82/charon/backend/internal/models"
-	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/security"
 )
+
+// SecurityNotificationServiceInterface defines the interface for security notification service.
+type SecurityNotificationServiceInterface interface {
+	GetSettings() (*models.NotificationConfig, error)
+	UpdateSettings(*models.NotificationConfig) error
+}
 
 // SecurityNotificationHandler handles notification settings endpoints.
 type SecurityNotificationHandler struct {
-	service *services.SecurityNotificationService
+	service SecurityNotificationServiceInterface
 }
 
 // NewSecurityNotificationHandler creates a new handler instance.
-func NewSecurityNotificationHandler(service *services.SecurityNotificationService) *SecurityNotificationHandler {
+func NewSecurityNotificationHandler(service SecurityNotificationServiceInterface) *SecurityNotificationHandler {
 	return &SecurityNotificationHandler{service: service}
 }
 
@@ -42,6 +49,21 @@ func (h *SecurityNotificationHandler) UpdateSettings(c *gin.Context) {
 	if config.MinLogLevel != "" && !validLevels[config.MinLogLevel] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid min_log_level. Must be one of: debug, info, warn, error"})
 		return
+	}
+
+	// CRITICAL FIX: Validate webhook URL immediately (fail-fast principle)
+	// This prevents invalid/malicious URLs from being saved to the database
+	if config.WebhookURL != "" {
+		if _, err := security.ValidateExternalURL(config.WebhookURL,
+			security.WithAllowLocalhost(),
+			security.WithAllowHTTP(),
+		); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Invalid webhook URL: %v", err),
+				"help":  "URL must be publicly accessible and cannot point to private networks or cloud metadata endpoints",
+			})
+			return
+		}
 	}
 
 	if err := h.service.UpdateSettings(&config); err != nil {

@@ -26,3 +26,32 @@ export const getSettings = async (): Promise<SettingsMap> => {
 export const updateSetting = async (key: string, value: string, category?: string, type?: string): Promise<void> => {
   await client.post('/settings', { key, value, category, type })
 }
+
+/**
+ * Validates a URL for use as the application URL.
+ * @param url - The URL to validate
+ * @returns Promise resolving to validation result
+ */
+export const validatePublicURL = async (url: string): Promise<{
+  valid: boolean
+  normalized?: string
+  error?: string
+}> => {
+  const response = await client.post('/settings/validate-url', { url })
+  return response.data
+}
+
+/**
+ * Tests if a URL is reachable from the server with SSRF protection.
+ * @param url - The URL to test
+ * @returns Promise resolving to test result with reachability status and latency
+ */
+export const testPublicURL = async (url: string): Promise<{
+  reachable: boolean
+  latency?: number
+  message?: string
+  error?: string
+}> => {
+  const response = await client.post('/settings/test-url', { url })
+  return response.data
+}

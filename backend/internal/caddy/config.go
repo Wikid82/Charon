@@ -1286,11 +1286,12 @@ func buildPermissionsPolicyString(permissionsJSON string) (string, error) {
 			// Convert allowlist items to policy format
 			items := make([]string, len(perm.Allowlist))
 			for i, item := range perm.Allowlist {
-				if item == "self" {
+				switch item {
+				case "self":
 					items[i] = "self"
-				} else if item == "*" {
+				case "*":
 					items[i] = "*"
-				} else {
+				default:
 					items[i] = fmt.Sprintf("\"%s\"", item)
 				}
 			}

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,164 +10,350 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 )
 
-func setupDockerTestRouter(t *testing.T) (*gin.Engine, *gorm.DB, *services.RemoteServerService) {
-	dsn := "file:" + t.Name() + "?mode=memory&cache=shared"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.RemoteServer{}))
+type fakeDockerService struct {
+	called bool
+	host   string
 
-	rsService := services.NewRemoteServerService(db)
+	ret []services.DockerContainer
+	err error
+}
 
+func (f *fakeDockerService) ListContainers(_ context.Context, host string) ([]services.DockerContainer, error) {
+	f.called = true
+	f.host = host
+	return f.ret, f.err
+}
+
+type fakeRemoteServerService struct {
+	gotUUID string
+
+	server *models.RemoteServer
+	err    error
+}
+
+func (f *fakeRemoteServerService) GetByUUID(uuidStr string) (*models.RemoteServer, error) {
+	f.gotUUID = uuidStr
+	return f.server, f.err
+}
+
+func TestDockerHandler_ListContainers_InvalidHostRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	r := gin.New()
+	router := gin.New()
 
-	return r, db, rsService
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=tcp://127.0.0.1:2375", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.False(t, dockerSvc.called, "docker service should not be called for invalid host")
 }
 
-func TestDockerHandler_ListContainers(t *testing.T) {
-	// We can't easily mock the DockerService without an interface,
-	// and the DockerService depends on the real Docker client.
-	// So we'll just test that the handler is wired up correctly,
-	// even if it returns an error because Docker isn't running in the test env.
+func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
 
-	svc, _ := services.NewDockerService()
-	// svc might be nil if docker is not available, but NewDockerHandler handles nil?
-	// Actually NewDockerHandler just stores it.
-	// If svc is nil, ListContainers will panic.
-	// So we only run this if svc is not nil.
+	dockerSvc := &fakeDockerService{err: services.NewDockerUnavailableError(errors.New("no docker socket"))}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
 
-	if svc == nil {
-		t.Skip("Docker not available")
-	}
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
 
-	r, _, rsService := setupDockerTestRouter(t)
-
-	h := NewDockerHandler(svc, rsService)
-	h.RegisterRoutes(r.Group("/"))
-
-	req, _ := http.NewRequest("GET", "/docker/containers", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
 
-	// It might return 200 or 500 depending on if ListContainers succeeds
-	assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, w.Code)
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
 }
 
-func TestDockerHandler_ListContainers_NonExistentServerID(t *testing.T) {
-	svc, _ := services.NewDockerService()
-	if svc == nil {
-		t.Skip("Docker not available")
-	}
+func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
 
-	r, _, rsService := setupDockerTestRouter(t)
+	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{Host: "example.internal", Port: 2375}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
 
-	h := NewDockerHandler(svc, rsService)
-	h.RegisterRoutes(r.Group("/"))
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
 
-	// Request with non-existent server_id
-	req, _ := http.NewRequest("GET", "/docker/containers?server_id=non-existent-uuid", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=abc-123", http.NoBody)
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	router.ServeHTTP(w, req)
+
+	require.True(t, dockerSvc.called)
+	assert.Equal(t, "abc-123", remoteSvc.gotUUID)
+	assert.Equal(t, "tcp://example.internal:2375", dockerSvc.host)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDockerHandler_ListContainers_ServerIDNotFoundReturns404(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{err: errors.New("not found")}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=missing", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.False(t, dockerSvc.called)
+}
+
+// Phase 4.1: Additional test cases for complete coverage
+
+func TestDockerHandler_ListContainers_Local(t *testing.T) {
+	// Test local/default docker connection (empty host parameter)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{
+		ret: []services.DockerContainer{
+			{
+				ID:      "abc123456789",
+				Names:   []string{"test-container"},
+				Image:   "nginx:latest",
+				State:   "running",
+				Status:  "Up 2 hours",
+				Network: "bridge",
+				IP:      "172.17.0.2",
+				Ports: []services.DockerPort{
+					{PrivatePort: 80, PublicPort: 8080, Type: "tcp"},
+				},
+			},
+		},
+	}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, dockerSvc.called)
+	assert.Empty(t, dockerSvc.host, "local connection should have empty host")
+	assert.Contains(t, w.Body.String(), "test-container")
+	assert.Contains(t, w.Body.String(), "nginx:latest")
+}
+
+func TestDockerHandler_ListContainers_RemoteServerSuccess(t *testing.T) {
+	// Test successful remote server connection via server_id
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{
+		ret: []services.DockerContainer{
+			{
+				ID:     "remote123",
+				Names:  []string{"remote-nginx"},
+				Image:  "nginx:alpine",
+				State:  "running",
+				Status: "Up 1 day",
+			},
+		},
+	}
+	remoteSvc := &fakeRemoteServerService{
+		server: &models.RemoteServer{
+			UUID: "server-uuid-123",
+			Name: "Production Server",
+			Host: "192.168.1.100",
+			Port: 2376,
+		},
+	}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=server-uuid-123", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, dockerSvc.called)
+	assert.Equal(t, "server-uuid-123", remoteSvc.gotUUID)
+	assert.Equal(t, "tcp://192.168.1.100:2376", dockerSvc.host)
+	assert.Contains(t, w.Body.String(), "remote-nginx")
+}
+
+func TestDockerHandler_ListContainers_RemoteServerNotFound(t *testing.T) {
+	// Test server_id that doesn't exist in database
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{
+		err: errors.New("server not found"),
+	}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=nonexistent-uuid", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.False(t, dockerSvc.called, "docker service should not be called when server not found")
 	assert.Contains(t, w.Body.String(), "Remote server not found")
 }
 
-func TestDockerHandler_ListContainers_WithServerID(t *testing.T) {
-	svc, _ := services.NewDockerService()
-	if svc == nil {
-		t.Skip("Docker not available")
+func TestDockerHandler_ListContainers_InvalidHost(t *testing.T) {
+	// Test SSRF protection: reject arbitrary host values
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{}
+	remoteSvc := &fakeRemoteServerService{}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	tests := []struct {
+		name      string
+		hostParam string
+	}{
+		{"arbitrary IP", "host=10.0.0.1"},
+		{"tcp URL", "host=tcp://evil.com:2375"},
+		{"unix socket", "host=unix:///var/run/docker.sock"},
+		{"http URL", "host=http://attacker.com/"},
 	}
 
-	r, db, rsService := setupDockerTestRouter(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?"+tt.hostParam, http.NoBody)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
 
-	// Create a remote server
-	server := models.RemoteServer{
-		UUID:    uuid.New().String(),
-		Name:    "Test Docker Server",
-		Host:    "docker.example.com",
-		Port:    2375,
-		Scheme:  "",
-		Enabled: true,
-	}
-	require.NoError(t, db.Create(&server).Error)
-
-	h := NewDockerHandler(svc, rsService)
-	h.RegisterRoutes(r.Group("/"))
-
-	// Request with valid server_id (will fail to connect, but shouldn't error on lookup)
-	req, _ := http.NewRequest("GET", "/docker/containers?server_id="+server.UUID, http.NoBody)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	// Should attempt to connect and likely fail with 500 (not 404)
-	assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, w.Code)
-	if w.Code == http.StatusInternalServerError {
-		assert.Contains(t, w.Body.String(), "Failed to list containers")
+			assert.Equal(t, http.StatusBadRequest, w.Code, "should reject invalid host: %s", tt.hostParam)
+			assert.Contains(t, w.Body.String(), "Invalid docker host selector")
+			assert.False(t, dockerSvc.called, "docker service should not be called for invalid host")
+		})
 	}
 }
 
-func TestDockerHandler_ListContainers_WithHostQuery(t *testing.T) {
-	svc, _ := services.NewDockerService()
-	if svc == nil {
-		t.Skip("Docker not available")
+func TestDockerHandler_ListContainers_DockerUnavailable(t *testing.T) {
+	// Test various Docker unavailability scenarios
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+		wantMsg  string
+	}{
+		{
+			name:     "daemon not running",
+			err:      services.NewDockerUnavailableError(errors.New("cannot connect to docker daemon")),
+			wantCode: http.StatusServiceUnavailable,
+			wantMsg:  "Docker daemon unavailable",
+		},
+		{
+			name:     "socket permission denied",
+			err:      services.NewDockerUnavailableError(errors.New("permission denied")),
+			wantCode: http.StatusServiceUnavailable,
+			wantMsg:  "Docker daemon unavailable",
+		},
+		{
+			name:     "socket not found",
+			err:      services.NewDockerUnavailableError(errors.New("no such file or directory")),
+			wantCode: http.StatusServiceUnavailable,
+			wantMsg:  "Docker daemon unavailable",
+		},
 	}
 
-	r, _, rsService := setupDockerTestRouter(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
 
-	h := NewDockerHandler(svc, rsService)
-	h.RegisterRoutes(r.Group("/"))
+			dockerSvc := &fakeDockerService{err: tt.err}
+			remoteSvc := &fakeRemoteServerService{}
+			h := NewDockerHandler(dockerSvc, remoteSvc)
 
-	// Request with custom host parameter
-	req, _ := http.NewRequest("GET", "/docker/containers?host=tcp://invalid-host:2375", http.NoBody)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+			api := router.Group("/api/v1")
+			h.RegisterRoutes(api)
 
-	// Should attempt to connect and fail with 500
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to list containers")
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?host=local", http.NoBody)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantMsg)
+			assert.True(t, dockerSvc.called)
+		})
+	}
 }
 
-func TestDockerHandler_RegisterRoutes(t *testing.T) {
-	svc, _ := services.NewDockerService()
-	if svc == nil {
-		t.Skip("Docker not available")
+func TestDockerHandler_ListContainers_GenericError(t *testing.T) {
+	// Test non-connectivity errors (should return 500)
+	tests := []struct {
+		name     string
+		err      error
+		wantCode int
+		wantMsg  string
+	}{
+		{
+			name:     "API error",
+			err:      errors.New("API error: invalid request"),
+			wantCode: http.StatusInternalServerError,
+			wantMsg:  "Failed to list containers",
+		},
+		{
+			name:     "context cancelled",
+			err:      context.Canceled,
+			wantCode: http.StatusInternalServerError,
+			wantMsg:  "Failed to list containers",
+		},
+		{
+			name:     "unknown error",
+			err:      errors.New("unexpected error occurred"),
+			wantCode: http.StatusInternalServerError,
+			wantMsg:  "Failed to list containers",
+		},
 	}
 
-	r, _, rsService := setupDockerTestRouter(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
 
-	h := NewDockerHandler(svc, rsService)
-	h.RegisterRoutes(r.Group("/"))
+			dockerSvc := &fakeDockerService{err: tt.err}
+			remoteSvc := &fakeRemoteServerService{}
+			h := NewDockerHandler(dockerSvc, remoteSvc)
 
-	// Verify route is registered
-	routes := r.Routes()
-	found := false
-	for _, route := range routes {
-		if route.Path == "/docker/containers" && route.Method == "GET" {
-			found = true
-			break
-		}
+			api := router.Group("/api/v1")
+			h.RegisterRoutes(api)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers", http.NoBody)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantMsg)
+			assert.True(t, dockerSvc.called)
+		})
 	}
-	assert.True(t, found, "Expected /docker/containers GET route to be registered")
-}
-
-func TestDockerHandler_NewDockerHandler(t *testing.T) {
-	svc, _ := services.NewDockerService()
-	if svc == nil {
-		t.Skip("Docker not available")
-	}
-
-	_, _, rsService := setupDockerTestRouter(t)
-
-	h := NewDockerHandler(svc, rsService)
-	assert.NotNil(t, h)
-	assert.NotNil(t, h.dockerService)
-	assert.NotNil(t, h.remoteServerService)
 }

@@ -7,7 +7,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/utils"
 )
 
 type SettingsHandler struct {
@@ -222,5 +224,107 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Test email sent successfully",
+	})
+}
+
+// ValidatePublicURL validates a URL is properly formatted for use as the application URL.
+func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	type ValidateURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req ValidateURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	normalized, warning, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"valid": false,
+			"error": "URL must start with http:// or https:// and cannot include path components",
+		})
+		return
+	}
+
+	response := gin.H{
+		"valid":      true,
+		"normalized": normalized,
+	}
+
+	if warning != "" {
+		response["warning"] = warning
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// TestPublicURL performs a server-side connectivity test with comprehensive SSRF protection.
+// This endpoint implements defense-in-depth security:
+// 1. Format validation: Ensures valid HTTP/HTTPS URLs without path components
+// 2. SSRF validation: Pre-validates DNS resolution and blocks private/reserved IPs
+// 3. Runtime protection: ssrfSafeDialer validates IPs again at connection time
+// This multi-layer approach satisfies both static analysis (CodeQL) and runtime security.
+func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
+	// Admin-only access check
+	role, exists := c.Get("role")
+	if !exists || role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	// Parse request body
+	type TestURLRequest struct {
+		URL string `json:"url" binding:"required"`
+	}
+
+	var req TestURLRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Step 1: Format validation (scheme, no paths)
+	_, _, err := utils.ValidateURL(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Step 2: SSRF validation (breaks CodeQL taint chain)
+	// This explicitly validates against private IPs, loopback, link-local,
+	// and cloud metadata endpoints before any network connection is made.
+	validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
+	if err != nil {
+		// Return 200 OK for security blocks (maintains existing API behavior)
+		c.JSON(http.StatusOK, gin.H{
+			"reachable": false,
+			"latency":   0,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Step 3: Connectivity test with runtime SSRF protection
+	reachable, latency, err := utils.TestURLConnectivity(validatedURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"reachable": false,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"reachable": reachable,
+		"latency":   latency,
 	})
 }

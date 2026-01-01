@@ -56,6 +56,7 @@ Your priority is writing code that is clean, tested, and secure by default.
 
 <constraints>
 
+- **NO** Truncating of coverage tests runs. These require user interaction and hang if ran with Tail or Head. Use the provided skills to run the full coverage script.
 - **NO** Python scripts.
 - **NO** hardcoded paths; use `internal/config`.
 - **ALWAYS** wrap errors with `fmt.Errorf`.

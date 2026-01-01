@@ -10,7 +10,7 @@ export function useDocker(host?: string | null, serverId?: string | null) {
   } = useQuery({
     queryKey: ['docker-containers', host, serverId],
     queryFn: () => dockerApi.listContainers(host || undefined, serverId || undefined),
-    enabled: host !== null || serverId !== null, // Disable if both are explicitly null/undefined
+    enabled: Boolean(host) || Boolean(serverId),
     retry: 1, // Don't retry too much if docker is not available
   })
 

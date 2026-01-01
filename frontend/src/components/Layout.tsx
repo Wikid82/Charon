@@ -72,14 +72,13 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
       { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
     ]},
-    { name: t('navigation.notifications'), path: '/notifications', icon: '🔔' },
-    // Import group moved under Tasks
     {
       name: t('navigation.settings'),
       path: '/settings',
       icon: '⚙️',
       children: [
         { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
+        { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
         { name: t('navigation.adminAccount'), path: '/settings/account', icon: '🛡️' },
         { name: t('navigation.accountManagement'), path: '/settings/account-management', icon: '👥' },
@@ -93,7 +92,6 @@ export default function Layout({ children }: LayoutProps) {
         {
           name: t('navigation.import'),
           path: '/tasks/import',
-          icon: '📥',
           children: [
             { name: t('navigation.caddyfile'), path: '/tasks/import/caddyfile', icon: '📥' },
             { name: t('navigation.crowdsec'), path: '/tasks/import/crowdsec', icon: '🛡️' },
@@ -142,8 +140,8 @@ export default function Layout({ children }: LayoutProps) {
            )}
         </div>
 
-        <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-6">
-          <nav className="flex-1 space-y-1">
+        <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-6 min-h-0">
+          <nav className="flex-1 space-y-1 overflow-y-auto">
             {navigation.map((item) => {
               if (item.children) {
                 // Collapsible Group
@@ -283,7 +281,7 @@ export default function Layout({ children }: LayoutProps) {
             })}
           </nav>
 
-          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 ${isCollapsed ? 'hidden' : ''}`}>
+          <div className={`mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 flex-shrink-0 ${isCollapsed ? 'hidden' : ''}`}>
             <div className="text-xs text-gray-500 dark:text-gray-500 text-center mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
               {health?.git_commit && health.git_commit !== 'unknown' && (
@@ -306,7 +304,7 @@ export default function Layout({ children }: LayoutProps) {
 
           {/* Collapsed Logout */}
           {isCollapsed && (
-             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4">
+             <div className="mt-2 border-t border-gray-200 dark:border-gray-800 pt-4 pb-4 flex-shrink-0">
                 <button
                   onClick={() => {
                     setMobileSidebarOpen(false)
@@ -333,9 +331,9 @@ export default function Layout({ children }: LayoutProps) {
       )}
 
       {/* Main Content */}
-      <main className={`flex-1 min-w-0 overflow-auto pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
+      <main className={`flex-1 min-w-0 pt-16 lg:pt-0 flex flex-col transition-all duration-200 ${isCollapsed ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Desktop Header */}
-        <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 relative">
+        <header className="hidden lg:flex items-center justify-between px-8 h-20 bg-white dark:bg-dark-sidebar border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
            <div className="w-1/3 flex items-center gap-4">
              <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
@@ -359,8 +357,10 @@ export default function Layout({ children }: LayoutProps) {
              <ThemeToggle />
            </div>
         </header>
-        <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
-          {children}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
+            {children}
+          </div>
         </div>
       </main>
     </div>
