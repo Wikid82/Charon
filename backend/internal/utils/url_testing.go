@@ -173,7 +173,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 			// Transform error message for backward compatibility with existing tests
 			// The security package uses lowercase in error messages, but tests expect mixed case
 			errMsg = strings.Replace(errMsg, "dns resolution failed", "DNS resolution failed", 1)
-			errMsg = strings.Replace(errMsg, "private ip", "private IP", -1)
+			errMsg = strings.ReplaceAll(errMsg, "private ip", "private IP")
 			// Cloud metadata endpoints are considered private IPs for test compatibility
 			if strings.Contains(errMsg, "cloud metadata endpoints") {
 				errMsg = strings.Replace(errMsg, "access to cloud metadata endpoints is blocked for security", "connection to private IP addresses is blocked for security", 1)
@@ -235,7 +235,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 	// Perform HTTP HEAD request with strict timeout
 	ctx := context.Background()
 	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, http.NoBody)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to create request: %w", err)
 	}
