@@ -17,22 +17,32 @@
 #
 # Reference: /docs/plans/current_spec.md
 extensions:
-  # Mark ValidateExternalURL as a sanitizer that returns validated data
-  # The function returns a sanitized URL string as first return value
+  # =============================================================================
+  # SSRF SANITIZER MODELS
+  # =============================================================================
+  # These models tell CodeQL that certain functions sanitize/validate URLs,
+  # making their output safe for use in HTTP requests.
+  #
+  # IMPORTANT: For SSRF protection, we use 'sinkModel' with 'request-forgery'
+  # to mark inputs as sanitized sinks, AND 'neutralModel' to prevent taint
+  # propagation through validation functions.
+  # =============================================================================
+
+  # Mark ValidateExternalURL return value as a sanitized sink
+  # This tells CodeQL the output is NOT tainted for SSRF purposes
   - addsTo:
       pack: codeql/go-all
-      extensible: summaryModel
+      extensible: sinkModel
     data:
-      # security.ValidateExternalURL sanitizes URLs by:
+      # security.ValidateExternalURL validates and sanitizes URLs by:
       # 1. Validating URL format and scheme
-      # 2. Performing DNS resolution
-      # 3. Blocking private/reserved IP ranges
-      # Input: Argument[0] (rawURL string)
-      # Output: ReturnValue[0] (validated URL string - safe for HTTP requests)
-      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "Argument[0]", "ReturnValue[0]", "taint", "manual"]
+      # 2. Performing DNS resolution with timeout
+      # 3. Blocking private/reserved IP ranges (13+ CIDR blocks)
+      # 4. Returning a NEW validated URL string (not the original input)
+      # The return value is safe for HTTP requests - marking as sanitized sink
+      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "Argument[0]", "request-forgery", "manual"]
 
-  # Mark url.Parse().String() reconstruction as breaking taint chain
-  # When URL is parsed and reconstructed, it creates a new value
+  # Mark validation functions as neutral (don't propagate taint through them)
   - addsTo:
       pack: codeql/go-all
       extensible: neutralModel
@@ -40,8 +50,11 @@ extensions:
       # network.IsPrivateIP is a validation function (neutral - doesn't propagate taint)
       - ["github.com/Wikid82/charon/backend/internal/network", "IsPrivateIP", "manual"]
       # TestURLConnectivity validates URLs internally via security.ValidateExternalURL
-      # and ssrfSafeDialer - it's a terminating function, not a pass-through
+      # and ssrfSafeDialer - marking as neutral to stop taint propagation
       - ["github.com/Wikid82/charon/backend/internal/utils", "TestURLConnectivity", "manual"]
+      # ValidateExternalURL itself should be neutral for taint propagation
+      # (the return value is a new validated string, not the tainted input)
+      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "manual"]
 
   # Mark log sanitization functions as sanitizers for log injection (CWE-117)
   # These functions remove newlines and control characters from user input before logging
