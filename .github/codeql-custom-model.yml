@@ -42,3 +42,18 @@ extensions:
       # TestURLConnectivity validates URLs internally via security.ValidateExternalURL
       # and ssrfSafeDialer - it's a terminating function, not a pass-through
       - ["github.com/Wikid82/charon/backend/internal/utils", "TestURLConnectivity", "manual"]
+
+  # Mark log sanitization functions as sanitizers for log injection (CWE-117)
+  # These functions remove newlines and control characters from user input before logging
+  - addsTo:
+      pack: codeql/go-all
+      extensible: summaryModel
+    data:
+      # util.SanitizeForLog sanitizes strings by:
+      # 1. Replacing \r\n and \n with spaces
+      # 2. Removing all control characters [\x00-\x1F\x7F]
+      # Input: Argument[0] (unsanitized string)
+      # Output: ReturnValue[0] (sanitized string - safe for logging)
+      - ["github.com/Wikid82/charon/backend/internal/util", "SanitizeForLog", "Argument[0]", "ReturnValue[0]", "taint", "manual"]
+      # handlers.sanitizeForLog is a local sanitizer with same behavior
+      - ["github.com/Wikid82/charon/backend/internal/api/handlers", "sanitizeForLog", "Argument[0]", "ReturnValue[0]", "taint", "manual"]
