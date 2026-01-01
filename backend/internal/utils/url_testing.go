@@ -271,17 +271,8 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 	//    DNS resolution with private IP blocking (RFC 1918, loopback, link-local, metadata)
 	// 2. ssrfSafeDialer() re-validates IPs at connection time (prevents DNS rebinding/TOCTOU)
 	// 3. validateRedirectTarget() validates all redirect URLs in production
-	// 4. requestURL is derived from validated sources (breaks taint chain):
-	//    - Production: security.ValidateExternalURL() returns new validated string
-	//    - Test: url.Parse().String() reconstructs URL (mock transport, no network)
+	// 4. safeURL is constructed from parsed/validated components (breaks taint chain)
 	// See: internal/security/url_validator.go, internal/network/safeclient.go
-	//
-	// codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
-	// 1. Validates URL format and scheme (HTTPS required in production)
-	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
-	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
-	// 4. Redirect targets validated by validateRedirectTarget()
-	// lgtm[go/request-forgery]
 	resp, err := client.Do(req)                  //nolint:bodyclose // Body closed via defer below
 	latency = time.Since(start).Seconds() * 1000 // Convert to milliseconds
 
