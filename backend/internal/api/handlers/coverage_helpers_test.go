@@ -310,7 +310,7 @@ func TestCrowdsecHandler_ExportConfig(t *testing.T) {
 	r.GET("/export", h.ExportConfig)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/export", nil)
+	req := httptest.NewRequest(http.MethodGet, "/export", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should return archive (if config exists) or not found
@@ -330,7 +330,7 @@ func TestCrowdsecHandler_CheckLAPIHealth(t *testing.T) {
 	r.GET("/health", h.CheckLAPIHealth)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// LAPI won't be running, so expect error or unhealthy
@@ -353,7 +353,7 @@ func TestCrowdsecHandler_ConsoleStatus(t *testing.T) {
 	r.GET("/console/status", h.ConsoleStatus)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/console/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/console/status", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should return status when feature is enabled
@@ -395,7 +395,7 @@ func TestCrowdsecHandler_DeleteConsoleEnrollment(t *testing.T) {
 	r.DELETE("/console/enroll", h.DeleteConsoleEnrollment)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/console/enroll", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/console/enroll", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should return OK or error depending on state
