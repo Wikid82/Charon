@@ -64,7 +64,7 @@ func TestCrowdsecHandler_Stop_Success(t *testing.T) {
 	r.POST("/stop", h.Stop)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/stop", nil)
+	req := httptest.NewRequest(http.MethodPost, "/stop", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -106,7 +106,7 @@ func TestCrowdsecHandler_Stop_Error(t *testing.T) {
 	r.POST("/stop", h.Stop)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/stop", nil)
+	req := httptest.NewRequest(http.MethodPost, "/stop", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -134,7 +134,7 @@ func TestCrowdsecHandler_Stop_NoSecurityConfig(t *testing.T) {
 	r.POST("/stop", h.Stop)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/stop", nil)
+	req := httptest.NewRequest(http.MethodPost, "/stop", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should still return OK even without existing config
@@ -172,7 +172,7 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 	r.GET("/decisions/lapi", h.GetLAPIDecisions)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", nil)
+	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -214,7 +214,7 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 	r.GET("/decisions/lapi", h.GetLAPIDecisions)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", nil)
+	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -248,7 +248,7 @@ func TestGetLAPIDecisions_NullResponse(t *testing.T) {
 	r.GET("/decisions/lapi", h.GetLAPIDecisions)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", nil)
+	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -288,7 +288,7 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 	r.GET("/decisions/lapi", h.GetLAPIDecisions)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", nil)
+	req := httptest.NewRequest(http.MethodGet, "/decisions/lapi", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// Should fallback to cscli and return OK
@@ -326,7 +326,7 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 	r.GET("/health", h.CheckLAPIHealth)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -371,7 +371,7 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	r.GET("/health", h.CheckLAPIHealth)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
