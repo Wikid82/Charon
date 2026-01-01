@@ -276,8 +276,12 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (reachab
 	//    - Test: url.Parse().String() reconstructs URL (mock transport, no network)
 	// See: internal/security/url_validator.go, internal/network/safeclient.go
 	//
-	// codeql[go/ssrf] - SSRF protected: validated by security.ValidateExternalURL (DNS resolution +
-	// private IP blocking) and ssrfSafeDialer (connection-time IP re-validation prevents DNS rebinding)
+	// codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
+	// 1. Validates URL format and scheme (HTTPS required in production)
+	// 2. Resolves DNS and blocks private/reserved IPs (RFC 1918, loopback, link-local)
+	// 3. Uses ssrfSafeDialer for connection-time IP revalidation (TOCTOU protection)
+	// 4. Redirect targets validated by validateRedirectTarget()
+	// lgtm[go/request-forgery]
 	resp, err := client.Do(req)                  //nolint:bodyclose // Body closed via defer below
 	latency = time.Since(start).Seconds() * 1000 // Convert to milliseconds
 
