@@ -39,3 +39,6 @@ extensions:
     data:
       # network.IsPrivateIP is a validation function (neutral - doesn't propagate taint)
       - ["github.com/Wikid82/charon/backend/internal/network", "IsPrivateIP", "manual"]
+      # TestURLConnectivity validates URLs internally via security.ValidateExternalURL
+      # and ssrfSafeDialer - it's a terminating function, not a pass-through
+      - ["github.com/Wikid82/charon/backend/internal/utils", "TestURLConnectivity", "manual"]
