@@ -14,6 +14,7 @@ import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { parse } from 'tldts'
 import { Alert } from './ui/Alert'
 import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
+import DNSProviderSelector from './DNSProviderSelector'
 
 // Application preset configurations
 const APPLICATION_PRESETS: { value: ApplicationPreset; label: string; description: string }[] = [
@@ -111,6 +112,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     certificate_id: host?.certificate_id,
     access_list_id: host?.access_list_id,
     security_header_profile_id: host?.security_header_profile_id,
+    dns_provider_id: host?.dns_provider_id || null,
   })
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
@@ -300,8 +302,20 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [uptimeInterval, setUptimeInterval] = useState(60)
   const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)
 
+  // Wildcard domain detection for DNS-01 challenge requirement
+  const hasWildcardDomain = formData.domain_names
+    ?.split(',')
+    .some(d => d.trim().startsWith('*'))
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate DNS provider for wildcard domains
+    if (hasWildcardDomain && !formData.dns_provider_id) {
+      toast.error('DNS provider is required for wildcard domains')
+      return
+    }
+
     setLoading(true)
     try {
       const payload = { ...formData }
@@ -641,6 +655,28 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
               Choose an existing certificate if already issued for these domains, or let Charon request/renew via Let's Encrypt automatically.
             </p>
           </div>
+
+          {/* DNS Provider Selector for Wildcard Domains */}
+          {hasWildcardDomain && (
+            <div className="space-y-2">
+              <Alert variant="info">
+                <Info className="h-4 w-4" />
+                <div>
+                  <p className="font-medium">Wildcard Certificate Required</p>
+                  <p className="text-sm mt-1">
+                    Wildcard certificates (*.example.com) require DNS-01 challenge.
+                    Select a DNS provider to automatically manage DNS records for certificate validation.
+                  </p>
+                </div>
+              </Alert>
+
+              <DNSProviderSelector
+                value={formData.dns_provider_id ?? undefined}
+                onChange={(id) => setFormData(prev => ({ ...prev, dns_provider_id: id ?? null }))}
+                required={true}
+              />
+            </div>
+          )}
 
           {/* Access Control List */}
           <AccessListSelector

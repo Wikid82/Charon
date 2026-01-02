@@ -16,16 +16,43 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Increase chunk size warning limit to 600KB (reasonable for modern networks)
+    chunkSizeWarningLimit: 600,
     // Code splitting for better caching and parallel loading
     rollupOptions: {
       output: {
-        manualChunks: {
-          // React ecosystem - changes rarely
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+        manualChunks: (id) => {
+          // React core - changes rarely
+          if (id.includes('node_modules/react') ||
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/react-router')) {
+            return 'react-vendor'
+          }
+
           // TanStack Query - changes rarely
-          'query': ['@tanstack/react-query'],
+          if (id.includes('node_modules/@tanstack/react-query')) {
+            return 'query'
+          }
+
+          // Radix UI components - large and stable
+          if (id.includes('node_modules/@radix-ui')) {
+            return 'radix-ui'
+          }
+
+          // Recharts for dashboard - large but used infrequently
+          if (id.includes('node_modules/recharts')) {
+            return 'recharts'
+          }
+
           // Icons - large but cacheable
-          'icons': ['lucide-react'],
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons'
+          }
+
+          // All other node_modules into vendor chunk
+          if (id.includes('node_modules')) {
+            return 'vendor'
+          }
         }
       }
     }

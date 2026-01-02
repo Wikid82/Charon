@@ -17,8 +17,8 @@ import (
 )
 
 // mockGenerateConfigFunc creates a mock config generator that captures parameters
-func mockGenerateConfigFunc(capturedProvider *string, capturedStaging *bool) func([]models.ProxyHost, string, string, string, string, bool, bool, bool, bool, bool, string, []models.SecurityRuleSet, map[string]string, []models.SecurityDecision, *models.SecurityConfig) (*Config, error) {
-	return func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+func mockGenerateConfigFunc(capturedProvider *string, capturedStaging *bool) func([]models.ProxyHost, string, string, string, string, bool, bool, bool, bool, bool, string, []models.SecurityRuleSet, map[string]string, []models.SecurityDecision, *models.SecurityConfig, []DNSProviderConfig) (*Config, error) {
+	return func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
 		*capturedProvider = sslProvider
 		*capturedStaging = acmeStaging
 		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil

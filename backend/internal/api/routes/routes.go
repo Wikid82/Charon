@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -65,6 +66,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UserPermittedHost{}, // Join table for user permissions
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.DNSProvider{},
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -239,6 +241,25 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/domains", domainHandler.List)
 		protected.POST("/domains", domainHandler.Create)
 		protected.DELETE("/domains/:id", domainHandler.Delete)
+
+		// DNS Providers - only available if encryption key is configured
+		if cfg.EncryptionKey != "" {
+			encryptionService, err := crypto.NewEncryptionService(cfg.EncryptionKey)
+			if err != nil {
+				logger.Log().WithError(err).Error("Failed to initialize encryption service - DNS provider features will be unavailable")
+			} else {
+				dnsProviderService := services.NewDNSProviderService(db, encryptionService)
+				dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
+				protected.GET("/dns-providers", dnsProviderHandler.List)
+				protected.POST("/dns-providers", dnsProviderHandler.Create)
+				protected.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
+				protected.GET("/dns-providers/:id", dnsProviderHandler.Get)
+				protected.PUT("/dns-providers/:id", dnsProviderHandler.Update)
+				protected.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
+				protected.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
+				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
+			}
+		}
 
 		// Docker
 		dockerService, err := services.NewDockerService()
