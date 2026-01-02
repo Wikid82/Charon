@@ -97,21 +97,26 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 			rawDomains := strings.Split(host.DomainNames, ",")
 			var cleanDomains []string
+			var nonIPDomains []string
 			for _, d := range rawDomains {
 				d = strings.TrimSpace(d)
 				d = strings.ToLower(d)
 				if d != "" {
 					cleanDomains = append(cleanDomains, d)
+					// Skip IP addresses for ACME issuers (they'll get internal issuer later)
+					if net.ParseIP(d) == nil {
+						nonIPDomains = append(nonIPDomains, d)
+					}
 				}
 			}
 
 			// Check if this host has wildcard domains and DNS provider
 			if hasWildcard(cleanDomains) && host.DNSProviderID != nil && host.DNSProvider != nil {
-				// Use DNS challenge for this host
+				// Use DNS challenge for this host (include all domains including IPs for routing)
 				dnsProviderDomains[*host.DNSProviderID] = append(dnsProviderDomains[*host.DNSProviderID], cleanDomains...)
-			} else {
-				// Use HTTP challenge for this host
-				httpChallengeDomains = append(httpChallengeDomains, cleanDomains...)
+			} else if len(nonIPDomains) > 0 {
+				// Use HTTP challenge for non-IP domains only
+				httpChallengeDomains = append(httpChallengeDomains, nonIPDomains...)
 			}
 		}
 
