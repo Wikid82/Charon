@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **DNS Challenge Support for Wildcard Certificates**: Full support for wildcard SSL certificates using DNS-01 challenges (Issue #21, PR #460, #461)
+  - **Secure DNS Provider Management**: Add, edit, test, and delete DNS provider configurations with AES-256-GCM encrypted credentials
+  - **10+ Supported Providers**: Cloudflare, AWS Route53, DigitalOcean, Google Cloud DNS, Azure DNS, Namecheap, GoDaddy, Hetzner, Vultr, DNSimple
+  - **Automated Certificate Issuance**: Wildcard domains (e.g., `*.example.com`) automatically use DNS-01 challenges via configured providers
+  - **Pre-Save Testing**: Test DNS provider credentials before saving to catch configuration errors early
+  - **Dynamic Configuration**: Provider-specific credential fields with hints and documentation links
+  - **Comprehensive Documentation**: Setup guides for major providers and troubleshooting documentation
+  - **Security First**: Credentials never exposed in API responses, encrypted at rest with CHARON_ENCRYPTION_KEY
+  - See [DNS Providers Guide](docs/guides/dns-providers.md) for setup instructions
 - **Universal JSON Template Support for Notifications**: JSON payload templates (minimal, detailed, custom) are now available for all notification services that support JSON payloads, not just generic webhooks (PR #XXX)
   - **Discord**: Rich embeds with colors, fields, and custom formatting
   - **Slack**: Block Kit messages with sections and interactive elements

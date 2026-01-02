@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -31,6 +32,15 @@ var (
 	generateConfigFunc = GenerateConfig
 	validateConfigFunc = Validate
 )
+
+// DNSProviderConfig contains a DNS provider with its decrypted credentials
+// for use in Caddy DNS challenge configuration generation
+type DNSProviderConfig struct {
+	ID                 uint
+	ProviderType       string
+	PropagationTimeout int
+	Credentials        map[string]string
+}
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
@@ -58,8 +68,67 @@ func NewManager(client *Client, db *gorm.DB, configDir, frontendDir string, acme
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
-	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Find(&hosts).Error; err != nil {
+	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
+	}
+
+	// Fetch all DNS providers for DNS challenge configuration
+	var dnsProviders []models.DNSProvider
+	if err := m.db.Where("enabled = ?", true).Find(&dnsProviders).Error; err != nil {
+		logger.Log().WithError(err).Warn("failed to load DNS providers for config generation")
+	}
+
+	// Decrypt DNS provider credentials for config generation
+	// We need an encryption service to decrypt the credentials
+	var dnsProviderConfigs []DNSProviderConfig
+	if len(dnsProviders) > 0 {
+		// Try to get encryption key from environment
+		encryptionKey := os.Getenv("CHARON_ENCRYPTION_KEY")
+		if encryptionKey == "" {
+			// Try alternative env vars
+			for _, key := range []string{"ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
+				if val := os.Getenv(key); val != "" {
+					encryptionKey = val
+					break
+				}
+			}
+		}
+
+		if encryptionKey != "" {
+			// Import crypto package for inline decryption
+			encryptor, err := crypto.NewEncryptionService(encryptionKey)
+			if err != nil {
+				logger.Log().WithError(err).Warn("failed to initialize encryption service for DNS provider credentials")
+			} else {
+				// Decrypt each DNS provider's credentials
+				for _, provider := range dnsProviders {
+					if provider.CredentialsEncrypted == "" {
+						continue
+					}
+
+					decryptedData, err := encryptor.Decrypt(provider.CredentialsEncrypted)
+					if err != nil {
+						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to decrypt DNS provider credentials")
+						continue
+					}
+
+					var credentials map[string]string
+					if err := json.Unmarshal(decryptedData, &credentials); err != nil {
+						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to parse DNS provider credentials")
+						continue
+					}
+
+					dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
+						ID:                 provider.ID,
+						ProviderType:       provider.ProviderType,
+						PropagationTimeout: provider.PropagationTimeout,
+						Credentials:        credentials,
+					})
+				}
+			}
+		} else {
+			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set, DNS challenge configuration will be skipped")
+		}
 	}
 
 	// Fetch ACME email setting
@@ -225,7 +294,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

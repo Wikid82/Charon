@@ -63,6 +63,7 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
+    { name: t('navigation.dnsProviders'), path: '/dns-providers', icon: '☁️' },
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
     { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
