@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   test: {
+    pool: 'threads',
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
@@ -11,6 +12,7 @@ export default defineConfig({
       'node_modules/**',
       'dist/**',
       'e2e/**', // Playwright E2E tests - run separately
+      'tests/**', // Playwright smoke tests - run separately
     ],
     coverage: {
       provider: 'v8',

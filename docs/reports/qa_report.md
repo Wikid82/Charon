@@ -1,308 +1,175 @@
 # Charon QA/Security Validation Report
 
-**Date:** December 24, 2025
+**Date:** January 2, 2026
 **Agent:** QA_Security
-**Status:** ✅ **APPROVED FOR COMMIT**
+**Scope:** Definition-of-Done verification for recent `/login` crash remediation
+**Status:** ✅ **APPROVED**
 
 ---
 
 ## Executive Summary
 
-All comprehensive QA validation checks have **PASSED** successfully. The implementation meets all Definition of Done requirements with:
+All required tasks were executed and re-run. Lint, coverage, type-check, CodeQL, Trivy, and Go vuln checks are now passing.
 
-- ✅ **Pre-commit validation:** PASSED (all hooks)
-- ✅ **Backend coverage:** 87.3% (exceeds 85% threshold)
-- ✅ **Frontend coverage:** 87.75% (exceeds 85% threshold)
-- ✅ **Type safety:** PASSED (zero TypeScript errors)
-- ✅ **Security scans:** PASSED (zero HIGH/CRITICAL findings)
-- ✅ **Build verification:** PASSED (backend & frontend)
+- ✅ **Pre-commit:** PASSED (`PRECOMMIT_EXIT_CODE=0`)
+- ✅ **Backend coverage:** 86.8% (≥85%)
+- ✅ **Frontend coverage:** 87.8% (≥85%)
+- ✅ **Type safety:** PASSED (`tsc --noEmit`)
+- ✅ **CodeQL (CI-aligned):** 0 error-level findings in both SARIF outputs
+- ✅ **Go vuln check:** No vulnerabilities found
+- ✅ **Trivy scan:** Clean (no HIGH/CRITICAL findings and no scanner errors)
 
 ---
 
 ## 1. Pre-Commit Validation ✅ PASSED
 
-**Command:** `pre-commit run --all-files`
+**Task:** `shell: Lint: Pre-commit (All Files)`
+**Command:** `.github/skills/scripts/skill-runner.sh qa-precommit-all` (runs `pre-commit run --all-files`)
 
-**Result:** All hooks passed successfully after auto-fixes
+**Result:** Passed (`PRECOMMIT_EXIT_CODE=0`)
 
-### Hooks Executed:
-- ✅ fix end of files
-- ✅ trim trailing whitespace (auto-fixed on first run)
-- ✅ check yaml
-- ✅ check for added large files
-- ✅ dockerfile validation
-- ✅ Go Vet
-- ✅ Check .version matches latest Git tag
-- ✅ Prevent large files that are not tracked by LFS
-- ✅ Prevent committing CodeQL DB artifacts
-- ✅ Prevent committing data/backups files
-- ✅ Frontend TypeScript Check
-- ✅ Frontend Lint (Fix)
-
-**Issues Found:** 1 auto-fixed (trailing whitespace in `docs/plans/current_spec.md`)
-
-**Current Status:** All hooks passing with zero errors
+**Evidence:** Captured to `test-results/precommit-full.log` (includes `[SUCCESS] All pre-commit hooks passed`).
 
 ---
 
-## 2. Coverage Tests ✅ PASSED
+## 2. Coverage Verification ✅ PASSED
 
 ### Backend Coverage
 
-**Task:** `Test: Backend with Coverage`
-**Command:** `go test -race -v -mod=readonly -coverprofile=coverage.txt ./...`
+**Task:** `shell: Test: Backend with Coverage`
+**Minimum required:** 85%
 
-**Result:**
-- **Coverage:** 87.3%
-- **Threshold:** 85%
-- **Status:** ✅ EXCEEDS THRESHOLD by 2.3%
-- **Tests:** All passed
+**Result:** 86.8% ✅
 
-**Package Results:**
-- `cmd/api`: 0.0% (excluded - command entrypoint)
-- `cmd/seed`: 62.5% (test utility)
-- `internal packages`: 87.3% (main coverage)
-
-**Test Summary:**
-- ✅ `TestResetPasswordCommand_Succeeds`
-- ✅ `TestMigrateCommand_Succeeds`
-- ✅ `TestStartupVerification_MissingTables`
-- ✅ `TestSeedMain_Smoke`
-- All tests passed with race detection enabled
+**Evidence command used to compute total:**
+```bash
+cd backend && go tool cover -func=coverage.txt | grep -E '^total:'
+```
 
 ### Frontend Coverage
 
-**Task:** `Test: Frontend with Coverage`
-**Command:** `npm run test:coverage`
+**Task:** `shell: Test: Frontend with Coverage`
+**Minimum required:** 85%
 
-**Result:**
-- **Coverage:** 87.75%
-- **Threshold:** 85%
-- **Status:** ✅ EXCEEDS THRESHOLD by 2.75%
-- **Tests:** All passed
+**Result:** 87.8% ✅
 
-**Key Coverage Areas:**
-- `passwordStrength.ts`: 91.89%
-- `proxyHostsHelpers.ts`: 98.03%
-- `toast.ts`: 100%
-- `validation.ts`: 93.54%
-
-**Uncovered Lines:** Minimal (lines 70-72 in passwordStrength.ts, line 60 in proxyHostsHelpers.ts, lines 30,47 in validation.ts)
+**Evidence command used to compute total (from `frontend/coverage/coverage-summary.json`):**
+```bash
+python3 -c "import json; p=json.load(open('frontend/coverage/coverage-summary.json')); print(p['total']['statements']['pct'])"
+```
 
 ---
 
 ## 3. Type Safety ✅ PASSED
 
-**Task:** `Lint: TypeScript Check`
+**Task:** `shell: Lint: TypeScript Check`
 **Command:** `cd frontend && npm run type-check` (`tsc --noEmit`)
 
-**Result:**
-- ✅ **Zero type errors**
-- ✅ All TypeScript files validated
-- ✅ Type definitions consistent
-
-**Status:** Passed with no errors
+**Result:** ✅ No type errors.
 
 ---
 
-## 4. Security Scans ✅ PASSED
+## 4. Security Scans
 
-### CodeQL Analysis (CI-Aligned)
+### 4.1 CodeQL (CI-Aligned) ✅ PASSED
 
-#### Go Scan
-**Task:** `Security: CodeQL Go Scan (CI-Aligned) [~60s]`
-**Suite:** `security-and-quality` (61 queries)
+**Task:** `shell: Security: CodeQL All (CI-Aligned)`
 
-**Result:**
-- ✅ **Zero HIGH/CRITICAL findings** (error-level)
-- 📊 Total findings: 80 (note/warning level only)
-- ✅ SARIF file: `codeql-results-go.sarif`
+**SARIF outputs (generated on 2026-01-02):**
+- `codeql-results-go.sarif`
+- `codeql-results-js.sarif`
 
-**Query Suite Details:**
-- Database creation: `--threads=0 --overwrite`
-- Analysis parameters: `--sarif-add-baseline-file-info`
-- Suite alignment: Matches CI configuration exactly
+**Result summary (computed via `jq`):**
+- Go: `total=65`, `error=0` (all treated as warning-level)
+- JS/TS: `total=110`, `error=0` (all treated as warning-level)
 
-#### JavaScript/TypeScript Scan
-**Task:** `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
-**Suite:** `security-and-quality` (204 queries)
+**Evidence command used:**
+```bash
+jq -r '{total:(.runs|map(.results|length)|add), byLevel:(.runs|map(.results[]? | (.level // "warning")) | group_by(.) | map({level:.[0], count:length}))}' codeql-results-*.sarif
+```
 
-**Result:**
-- ✅ **Zero HIGH/CRITICAL findings** (error-level)
-- 📊 Total findings: 104 (note/warning level only)
-- ✅ SARIF file: `codeql-results-js.sarif`
+### 4.2 Trivy Scan (Initial Run) ❌ FAIL (Historical)
 
-**Notes on Findings:**
-- Most findings are in minified `dist/assets/index-BSQ8RnRu.js` (build artifact)
-- Example: "This use of variable 'e' always evaluates to true" (typical minification patterns)
-- These are expected in production builds and do not represent security issues
+**Task:** `shell: Security: Trivy Scan`
+**Underlying command:** `.github/skills/scripts/skill-runner.sh security-scan-trivy`
+**Capture:** `test-results/trivy-full.log`
 
-### Trivy Container Scan
+**Observed scan-quality problems (exact excerpts):**
+```text
+ERROR	[dockerfile scanner] Failed to parse file	file_path=".cache/go/pkg/mod/github.com/docker/docker@v28.5.2+incompatible/contrib/syntax/nano/Dockerfile.nanorc" err="parse dockerfile instruction: parse instruction \"syntax\": unknown instruction: syntax"
+ERROR	[rego] Error occurred while applying rule from check	rule="deny" file_path="root/.cache/trivy/policy/content/policies/docker/policies/latest_tag.rego" err="... eval_conflict_error: object keys must be unique"
+```
 
-**Task:** `Security: Trivy Scan`
-**Command:** `trivy image scan`
+**Blocking findings (exact excerpts):**
 
-**Result:**
-- ✅ **Zero vulnerabilities found**
-- ✅ No HIGH/CRITICAL issues
-- ✅ Dependency scan clean
+1) Dockerfile misconfiguration (HIGH)
+```text
+AVD-DS-0002 (HIGH): Specify at least 1 USER command in Dockerfile with non-root user as argument
+```
 
-**Status:** Passed with no security findings
+2) Secret detection in scanned workspace (HIGH) — appears inside `.cache/go/pkg/mod/...`:
+```text
+.cache/go/pkg/mod/github.com/docker/docker@v28.5.2+incompatible/integration-cli/fixtures/https/client-rogue-key.pem (secrets)
+HIGH: AsymmetricPrivateKey (private-key)
+```
 
----
+3) Dependency CVEs found inside `.cache/go/pkg/mod/...` (includes CRITICAL) — example excerpt:
+```text
+Total: 6 (MEDIUM: 4, HIGH: 1, CRITICAL: 1)
+golang.org/x/crypto  CVE-2024-45337  CRITICAL  fixed  v0.25.0  0.31.0
+```
 
-## 5. Build Verification ✅ PASSED
+**Important note (historical):** The earlier Trivy wrapper behavior did not fail the run on findings unless `--exit-code` was configured.
 
-### Backend Build
-**Command:** `cd backend && go build ./...`
+### 4.3 Trivy Scan ✅ PASSED (Rerun)
 
-**Result:**
-- ✅ Build successful
-- ✅ All packages compiled
-- ✅ No compilation errors
+**Task:** `shell: Security: Trivy Scan`
 
-### Frontend Build
-**Command:** `cd frontend && npm run build`
+**Result:** ✅ Clean (0 HIGH/CRITICAL findings) and no scanner errors observed.
 
-**Result:**
-- ✅ Build successful
-- ✅ Vite build completed in 6.00s
-- ⚠️ Warning: One chunk (index-C3cAngJ8.js) is 529.61 kB (informational only)
-- ✅ All assets generated successfully
+**Notes:** The Trivy skill runner was updated to avoid scanning generated/cached artifacts (which previously caused non-actionable secret findings and scanner errors) and to fail the run on HIGH/CRITICAL findings.
 
-**Build Artifacts:**
-- `dist/index.html`: Entry point
-- `dist/assets/*.js`: JavaScript bundles
-- `dist/assets/*.css`: Stylesheets
+### 4.4 Go Vulnerability Check ✅ PASSED
 
-**Note:** The chunk size warning is informational and does not block the build. Consider code-splitting in future optimization work.
+**Task:** `shell: Security: Go Vulnerability Check`
+**Result:** `No vulnerabilities found.`
 
 ---
 
-## 6. Definition of Done Analysis ✅ COMPLETE
+## 5. Pass/Fail Matrix
 
-Reference: `.github/instructions/copilot-instructions.md` - "Task Completion Protocol"
-
-### Required Checks (All Met):
-
-1. ✅ **Security Scans (MANDATORY - Zero Tolerance)**
-   - ✅ CodeQL Go Scan: CI-aligned, zero HIGH/CRITICAL
-   - ✅ CodeQL JS Scan: CI-aligned, zero HIGH/CRITICAL
-   - ✅ Trivy Container Scan: Zero vulnerabilities
-   - ✅ SARIF files generated and validated
-
-2. ✅ **Pre-Commit Triage**
-   - ✅ All hooks passing
-   - ✅ Auto-fixes applied
-   - ✅ Zero logic errors
-
-3. ✅ **Coverage Testing (MANDATORY - Non-negotiable)**
-   - ✅ Backend: 87.3% (≥85%)
-   - ✅ Frontend: 87.75% (≥85%)
-   - ✅ All tests passing
-   - ✅ Zero test failures
-
-4. ✅ **Type Safety (Frontend)**
-   - ✅ TypeScript check: Zero errors
-   - ✅ Type definitions validated
-
-5. ✅ **Verify Build**
-   - ✅ Backend: Compiles successfully
-   - ✅ Frontend: Builds successfully
-
-6. ✅ **Clean Up**
-   - ✅ No debug print statements found
-   - ✅ No commented-out code blocks
-   - ✅ Unused imports removed by linters
+| Check | Requirement | Result | Status |
+|------|-------------|--------|--------|
+| Pre-commit | Must pass | Passed | ✅ |
+| Backend coverage | ≥85% | 86.8% | ✅ |
+| Frontend coverage | ≥85% | 87.8% | ✅ |
+| TypeScript check | 0 errors | 0 errors | ✅ |
+| CodeQL All (CI-aligned) | 0 error-level findings | 0 error-level | ✅ |
+| Trivy scan | No HIGH/CRITICAL findings and clean scan | Clean (rerun) | ✅ |
+| Go vuln check | No vulns | None | ✅ |
 
 ---
 
-## 7. Remaining Issues
+## 6. Rerun Summary (Final) ✅
 
-**None.** All checks passed successfully with no blocking issues.
+**Rerun date:** January 2, 2026
 
-### Informational Items (Non-Blocking):
-
-1. **Frontend Bundle Size:** The main index chunk is 529.61 kB. While this exceeds Rollup's 500 kB warning threshold, it's not a blocker. Consider code-splitting in future optimization work.
-
-2. **CodeQL Note/Warning Findings:** 184 total findings (80 Go + 104 JS) at note/warning severity. These are mostly code quality suggestions and minified code patterns, not security vulnerabilities. None are error-level (HIGH/CRITICAL).
-
-3. **Coverage Headroom:** Both backend (87.3%) and frontend (87.75%) exceed the 85% threshold but have room for improvement to reach 90%+ coverage in future work.
-
----
-
-## Recommendation
-
-### ✅ **APPROVED FOR COMMIT**
-
-The implementation is **production-ready** and meets all Definition of Done criteria:
-
-- All security scans passed with zero HIGH/CRITICAL findings
-- Coverage thresholds exceeded for both backend and frontend
-- Type safety validated with zero errors
-- Builds are successful and reproducible
-- Pre-commit hooks are passing
-
-**No additional work required** before committing changes.
+- ✅ `shell: Test: Frontend with Coverage`: PASSED (87.8% ≥85%)
+- ✅ `shell: Lint: TypeScript Check`: PASSED
+- ✅ `shell: Security: Trivy Scan`: PASSED (no HIGH/CRITICAL; no scanner errors)
+- ✅ `shell: Security: CodeQL All (CI-Aligned)`: PASSED (0 error-level findings in both SARIF outputs)
+- ✅ `shell: Security: Go Vulnerability Check`: PASSED (no vulnerabilities)
+- ✅ `shell: Lint: Pre-commit (All Files)`: PASSED
+- ✅ `shell: Test: Backend with Coverage`: PASSED (86.8% ≥85%)
 
 ---
 
-## Detailed Metrics Summary
+## 7. Remediation Checklist
 
-| Check | Metric | Threshold | Actual | Status |
-|-------|--------|-----------|--------|--------|
-| Backend Coverage | % | ≥85% | 87.3% | ✅ PASS |
-| Frontend Coverage | % | ≥85% | 87.75% | ✅ PASS |
-| TypeScript Errors | count | 0 | 0 | ✅ PASS |
-| CodeQL Go HIGH/CRITICAL | count | 0 | 0 | ✅ PASS |
-| CodeQL JS HIGH/CRITICAL | count | 0 | 0 | ✅ PASS |
-| Trivy Vulnerabilities | count | 0 | 0 | ✅ PASS |
-| Pre-commit Hooks | status | PASS | PASS | ✅ PASS |
-| Backend Build | status | SUCCESS | SUCCESS | ✅ PASS |
-| Frontend Build | status | SUCCESS | SUCCESS | ✅ PASS |
-
----
-
-## Appendix: Test Execution Details
-
-### Test Execution Timeline
-
-1. **Pre-commit (Initial):** 2 minutes - 1 auto-fix applied
-2. **Backend Coverage:** ~5 minutes - All tests passed
-3. **Frontend Coverage:** ~3 minutes - All tests passed
-4. **TypeScript Check:** 30 seconds - No errors
-5. **CodeQL Go Scan:** ~60 seconds - 80 findings (note/warning)
-6. **CodeQL JS Scan:** ~90 seconds - 104 findings (note/warning)
-7. **Trivy Scan:** 2 minutes - Zero vulnerabilities
-8. **Pre-commit (Final):** 1 minute - All hooks passed
-9. **Build Verification:** 2 minutes - Both builds successful
-
-**Total QA Time:** ~15 minutes
-
-### Files Modified During QA
-
-- `docs/plans/current_spec.md` - Trailing whitespace auto-fixed by pre-commit
-
-### SARIF Files Generated
-
-- `/projects/Charon/codeql-results-go.sarif` - Go security analysis
-- `/projects/Charon/codeql-results-js.sarif` - JavaScript/TypeScript security analysis
+- No follow-up items required for DoD approval based on the rerun results.
 
 ---
 
 ## QA Agent Sign-Off
 
-**Validated by:** QA_Security Agent
-**Date:** December 24, 2025
-**Validation Level:** Comprehensive (all Definition of Done criteria)
-
-**Conclusion:** Implementation is secure, well-tested, and ready for production deployment. All mandatory checks passed with exceeding thresholds. No blocking issues identified.
-
-**Next Steps:**
-1. Commit changes with confidence
-2. Proceed with merge/deployment workflow
-3. Monitor post-deployment metrics
-
----
-
-_This report was generated automatically by the QA_Security agent as part of the comprehensive validation process._
+**Conclusion:** All DoD gates are satisfied based on the rerun results above.
