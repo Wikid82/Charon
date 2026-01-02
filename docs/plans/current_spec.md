@@ -1,475 +1,808 @@
-# SSRF (Server-Side Request Forgery) Remediation Plan - Defense-in-Depth Analysis
+# DNS Challenge Support Implementation Spec
 
-**Date**: December 31, 2025
-**Status**: Security Audit & Enhancement Planning
-**CWE**: CWE-918 (Server-Side Request Forgery)
-**CVSS Base**: 8.6 (High) → Target: 0.0 (Resolved)
-**Affected File**: `/projects/Charon/backend/internal/utils/url_testing.go`
-**Line**: 176 (`client.Do(req)`)
-**Related PR**: #450 (SSRF Remediation - Previously Completed)
+**Issue:** #21 - DNS Challenge Support for Wildcard Certificates
+**Priority:** Critical (Beta Release Blocker)
+**Version:** 1.0
+**Date:** January 1, 2026
 
 ---
 
-## Executive Summary
+## 1. Executive Summary
 
-A CodeQL security scan has flagged line 176 in `url_testing.go` with: **"The URL of this request depends on a user-provided value."** While this is a **false positive** (comprehensive SSRF protection exists via PR #450), this document provides defense-in-depth enhancements.
+Wildcard SSL certificates (e.g., `*.example.com`) are essential for modern multi-tenant and subdomain-heavy deployments, but Let's Encrypt and other ACME providers **require DNS-01 challenges** to issue them. Currently, Charon only supports HTTP-01 challenges, which cannot validate wildcard domains. This limitation blocks users who need flexible subdomain management from using automatic certificate issuance.
 
-**Current Status**: ✅ **PRODUCTION READY**
-- 4-layer defense architecture
-- 90.2% test coverage
-- Zero vulnerabilities
-- CodeQL suppression present
+This feature is critical for the beta release because wildcard certificate support is a fundamental expectation of any production-grade reverse proxy manager. Without it, users must manually provision and upload certificates, defeating the purpose of automated TLS management that Charon promises.
 
-**Enhancement Goal**: Add 5 additional security layers for belt-and-suspenders protection.
+The implementation involves creating a secure credential storage system with AES-256-GCM encryption, a new `DNSProvider` entity with full CRUD operations, extending the Caddy configuration generator to emit DNS challenge blocks, and building a complete frontend management interface. The approach prioritizes security (encrypted credentials at rest), extensibility (supporting 10+ major DNS providers), and user experience (test-before-save, clear status indicators).
 
 ---
 
-## 1. Vulnerability Analysis & Attack Vectors
+## 2. Scope & Acceptance Criteria
 
-### 1.1 CodeQL Finding
-**Line 176**: `resp, err := client.Do(req)` - HTTP request execution using user-provided URL
+### In Scope
 
-### 1.2 Potential Attack Vectors (if unprotected)
-1. **Cloud Metadata**: `http://169.254.169.254/latest/meta-data/` (AWS credentials)
-2. **Internal Services**: `http://192.168.1.1/admin`, `http://localhost:6379` (Redis)
-3. **DNS Rebinding**: Attacker controls DNS to switch from public → private IP
-4. **Port Scanning**: `http://10.0.0.1:1-65535` (network enumeration)
+- DNSProvider model with encrypted credential storage
+- API endpoints for DNS provider CRUD operations
+- Provider connectivity testing (pre-save and post-save)
+- Caddy DNS challenge configuration generation
+- Frontend management UI for DNS providers
+- Integration with proxy host creation (wildcard detection)
+- Support for major DNS providers: Cloudflare, Route53, DigitalOcean, Google Cloud DNS, Namecheap, GoDaddy, Azure DNS, Hetzner, Vultr, DNSimple
+
+### Out of Scope (Future Iterations)
+
+- Multi-credential per provider (zone-specific credentials)
+- Key rotation automation
+- DNS provider auto-detection
+- Custom DNS provider plugins
+
+### Acceptance Criteria
+
+- [ ] Users can add, edit, delete, and test DNS provider configurations
+- [ ] Credentials are encrypted at rest using AES-256-GCM
+- [ ] Credentials are **never** exposed in API responses (masked or omitted)
+- [ ] Proxy hosts with wildcard domains can select a DNS provider
+- [ ] Caddy successfully obtains wildcard certificates using DNS-01 challenge
+- [ ] Backend unit test coverage ≥ 85%
+- [ ] Frontend unit test coverage ≥ 85%
+- [ ] User documentation completed
+- [ ] All translations added for new UI strings
 
 ---
 
-## 2. Existing Protection (PR #450) ✅
+## 3. Technical Architecture
 
-**4-Layer Defense Architecture**:
+### Component Diagram
+
 ```
-Layer 1: Format Validation (utils.ValidateURL)
-    ↓ HTTP/HTTPS scheme, path validation
-Layer 2: Security Validation (security.ValidateExternalURL)
-    ↓ DNS resolution + IP blocking (RFC 1918, loopback, link-local)
-Layer 3: Connection-Time Validation (ssrfSafeDialer)
-    ↓ Re-resolves DNS, re-validates IPs (TOCTOU protection)
-Layer 4: Request Execution (TestURLConnectivity)
-    ↓ HEAD request, 5s timeout, max 2 redirects
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                               FRONTEND                                       │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
+│  │ DNSProviders    │  │ DNSProviderForm │  │ ProxyHostForm               │  │
+│  │ Page            │  │ (Add/Edit)      │  │ (Wildcard + Provider Select)│  │
+│  └────────┬────────┘  └────────┬────────┘  └─────────────┬───────────────┘  │
+│           │                    │                         │                   │
+│           └────────────────────┼─────────────────────────┘                   │
+│                                ▼                                             │
+│                    ┌───────────────────────┐                                 │
+│                    │ api/dnsProviders.ts   │                                 │
+│                    │ hooks/useDNSProviders │                                 │
+│                    └───────────┬───────────┘                                 │
+└────────────────────────────────┼─────────────────────────────────────────────┘
+                                 │ HTTP/JSON
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                               BACKEND                                        │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                        API Layer (Gin Router)                          │ │
+│  │  /api/v1/dns-providers/*  →  dns_provider_handler.go                   │ │
+│  └────────────────────────────────┬───────────────────────────────────────┘ │
+│                                   ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                      Service Layer                                      │ │
+│  │  dns_provider_service.go  ←→  crypto/encryption.go (AES-256-GCM)       │ │
+│  └────────────────────────────────┬───────────────────────────────────────┘ │
+│                                   ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                        Data Layer (GORM)                               │ │
+│  │  models/dns_provider.go  │  models/proxy_host.go (extended)            │ │
+│  └────────────────────────────────┬───────────────────────────────────────┘ │
+│                                   ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                     Caddy Integration                                   │ │
+│  │  caddy/config.go  →  DNS Challenge Issuer Config  →  Caddy Admin API   │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DNS PROVIDER                                       │
+│                    (Cloudflare, Route53, etc.)                               │
+│                    TXT Record: _acme-challenge.example.com                   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Blocked IP Ranges** (13+ CIDR blocks):
-- RFC 1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
-- Loopback: `127.0.0.0/8`, `::1/128`
-- Link-Local: `169.254.0.0/16` (AWS/GCP/Azure metadata), `fe80::/10`
-- Reserved: `0.0.0.0/8`, `240.0.0.0/4`, `255.255.255.255/32`
+### Data Flow for DNS Challenge
+
+```
+1. User creates ProxyHost with *.example.com + selects DNSProvider
+                              │
+                              ▼
+2. Backend validates request, fetches DNSProvider credentials (decrypted)
+                              │
+                              ▼
+3. Caddy Manager generates config with DNS challenge issuer:
+   {
+     "module": "acme",
+     "challenges": {
+       "dns": {
+         "provider": { "name": "cloudflare", "api_token": "..." }
+       }
+     }
+   }
+                              │
+                              ▼
+4. Caddy applies config → initiates ACME order → requests DNS challenge
+                              │
+                              ▼
+5. Caddy's DNS provider module creates TXT record via DNS API
+                              │
+                              ▼
+6. ACME server validates TXT record → issues certificate
+                              │
+                              ▼
+7. Caddy stores certificate → serves HTTPS for *.example.com
+```
 
 ---
 
-## 3. Root Cause: Why CodeQL Flagged This
+## 4. Database Schema
 
-**Static Analysis Limitation**: CodeQL cannot recognize:
-1. `security.ValidateExternalURL()` returns NEW string (breaks taint)
-2. `ssrfSafeDialer()` validates IPs at connection time
-3. Multi-package defense-in-depth architecture
-
-**Taint Flow**:
-```
-rawURL (user input)
-  → url.Parse()
-  → security.ValidateExternalURL() [NOT RECOGNIZED AS SANITIZER]
-  → http.NewRequest()
-  → client.Do(req) ⚠️ ALERT
-```
-
-**Assessment**: ✅ **FALSE POSITIVE** - Already protected
-
----
-
-## 4. Enhancement Strategy (5 Phases)
-
-### Phase 1: Static Analysis Recognition
-**Goal**: Help CodeQL understand existing protections
-
-#### 1.1 Add Explicit Taint Break Function
-**New File**: `backend/internal/security/taint_break.go`
+### DNSProvider Model
 
 ```go
-// BreakTaintChain explicitly reconstructs URL to break static analysis taint.
-// MUST only be called AFTER security.ValidateExternalURL().
-func BreakTaintChain(validatedURL string) (string, error) {
-u, err := neturl.Parse(validatedURL)
-if err != nil {
-return "", fmt.Errorf("taint break failed: %w", err)
+// File: backend/internal/models/dns_provider.go
+
+// DNSProvider represents a DNS provider configuration for ACME DNS-01 challenges.
+type DNSProvider struct {
+    ID                   uint       `json:"id" gorm:"primaryKey"`
+    UUID                 string     `json:"uuid" gorm:"uniqueIndex;size:36"`
+    Name                 string     `json:"name" gorm:"index;not null;size:255"`
+    ProviderType         string     `json:"provider_type" gorm:"index;not null;size:50"`
+    Enabled              bool       `json:"enabled" gorm:"default:true;index"`
+    IsDefault            bool       `json:"is_default" gorm:"default:false"`
+
+    // Encrypted credentials (JSON blob, encrypted with AES-256-GCM)
+    CredentialsEncrypted string     `json:"-" gorm:"type:text;column:credentials_encrypted"`
+
+    // Propagation settings
+    PropagationTimeout   int        `json:"propagation_timeout" gorm:"default:120"`  // seconds
+    PollingInterval      int        `json:"polling_interval" gorm:"default:5"`       // seconds
+
+    // Usage tracking
+    LastUsedAt           *time.Time `json:"last_used_at,omitempty"`
+    SuccessCount         int        `json:"success_count" gorm:"default:0"`
+    FailureCount         int        `json:"failure_count" gorm:"default:0"`
+    LastError            string     `json:"last_error,omitempty" gorm:"type:text"`
+
+    CreatedAt            time.Time  `json:"created_at"`
+    UpdatedAt            time.Time  `json:"updated_at"`
 }
-reconstructed := &neturl.URL{
-Scheme:   u.Scheme,
-Host:     u.Host,
-Path:     u.Path,
-RawQuery: u.RawQuery,
-}
-return reconstructed.String(), nil
+
+// TableName specifies the database table name
+func (DNSProvider) TableName() string {
+    return "dns_providers"
 }
 ```
 
-#### 1.2 Update `url_testing.go`
-**Line 85-120**: Add after `security.ValidateExternalURL()`:
+### ProxyHost Extensions
+
 ```go
-// ENHANCEMENT: Explicitly break taint chain for static analysis
-requestURL, err = security.BreakTaintChain(validatedURL)
-if err != nil {
-return false, 0, fmt.Errorf("taint break failed: %w", err)
+// File: backend/internal/models/proxy_host.go (additions)
+
+type ProxyHost struct {
+    // ... existing fields ...
+
+    // DNS Challenge configuration
+    DNSProviderID   *uint        `json:"dns_provider_id,omitempty" gorm:"index"`
+    DNSProvider     *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`
+    UseDNSChallenge bool         `json:"use_dns_challenge" gorm:"default:false"`
 }
 ```
 
-#### 1.3 CodeQL Custom Model
-**New File**: `.github/codeql-custom-model.yml`
-```yaml
-extensions:
-  - addsTo:
-      pack: codeql/go-all
-      extensible: sourceModel
-    data:
-      - ["github.com/Wikid82/charon/backend/internal/security", "ValidateExternalURL", "", "manual", "sanitizer"]
-      - ["github.com/Wikid82/charon/backend/internal/security", "BreakTaintChain", "", "manual", "sanitizer"]
+### Supported Provider Types
+
+| Provider Type | Credential Fields | Caddy DNS Module |
+|---------------|-------------------|------------------|
+| `cloudflare` | `api_token` OR (`api_key`, `email`) | `cloudflare` |
+| `route53` | `access_key_id`, `secret_access_key`, `region` | `route53` |
+| `digitalocean` | `auth_token` | `digitalocean` |
+| `googleclouddns` | `service_account_json`, `project` | `googleclouddns` |
+| `namecheap` | `api_user`, `api_key`, `client_ip` | `namecheap` |
+| `godaddy` | `api_key`, `api_secret` | `godaddy` |
+| `azure` | `tenant_id`, `client_id`, `client_secret`, `subscription_id`, `resource_group` | `azuredns` |
+| `hetzner` | `api_key` | `hetzner` |
+| `vultr` | `api_key` | `vultr` |
+| `dnsimple` | `oauth_token`, `account_id` | `dnsimple` |
+
+---
+
+## 5. API Specification
+
+### Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/dns-providers` | List all DNS providers |
+| `POST` | `/api/v1/dns-providers` | Create new DNS provider |
+| `GET` | `/api/v1/dns-providers/:id` | Get provider details |
+| `PUT` | `/api/v1/dns-providers/:id` | Update provider |
+| `DELETE` | `/api/v1/dns-providers/:id` | Delete provider |
+| `POST` | `/api/v1/dns-providers/:id/test` | Test saved provider |
+| `POST` | `/api/v1/dns-providers/test` | Test credentials (pre-save) |
+| `GET` | `/api/v1/dns-providers/types` | List supported provider types |
+
+### Request/Response Schemas
+
+#### Create DNS Provider
+
+**Request:** `POST /api/v1/dns-providers`
+
+```json
+{
+  "name": "Production Cloudflare",
+  "provider_type": "cloudflare",
+  "credentials": {
+    "api_token": "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "propagation_timeout": 120,
+  "polling_interval": 5,
+  "is_default": true
+}
+```
+
+**Response:** `201 Created`
+
+```json
+{
+  "id": 1,
+  "uuid": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Production Cloudflare",
+  "provider_type": "cloudflare",
+  "enabled": true,
+  "is_default": true,
+  "has_credentials": true,
+  "propagation_timeout": 120,
+  "polling_interval": 5,
+  "success_count": 0,
+  "failure_count": 0,
+  "created_at": "2026-01-01T12:00:00Z",
+  "updated_at": "2026-01-01T12:00:00Z"
+}
+```
+
+#### List DNS Providers
+
+**Response:** `GET /api/v1/dns-providers` → `200 OK`
+
+```json
+{
+  "providers": [
+    {
+      "id": 1,
+      "uuid": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Production Cloudflare",
+      "provider_type": "cloudflare",
+      "enabled": true,
+      "is_default": true,
+      "has_credentials": true,
+      "propagation_timeout": 120,
+      "polling_interval": 5,
+      "last_used_at": "2026-01-01T10:30:00Z",
+      "success_count": 15,
+      "failure_count": 0,
+      "created_at": "2025-12-01T08:00:00Z",
+      "updated_at": "2026-01-01T10:30:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+#### Test DNS Provider
+
+**Request:** `POST /api/v1/dns-providers/:id/test`
+
+**Response:** `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "DNS provider credentials validated successfully",
+  "propagation_time_ms": 2340
+}
+```
+
+**Error Response:** `400 Bad Request`
+
+```json
+{
+  "success": false,
+  "error": "Authentication failed: invalid API token",
+  "code": "INVALID_CREDENTIALS"
+}
+```
+
+#### Get Provider Types
+
+**Response:** `GET /api/v1/dns-providers/types` → `200 OK`
+
+```json
+{
+  "types": [
+    {
+      "type": "cloudflare",
+      "name": "Cloudflare",
+      "fields": [
+        { "name": "api_token", "label": "API Token", "type": "password", "required": true, "hint": "Token with Zone:DNS:Edit permissions" }
+      ],
+      "documentation_url": "https://developers.cloudflare.com/api/tokens/"
+    },
+    {
+      "type": "route53",
+      "name": "Amazon Route 53",
+      "fields": [
+        { "name": "access_key_id", "label": "Access Key ID", "type": "text", "required": true },
+        { "name": "secret_access_key", "label": "Secret Access Key", "type": "password", "required": true },
+        { "name": "region", "label": "AWS Region", "type": "text", "required": true, "default": "us-east-1" }
+      ],
+      "documentation_url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-routing-traffic.html"
+    }
+  ]
+}
 ```
 
 ---
 
-### Phase 2: Additional Validation Rules
+## 6. Backend Implementation
 
-#### 2.1 Hostname Length Validation
-**File**: `backend/internal/security/url_validator.go` (after line 103)
+### Phase 1: Encryption Package + DNSProvider Model (~2-3 hours)
+
+**Objective:** Create secure credential storage foundation
+
+#### Files to Create
+
+| File | Description | Complexity |
+|------|-------------|------------|
+| `backend/internal/crypto/encryption.go` | AES-256-GCM encryption service | Medium |
+| `backend/internal/crypto/encryption_test.go` | Encryption unit tests | Low |
+| `backend/internal/models/dns_provider.go` | DNSProvider model + validation | Medium |
+
+#### Implementation Details
+
+**Encryption Service:**
 ```go
-// Prevent DoS via extremely long hostnames
-const maxHostnameLength = 253 // RFC 1035
-if len(host) > maxHostnameLength {
-return "", fmt.Errorf("hostname exceeds %d chars", maxHostnameLength)
+// backend/internal/crypto/encryption.go
+package crypto
+
+type EncryptionService struct {
+    key []byte // 32 bytes for AES-256
 }
-if strings.Contains(host, "..") {
-return "", fmt.Errorf("hostname contains suspicious pattern (..)")
+
+func NewEncryptionService(keyBase64 string) (*EncryptionService, error)
+func (s *EncryptionService) Encrypt(plaintext []byte) (string, error)
+func (s *EncryptionService) Decrypt(ciphertextB64 string) ([]byte, error)
+```
+
+**Configuration Extension:**
+```go
+// backend/internal/config/config.go (add)
+EncryptionKey string `env:"CHARON_ENCRYPTION_KEY"`
+```
+
+### Phase 2: Service Layer + Handlers (~2-3 hours)
+
+**Objective:** Build DNS provider CRUD operations
+
+#### Files to Create
+
+| File | Description | Complexity |
+|------|-------------|------------|
+| `backend/internal/services/dns_provider_service.go` | DNS provider CRUD + crypto integration | High |
+| `backend/internal/services/dns_provider_service_test.go` | Service unit tests | Medium |
+| `backend/internal/api/handlers/dns_provider_handler.go` | HTTP handlers | Medium |
+| `backend/internal/api/handlers/dns_provider_handler_test.go` | Handler unit tests | Medium |
+
+#### Service Interface
+
+```go
+type DNSProviderService interface {
+    List(ctx context.Context) ([]DNSProvider, error)
+    Get(ctx context.Context, id uint) (*DNSProvider, error)
+    Create(ctx context.Context, req CreateDNSProviderRequest) (*DNSProvider, error)
+    Update(ctx context.Context, id uint, req UpdateDNSProviderRequest) (*DNSProvider, error)
+    Delete(ctx context.Context, id uint) error
+    Test(ctx context.Context, id uint) (*TestResult, error)
+    TestCredentials(ctx context.Context, req CreateDNSProviderRequest) (*TestResult, error)
+    GetDecryptedCredentials(ctx context.Context, id uint) (map[string]string, error)
 }
 ```
 
-#### 2.2 Port Range Validation
-**Add after hostname validation**:
+### Phase 3: Caddy Integration (~2 hours)
+
+**Objective:** Generate DNS challenge configuration for Caddy
+
+#### Files to Modify
+
+| File | Changes | Complexity |
+|------|---------|------------|
+| `backend/internal/caddy/types.go` | Add `DNSChallengeConfig`, `ChallengesConfig` types | Low |
+| `backend/internal/caddy/config.go` | Add DNS challenge issuer generation logic | High |
+| `backend/internal/caddy/manager.go` | Fetch DNS providers when applying config | Medium |
+| `backend/internal/api/routes/routes.go` | Register DNS provider routes | Low |
+
+#### Caddy Types Addition
+
 ```go
-if port := u.Port(); port != "" {
-portNum, err := strconv.Atoi(port)
-if err != nil {
-return "", fmt.Errorf("invalid port: %w", err)
+// backend/internal/caddy/types.go
+
+type DNSChallengeConfig struct {
+    Provider           map[string]any `json:"provider"`
+    PropagationTimeout int64          `json:"propagation_timeout,omitempty"` // nanoseconds
+    Resolvers          []string       `json:"resolvers,omitempty"`
 }
-// Block privileged ports (0-1023) in production
-if !config.AllowLocalhost && portNum < 1024 {
-return "", fmt.Errorf("privileged ports blocked")
-}
-if portNum < 1 || portNum > 65535 {
-return "", fmt.Errorf("port out of range: %d", portNum)
-}
+
+type ChallengesConfig struct {
+    DNS *DNSChallengeConfig `json:"dns,omitempty"`
 }
 ```
 
 ---
 
-### Phase 3: Observability & Monitoring
+## 7. Frontend Implementation
 
-#### 3.1 Prometheus Metrics
-**New File**: `backend/internal/metrics/security_metrics.go`
+### Phase 1: API Client + Hooks (~1-2 hours)
 
-```go
-var (
-URLValidationCounter = promauto.NewCounterVec(
-prometheus.CounterOpts{
-Name: "charon_url_validation_total",
-Help: "URL validation attempts",
-},
-[]string{"result", "reason"},
-)
+**Objective:** Establish data layer for DNS providers
 
-SSRFBlockCounter = promauto.NewCounterVec(
-prometheus.CounterOpts{
-Name: "charon_ssrf_blocks_total",
-Help: "SSRF attempts blocked",
-},
-[]string{"ip_type"}, // private|loopback|linklocal
-)
-)
+#### Files to Create
+
+| File | Description | Complexity |
+|------|-------------|------------|
+| `frontend/src/api/dnsProviders.ts` | API client functions | Low |
+| `frontend/src/hooks/useDNSProviders.ts` | React Query hooks | Low |
+| `frontend/src/data/dnsProviderSchemas.ts` | Provider field definitions | Low |
+
+### Phase 2: DNS Providers Page (~2-3 hours)
+
+**Objective:** Complete management UI for DNS providers
+
+#### Files to Create
+
+| File | Description | Complexity |
+|------|-------------|------------|
+| `frontend/src/pages/DNSProviders.tsx` | DNS providers list page | Medium |
+| `frontend/src/components/DNSProviderForm.tsx` | Add/edit provider form | High |
+| `frontend/src/components/DNSProviderCard.tsx` | Provider card component | Low |
+
+#### UI Wireframe
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ DNS Providers                              [+ Add Provider]     │
+│ Configure DNS providers for wildcard certificate issuance      │
+├─────────────────────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ ℹ️ DNS providers are required to issue wildcard certificates │ │
+│ │ (e.g., *.example.com) via Let's Encrypt.                    │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│ ┌─────────────────────────┐  ┌─────────────────────────┐       │
+│ │ ☁️ Cloudflare           │  │ 🔶 Route 53            │       │
+│ │ Production Account      │  │ AWS Dev Account         │       │
+│ │ ⭐ Default  ✅ Active   │  │ ✅ Active               │       │
+│ │ Last used: 2 hours ago  │  │ Never used              │       │
+│ │ Success: 15 | Failed: 0 │  │ Success: 0 | Failed: 0  │       │
+│ │ [Edit] [Test] [Delete]  │  │ [Edit] [Test] [Delete]  │       │
+│ └─────────────────────────┘  └─────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 3.2 Security Audit Logger
-**New File**: `backend/internal/security/audit_logger.go`
+### Phase 3: Integration with Certificates/Proxy Hosts (~1-2 hours)
 
-```go
-type AuditEvent struct {
-Timestamp string `json:"timestamp"`
-Action    string `json:"action"`
-Host      string `json:"host"`
-RequestID string `json:"request_id"`
-Result    string `json:"result"`
-}
+**Objective:** Connect DNS providers to certificate workflows
 
-func LogURLTest(host, requestID string) {
-event := AuditEvent{
-Timestamp: time.Now().UTC().Format(time.RFC3339),
-Action:    "url_connectivity_test",
-Host:      host,
-RequestID: requestID,
-Result:    "initiated",
-}
-log.Printf("[SECURITY AUDIT] %+v\n", event)
-}
-```
+#### Files to Create
 
-#### 3.3 Request Tracing Headers
-**File**: `backend/internal/utils/url_testing.go` (line ~165)
-```go
-req.Header.Set("User-Agent", "Charon-Health-Check/1.0")
-req.Header.Set("X-Charon-Request-Type", "url-connectivity-test")
-req.Header.Set("X-Request-ID", fmt.Sprintf("test-%d", time.Now().UnixNano()))
-```
+| File | Description | Complexity |
+|------|-------------|------------|
+| `frontend/src/components/DNSProviderSelector.tsx` | Dropdown selector | Low |
+
+#### Files to Modify
+
+| File | Changes | Complexity |
+|------|---------|------------|
+| `frontend/src/App.tsx` | Add `/dns-providers` route | Low |
+| `frontend/src/components/layout/Layout.tsx` | Add navigation link | Low |
+| `frontend/src/components/ProxyHostForm.tsx` | Add DNS provider selector for wildcards | Medium |
+| `frontend/src/locales/en/translation.json` | Add translation keys | Low |
 
 ---
 
-## 5. Testing Strategy
+## 8. Security Requirements
 
-### 5.1 New Test Cases
+### Encryption at Rest
 
-**File**: `backend/internal/security/taint_break_test.go`
-```go
-func TestBreakTaintChain(t *testing.T) {
-tests := []struct {
-name    string
-input   string
-wantErr bool
-}{
-{"valid HTTPS", "https://example.com/path", false},
-{"invalid URL", "://invalid", true},
-}
-// ...test implementation
-}
+- **Algorithm:** AES-256-GCM (authenticated encryption)
+- **Key:** 32-byte key loaded from `CHARON_ENCRYPTION_KEY` environment variable
+- **Format:** Base64-encoded ciphertext with prepended nonce
+
+### Key Management
+
+```bash
+# Generate key (one-time setup)
+openssl rand -base64 32
+
+# Set environment variable
+export CHARON_ENCRYPTION_KEY="<base64-encoded-32-byte-key>"
 ```
 
-### 5.2 Enhanced SSRF Tests
+- Key MUST be stored in environment variable or secrets manager
+- Key MUST NOT be committed to version control
+- Key rotation support via `key_version` field (future)
 
-**File**: `backend/internal/utils/url_testing_ssrf_enhanced_test.go`
-```go
-func TestTestURLConnectivity_EnhancedSSRF(t *testing.T) {
-tests := []struct {
-name    string
-url     string
-blocked bool
-}{
-{"block AWS metadata", "http://169.254.169.254/", true},
-{"block GCP metadata", "http://metadata.google.internal/", true},
-{"block localhost Redis", "http://localhost:6379/", true},
-{"block RFC1918", "http://10.0.0.1/", true},
-{"allow public", "https://example.com/", false},
-}
-// ...test implementation
-}
-```
+### API Security
+
+- Credentials **NEVER** returned in API responses
+- Response includes only `has_credentials: true/false` indicator
+- Update requests with empty `credentials` preserve existing values
+- Audit logging for all credential access (create, update, decrypt for Caddy)
+
+### Database Security
+
+- `credentials_encrypted` column excluded from JSON serialization (`json:"-"`)
+- Database backups should be encrypted separately
+- Consider column-level encryption for additional defense-in-depth
 
 ---
 
-## 6. Implementation Plan
+## 9. Testing Strategy
 
-### Timeline: 2-3 Weeks
+### Backend Unit Tests (>85% Coverage)
 
-**Phase 1: Static Analysis** (Week 1, 16 hours)
-- [ ] Create `security.BreakTaintChain()` function
-- [ ] Update `url_testing.go` to use taint break
-- [ ] Add CodeQL custom model
-- [ ] Update inline annotations
-- [ ] **Validation**: Run CodeQL, verify no alerts
+| Test File | Coverage Target | Key Test Cases |
+|-----------|-----------------|----------------|
+| `crypto/encryption_test.go` | 100% | Encrypt/decrypt roundtrip, invalid key, tampered ciphertext |
+| `models/dns_provider_test.go` | 90% | Model validation, table name |
+| `services/dns_provider_service_test.go` | 85% | CRUD operations, encryption integration, error handling |
+| `handlers/dns_provider_handler_test.go` | 85% | HTTP methods, validation errors, auth required |
 
-**Phase 2: Validation** (Week 1, 12 hours)
-- [ ] Add hostname length validation
-- [ ] Add port range validation
-- [ ] Add scheme allowlist
-- [ ] **Validation**: Run enhanced test suite
+### Frontend Unit Tests (>85% Coverage)
 
-**Phase 3: Observability** (Week 2, 18 hours)
-- [ ] Add Prometheus metrics
-- [ ] Create audit logger
-- [ ] Add request tracing
-- [ ] Deploy Grafana dashboard
-- [ ] **Validation**: Verify metrics collection
+| Test File | Coverage Target | Key Test Cases |
+|-----------|-----------------|----------------|
+| `api/dnsProviders.test.ts` | 90% | API calls, error handling |
+| `hooks/useDNSProviders.test.ts` | 85% | Query/mutation behavior |
+| `pages/DNSProviders.test.tsx` | 80% | Render states, user interactions |
+| `components/DNSProviderForm.test.tsx` | 85% | Form validation, submission |
 
-**Phase 4: Documentation** (Week 2, 10 hours)
-- [ ] Update API docs
-- [ ] Update security docs
-- [ ] Add monitoring guide
-- [ ] **Validation**: Peer review
+### Integration Tests
 
----
+| Test | Description |
+|------|-------------|
+| `integration/dns_provider_test.go` | Full CRUD flow with database |
+| `integration/caddy_dns_challenge_test.go` | Config generation with DNS provider |
 
-## 7. Success Criteria
+### Manual Test Scenarios
 
-### 7.1 Security Validation
-- [ ] CodeQL shows ZERO SSRF alerts
-- [ ] All 31 existing tests pass
-- [ ] All 20+ new tests pass
-- [ ] Trivy scan clean
-- [ ] govulncheck clean
+1. **Happy Path:**
+   - Create Cloudflare provider with valid API token
+   - Test connection (expect success)
+   - Create proxy host with `*.example.com`
+   - Verify Caddy requests DNS challenge
+   - Confirm certificate issued
 
-### 7.2 Functional Validation
-- [ ] Backend coverage ≥ 85% (currently 86.4%)
-- [ ] URL validation coverage ≥ 90% (currently 90.2%)
-- [ ] Zero regressions
-- [ ] API latency <100ms
+2. **Error Handling:**
+   - Create provider with invalid credentials → test fails
+   - Delete provider in use by proxy host → error message
+   - Attempt wildcard without DNS provider → validation error
 
-### 7.3 Observability
-- [ ] Prometheus scraping works
-- [ ] Grafana dashboard renders
-- [ ] Audit logs captured
-- [ ] Metrics accurate
+3. **Security:**
+   - GET provider → credentials NOT in response
+   - Update provider without credentials → preserves existing
+   - Audit log contains credential access events
 
 ---
 
-## 8. Configuration File Updates
+## 10. Documentation Deliverables
 
-### 8.1 `.gitignore` - ✅ No Changes
-Current file already excludes:
-- `*.sarif` (CodeQL results)
-- `codeql-db*/`
-- Security scan artifacts
+### User Guide: DNS Providers
 
-### 8.2 `.dockerignore` - ✅ No Changes
-Current file already excludes:
-- CodeQL databases
-- Security artifacts
-- Test files
+**Location:** `docs/guides/dns-providers.md`
 
-### 8.3 `codecov.yml` - Create if missing
-```yaml
-coverage:
-  status:
-    project:
-      default:
-        target: 85%
-    patch:
-      default:
-        target: 90%
-```
+**Contents:**
+- What are DNS providers and why they're needed
+- Setting up your first DNS provider
+- Managing multiple providers
+- Troubleshooting common issues
 
-### 8.4 `Dockerfile` - ✅ No Changes
-No Docker build changes needed
+### Provider-Specific Setup Guides
+
+**Location:** `docs/guides/dns-providers/`
+
+| File | Provider |
+|------|----------|
+| `cloudflare.md` | Cloudflare (API token creation, permissions) |
+| `route53.md` | AWS Route 53 (IAM policy, credentials) |
+| `digitalocean.md` | DigitalOcean (token generation) |
+| `google-cloud-dns.md` | Google Cloud DNS (service account setup) |
+| `azure-dns.md` | Azure DNS (app registration, permissions) |
+
+### Troubleshooting Guide
+
+**Location:** `docs/troubleshooting/dns-challenges.md`
+
+**Contents:**
+- DNS propagation delays
+- Permission/authentication errors
+- Firewall considerations
+- Debug logging
 
 ---
 
-## 9. Risk Assessment
+## 11. Risk Assessment
 
-| Risk | Probability | Impact | Mitigation |
+### Technical Risks
+
+| Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| Performance degradation | Low | Medium | Benchmark each phase |
-| Breaking tests | Medium | High | Full test suite after each change |
-| SSRF bypass | Very Low | Critical | 4-layer protection already exists |
-| False positives | Low | Low | Extensive testing |
+| Encryption key loss | Low | Critical | Document key backup procedures, test recovery |
+| DNS provider API changes | Medium | Medium | Abstract provider logic, version-specific adapters |
+| Caddy DNS module incompatibility | Low | High | Test against specific Caddy version, pin dependencies |
+| Credential exposure in logs | Medium | High | Audit all logging, mask sensitive fields |
+| Performance impact of encryption | Low | Low | AES-NI hardware acceleration, minimal overhead |
+
+### Mitigations
+
+1. **Key Loss:** Require key backup during initial setup, document recovery procedures
+2. **API Changes:** Use provider abstraction layer, monitor upstream changes
+3. **Caddy Compatibility:** Pin Caddy version, comprehensive integration tests
+4. **Log Exposure:** Structured logging with field masking, security audit
+5. **Performance:** Benchmark encryption operations, consider caching decrypted creds briefly
 
 ---
 
-## 10. Monitoring (First 30 Days)
+## 12. Phased Delivery Timeline
 
-### Metrics to Track
-- SSRF blocks per day (baseline: 0-2, alert: >10)
-- Validation latency p95 (baseline: <50ms, alert: >100ms)
-- CodeQL alerts (baseline: 0, alert: >0)
+| Phase | Description | Estimated Time | Dependencies |
+|-------|-------------|----------------|--------------|
+| **Phase 1** | Foundation (Encryption pkg, DNSProvider model, migrations) | 2-3 hours | None |
+| **Phase 2** | Backend Service + API (CRUD handlers, validation) | 2-3 hours | Phase 1 |
+| **Phase 3** | Caddy Integration (DNS challenge config generation) | 2 hours | Phase 2 |
+| **Phase 4** | Frontend UI (Pages, forms, integration) | 3-4 hours | Phase 2 API |
+| **Phase 5** | Testing & Documentation (Unit tests, guides) | 2-3 hours | All phases |
 
-### Alert Configuration
-1. **SSRF Spike**: >5 blocks in 5 min
-2. **Latency**: p95 >200ms for 5 min
-3. **Suspicious**: >10 identical hosts in 1 hour
+**Total Estimated Time: 11-15 hours**
 
----
+### Dependency Graph
 
-## 11. Rollback Plan
-
-**Trigger Conditions**:
-- New CodeQL vulnerabilities
-- Test coverage drops
-- Performance >100ms degradation
-- Production incidents
-
-**Steps**:
-1. Revert affected phase commits
-2. Re-run test suite
-3. Re-deploy previous version
-4. Post-mortem analysis
+```
+Phase 1 (Foundation)
+    │
+    ├──► Phase 2 (Backend API)
+    │        │
+    │        ├──► Phase 3 (Caddy Integration)
+    │        │
+    │        └──► Phase 4 (Frontend UI)
+    │                 │
+    └─────────────────┴──► Phase 5 (Testing & Docs)
+```
 
 ---
 
-## 12. File Change Summary
+## 13. Files to Create
 
-### New Files (5)
-1. `backend/internal/security/taint_break.go` (taint chain break)
-2. `backend/internal/security/audit_logger.go` (audit logging)
-3. `backend/internal/metrics/security_metrics.go` (Prometheus)
-4. `.github/codeql-custom-model.yml` (CodeQL model)
-5. `codecov.yml` (coverage config, if missing)
+### Backend
 
-### Modified Files (3)
-1. `backend/internal/utils/url_testing.go` (use BreakTaintChain)
-2. `backend/internal/security/url_validator.go` (add validations)
-3. `.github/workflows/codeql.yml` (include custom model)
+| Path | Description |
+|------|-------------|
+| `backend/internal/crypto/encryption.go` | AES-256-GCM encryption service |
+| `backend/internal/crypto/encryption_test.go` | Encryption unit tests |
+| `backend/internal/models/dns_provider.go` | DNSProvider model definition |
+| `backend/internal/services/dns_provider_service.go` | DNS provider business logic |
+| `backend/internal/services/dns_provider_service_test.go` | Service unit tests |
+| `backend/internal/api/handlers/dns_provider_handler.go` | HTTP handlers |
+| `backend/internal/api/handlers/dns_provider_handler_test.go` | Handler unit tests |
+| `backend/integration/dns_provider_test.go` | Integration tests |
 
-### Test Files (2)
-1. `backend/internal/security/taint_break_test.go`
-2. `backend/internal/utils/url_testing_ssrf_enhanced_test.go`
+### Frontend
 
----
+| Path | Description |
+|------|-------------|
+| `frontend/src/api/dnsProviders.ts` | API client functions |
+| `frontend/src/hooks/useDNSProviders.ts` | React Query hooks |
+| `frontend/src/data/dnsProviderSchemas.ts` | Provider field definitions |
+| `frontend/src/pages/DNSProviders.tsx` | DNS providers page |
+| `frontend/src/components/DNSProviderForm.tsx` | Add/edit form |
+| `frontend/src/components/DNSProviderCard.tsx` | Provider card component |
+| `frontend/src/components/DNSProviderSelector.tsx` | Dropdown selector |
 
-## 13. Conclusion & Recommendation
+### Documentation
 
-### Current Sta
-
-The code already has comprehensive SSRF protection:
-- 4-layer defense architecture
-- 90.2% test coverage
-- Zero runtime vulnerabilities
-- Production-ready since PR #450
-
-### Recommended Action
-✅ **Implement Phase 1 & 3 Only** (34 hours, 1 week)
-
-**Rationale**:
-1. **Phase 1** eliminates CodeQL false positive (low risk, high value)
-2. **Phase 3** adds security monitoring (high operational value)
-3. **Skip Phase 2** - existing validation sufficient
-
-**Benefits**:
-- CodeQL clean status
-- Security metrics/monitoring
-- Attack detection capability
-- Documented architecture
-
-**Costs**:
-- ~1 week implementation
-- Minimal performance impact
-- No breaking changes
+| Path | Description |
+|------|-------------|
+| `docs/guides/dns-providers.md` | User guide |
+| `docs/guides/dns-providers/cloudflare.md` | Cloudflare setup |
+| `docs/guides/dns-providers/route53.md` | AWS Route 53 setup |
+| `docs/guides/dns-providers/digitalocean.md` | DigitalOcean setup |
+| `docs/troubleshooting/dns-challenges.md` | Troubleshooting guide |
 
 ---
 
-## 14. Approval & Next Steps
+## 14. Files to Modify
 
-**Plan Status**: ✅ **COMPLETE - READY FOR REVIEW**
+### Backend
 
-**Prepared By**: AI Security Analysis Agent
-**Date**: December 31, 2025
-**Version**: 1.0
+| Path | Changes |
+|------|---------|
+| `backend/internal/config/config.go` | Add `EncryptionKey` field |
+| `backend/internal/models/proxy_host.go` | Add `DNSProviderID`, `UseDNSChallenge` fields |
+| `backend/internal/caddy/types.go` | Add `DNSChallengeConfig`, `ChallengesConfig` types |
+| `backend/internal/caddy/config.go` | Add DNS challenge issuer generation |
+| `backend/internal/caddy/manager.go` | Load DNS providers when applying config |
+| `backend/internal/api/routes/routes.go` | Register DNS provider routes |
+| `backend/internal/api/handlers/proxyhost_handler.go` | Handle DNS provider association |
+| `backend/cmd/server/main.go` | Initialize encryption service |
 
-**Required Approvals**:
-- [ ] Security Team Lead
-- [ ] Backend Engineering Lead
-- [ ] DevOps/SRE Team
-- [ ] Product Owner
+### Frontend
 
-**Next Steps**:
-1. Review and approve plan
-2. Create GitHub Issues for Phase 1 & 3
-3. Assign to sprint
-4. Execute Phase 1 (Static Analysis)
-5. Validate CodeQL clean
-6. Execute Phase 3 (Observability)
-7. Deploy monitoring
-8. Close security finding
+| Path | Changes |
+|------|---------|
+| `frontend/src/App.tsx` | Add `/dns-providers` route |
+| `frontend/src/components/layout/Layout.tsx` | Add navigation link to DNS Providers |
+| `frontend/src/components/ProxyHostForm.tsx` | Add DNS provider selector for wildcard domains |
+| `frontend/src/locales/en/translation.json` | Add `dnsProviders.*` translation keys |
 
 ---
 
-**END OF SSRF REMEDIATION PLAN**
+## 15. Definition of Done Checklist
 
-**Document Hash**: `ssrf-remediation-20251231-v1.0`
-**Classification**: Internal Security Documentation
-**Retention**: 7 years (security audit trail)
+### Backend
+
+- [ ] `crypto/encryption.go` implemented with AES-256-GCM
+- [ ] `DNSProvider` model created with all fields
+- [ ] Database migration created and tested
+- [ ] `DNSProviderService` implements full CRUD
+- [ ] Credentials encrypted on save, decrypted on demand
+- [ ] API handlers for all endpoints
+- [ ] Input validation on all endpoints
+- [ ] Credentials never exposed in API responses
+- [ ] Unit tests pass with ≥85% coverage
+- [ ] Integration tests pass
+
+### Caddy Integration
+
+- [ ] DNS challenge config generated correctly
+- [ ] ProxyHost correctly associated with DNSProvider
+- [ ] Wildcard domains use DNS-01 challenge
+- [ ] Non-wildcard domains continue using HTTP-01
+
+### Frontend
+
+- [ ] API client functions implemented
+- [ ] React Query hooks working
+- [ ] DNS Providers page lists all providers
+- [ ] Add/Edit form with dynamic fields per provider
+- [ ] Test connection button functional
+- [ ] Provider selector in ProxyHost form
+- [ ] Wildcard domain detection triggers DNS provider requirement
+- [ ] All translations added
+- [ ] Unit tests pass with ≥85% coverage
+
+### Security
+
+- [ ] Encryption key documented in setup guide
+- [ ] Credentials encrypted at rest verified
+- [ ] API responses verified to exclude credentials
+- [ ] Audit logging for credential operations
+- [ ] Security review completed
+
+### Documentation
+
+- [ ] User guide written
+- [ ] Provider-specific guides written (at least Cloudflare, Route53)
+- [ ] Troubleshooting guide written
+- [ ] API documentation updated
+- [ ] CHANGELOG updated
+
+### Final Validation
+
+- [ ] End-to-end test: Create DNS provider → Create wildcard proxy → Certificate issued
+- [ ] Error scenarios tested (invalid creds, deleted provider)
+- [ ] UI reviewed for accessibility
+- [ ] Performance acceptable (no noticeable delays)
+
+---
+
+*Consolidated from backend and frontend research documents*
+*Ready for implementation*
