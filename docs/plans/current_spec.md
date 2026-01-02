@@ -17,6 +17,67 @@ The implementation involves creating a secure credential storage system with AES
 
 ---
 
+## 1.1 Trivy Remediation Addendum (QA Blocker)
+
+QA found Trivy blockers due to (a) a Dockerfile misconfig check and (b) Trivy scanning local/cache directories inside the workspace mount, causing false positives (fixture secrets + cached dependency CVEs) and scanner errors.
+
+### Objectives (short)
+
+- Make Trivy results **correct and actionable** (scan the repo, not local caches).
+- Make findings **fail the run** (exit code 1) while keeping defaults reasonable for developers.
+
+### Remediation plan (execution-ready)
+
+1) **Dockerfile: fix AVD-DS-0002 (missing non-root `USER`)**
+   - Minimal change: add a final `USER charon` in the root [Dockerfile](Dockerfile).
+   - Permission handling: ensure runtime write paths remain owned by `charon` (already mostly handled via `chown`; confirm `/app/data`, `/config`, and any log dirs are writable).
+   - Runtime constraints to resolve explicitly:
+     - **Privileged ports (80/443):** if running as non-root, ensure the server can still bind these (either grant `cap_net_bind_service` to the relevant binaries during build, or adjust runtime to bind high ports and rely on port mapping).
+     - **Docker socket integration:** if Docker features require root to mutate `/var/run/docker.sock` ownership, update entrypoint logic so it can run non-root by default (e.g., rely on `--group-add`/matching socket GID, or gracefully disable Docker integration when permissions are insufficient).
+
+2) **Fix Trivy scan correctness: exclude cache/db directories from scan scope**
+  - Update [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh) to add explicit directory skips so Trivy doesn’t scan dependency fixtures and local tool databases:
+    - `.cache/` (includes `.cache/go/pkg/mod/...` fixture secrets and cached deps)
+    - `codeql-db-go/` and `codeql-db-js/` (CodeQL databases)
+    - `my-codeql-db/`
+    - `codeql-agent-results/`
+    - `codeql-custom-queries-go/` (optional, for scan speed/noise)
+    - `test-results/` (optional; include only if Trivy flags test artifacts)
+  - Implementation approach: prefer scan-root-relative paths with explicit directory names (e.g., `trivy fs . --skip-dirs .cache --skip-dirs codeql-db-go --skip-dirs codeql-db-js ...`). Avoid glob patterns in scan inputs and skip lists; keep arguments explicit.
+
+3) **Ensure findings fail the scan, without unnecessary workflow breakage**
+  - In [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh):
+     - Add `--exit-code 1` so findings fail.
+     - Set a default severity threshold to reduce noise: `CRITICAL,HIGH` (allow local override via `TRIVY_SEVERITY`).
+   - Add a repo-level ignore policy:
+     - Create/standardize `.trivyignore` (or `.trivyignore.yaml`) with **only** documented, justified suppressions (include a link to a tracking issue and an “expires on” date).
+     - Keep CI strict: ignorefile allowed for known false positives only; never blanket-ignore `.cache/` via ignorefile—skip dirs instead.
+
+4) **Pin Trivy version + address scanner/policy errors**
+   - Replace `aquasec/trivy:latest` with a pinned tag in the Trivy skill runner:
+     - Introduce `TRIVY_IMAGE` (default pinned, e.g., `aquasec/trivy:<pin>`), and document how/when to bump.
+   - Rego policy conflict + Dockerfile scanner errors observed in QA:
+     - Dockerfile scanner error was triggered by parsing non-project Dockerfiles inside `.cache/go/pkg/mod/...`; directory exclusions above should eliminate this.
+     - If the Rego conflict persists even after pinning and exclusions, split the scan into two steps:
+       - `trivy fs` for `vuln,secret` on the repo (with skipped dirs)
+       - `trivy fs` for `misconfig` on only the project’s Docker/compose files by passing explicit paths (e.g., `Dockerfile` and `.docker/compose/`) to minimize policy evaluation surface (no globs).
+
+### Files likely involved
+
+- [Dockerfile](Dockerfile)
+- [.github/skills/security-scan-trivy-scripts/run.sh](.github/skills/security-scan-trivy-scripts/run.sh)
+- [scripts/trivy-scan.sh](scripts/trivy-scan.sh) (deprecated; still references `aquasec/trivy:latest`)
+- [Makefile](Makefile) (has Trivy commands/targets)
+- [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml) (already uses `--exit-code 1` in at least one Trivy step; keep local behavior aligned)
+
+### Validation commands / tasks
+
+- VS Code task: `shell: Security: Trivy Scan`
+- Direct skill run: `.github/skills/scripts/skill-runner.sh security-scan-trivy`
+- After Dockerfile remediation: `shell: Build & Run: Local Docker Image` and confirm the container starts and serves HTTP/HTTPS as expected.
+
+---
+
 ## 2. Scope & Acceptance Criteria
 
 ### In Scope

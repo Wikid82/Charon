@@ -250,7 +250,7 @@ WORKDIR /app
 # su-exec is used for dropping privileges after Docker socket group setup
 # Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
-RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec \
+RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec libcap-utils \
     && apk --no-cache upgrade \
     && apk --no-cache upgrade c-ares
 
@@ -268,6 +268,9 @@ RUN mkdir -p /app/data/geoip && \
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
+
+# Allow non-root to bind privileged ports (80/443) securely
+RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
 # Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.25.5+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
@@ -375,6 +378,8 @@ RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 # NOTE: The entrypoint script starts as root to handle Docker socket permissions,
 # then drops privileges to the charon user before starting applications.
 # This is necessary for Docker integration while maintaining security.
+
+USER charon
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

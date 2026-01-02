@@ -73,7 +73,15 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-frontend-coverage",
             "group": "test",
-            "problemMatcher": []
+            "problemMatcher": [],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "new",
+                "showReuseMessage": false,
+                "clear": true
+            }
         },
         {
             "label": "Lint: Pre-commit (All Files)",

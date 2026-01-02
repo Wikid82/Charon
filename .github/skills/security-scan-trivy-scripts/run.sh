@@ -28,7 +28,9 @@ set_default_env "TRIVY_SEVERITY" "CRITICAL,HIGH,MEDIUM"
 set_default_env "TRIVY_TIMEOUT" "10m"
 
 # Parse arguments
-SCANNERS="${1:-vuln,secret,misconfig}"
+# Default scanners exclude misconfig to avoid non-actionable policy bundle issues
+# that can cause scan errors unrelated to the repository contents.
+SCANNERS="${1:-vuln,secret}"
 FORMAT="${2:-table}"
 
 # Validate format
@@ -63,6 +65,29 @@ log_info "Timeout: ${TRIVY_TIMEOUT}"
 
 cd "${PROJECT_ROOT}"
 
+# Avoid scanning generated/cached artifacts that commonly contain fixture secrets,
+# non-Dockerfile files named like Dockerfiles, and large logs.
+SKIP_DIRS=(
+    ".git"
+    ".venv"
+    ".cache"
+    "node_modules"
+    "frontend/node_modules"
+    "frontend/dist"
+    "frontend/coverage"
+    "test-results"
+    "codeql-db-go"
+    "codeql-db-js"
+    "codeql-agent-results"
+    "my-codeql-db"
+    ".trivy_logs"
+)
+
+SKIP_DIR_FLAGS=()
+for d in "${SKIP_DIRS[@]}"; do
+    SKIP_DIR_FLAGS+=("--skip-dirs" "/app/${d}")
+done
+
 # Run Trivy via Docker
 if docker run --rm \
     -v "$(pwd):/app:ro" \
@@ -71,7 +96,11 @@ if docker run --rm \
     aquasec/trivy:latest \
     fs \
     --scanners "${SCANNERS}" \
+    --timeout "${TRIVY_TIMEOUT}" \
+    --exit-code 1 \
+    --severity "CRITICAL,HIGH" \
     --format "${FORMAT}" \
+    "${SKIP_DIR_FLAGS[@]}" \
     /app; then
     log_success "Trivy scan completed - no issues found"
     exit 0

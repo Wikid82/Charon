@@ -28,4 +28,12 @@ func TestNewRouter(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "<html></html>")
+
+	// Test /api NoRoute special-case: do not serve SPA HTML
+	apiReq, _ := http.NewRequest("GET", "/api/this-route-does-not-exist", http.NoBody)
+	apiW := httptest.NewRecorder()
+	router.ServeHTTP(apiW, apiReq)
+	assert.Equal(t, http.StatusNotFound, apiW.Code)
+	assert.NotContains(t, apiW.Body.String(), "<html></html>")
+	assert.Contains(t, apiW.Body.String(), "not found")
 }

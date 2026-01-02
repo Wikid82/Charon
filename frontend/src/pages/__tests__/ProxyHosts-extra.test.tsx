@@ -4,6 +4,23 @@ import '@testing-library/jest-dom/vitest'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ProxyHost } from '../../api/proxyHosts'
+import type { UptimeMonitor } from '../../api/uptime'
+import ProxyHosts from '../ProxyHosts'
+import { useProxyHosts } from '../../hooks/useProxyHosts'
+import { useCertificates } from '../../hooks/useCertificates'
+import { useAccessLists } from '../../hooks/useAccessLists'
+import { getSettings } from '../../api/settings'
+import { getMonitors } from '../../api/uptime'
+import { createBackup } from '../../api/backups'
+import { toast } from 'react-hot-toast'
+
+vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
+vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))
+vi.mock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn() }))
+vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
+vi.mock('../../api/uptime', () => ({ getMonitors: vi.fn() }))
+vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
+vi.mock('react-hot-toast', () => ({ toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
 
 // Helper to create QueryClient provider wrapper
 const createQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -11,6 +28,44 @@ const renderWithProviders = (ui: React.ReactNode) => {
   const qc = createQueryClient()
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
+
+type ProxyHostsHookValue = ReturnType<typeof useProxyHosts>
+type CertificatesHookValue = ReturnType<typeof useCertificates>
+type AccessListsHookValue = ReturnType<typeof useAccessLists>
+
+const createProxyHostsHookValue = (overrides: Partial<ProxyHostsHookValue> = {}): ProxyHostsHookValue => ({
+  hosts: [],
+  loading: false,
+  isFetching: false,
+  error: null,
+  createHost: vi.fn() as unknown as ProxyHostsHookValue['createHost'],
+  updateHost: vi.fn() as unknown as ProxyHostsHookValue['updateHost'],
+  deleteHost: vi.fn() as unknown as ProxyHostsHookValue['deleteHost'],
+  bulkUpdateACL: vi.fn() as unknown as ProxyHostsHookValue['bulkUpdateACL'],
+  bulkUpdateSecurityHeaders: vi.fn() as unknown as ProxyHostsHookValue['bulkUpdateSecurityHeaders'],
+  isCreating: false,
+  isUpdating: false,
+  isDeleting: false,
+  isBulkUpdating: false,
+  ...overrides,
+})
+
+const createCertificatesHookValue = (overrides: Partial<CertificatesHookValue> = {}): CertificatesHookValue => ({
+  certificates: [],
+  isLoading: false,
+  error: null,
+  refetch: vi.fn() as unknown as CertificatesHookValue['refetch'],
+  ...overrides,
+})
+
+const createAccessListsHookValue = (data: unknown = [], overrides: Partial<AccessListsHookValue> = {}): AccessListsHookValue =>
+  ({
+    data,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    ...overrides,
+  } as unknown as AccessListsHookValue)
 
 const sampleHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
   uuid: 'h1',
@@ -38,40 +93,35 @@ const sampleHost = (overrides: Partial<ProxyHost> = {}): ProxyHost => ({
 
 describe('ProxyHosts page extra tests', () => {
   beforeEach(() => {
-    vi.resetModules()
     vi.clearAllMocks()
+
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue())
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesHookValue())
+    vi.mocked(useAccessLists).mockReturnValue(createAccessListsHookValue([]))
+    vi.mocked(getSettings).mockResolvedValue({})
+    vi.mocked(getMonitors).mockResolvedValue([])
   })
 
   it('shows "No proxy hosts configured" when no hosts', async () => {
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
-
     renderWithProviders(<ProxyHosts />)
 
-    await waitFor(() => expect(screen.getByText(/Create your first proxy host/)).toBeInTheDocument())
+    // Translation mock returns English text; tolerate fallback key string too.
+    expect(await screen.findByText(/Create your first proxy host|proxyHosts\.noHostsDescription/i)).toBeInTheDocument()
   })
 
   it('sort toggles by header click', async () => {
     const h1 = sampleHost({ uuid: 'a', name: 'Alpha' })
     const h2 = sampleHost({ uuid: 'b', name: 'Beta' })
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [h2, h1], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [h2, h1] }))
 
     renderWithProviders(<ProxyHosts />)
 
     // hosts are sorted by name by default (Alpha before Beta) by the component
     await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument())
 
-    const nameHeader = screen.getByText('Name')
+    const table = screen.getAllByRole('table')[0]
+    const nameHeader = within(table).getAllByRole('button', { name: 'Name' })[0]
     // Click header - this only toggles the sort indicator icon, not actual data order
     // since the component pre-sorts data before passing to DataTable
     await userEvent.click(nameHeader)
@@ -81,26 +131,33 @@ describe('ProxyHosts page extra tests', () => {
     expect(screen.getByText('Beta')).toBeInTheDocument()
 
     // Verify the sort indicator changes (chevron icon should toggle)
-    // The table header should have aria-sort attribute
-    const table = screen.getByRole('table')
     expect(table).toBeInTheDocument()
   })
 
   it('delete with associated monitors prompts and deletes with deleteUptime true', async () => {
     const host = sampleHost({ uuid: 'delete-1', name: 'DelHost', forward_host: 'upstream-1' })
-    const deleteHostMock = vi.fn().mockResolvedValue(undefined)
+    const deleteHostMock = vi.fn().mockResolvedValue(undefined) as unknown as ProxyHostsHookValue['deleteHost']
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: deleteHostMock, bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-    vi.doMock('../../api/uptime', () => ({ getMonitors: vi.fn(() => Promise.resolve([{ id: 1, upstream_host: 'upstream-1', proxy_host_id: null }])) }))
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host], deleteHost: deleteHostMock }))
+    vi.mocked(getMonitors).mockResolvedValue([
+      {
+        id: 'm1',
+        upstream_host: 'upstream-1',
+        name: 'm1',
+        type: 'http',
+        url: 'http://upstream-1',
+        interval: 60,
+        enabled: true,
+        status: 'up',
+        latency: 0,
+        max_retries: 3,
+      } satisfies UptimeMonitor,
+    ])
 
     const confirmMock = vi.spyOn(window, 'confirm')
     // first confirm 'Are you sure' -> true, second confirm 'Delete monitors as well' -> true
     confirmMock.mockImplementation(() => true)
 
-    const { default: ProxyHosts } = await import('../ProxyHosts')
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('DelHost')).toBeInTheDocument())
@@ -123,12 +180,22 @@ describe('ProxyHosts page extra tests', () => {
     const hostValid = sampleHost({ uuid: 'v1', name: 'ValidHost', domain_names: 'valid.example.com', ssl_forced: true })
     const hostAuto = sampleHost({ uuid: 'a1', name: 'AutoHost', domain_names: 'auto.example.com', ssl_forced: true })
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [hostValid, hostAuto], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [{ id: 1, name: 'LE', domain: 'valid.example.com', status: 'valid', provider: 'letsencrypt' }], isLoading: false, error: null })) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [hostValid, hostAuto] }))
+    vi.mocked(useCertificates).mockReturnValue(
+      createCertificatesHookValue({
+        certificates: [
+          {
+            id: 1,
+            name: 'LE',
+            domain: 'valid.example.com',
+            issuer: 'letsencrypt',
+            expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            status: 'valid',
+            provider: 'letsencrypt',
+          },
+        ],
+      }),
+    )
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('ValidHost')).toBeInTheDocument())
@@ -138,12 +205,7 @@ describe('ProxyHosts page extra tests', () => {
   })
 
   it('shows error banner when hook returns an error', async () => {
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [], loading: false, isFetching: false, error: 'Failed to load', createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ error: 'Failed to load' }))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('Failed to load')).toBeInTheDocument())
@@ -153,12 +215,7 @@ describe('ProxyHosts page extra tests', () => {
     const h1 = sampleHost({ uuid: 'x', name: 'XHost' })
     const h2 = sampleHost({ uuid: 'y', name: 'YHost' })
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [h1, h2], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [h1, h2] }))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('XHost')).toBeInTheDocument())
@@ -177,26 +234,18 @@ describe('ProxyHosts page extra tests', () => {
   })
 
   it('shows loader when fetching', async () => {
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [sampleHost()], loading: false, isFetching: true, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [sampleHost()], isFetching: true }))
     const { container } = renderWithProviders(<ProxyHosts />)
     await waitFor(() => expect(container.querySelector('.animate-spin')).toBeInTheDocument())
   })
 
   it('handles domain link behavior new_window', async () => {
     const host = sampleHost({ uuid: 'link-h1', domain_names: 'link.example.com', ssl_forced: true })
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({ 'ui.domain_link_behavior': 'new_window' })) }))
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host] }))
+    vi.mocked(getSettings).mockResolvedValue({ 'ui.domain_link_behavior': 'new_window' })
 
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
 
-    const { default: ProxyHosts } = await import('../ProxyHosts')
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('link.example.com')).toBeInTheDocument())
@@ -208,12 +257,7 @@ describe('ProxyHosts page extra tests', () => {
 
   it('shows WS and ACL badges when appropriate', async () => {
     const host = sampleHost({ uuid: 'x2', name: 'XHost2', websocket_support: true, access_list_id: 5 })
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host] }))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('XHost2')).toBeInTheDocument())
@@ -225,12 +269,13 @@ describe('ProxyHosts page extra tests', () => {
     const host = sampleHost({ uuid: 'acl-1', name: 'AclHost' })
     const acl = { id: 1, name: 'MyACL', enabled: true }
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(() => Promise.resolve({ updated: 1, errors: [] })), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [acl] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(
+      createProxyHostsHookValue({
+        hosts: [host],
+        bulkUpdateACL: vi.fn(() => Promise.resolve({ updated: 1, errors: [] })) as unknown as ProxyHostsHookValue['bulkUpdateACL'],
+      }),
+    )
+    vi.mocked(useAccessLists).mockReturnValue(createAccessListsHookValue([acl]))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('AclHost')).toBeInTheDocument())
@@ -259,16 +304,10 @@ describe('ProxyHosts page extra tests', () => {
 
   it('bulk ACL remove action calls bulkUpdateACL with null and shows removed toast', async () => {
     const host = sampleHost({ uuid: 'acl-2', name: 'AclHost2' })
-    const bulkUpdateACLMock = vi.fn(async () => ({ updated: 1, errors: [] }))
-    const toastSuccess = vi.fn()
-    vi.doMock('react-hot-toast', () => ({ toast: { success: toastSuccess, error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
+    const bulkUpdateACLMock = vi.fn(async () => ({ updated: 1, errors: [] })) as unknown as ProxyHostsHookValue['bulkUpdateACL']
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: bulkUpdateACLMock, isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [{ id: 1, name: 'MyACL', enabled: true }] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host], bulkUpdateACL: bulkUpdateACLMock }))
+    vi.mocked(useAccessLists).mockReturnValue(createAccessListsHookValue([{ id: 1, name: 'MyACL', enabled: true }]))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('AclHost2')).toBeInTheDocument())
@@ -281,17 +320,12 @@ describe('ProxyHosts page extra tests', () => {
     await userEvent.click(removeButtons[removeButtons.length - 1])
 
     await waitFor(() => expect(bulkUpdateACLMock).toHaveBeenCalledWith(['acl-2'], null))
-    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('removed'))
+    expect(toast.success as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(expect.stringContaining('removed'))
   })
 
   it('shows no enabled access lists available when none exist', async () => {
     const host = sampleHost({ uuid: 'acl-3', name: 'AclHost3' })
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host] }))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('AclHost3')).toBeInTheDocument())
@@ -304,17 +338,9 @@ describe('ProxyHosts page extra tests', () => {
 
   it('bulk delete modal lists hosts to be deleted', async () => {
     const host = sampleHost({ uuid: 'd2', name: 'DeleteMe2' })
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-    vi.doMock('../../api/backups', () => ({ createBackup: vi.fn(async () => ({ filename: 'backup-2' })) }))
-
-    const toastSuccess = vi.fn()
-    vi.doMock('react-hot-toast', () => ({ toast: { success: toastSuccess, error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host] }))
+    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup-2' })
     const confirmMock = vi.spyOn(window, 'confirm').mockImplementation(() => true)
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('DeleteMe2')).toBeInTheDocument())
@@ -337,20 +363,15 @@ describe('ProxyHosts page extra tests', () => {
     }
     // Confirm delete
     await userEvent.click(screen.getByRole('button', { name: /Delete Permanently/i }))
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('Backup created')))
+    await waitFor(() => expect(vi.mocked(toast.success)).toHaveBeenCalledWith(expect.stringContaining('Backup created')))
     confirmMock.mockRestore()
   })
 
   it('bulk apply modal returns early when no keys selected (no-op)', async () => {
     const host = sampleHost({ uuid: 'b1', name: 'BlankHost' })
-    const updateHost = vi.fn()
+    const updateHost = vi.fn() as unknown as ProxyHostsHookValue['updateHost']
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost, deleteHost: vi.fn(), bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-
-    const { default: ProxyHosts } = await import('../ProxyHosts')
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host], updateHost }))
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('BlankHost')).toBeInTheDocument())
@@ -369,22 +390,15 @@ describe('ProxyHosts page extra tests', () => {
 
   it('bulk delete creates backup and shows toast success', async () => {
     const host = sampleHost({ uuid: 'd1', name: 'DeleteMe' })
-    const deleteHostMock = vi.fn().mockResolvedValue(undefined)
+    const deleteHostMock = vi.fn().mockResolvedValue(undefined) as unknown as ProxyHostsHookValue['deleteHost']
 
-    vi.doMock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn(() => ({ hosts: [host], loading: false, isFetching: false, error: null, createHost: vi.fn(), updateHost: vi.fn(), deleteHost: deleteHostMock, bulkUpdateACL: vi.fn(), isBulkUpdating: false })) }))
-    vi.doMock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn(() => ({ certificates: [], isLoading: false, error: null })) }))
-    vi.doMock('../../hooks/useAccessLists', () => ({ useAccessLists: vi.fn(() => ({ data: [] })) }))
-    vi.doMock('../../api/settings', () => ({ getSettings: vi.fn(() => Promise.resolve({})) }))
-    vi.doMock('../../api/backups', () => ({ createBackup: vi.fn(async () => ({ filename: 'backup-1' })) }))
-
-    const toastSuccess = vi.fn()
-    vi.doMock('react-hot-toast', () => ({ toast: { success: toastSuccess, error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }))
+    vi.mocked(useProxyHosts).mockReturnValue(createProxyHostsHookValue({ hosts: [host], deleteHost: deleteHostMock }))
+    vi.mocked(createBackup).mockResolvedValue({ filename: 'backup-1' })
 
     const confirmMock = vi.spyOn(window, 'confirm')
     // First confirm to delete overall, returned true for deletion
     confirmMock.mockImplementation(() => true)
 
-    const { default: ProxyHosts } = await import('../ProxyHosts')
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('DeleteMe')).toBeInTheDocument())
@@ -402,7 +416,9 @@ describe('ProxyHosts page extra tests', () => {
     // Confirm Delete in modal
     await userEvent.click(screen.getByRole('button', { name: /Delete Permanently/i }))
 
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining('Backup created')))
+    await waitFor(() =>
+      expect(toast.success as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(expect.stringContaining('Backup created')),
+    )
     confirmMock.mockRestore()
   })
 })
