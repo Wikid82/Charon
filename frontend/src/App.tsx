@@ -33,6 +33,7 @@ const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const SecurityHeaders = lazy(() => import('./pages/SecurityHeaders'))
+const AuditLogs = lazy(() => import('./pages/AuditLogs'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
@@ -62,6 +63,7 @@ export default function App() {
               <Route path="certificates" element={<Certificates />} />
               <Route path="dns-providers" element={<DNSProviders />} />
               <Route path="security" element={<Security />} />
+              <Route path="security/audit-logs" element={<AuditLogs />} />
               <Route path="security/access-lists" element={<AccessLists />} />
               <Route path="security/crowdsec" element={<CrowdSecConfig />} />
               <Route path="security/rate-limiting" element={<RateLimiting />} />

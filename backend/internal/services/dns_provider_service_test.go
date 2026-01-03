@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -18,13 +19,16 @@ import (
 func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	t.Helper()
 
+	// Use pure in-memory database (not shared cache) to avoid test interference
+	// Each test gets its own isolated database
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
 
-	// Auto-migrate schema
-	err = db.AutoMigrate(&models.DNSProvider{})
+	// Auto-migrate schema - SecurityAudit must be migrated FIRST before creating service
+	// because DNSProviderService starts a background goroutine that writes audit logs
+	err = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 	require.NoError(t, err)
 
 	// Create encryption service with test key
@@ -32,6 +36,22 @@ func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) 
 	require.NoError(t, err)
 
 	return db, encryptor
+}
+
+// setupDNSServiceWithCleanup creates a DNS provider service and ensures cleanup
+func setupDNSServiceWithCleanup(t *testing.T, db *gorm.DB, encryptor *crypto.EncryptionService) *dnsProviderService {
+	t.Helper()
+
+	svc := NewDNSProviderService(db, encryptor).(*dnsProviderService)
+
+	// Register cleanup to close the security service
+	t.Cleanup(func() {
+		if svc.securityService != nil {
+			svc.securityService.Close()
+		}
+	})
+
+	return svc
 }
 
 func TestDNSProviderService_Create(t *testing.T) {
@@ -1556,4 +1576,258 @@ func TestDNSProviderService_Delete_DBError(t *testing.T) {
 	err = service.Delete(ctx, 1)
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, ErrDNSProviderNotFound)
+}
+
+func TestDNSProviderService_AuditLogging_Create(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	// Also migrate SecurityAudit model for audit logging
+	err := db.AutoMigrate(&models.SecurityAudit{})
+	require.NoError(t, err)
+
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.WithValue(context.Background(), "user_id", "test-user")
+	ctx = context.WithValue(ctx, "client_ip", "192.168.1.1")
+	ctx = context.WithValue(ctx, "user_agent", "TestAgent/1.0")
+
+	// Create a provider
+	req := CreateDNSProviderRequest{
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+		Credentials: map[string]string{
+			"api_token": "test-token",
+		},
+		IsDefault: true,
+	}
+
+	provider, err := service.Create(ctx, req)
+	require.NoError(t, err)
+
+	// Give time for async audit logging
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err = db.Where("action = ? AND event_category = ?", "dns_provider_create", "dns_provider").First(&audit).Error
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-user", audit.Actor)
+	assert.Equal(t, "dns_provider_create", audit.Action)
+	assert.Equal(t, "dns_provider", audit.EventCategory)
+	assert.Equal(t, provider.UUID, audit.ResourceUUID)
+	assert.Equal(t, "192.168.1.1", audit.IPAddress)
+	assert.Equal(t, "TestAgent/1.0", audit.UserAgent)
+
+	// Verify details contain expected fields
+	var details map[string]interface{}
+	err = json.Unmarshal([]byte(audit.Details), &details)
+	require.NoError(t, err)
+	assert.Equal(t, "Test Provider", details["name"])
+	assert.Equal(t, "cloudflare", details["type"])
+	assert.True(t, details["is_default"].(bool))
+}
+
+func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.WithValue(context.Background(), "user_id", "test-user")
+	ctx = context.WithValue(ctx, "client_ip", "192.168.1.2")
+	ctx = context.WithValue(ctx, "user_agent", "TestAgent/1.0")
+
+	// Create a provider first
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Original Name",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "test-token"},
+	})
+	require.NoError(t, err)
+
+	// Wait for create audit to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Clear any create audit logs
+	db.Exec("DELETE FROM security_audits")
+
+	// Update the provider
+	newName := "Updated Name"
+	enabled := false
+	_, err = service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Name:    &newName,
+		Enabled: &enabled,
+	})
+	require.NoError(t, err)
+
+	// Give time for async audit logging
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err = db.Where("action = ? AND event_category = ?", "dns_provider_update", "dns_provider").First(&audit).Error
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-user", audit.Actor)
+	assert.Equal(t, provider.UUID, audit.ResourceUUID)
+
+	// Verify details contain changed fields
+	var details map[string]interface{}
+	err = json.Unmarshal([]byte(audit.Details), &details)
+	require.NoError(t, err)
+
+	changedFields := details["changed_fields"].(map[string]interface{})
+	assert.True(t, changedFields["name"].(bool))
+	assert.True(t, changedFields["enabled"].(bool))
+
+	oldValues := details["old_values"].(map[string]interface{})
+	assert.Equal(t, "Original Name", oldValues["name"])
+
+	newValues := details["new_values"].(map[string]interface{})
+	assert.Equal(t, "Updated Name", newValues["name"])
+}
+
+func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.WithValue(context.Background(), "user_id", "admin-user")
+	ctx = context.WithValue(ctx, "client_ip", "10.0.0.1")
+
+	// Create a provider first
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "To Be Deleted",
+		ProviderType: "digitalocean",
+		Credentials:  map[string]string{"auth_token": "test-token"},
+	})
+	require.NoError(t, err)
+
+	// Wait for create audit to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Clear create audit logs
+	db.Exec("DELETE FROM security_audits")
+
+	// Delete the provider
+	err = service.Delete(ctx, provider.ID)
+	require.NoError(t, err)
+
+	// Give time for async audit logging
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err = db.Where("action = ? AND event_category = ?", "dns_provider_delete", "dns_provider").First(&audit).Error
+	require.NoError(t, err)
+
+	assert.Equal(t, "admin-user", audit.Actor)
+	assert.Equal(t, provider.UUID, audit.ResourceUUID)
+	assert.Equal(t, "10.0.0.1", audit.IPAddress)
+
+	// Verify details
+	var details map[string]interface{}
+	err = json.Unmarshal([]byte(audit.Details), &details)
+	require.NoError(t, err)
+	assert.Equal(t, "To Be Deleted", details["name"])
+	assert.Equal(t, "digitalocean", details["type"])
+	assert.True(t, details["had_credentials"].(bool))
+}
+
+func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.WithValue(context.Background(), "user_id", "test-user")
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "test-token"},
+	})
+	require.NoError(t, err)
+
+	// Wait for create audit to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Clear create audit logs
+	db.Exec("DELETE FROM security_audits")
+
+	// Test the provider
+	_, err = service.Test(ctx, provider.ID)
+	require.NoError(t, err)
+
+	// Give time for async audit logging
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err = db.Where("action = ? AND event_category = ?", "credential_test", "dns_provider").First(&audit).Error
+	require.NoError(t, err)
+
+	assert.Equal(t, "test-user", audit.Actor)
+	assert.Equal(t, provider.UUID, audit.ResourceUUID)
+}
+
+func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.WithValue(context.Background(), "user_id", "admin")
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "secret-token"},
+	})
+	require.NoError(t, err)
+
+	// Wait for create audit to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Clear create audit logs
+	db.Exec("DELETE FROM security_audits")
+
+	// Get decrypted credentials
+	_, err = service.GetDecryptedCredentials(ctx, provider.ID)
+	require.NoError(t, err)
+
+	// Give time for async audit logging
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify audit log was created
+	var audit models.SecurityAudit
+	err = db.Where("action = ? AND event_category = ?", "credential_decrypt", "dns_provider").First(&audit).Error
+	require.NoError(t, err)
+
+	assert.Equal(t, "admin", audit.Actor)
+	assert.Equal(t, provider.UUID, audit.ResourceUUID)
+
+	// Verify details
+	var details map[string]interface{}
+	err = json.Unmarshal([]byte(audit.Details), &details)
+	require.NoError(t, err)
+	assert.Equal(t, "credentials_access", details["purpose"])
+	assert.True(t, details["success"].(bool))
+}
+
+func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
+	// Test actor extraction
+	ctx := context.WithValue(context.Background(), "user_id", "user-123")
+	actor := getActorFromContext(ctx)
+	assert.Equal(t, "user-123", actor)
+
+	// Test with uint user ID
+	ctx = context.WithValue(context.Background(), "user_id", uint(456))
+	actor = getActorFromContext(ctx)
+	assert.Equal(t, "456", actor)
+
+	// Test without user ID (should default to "system")
+	ctx = context.Background()
+	actor = getActorFromContext(ctx)
+	assert.Equal(t, "system", actor)
+
+	// Test IP extraction
+	ctx = context.WithValue(context.Background(), "client_ip", "10.0.0.1")
+	ip := getIPFromContext(ctx)
+	assert.Equal(t, "10.0.0.1", ip)
+
+	// Test User-Agent extraction
+	ctx = context.WithValue(context.Background(), "user_agent", "TestAgent/2.0")
+	ua := getUserAgentFromContext(ctx)
+	assert.Equal(t, "TestAgent/2.0", ua)
 }

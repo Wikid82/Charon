@@ -182,6 +182,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
 
+		// Audit Logs
+		securityService := services.NewSecurityService(db)
+		auditLogHandler := handlers.NewAuditLogHandler(securityService)
+		protected.GET("/audit-logs", auditLogHandler.List)
+		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
+
 		// Settings
 		settingsHandler := handlers.NewSettingsHandler(db)
 		protected.GET("/settings", settingsHandler.GetSettings)
@@ -258,6 +264,8 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 				protected.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
 				protected.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
 				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
+				// Audit logs for DNS providers
+				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
 			}
 		}
 

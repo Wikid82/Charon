@@ -103,15 +103,17 @@ type DNSProviderService interface {
 
 // dnsProviderService implements the DNSProviderService interface.
 type dnsProviderService struct {
-	db        *gorm.DB
-	encryptor *crypto.EncryptionService
+	db              *gorm.DB
+	encryptor       *crypto.EncryptionService
+	securityService *SecurityService
 }
 
 // NewDNSProviderService creates a new DNS provider service.
 func NewDNSProviderService(db *gorm.DB, encryptor *crypto.EncryptionService) DNSProviderService {
 	return &dnsProviderService{
-		db:        db,
-		encryptor: encryptor,
+		db:              db,
+		encryptor:       encryptor,
+		securityService: NewSecurityService(db),
 	}
 }
 
@@ -193,6 +195,23 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		return nil, err
 	}
 
+	// Log audit event asynchronously
+	detailsJSON, _ := json.Marshal(map[string]interface{}{
+		"name":       req.Name,
+		"type":       req.ProviderType,
+		"is_default": req.IsDefault,
+	})
+	s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         getActorFromContext(ctx),
+		Action:        "dns_provider_create",
+		EventCategory: "dns_provider",
+		ResourceID:    &provider.ID,
+		ResourceUUID:  provider.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     getIPFromContext(ctx),
+		UserAgent:     getUserAgentFromContext(ctx),
+	})
+
 	return provider, nil
 }
 
@@ -204,20 +223,37 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 		return nil, err
 	}
 
+	// Track changed fields for audit log
+	changedFields := make(map[string]interface{})
+	oldValues := make(map[string]interface{})
+	newValues := make(map[string]interface{})
+
 	// Update fields if provided
-	if req.Name != nil {
+	if req.Name != nil && *req.Name != provider.Name {
+		oldValues["name"] = provider.Name
+		newValues["name"] = *req.Name
+		changedFields["name"] = true
 		provider.Name = *req.Name
 	}
 
-	if req.PropagationTimeout != nil {
+	if req.PropagationTimeout != nil && *req.PropagationTimeout != provider.PropagationTimeout {
+		oldValues["propagation_timeout"] = provider.PropagationTimeout
+		newValues["propagation_timeout"] = *req.PropagationTimeout
+		changedFields["propagation_timeout"] = true
 		provider.PropagationTimeout = *req.PropagationTimeout
 	}
 
-	if req.PollingInterval != nil {
+	if req.PollingInterval != nil && *req.PollingInterval != provider.PollingInterval {
+		oldValues["polling_interval"] = provider.PollingInterval
+		newValues["polling_interval"] = *req.PollingInterval
+		changedFields["polling_interval"] = true
 		provider.PollingInterval = *req.PollingInterval
 	}
 
-	if req.Enabled != nil {
+	if req.Enabled != nil && *req.Enabled != provider.Enabled {
+		oldValues["enabled"] = provider.Enabled
+		newValues["enabled"] = *req.Enabled
+		changedFields["enabled"] = true
 		provider.Enabled = *req.Enabled
 	}
 
@@ -239,6 +275,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 		}
 
+		changedFields["credentials"] = true
 		provider.CredentialsEncrypted = encryptedCreds
 	}
 
@@ -248,8 +285,14 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 		if err := s.db.WithContext(ctx).Model(&models.DNSProvider{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false).Error; err != nil {
 			return nil, err
 		}
+		oldValues["is_default"] = provider.IsDefault
+		newValues["is_default"] = true
+		changedFields["is_default"] = true
 		provider.IsDefault = true
-	} else if req.IsDefault != nil && !*req.IsDefault {
+	} else if req.IsDefault != nil && !*req.IsDefault && provider.IsDefault {
+		oldValues["is_default"] = provider.IsDefault
+		newValues["is_default"] = false
+		changedFields["is_default"] = true
 		provider.IsDefault = false
 	}
 
@@ -258,11 +301,38 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 		return nil, err
 	}
 
+	// Log audit event if any changes were made
+	if len(changedFields) > 0 {
+		detailsJSON, _ := json.Marshal(map[string]interface{}{
+			"changed_fields": changedFields,
+			"old_values":     oldValues,
+			"new_values":     newValues,
+		})
+		s.securityService.LogAudit(&models.SecurityAudit{
+			Actor:         getActorFromContext(ctx),
+			Action:        "dns_provider_update",
+			EventCategory: "dns_provider",
+			ResourceID:    &provider.ID,
+			ResourceUUID:  provider.UUID,
+			Details:       string(detailsJSON),
+			IPAddress:     getIPFromContext(ctx),
+			UserAgent:     getUserAgentFromContext(ctx),
+		})
+	}
+
 	return provider, nil
 }
 
 // Delete deletes a DNS provider.
 func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
+	// Fetch provider details for audit log before deletion
+	provider, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	hadCredentials := provider.CredentialsEncrypted != ""
+
 	result := s.db.WithContext(ctx).Delete(&models.DNSProvider{}, id)
 	if result.Error != nil {
 		return result.Error
@@ -270,6 +340,24 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 	if result.RowsAffected == 0 {
 		return ErrDNSProviderNotFound
 	}
+
+	// Log audit event
+	detailsJSON, _ := json.Marshal(map[string]interface{}{
+		"name":            provider.Name,
+		"type":            provider.ProviderType,
+		"had_credentials": hadCredentials,
+	})
+	s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         getActorFromContext(ctx),
+		Action:        "dns_provider_delete",
+		EventCategory: "dns_provider",
+		ResourceID:    &provider.ID,
+		ResourceUUID:  provider.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     getIPFromContext(ctx),
+		UserAgent:     getUserAgentFromContext(ctx),
+	})
+
 	return nil
 }
 
@@ -307,6 +395,23 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 
 	// Save statistics (ignore errors to avoid failing the test operation)
 	_ = s.db.WithContext(ctx).Save(provider)
+
+	// Log audit event
+	detailsJSON, _ := json.Marshal(map[string]interface{}{
+		"provider_name": provider.Name,
+		"test_result":   result.Success,
+		"error":         result.Error,
+	})
+	s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         getActorFromContext(ctx),
+		Action:        "credential_test",
+		EventCategory: "dns_provider",
+		ResourceID:    &provider.ID,
+		ResourceUUID:  provider.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     getIPFromContext(ctx),
+		UserAgent:     getUserAgentFromContext(ctx),
+	})
 
 	return result, nil
 }
@@ -358,6 +463,22 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 	now := time.Now()
 	provider.LastUsedAt = &now
 	_ = s.db.WithContext(ctx).Save(provider)
+
+	// Log audit event
+	detailsJSON, _ := json.Marshal(map[string]interface{}{
+		"purpose": "credentials_access",
+		"success": true,
+	})
+	s.securityService.LogAudit(&models.SecurityAudit{
+		Actor:         getActorFromContext(ctx),
+		Action:        "credential_decrypt",
+		EventCategory: "dns_provider",
+		ResourceID:    &provider.ID,
+		ResourceUUID:  provider.UUID,
+		Details:       string(detailsJSON),
+		IPAddress:     getIPFromContext(ctx),
+		UserAgent:     getUserAgentFromContext(ctx),
+	})
 
 	return credentials, nil
 }
@@ -417,4 +538,33 @@ func testDNSProviderCredentials(providerType string, credentials map[string]stri
 		Message:           "DNS provider credentials validated successfully (basic validation only)",
 		PropagationTimeMs: elapsed,
 	}
+}
+
+// Helper functions to extract context information for audit logging
+
+// getActorFromContext extracts the user ID from the context
+func getActorFromContext(ctx context.Context) string {
+	if userID, ok := ctx.Value("user_id").(string); ok && userID != "" {
+		return userID
+	}
+	if userID, ok := ctx.Value("user_id").(uint); ok && userID > 0 {
+		return fmt.Sprintf("%d", userID)
+	}
+	return "system"
+}
+
+// getIPFromContext extracts the IP address from the context
+func getIPFromContext(ctx context.Context) string {
+	if ip, ok := ctx.Value("client_ip").(string); ok {
+		return ip
+	}
+	return ""
+}
+
+// getUserAgentFromContext extracts the User-Agent from the context
+func getUserAgentFromContext(ctx context.Context) string {
+	if ua, ok := ctx.Value("user_agent").(string); ok {
+		return ua
+	}
+	return ""
 }
