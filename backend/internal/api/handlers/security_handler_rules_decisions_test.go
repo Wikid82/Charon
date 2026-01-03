@@ -131,7 +131,7 @@ func TestSecurityHandler_UpsertDeleteTriggersApplyConfig(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := caddy.NewClient(caddyServer.URL)
+	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	tmp := t.TempDir()
 	m := caddy.NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 

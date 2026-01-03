@@ -174,3 +174,53 @@ func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Body.String(), "Authorization header required")
 }
+
+func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_missing"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: ""}
+	require.NoError(t, Register(router, db, cfg))
+
+	for _, r := range router.Routes() {
+		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
+	}
+}
+
+func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyInvalid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_invalid"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "not-base64"}
+	require.NoError(t, Register(router, db, cfg))
+
+	for _, r := range router.Routes() {
+		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
+	}
+}
+
+func TestRegister_DNSProviders_RegisteredWhenEncryptionKeyValid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_valid"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// 32-byte all-zero key in base64
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+	require.NoError(t, Register(router, db, cfg))
+
+	paths := make(map[string]bool)
+	for _, r := range router.Routes() {
+		paths[r.Path] = true
+	}
+
+	assert.True(t, paths["/api/v1/dns-providers"], "dns providers list route should be registered")
+	assert.True(t, paths["/api/v1/dns-providers/types"], "dns providers types route should be registered")
+}

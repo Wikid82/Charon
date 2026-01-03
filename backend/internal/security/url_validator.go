@@ -5,11 +5,113 @@ import (
 	"fmt"
 	"net"
 	neturl "net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/network"
 )
+
+// InternalServiceHostAllowlistEnvVar controls which *additional* hostnames (exact matches)
+// are permitted for internal service HTTP calls (CrowdSec LAPI, Caddy Admin, etc.).
+//
+// Default policy remains localhost-only.
+// Example: CHARON_SSRF_INTERNAL_HOST_ALLOWLIST="crowdsec,caddy"
+const InternalServiceHostAllowlistEnvVar = "CHARON_SSRF_INTERNAL_HOST_ALLOWLIST"
+
+// ParseExactHostnameAllowlist parses a comma-separated list of hostnames into an exact-match set.
+//
+// Notes:
+// - Hostnames are lowercased for comparison.
+// - Entries containing schemes/paths are ignored.
+func ParseExactHostnameAllowlist(csv string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, part := range strings.Split(csv, ",") {
+		h := strings.ToLower(strings.TrimSpace(part))
+		if h == "" {
+			continue
+		}
+		// Reject obvious non-hostname inputs.
+		if strings.Contains(h, "://") || strings.ContainsAny(h, "/@") {
+			continue
+		}
+		out[h] = struct{}{}
+	}
+	return out
+}
+
+// InternalServiceHostAllowlist returns the deny-by-default internal-service hostname allowlist.
+//
+// Defaults: localhost-only. Docker/service-name deployments must opt-in via
+// CHARON_SSRF_INTERNAL_HOST_ALLOWLIST.
+func InternalServiceHostAllowlist() map[string]struct{} {
+	allow := map[string]struct{}{
+		"localhost": {},
+		"127.0.0.1": {},
+		"::1":       {},
+	}
+	extra := ParseExactHostnameAllowlist(os.Getenv(InternalServiceHostAllowlistEnvVar))
+	for h := range extra {
+		allow[h] = struct{}{}
+	}
+	return allow
+}
+
+// ValidateInternalServiceBaseURL validates a configured base URL for an internal service.
+//
+// Security model:
+// - host must be an exact match in allowedHosts
+// - port must match expectedPort (including default ports if omitted)
+// - proxy env vars must be ignored by callers (client/transport responsibility)
+//
+// Returns a normalized base URL (scheme://host:expectedPort) suitable for safe request construction.
+func ValidateInternalServiceBaseURL(rawURL string, expectedPort int, allowedHosts map[string]struct{}) (*neturl.URL, error) {
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid url format: %w", err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported scheme: %s (only http and https are allowed)", u.Scheme)
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("urls with embedded credentials are not allowed")
+	}
+
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return nil, fmt.Errorf("missing hostname in url")
+	}
+	if _, ok := allowedHosts[host]; !ok {
+		return nil, fmt.Errorf("hostname not allowed: %s", host)
+	}
+
+	actualPort := 0
+	if p := u.Port(); p != "" {
+		portNum, perr := strconv.Atoi(p)
+		if perr != nil || portNum < 1 || portNum > 65535 {
+			return nil, fmt.Errorf("invalid port")
+		}
+		actualPort = portNum
+	} else {
+		if u.Scheme == "https" {
+			actualPort = 443
+		} else {
+			actualPort = 80
+		}
+	}
+	if actualPort != expectedPort {
+		return nil, fmt.Errorf("unexpected port: %d (expected %d)", actualPort, expectedPort)
+	}
+
+	// Normalize to a base URL with an explicit expected port.
+	base := &neturl.URL{
+		Scheme: u.Scheme,
+		Host:   net.JoinHostPort(u.Hostname(), strconv.Itoa(expectedPort)),
+	}
+	return base, nil
+}
 
 // ValidationConfig holds options for URL validation.
 type ValidationConfig struct {

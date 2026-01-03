@@ -387,8 +387,7 @@ describe('UsersPage', () => {
 
       // Look for the preview URL content with ellipsis replacing the token
       await waitFor(() => {
-        const previewText = screen.getByText(/charon\.example\.com.*accept-invite.*\.\.\./)
-        expect(previewText).toBeTruthy()
+        expect(screen.getByText('https://charon.example.com/accept-invite?token=...')).toBeInTheDocument()
       }, { timeout: 1000 })
     })
 
@@ -444,7 +443,8 @@ describe('UsersPage', () => {
       await user.type(emailInput, 'test@example.com')
 
       await waitFor(() => {
-        const preview = screen.getByText(/example\.com.*accept-invite/)
+        const preview = screen.getByText('https://example.com/accept-invite?token=...')
+
         expect(preview.textContent).toContain('...')
         expect(preview.textContent).not.toContain('SAMPLE_TOKEN_PREVIEW')
       }, { timeout: 1000 })
