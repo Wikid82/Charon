@@ -14,6 +14,9 @@ import (
 // TestCorazaIntegration runs the scripts/coraza_integration.sh and ensures it completes successfully.
 // This test requires Docker and docker compose access locally; it is gated behind build tag `integration`.
 func TestCorazaIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	// Ensure the script exists

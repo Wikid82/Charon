@@ -23,6 +23,9 @@ import (
 //
 // This test requires Docker access and is gated behind build tag `integration`.
 func TestCrowdsecStartup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	// Set a timeout for the entire test
@@ -65,6 +68,9 @@ func TestCrowdsecStartup(t *testing.T) {
 // Note: CrowdSec binary may not be available in the test container.
 // Tests gracefully handle this scenario and skip operations requiring cscli.
 func TestCrowdsecDecisionsIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	// Set a timeout for the entire test

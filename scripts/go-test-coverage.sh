@@ -39,8 +39,14 @@ EXCLUDE_PACKAGES=(
 # test failures after the coverage check.
 # Note: Using -v for verbose output and -race for race detection
 GO_TEST_STATUS=0
-if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
-    GO_TEST_STATUS=$?
+if command -v gotestsum &> /dev/null; then
+    if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+        GO_TEST_STATUS=$?
+    fi
+else
+    if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
+        GO_TEST_STATUS=$?
+    fi
 fi
 
 if [ "$GO_TEST_STATUS" -ne 0 ]; then

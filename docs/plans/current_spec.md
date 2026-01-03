@@ -7,6 +7,47 @@ This document serves as the central index for all active plans, implementation s
 
 ---
 
+## 0. Test Coverage Remediation (ACTIVE)
+
+**Status:** 🔴 IN PROGRESS
+**Priority:** CRITICAL - Blocking PR merge
+**Target:** Patch coverage from 84.85% → 85%+
+
+### Coverage Gap Analysis
+
+| File | Patch % | Missing | Priority | Agent |
+|------|---------|---------|----------|-------|
+| `backend/internal/utils/url_testing.go` | 74.83% | 38 lines | 🔴 P0 | Backend_Dev |
+| `backend/internal/services/dns_provider_service.go` | 78.26% | 35 lines | 🔴 P0 | Backend_Dev |
+| `backend/internal/network/internal_service_client.go` | 0.00% | 14 lines | 🔴 P0 | Backend_Dev |
+| `backend/internal/security/url_validator.go` | 77.55% | 11 lines | 🟡 P1 | Backend_Dev |
+| `backend/internal/crypto/encryption.go` | 74.35% | 10 lines | 🟡 P1 | Backend_Dev |
+| `backend/internal/services/notification_service.go` | 66.66% | 8 lines | 🟡 P1 | Backend_Dev |
+| `backend/internal/api/handlers/crowdsec_handler.go` | 82.85% | 6 lines | 🟢 P2 | Backend_Dev |
+| `backend/internal/api/handlers/dns_provider_handler.go` | 98.30% | 5 lines | 🟢 P2 | Backend_Dev |
+| `backend/internal/services/uptime_service.go` | 85.71% | 3 lines | 🟢 P2 | Backend_Dev |
+| `frontend/src/components/DNSProviderSelector.tsx` | 86.36% | 3 lines | 🟢 P2 | Frontend_Dev |
+
+**Full Remediation Plan:** [test-coverage-remediation-plan.md](test-coverage-remediation-plan.md)
+
+### Quick Reference: Test Files to Create/Modify
+
+| New Test File | Target |
+|--------------|--------|
+| `backend/internal/network/internal_service_client_test.go` | +14 lines |
+| `backend/internal/utils/url_testing_coverage_test.go` | +15-20 lines |
+| `frontend/src/components/__tests__/DNSProviderSelector.test.tsx` | +3 lines |
+
+| Existing Test File to Extend | Target |
+|------------------------------|--------|
+| `backend/internal/services/dns_provider_service_test.go` | +15-18 lines |
+| `backend/internal/security/url_validator_test.go` | +8-10 lines |
+| `backend/internal/crypto/encryption_test.go` | +8-10 lines |
+| `backend/internal/services/notification_service_test.go` | +6-8 lines |
+| `backend/internal/api/handlers/crowdsec_handler_test.go` | +5-6 lines |
+
+---
+
 ## 1. SSRF Remediation
 
 **Status:** 🔴 IN PROGRESS

@@ -707,6 +707,9 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 			network.WithDialTimeout(5*time.Second),
 			// Explicit redirect policy per call site: disable.
 			network.WithMaxRedirects(0),
+			// Uptime monitors are an explicit admin-configured feature and commonly
+			// target loopback in local/dev setups (and in unit tests).
+			network.WithAllowLocalhost(),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -7,13 +7,24 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"io"
 )
+
+// cipherFactory creates block ciphers. Used for testing.
+type cipherFactory func(key []byte) (cipher.Block, error)
+
+// gcmFactory creates GCM ciphers. Used for testing.
+type gcmFactory func(cipher cipher.Block) (cipher.AEAD, error)
+
+// randReader provides random bytes. Used for testing.
+type randReader func(b []byte) (n int, err error)
 
 // EncryptionService provides AES-256-GCM encryption and decryption.
 // The service is thread-safe and can be shared across goroutines.
 type EncryptionService struct {
-	key []byte // 32 bytes for AES-256
+	key           []byte // 32 bytes for AES-256
+	cipherFactory cipherFactory
+	gcmFactory    gcmFactory
+	randReader    randReader
 }
 
 // NewEncryptionService creates a new encryption service with the provided base64-encoded key.
@@ -29,26 +40,29 @@ func NewEncryptionService(keyBase64 string) (*EncryptionService, error) {
 	}
 
 	return &EncryptionService{
-		key: key,
+		key:           key,
+		cipherFactory: aes.NewCipher,
+		gcmFactory:    cipher.NewGCM,
+		randReader:    rand.Read,
 	}, nil
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM and returns base64-encoded ciphertext.
 // The nonce is randomly generated and prepended to the ciphertext.
 func (s *EncryptionService) Encrypt(plaintext []byte) (string, error) {
-	block, err := aes.NewCipher(s.key)
+	block, err := s.cipherFactory(s.key)
 	if err != nil {
 		return "", fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := s.gcmFactory(block)
 	if err != nil {
 		return "", fmt.Errorf("failed to create GCM: %w", err)
 	}
 
 	// Generate random nonce
 	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	if _, err := s.randReader(nonce); err != nil {
 		return "", fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
@@ -67,12 +81,12 @@ func (s *EncryptionService) Decrypt(ciphertextB64 string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid base64 ciphertext: %w", err)
 	}
 
-	block, err := aes.NewCipher(s.key)
+	block, err := s.cipherFactory(s.key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	gcm, err := s.gcmFactory(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}

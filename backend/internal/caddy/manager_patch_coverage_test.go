@@ -61,7 +61,7 @@ func TestManagerApplyConfig_DNSProviders_NoKey_SkipsDecryption(t *testing.T) {
 	}
 	validateConfigFunc = func(_ *Config) error { return nil }
 
-	manager := NewManager(NewClient(caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
 	require.NoError(t, manager.ApplyConfig(context.Background()))
 	require.Equal(t, 0, capturedLen)
 }
@@ -115,7 +115,7 @@ func TestManagerApplyConfig_DNSProviders_UsesFallbackEnvKeys(t *testing.T) {
 	}
 	validateConfigFunc = func(_ *Config) error { return nil }
 
-	manager := NewManager(NewClient(caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
 	require.NoError(t, manager.ApplyConfig(context.Background()))
 
 	require.Len(t, captured, 1)
@@ -161,10 +161,10 @@ func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T
 	))
 	db.Create(&models.SecurityConfig{Name: "default", Enabled: true})
 
-	db.Create(&models.DNSProvider{ID: 21, Name: "empty", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: ""})
-	db.Create(&models.DNSProvider{ID: 22, Name: "bad", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: "not-base64"})
-	db.Create(&models.DNSProvider{ID: 23, Name: "badjson", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: badJSONCiphertext})
-	db.Create(&models.DNSProvider{ID: 24, Name: "good", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: goodCiphertext, PropagationTimeout: 7})
+	db.Create(&models.DNSProvider{ID: 21, UUID: "uuid-empty-21", Name: "empty", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: ""})
+	db.Create(&models.DNSProvider{ID: 22, UUID: "uuid-bad-22", Name: "bad", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: "not-base64"})
+	db.Create(&models.DNSProvider{ID: 23, UUID: "uuid-badjson-23", Name: "badjson", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: badJSONCiphertext})
+	db.Create(&models.DNSProvider{ID: 24, UUID: "uuid-good-24", Name: "good", ProviderType: "cloudflare", Enabled: true, CredentialsEncrypted: goodCiphertext, PropagationTimeout: 7})
 
 	var captured []DNSProviderConfig
 	origGen := generateConfigFunc
@@ -179,7 +179,7 @@ func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T
 	}
 	validateConfigFunc = func(_ *Config) error { return nil }
 
-	manager := NewManager(NewClient(caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
 	require.NoError(t, manager.ApplyConfig(context.Background()))
 
 	require.Len(t, captured, 1)

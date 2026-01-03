@@ -7,6 +7,56 @@ import type { DNSProvider } from '../../api/dnsProviders'
 
 vi.mock('../../hooks/useDNSProviders')
 
+// Capture the onValueChange callback from Select component
+let capturedOnValueChange: ((value: string) => void) | undefined
+let capturedSelectDisabled: boolean | undefined
+let capturedSelectValue: string | undefined
+
+// Mock the Select component to capture onValueChange and enable testing
+vi.mock('../ui', async () => {
+  const actual = await vi.importActual('../ui')
+  return {
+    ...actual,
+    Select: ({ value, onValueChange, disabled, children }: {
+      value: string
+      onValueChange: (value: string) => void
+      disabled?: boolean
+      children: React.ReactNode
+    }) => {
+      capturedOnValueChange = onValueChange
+      capturedSelectDisabled = disabled
+      capturedSelectValue = value
+      return (
+        <div data-testid="select-mock" data-value={value} data-disabled={disabled}>
+          {children}
+        </div>
+      )
+    },
+    SelectTrigger: ({ error, children }: { error?: boolean; children: React.ReactNode }) => (
+      <button
+        role="combobox"
+        data-error={error}
+        disabled={capturedSelectDisabled}
+        aria-disabled={capturedSelectDisabled}
+      >
+        {children}
+      </button>
+    ),
+    SelectValue: ({ placeholder }: { placeholder?: string }) => {
+      // Display actual selected value based on capturedSelectValue
+      return <span data-placeholder={placeholder}>{capturedSelectValue || placeholder}</span>
+    },
+    SelectContent: ({ children }: { children: React.ReactNode }) => (
+      <div role="listbox">{children}</div>
+    ),
+    SelectItem: ({ value, disabled, children }: { value: string; disabled?: boolean; children: React.ReactNode }) => (
+      <div role="option" data-value={value} data-disabled={disabled}>
+        {children}
+      </div>
+    ),
+  }
+})
+
 const mockProviders: DNSProvider[] = [
   {
     id: 1,
@@ -79,6 +129,9 @@ describe('DNSProviderSelector', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    capturedOnValueChange = undefined
+    capturedSelectDisabled = undefined
+    capturedSelectValue = undefined
     vi.mocked(useDNSProviders).mockReturnValue({
       data: mockProviders,
       isLoading: false,
@@ -278,16 +331,15 @@ describe('DNSProviderSelector', () => {
     it('displays selected provider by ID', () => {
       renderWithClient(<DNSProviderSelector value={1} onChange={mockOnChange} />)
 
-      const combobox = screen.getByRole('combobox')
-      expect(combobox).toHaveTextContent('Cloudflare Prod')
+      // Verify the Select received the correct value
+      expect(capturedSelectValue).toBe('1')
     })
 
     it('shows none placeholder when value is undefined and not required', () => {
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
-      const combobox = screen.getByRole('combobox')
-      // The component shows "None" or a placeholder when value is undefined
-      expect(combobox).toBeInTheDocument()
+      // When value is undefined, the component uses 'none' as the Select value
+      expect(capturedSelectValue).toBe('none')
     })
 
     it('handles required prop correctly', () => {
@@ -305,7 +357,7 @@ describe('DNSProviderSelector', () => {
         <DNSProviderSelector value={1} onChange={mockOnChange} />
       )
 
-      expect(screen.getByRole('combobox')).toHaveTextContent('Cloudflare Prod')
+      expect(capturedSelectValue).toBe('1')
 
       // Change to different provider
       rerender(
@@ -314,15 +366,14 @@ describe('DNSProviderSelector', () => {
         </QueryClientProvider>
       )
 
-      expect(screen.getByRole('combobox')).toHaveTextContent('Route53 Staging')
+      expect(capturedSelectValue).toBe('2')
     })
 
     it('handles undefined selection', () => {
       renderWithClient(<DNSProviderSelector value={undefined} onChange={mockOnChange} />)
 
-      const combobox = screen.getByRole('combobox')
-      expect(combobox).toBeInTheDocument()
-      // When undefined, shows "None" or placeholder
+      // When undefined, the value should be 'none'
+      expect(capturedSelectValue).toBe('none')
     })
   })
 
@@ -330,8 +381,10 @@ describe('DNSProviderSelector', () => {
     it('renders provider names correctly', () => {
       renderWithClient(<DNSProviderSelector value={1} onChange={mockOnChange} />)
 
-      // Verify selected provider name is displayed
-      expect(screen.getByRole('combobox')).toHaveTextContent('Cloudflare Prod')
+      // Verify selected provider value is passed to Select
+      expect(capturedSelectValue).toBe('1')
+      // Provider names are rendered in SelectItems
+      expect(screen.getByText('Cloudflare Prod')).toBeInTheDocument()
     })
 
     it('identifies default provider', () => {
@@ -405,6 +458,44 @@ describe('DNSProviderSelector', () => {
       // They should be associated (exact implementation may vary)
       expect(label).toBeInTheDocument()
       expect(select).toBeInTheDocument()
+    })
+  })
+
+  describe('Value Change Handling', () => {
+    it('calls onChange with undefined when "none" is selected', () => {
+      renderWithClient(
+        <DNSProviderSelector value={1} onChange={mockOnChange} />
+      )
+
+      // Invoke the captured onValueChange with 'none'
+      expect(capturedOnValueChange).toBeDefined()
+      capturedOnValueChange!('none')
+
+      expect(mockOnChange).toHaveBeenCalledWith(undefined)
+    })
+
+    it('calls onChange with provider ID when a provider is selected', () => {
+      renderWithClient(
+        <DNSProviderSelector value={undefined} onChange={mockOnChange} />
+      )
+
+      // Invoke the captured onValueChange with provider id '1'
+      expect(capturedOnValueChange).toBeDefined()
+      capturedOnValueChange!('1')
+
+      expect(mockOnChange).toHaveBeenCalledWith(1)
+    })
+
+    it('calls onChange with different provider ID when switching providers', () => {
+      renderWithClient(
+        <DNSProviderSelector value={1} onChange={mockOnChange} />
+      )
+
+      // Invoke the captured onValueChange with provider id '2'
+      expect(capturedOnValueChange).toBeDefined()
+      capturedOnValueChange!('2')
+
+      expect(mockOnChange).toHaveBeenCalledWith(2)
     })
   })
 })

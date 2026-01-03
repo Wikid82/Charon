@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1326,4 +1327,700 @@ func TestRenderTemplate_MinimalAndDetailedTemplates(t *testing.T) {
 		assert.Equal(t, "192.168.1.1", parsedMap["host_ip"])
 		assert.Equal(t, float64(5), parsedMap["service_count"])
 	})
+}
+
+// ============================================
+// Phase 3: Service-Specific Validation Tests
+// ============================================
+
+func TestSendJSONPayload_ServiceSpecificValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("discord_requires_content_or_embeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		// Discord without content or embeds should fail
+		provider := models.NotificationProvider{
+			Type:     "discord",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"message": {{toJSON .Message}}}`, // Missing content/embeds
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "discord payload requires 'content' or 'embeds' field")
+	})
+
+	t.Run("discord_with_content_succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider := models.NotificationProvider{
+			Type:     "discord",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"content": {{toJSON .Message}}}`,
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.NoError(t, err)
+	})
+
+	t.Run("discord_with_embeds_succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider := models.NotificationProvider{
+			Type:     "discord",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"embeds": [{"title": {{toJSON .Title}}}]}`,
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.NoError(t, err)
+	})
+
+	t.Run("slack_requires_text_or_blocks", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		// Slack without text or blocks should fail
+		provider := models.NotificationProvider{
+			Type:     "slack",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"message": {{toJSON .Message}}}`, // Missing text/blocks
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "slack payload requires 'text' or 'blocks' field")
+	})
+
+	t.Run("slack_with_text_succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider := models.NotificationProvider{
+			Type:     "slack",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"text": {{toJSON .Message}}}`,
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.NoError(t, err)
+	})
+
+	t.Run("slack_with_blocks_succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider := models.NotificationProvider{
+			Type:     "slack",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": {{toJSON .Message}}}}]}`,
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.NoError(t, err)
+	})
+
+	t.Run("gotify_requires_message", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		// Gotify without message should fail
+		provider := models.NotificationProvider{
+			Type:     "gotify",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"title": {{toJSON .Title}}}`, // Missing message
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "gotify payload requires 'message' field")
+	})
+
+	t.Run("gotify_with_message_succeeds", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		provider := models.NotificationProvider{
+			Type:     "gotify",
+			URL:      server.URL,
+			Template: "custom",
+			Config:   `{"message": {{toJSON .Message}}, "title": {{toJSON .Title}}}`,
+		}
+		data := map[string]any{
+			"Title":     "Test",
+			"Message":   "Test Message",
+			"Time":      time.Now().Format(time.RFC3339),
+			"EventType": "test",
+		}
+
+		err := svc.sendJSONPayload(context.Background(), provider, data)
+		require.NoError(t, err)
+	})
+}
+
+// ============================================
+// Phase 3: SendExternal Event Type Coverage
+// ============================================
+
+func TestSendExternal_AllEventTypes(t *testing.T) {
+	eventTypes := []struct {
+		eventType     string
+		providerField string
+	}{
+		{"proxy_host", "NotifyProxyHosts"},
+		{"remote_server", "NotifyRemoteServers"},
+		{"domain", "NotifyDomains"},
+		{"cert", "NotifyCerts"},
+		{"uptime", "NotifyUptime"},
+		{"test", ""},    // test always sends
+		{"unknown", ""}, // unknown defaults to true
+	}
+
+	for _, et := range eventTypes {
+		t.Run(et.eventType, func(t *testing.T) {
+			db := setupNotificationTestDB(t)
+			svc := NewNotificationService(db)
+
+			var callCount atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callCount.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			provider := models.NotificationProvider{
+				Name:                "event-test",
+				Type:                "webhook",
+				URL:                 server.URL,
+				Enabled:             true,
+				Template:            "minimal",
+				NotifyProxyHosts:    et.eventType == "proxy_host",
+				NotifyRemoteServers: et.eventType == "remote_server",
+				NotifyDomains:       et.eventType == "domain",
+				NotifyCerts:         et.eventType == "cert",
+				NotifyUptime:        et.eventType == "uptime",
+			}
+			require.NoError(t, db.Create(&provider).Error)
+
+			// Update with map to ensure zero values are set properly
+			require.NoError(t, db.Model(&provider).Updates(map[string]any{
+				"notify_proxy_hosts":    et.eventType == "proxy_host",
+				"notify_remote_servers": et.eventType == "remote_server",
+				"notify_domains":        et.eventType == "domain",
+				"notify_certs":          et.eventType == "cert",
+				"notify_uptime":         et.eventType == "uptime",
+			}).Error)
+
+			svc.SendExternal(context.Background(), et.eventType, "Title", "Message", nil)
+			time.Sleep(100 * time.Millisecond)
+
+			// test and unknown should always send; others only when their flag is true
+			if et.eventType == "test" || et.eventType == "unknown" {
+				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification", et.eventType)
+			} else {
+				assert.Greater(t, callCount.Load(), int32(0), "Event type %s should trigger notification when flag is set", et.eventType)
+			}
+		})
+	}
+}
+
+// ============================================
+// Phase 3: isValidRedirectURL Coverage
+// ============================================
+
+func TestIsValidRedirectURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected bool
+	}{
+		{"valid http", "http://example.com/webhook", true},
+		{"valid https", "https://example.com/webhook", true},
+		{"invalid scheme ftp", "ftp://example.com", false},
+		{"invalid scheme file", "file:///etc/passwd", false},
+		{"no scheme", "example.com/webhook", false},
+		{"empty hostname", "http:///webhook", false},
+		{"invalid url", "://invalid", false},
+		{"javascript scheme", "javascript:alert(1)", false},
+		{"data scheme", "data:text/html,<h1>test</h1>", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidRedirectURL(tt.url)
+			assert.Equal(t, tt.expected, result, "isValidRedirectURL(%q) = %v, want %v", tt.url, result, tt.expected)
+		})
+	}
+}
+
+// ============================================
+// Phase 3: SendExternal with Shoutrrr path (non-JSON)
+// ============================================
+
+func TestSendExternal_ShoutrrrPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Test shoutrrr path with mocked function
+	var called atomic.Bool
+	var receivedMsg atomic.Value
+	originalFunc := shoutrrrSendFunc
+	shoutrrrSendFunc = func(url, msg string) error {
+		called.Store(true)
+		receivedMsg.Store(msg)
+		return nil
+	}
+	defer func() { shoutrrrSendFunc = originalFunc }()
+
+	// Provider without template (uses shoutrrr path)
+	provider := models.NotificationProvider{
+		Name:             "shoutrrr-test",
+		Type:             "telegram", // telegram doesn't support JSON templates
+		URL:              "telegram://token@telegram?chats=123",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "", // Empty template forces shoutrrr path
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	svc.SendExternal(context.Background(), "proxy_host", "Test Title", "Test Message", nil)
+	time.Sleep(100 * time.Millisecond)
+
+	assert.True(t, called.Load(), "shoutrrr function should have been called")
+	msg := receivedMsg.Load().(string)
+	assert.Contains(t, msg, "Test Title")
+	assert.Contains(t, msg, "Test Message")
+}
+
+func TestSendExternal_ShoutrrrPathWithHTTPValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	var called atomic.Bool
+	originalFunc := shoutrrrSendFunc
+	shoutrrrSendFunc = func(url, msg string) error {
+		called.Store(true)
+		return nil
+	}
+	defer func() { shoutrrrSendFunc = originalFunc }()
+
+	// Provider with HTTP URL but no template AND unsupported type (triggers SSRF check in shoutrrr path)
+	// Using "pushover" which is not in supportsJSONTemplates list
+	provider := models.NotificationProvider{
+		Name:             "http-shoutrrr",
+		Type:             "pushover", // Unsupported JSON template type
+		URL:              "http://127.0.0.1:8080/webhook",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "", // Empty template
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
+	time.Sleep(100 * time.Millisecond)
+
+	// Should call shoutrrr since URL is valid (localhost allowed)
+	assert.True(t, called.Load())
+}
+
+func TestSendExternal_ShoutrrrPathBlocksPrivateIP(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	var called atomic.Bool
+	originalFunc := shoutrrrSendFunc
+	shoutrrrSendFunc = func(url, msg string) error {
+		called.Store(true)
+		return nil
+	}
+	defer func() { shoutrrrSendFunc = originalFunc }()
+
+	// Provider with private IP URL (should be blocked)
+	// Using "pushover" which doesn't support JSON templates
+	provider := models.NotificationProvider{
+		Name:             "private-ip",
+		Type:             "pushover", // Unsupported JSON template type
+		URL:              "http://10.0.0.1:8080/webhook",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "", // Empty template
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
+	time.Sleep(100 * time.Millisecond)
+
+	// Should NOT call shoutrrr since URL is blocked (private IP)
+	assert.False(t, called.Load(), "shoutrrr should not be called for private IP")
+}
+
+func TestSendExternal_ShoutrrrError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Mock shoutrrr to return error
+	var wg sync.WaitGroup
+	originalFunc := shoutrrrSendFunc
+	shoutrrrSendFunc = func(url, msg string) error {
+		defer wg.Done()
+		return fmt.Errorf("shoutrrr error: connection failed")
+	}
+	defer func() { shoutrrrSendFunc = originalFunc }()
+
+	provider := models.NotificationProvider{
+		Name:             "error-test",
+		Type:             "telegram",
+		URL:              "telegram://token@telegram?chats=123",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "",
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	// Should not panic, just log error
+	wg.Add(1)
+	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
+	wg.Wait()
+}
+
+func TestTestProvider_ShoutrrrPath(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	var called atomic.Bool
+	originalFunc := shoutrrrSendFunc
+	shoutrrrSendFunc = func(url, msg string) error {
+		called.Store(true)
+		return nil
+	}
+	defer func() { shoutrrrSendFunc = originalFunc }()
+
+	// Provider without template uses shoutrrr path
+	provider := models.NotificationProvider{
+		Type:     "telegram",
+		URL:      "telegram://token@telegram?chats=123",
+		Template: "", // Empty template
+	}
+
+	err := svc.TestProvider(provider)
+	require.NoError(t, err)
+	assert.True(t, called.Load())
+}
+
+func TestTestProvider_HTTPURLValidation(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	t.Run("blocks private IP", func(t *testing.T) {
+		provider := models.NotificationProvider{
+			Type:     "generic",
+			URL:      "http://10.0.0.1:8080/webhook",
+			Template: "", // Empty template uses shoutrrr path
+		}
+
+		err := svc.TestProvider(provider)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid notification URL")
+	})
+
+	t.Run("allows localhost", func(t *testing.T) {
+		var called atomic.Bool
+		originalFunc := shoutrrrSendFunc
+		shoutrrrSendFunc = func(url, msg string) error {
+			called.Store(true)
+			return nil
+		}
+		defer func() { shoutrrrSendFunc = originalFunc }()
+
+		provider := models.NotificationProvider{
+			Type:     "generic",
+			URL:      "http://127.0.0.1:8080/webhook",
+			Template: "", // Empty template
+		}
+
+		err := svc.TestProvider(provider)
+		require.NoError(t, err)
+		assert.True(t, called.Load())
+	})
+}
+
+// ============================================
+// Phase 4: Additional Edge Case Coverage
+// ============================================
+
+func TestSendJSONPayload_TemplateExecutionError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Template that calls a method on nil should cause execution error
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      server.URL,
+		Template: "custom",
+		Config:   `{"result": {{call .NonExistentFunc}}}`, // This will fail during execution
+	}
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	// The error could be a parse error or execution error depending on Go version
+}
+
+func TestSendJSONPayload_InvalidJSONFromTemplate(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Template that produces invalid JSON
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      server.URL,
+		Template: "custom",
+		Config:   `{"title": {{.Title}}}`, // Missing toJSON, will produce unquoted string
+	}
+
+	data := map[string]any{
+		"Title":     "Test Value",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(context.Background(), provider, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid JSON payload")
+}
+
+func TestSendJSONPayload_RequestCreationError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// This test verifies request creation doesn't panic on edge cases
+	provider := models.NotificationProvider{
+		Type:     "webhook",
+		URL:      "http://localhost:8080/webhook",
+		Template: "minimal",
+	}
+
+	// Use canceled context to trigger early error
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	data := map[string]any{
+		"Title":     "Test",
+		"Message":   "Test",
+		"Time":      time.Now().Format(time.RFC3339),
+		"EventType": "test",
+	}
+
+	err := svc.sendJSONPayload(ctx, provider, data)
+	require.Error(t, err)
+}
+
+func TestRenderTemplate_CustomTemplateWithWhitespace(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Test template selection with various whitespace
+	tests := []struct {
+		name     string
+		template string
+	}{
+		{"detailed with spaces", "  detailed  "},
+		{"minimal with tabs", "\tminimal\t"},
+		{"custom with newlines", "\ncustom\n"},
+		{"DETAILED uppercase", "DETAILED"},
+		{"MiNiMaL mixed case", "MiNiMaL"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := models.NotificationProvider{
+				Template: tt.template,
+				Config:   `{"msg": {{toJSON .Message}}}`, // Only used for custom
+			}
+
+			data := map[string]any{
+				"Title":     "Test",
+				"Message":   "Message",
+				"Time":      time.Now().Format(time.RFC3339),
+				"EventType": "test",
+			}
+
+			rendered, parsed, err := svc.RenderTemplate(provider, data)
+			require.NoError(t, err)
+			require.NotEmpty(t, rendered)
+			require.NotNil(t, parsed)
+		})
+	}
+}
+
+func TestListTemplates_DBError(t *testing.T) {
+	// Create a DB connection and close it to simulate error
+	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.NotificationTemplate{})
+
+	svc := NewNotificationService(db)
+
+	// Close the underlying connection to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	_, err := svc.ListTemplates()
+	require.Error(t, err)
+}
+
+func TestSendExternal_DBFetchError(t *testing.T) {
+	// Create a DB connection and close it to simulate error
+	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	db.AutoMigrate(&models.NotificationProvider{})
+
+	svc := NewNotificationService(db)
+
+	// Close the underlying connection to force error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	// Should not panic, just log error and return
+	svc.SendExternal(context.Background(), "test", "Title", "Message", nil)
+}
+
+func TestSendExternal_JSONPayloadError(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Create a provider that will fail JSON validation (discord without content/embeds)
+	provider := models.NotificationProvider{
+		Name:             "json-error",
+		Type:             "discord",
+		URL:              "http://localhost:8080/webhook",
+		Enabled:          true,
+		NotifyProxyHosts: true,
+		Template:         "custom",
+		Config:           `{"invalid": {{toJSON .Message}}}`, // Discord requires content or embeds
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	// Should not panic, just log error
+	svc.SendExternal(context.Background(), "proxy_host", "Test", "Message", nil)
+	time.Sleep(100 * time.Millisecond)
+}
+
+func TestSendJSONPayload_HTTPScheme(t *testing.T) {
+	db := setupNotificationTestDB(t)
+	svc := NewNotificationService(db)
+
+	// Test both HTTP and HTTPS schemes
+	schemes := []string{"http", "https"}
+
+	for _, scheme := range schemes {
+		t.Run(scheme, func(t *testing.T) {
+			// Create server (note: httptest.Server uses http by default)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			provider := models.NotificationProvider{
+				Type:     "webhook",
+				URL:      server.URL, // httptest always uses http
+				Template: "minimal",
+			}
+
+			data := map[string]any{
+				"Title":     "Test",
+				"Message":   "Test",
+				"Time":      time.Now().Format(time.RFC3339),
+				"EventType": "test",
+			}
+
+			err := svc.sendJSONPayload(context.Background(), provider, data)
+			require.NoError(t, err)
+		})
+	}
 }

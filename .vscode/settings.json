@@ -1,0 +1,18 @@
+{
+  "go.buildTags": "integration",
+  "gopls": {
+    "buildFlags": ["-tags=integration"],
+    "env": {
+      "GOFLAGS": "-tags=integration"
+    }
+  },
+  "[go]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "go.useLanguageServer": true,
+  "go.lintOnSave": "workspace",
+  "go.vetOnSave": "workspace"
+}
