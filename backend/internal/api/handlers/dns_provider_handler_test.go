@@ -762,3 +762,89 @@ func TestDNSProviderHandler_TestCredentialsServiceError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	mockService.AssertExpectations(t)
 }
+
+func TestDNSProviderHandler_UpdateInvalidCredentials(t *testing.T) {
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.PUT("/dns-providers/:id", handler.Update)
+
+	name := "Test"
+	reqBody := services.UpdateDNSProviderRequest{Name: &name}
+
+	mockService.On("Update", mock.Anything, uint(1), reqBody).Return(nil, services.ErrInvalidCredentials)
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/dns-providers/1", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "Invalid credentials")
+	mockService.AssertExpectations(t)
+}
+
+func TestDNSProviderHandler_UpdateBindJSONError(t *testing.T) {
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.PUT("/dns-providers/:id", handler.Update)
+
+	// Send invalid JSON
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/dns-providers/1", bytes.NewBufferString("not valid json"))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDNSProviderHandler_UpdateGenericError(t *testing.T) {
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.PUT("/dns-providers/:id", handler.Update)
+
+	name := "Test"
+	reqBody := services.UpdateDNSProviderRequest{Name: &name}
+
+	// Return a generic error that doesn't match any known error types
+	mockService.On("Update", mock.Anything, uint(1), reqBody).Return(nil, errors.New("unknown database error"))
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("PUT", "/dns-providers/1", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "unknown database error")
+	mockService.AssertExpectations(t)
+}
+
+func TestDNSProviderHandler_CreateGenericError(t *testing.T) {
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.POST("/dns-providers", handler.Create)
+
+	reqBody := services.CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	}
+
+	// Return a generic error that doesn't match any known error types
+	mockService.On("Create", mock.Anything, reqBody).Return(nil, errors.New("unknown database error"))
+
+	body, _ := json.Marshal(reqBody)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/dns-providers", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "unknown database error")
+	mockService.AssertExpectations(t)
+}

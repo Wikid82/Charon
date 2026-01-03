@@ -1056,8 +1056,16 @@ const (
 	defaultCrowdsecLAPIPort = 8085
 )
 
-func validateCrowdsecLAPIBaseURL(raw string) (*url.URL, error) {
+// validateCrowdsecLAPIBaseURLFunc is a variable holding the LAPI URL validation function.
+// This indirection allows tests to inject a permissive validator for mock servers.
+var validateCrowdsecLAPIBaseURLFunc = validateCrowdsecLAPIBaseURLDefault
+
+func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 	return security.ValidateInternalServiceBaseURL(raw, defaultCrowdsecLAPIPort, security.InternalServiceHostAllowlist())
+}
+
+func validateCrowdsecLAPIBaseURL(raw string) (*url.URL, error) {
+	return validateCrowdsecLAPIBaseURLFunc(raw)
 }
 
 // GetLAPIDecisions queries CrowdSec LAPI directly for current decisions.

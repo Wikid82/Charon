@@ -787,3 +787,773 @@ func TestDNSProviderService_CreateEncryptionError(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, provider.CredentialsEncrypted)
 }
+
+func TestDNSProviderService_Update_PropagationTimeoutAndPollingInterval(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider with default values
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 120, provider.PropagationTimeout)
+	assert.Equal(t, 5, provider.PollingInterval)
+
+	t.Run("update propagation timeout", func(t *testing.T) {
+		newTimeout := 300
+		updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+			PropagationTimeout: &newTimeout,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 300, updated.PropagationTimeout)
+	})
+
+	t.Run("update polling interval", func(t *testing.T) {
+		newInterval := 10
+		updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+			PollingInterval: &newInterval,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 10, updated.PollingInterval)
+	})
+
+	t.Run("update both timeout and interval", func(t *testing.T) {
+		newTimeout := 180
+		newInterval := 15
+		updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+			PropagationTimeout: &newTimeout,
+			PollingInterval:    &newInterval,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 180, updated.PropagationTimeout)
+		assert.Equal(t, 15, updated.PollingInterval)
+	})
+}
+
+func TestDNSProviderService_Test_NonExistentProvider(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Test with non-existent provider
+	_, err := service.Test(ctx, 9999)
+	assert.ErrorIs(t, err, ErrDNSProviderNotFound)
+}
+
+func TestDNSProviderService_GetDecryptedCredentials_NonExistentProvider(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Get credentials for non-existent provider
+	_, err := service.GetDecryptedCredentials(ctx, 9999)
+	assert.ErrorIs(t, err, ErrDNSProviderNotFound)
+}
+
+func TestDNSProviderService_TestWithFailedCredentials(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create provider with valid encrypted credentials
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test Provider",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	// Test should succeed and update success count
+	result, err := service.Test(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+
+	// Verify success count incremented
+	updated, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, updated.SuccessCount)
+	assert.Equal(t, 0, updated.FailureCount)
+	assert.Empty(t, updated.LastError)
+}
+
+func TestDNSProviderService_CreateWithEmptyCredentialValue(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create with empty string value in required field
+	_, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": ""},
+	})
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
+}
+
+func TestDNSProviderService_Update_EmptyCredentials(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "original"},
+	})
+	require.NoError(t, err)
+
+	// Update with empty credentials map (should not update credentials)
+	newName := "New Name"
+	updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Name:        &newName,
+		Credentials: map[string]string{}, // Empty map
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "New Name", updated.Name)
+
+	// Verify original credentials preserved
+	decrypted, err := service.GetDecryptedCredentials(ctx, updated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", decrypted["api_token"])
+}
+
+func TestDNSProviderService_Update_NilCredentials(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "original"},
+	})
+	require.NoError(t, err)
+
+	// Update with nil credentials (should not update credentials)
+	newName := "New Name"
+	updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Name:        &newName,
+		Credentials: nil,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "New Name", updated.Name)
+
+	// Verify original credentials preserved
+	decrypted, err := service.GetDecryptedCredentials(ctx, updated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", decrypted["api_token"])
+}
+
+func TestDNSProviderService_Create_WithExistingDefault(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create first provider as non-default
+	provider1, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "First",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token1"},
+		IsDefault:    false,
+	})
+	require.NoError(t, err)
+	assert.False(t, provider1.IsDefault)
+
+	// Create second provider as default
+	provider2, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Second",
+		ProviderType: "route53",
+		Credentials: map[string]string{
+			"access_key_id":     "key",
+			"secret_access_key": "secret",
+			"region":            "us-east-1",
+		},
+		IsDefault: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, provider2.IsDefault)
+
+	// Verify first is still non-default
+	updated1, err := service.Get(ctx, provider1.ID)
+	require.NoError(t, err)
+	assert.False(t, updated1.IsDefault)
+}
+
+func TestDNSProviderService_Delete_AlreadyDeleted(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	// Delete successfully
+	err = service.Delete(ctx, provider.ID)
+	require.NoError(t, err)
+
+	// Delete again (already deleted) - should return not found
+	err = service.Delete(ctx, provider.ID)
+	assert.ErrorIs(t, err, ErrDNSProviderNotFound)
+}
+
+func TestTestDNSProviderCredentials_Validation(t *testing.T) {
+	// Test the internal testDNSProviderCredentials function
+	tests := []struct {
+		name         string
+		providerType string
+		credentials  map[string]string
+		wantSuccess  bool
+		wantCode     string
+	}{
+		{
+			name:         "valid cloudflare credentials",
+			providerType: "cloudflare",
+			credentials:  map[string]string{"api_token": "valid-token"},
+			wantSuccess:  true,
+			wantCode:     "",
+		},
+		{
+			name:         "missing required field",
+			providerType: "cloudflare",
+			credentials:  map[string]string{},
+			wantSuccess:  false,
+			wantCode:     "VALIDATION_ERROR",
+		},
+		{
+			name:         "empty required field",
+			providerType: "route53",
+			credentials:  map[string]string{"access_key_id": "", "secret_access_key": "secret", "region": "us-east-1"},
+			wantSuccess:  false,
+			wantCode:     "VALIDATION_ERROR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := testDNSProviderCredentials(tt.providerType, tt.credentials)
+			assert.Equal(t, tt.wantSuccess, result.Success)
+			if !tt.wantSuccess {
+				assert.Equal(t, tt.wantCode, result.Code)
+			}
+		})
+	}
+}
+
+func TestDNSProviderService_Update_CredentialValidationError(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a route53 provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test Route53",
+		ProviderType: "route53",
+		Credentials: map[string]string{
+			"access_key_id":     "key",
+			"secret_access_key": "secret",
+			"region":            "us-east-1",
+		},
+	})
+	require.NoError(t, err)
+
+	// Update with missing required credentials
+	_, err = service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Credentials: map[string]string{
+			"access_key_id": "new-key",
+			// Missing secret_access_key and region
+		},
+	})
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
+}
+
+func TestDNSProviderService_TestCredentials_AllProviders(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Test credentials for all supported provider types without saving
+	testCases := map[string]map[string]string{
+		"cloudflare":     {"api_token": "token"},
+		"route53":        {"access_key_id": "key", "secret_access_key": "secret", "region": "us-east-1"},
+		"digitalocean":   {"auth_token": "token"},
+		"googleclouddns": {"service_account_json": "{}", "project": "test-project"},
+		"namecheap":      {"api_user": "user", "api_key": "key", "client_ip": "1.2.3.4"},
+		"godaddy":        {"api_key": "key", "api_secret": "secret"},
+		"azure": {
+			"tenant_id":       "tenant",
+			"client_id":       "client",
+			"client_secret":   "secret",
+			"subscription_id": "sub",
+			"resource_group":  "rg",
+		},
+		"hetzner":  {"api_key": "key"},
+		"vultr":    {"api_key": "key"},
+		"dnsimple": {"oauth_token": "token", "account_id": "12345"},
+	}
+
+	for providerType, creds := range testCases {
+		t.Run(providerType, func(t *testing.T) {
+			result, err := service.TestCredentials(ctx, CreateDNSProviderRequest{
+				Name:         "Test " + providerType,
+				ProviderType: providerType,
+				Credentials:  creds,
+			})
+			require.NoError(t, err)
+			assert.True(t, result.Success, "Provider %s should succeed", providerType)
+			assert.NotEmpty(t, result.Message)
+			assert.GreaterOrEqual(t, result.PropagationTimeMs, int64(0))
+		})
+	}
+}
+
+func TestDNSProviderService_List_Empty(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// List on empty database
+	providers, err := service.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, providers)
+}
+
+func TestDNSProviderService_Create_DefaultsApplied(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create provider without specifying defaults
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+		// PropagationTimeout and PollingInterval not set
+	})
+	require.NoError(t, err)
+
+	// Verify defaults were applied
+	assert.Equal(t, 120, provider.PropagationTimeout)
+	assert.Equal(t, 5, provider.PollingInterval)
+	assert.True(t, provider.Enabled)
+}
+
+func TestDNSProviderService_Create_CustomTimeouts(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create provider with custom timeouts
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:               "Test",
+		ProviderType:       "cloudflare",
+		Credentials:        map[string]string{"api_token": "token"},
+		PropagationTimeout: 300,
+		PollingInterval:    10,
+	})
+	require.NoError(t, err)
+
+	// Verify custom values were used
+	assert.Equal(t, 300, provider.PropagationTimeout)
+	assert.Equal(t, 10, provider.PollingInterval)
+}
+
+func TestValidateCredentials_AllRequiredFields(t *testing.T) {
+	// Test each provider type with all required fields present
+	for providerType, requiredFields := range ProviderCredentialFields {
+		t.Run(providerType, func(t *testing.T) {
+			creds := make(map[string]string)
+			for _, field := range requiredFields {
+				creds[field] = "test-value"
+			}
+			err := validateCredentials(providerType, creds)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestValidateCredentials_MissingEachField(t *testing.T) {
+	// Test each provider type with each required field missing
+	for providerType, requiredFields := range ProviderCredentialFields {
+		for _, missingField := range requiredFields {
+			t.Run(providerType+"_missing_"+missingField, func(t *testing.T) {
+				creds := make(map[string]string)
+				for _, field := range requiredFields {
+					if field != missingField {
+						creds[field] = "test-value"
+					}
+				}
+				err := validateCredentials(providerType, creds)
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, ErrInvalidCredentials)
+				assert.Contains(t, err.Error(), missingField)
+			})
+		}
+	}
+}
+
+func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create multiple providers
+	_, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "B Provider",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	_, err = service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "A Provider",
+		ProviderType: "hetzner",
+		Credentials:  map[string]string{"api_key": "key"},
+	})
+	require.NoError(t, err)
+
+	defaultProvider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Z Default Provider",
+		ProviderType: "vultr",
+		Credentials:  map[string]string{"api_key": "key"},
+		IsDefault:    true,
+	})
+	require.NoError(t, err)
+
+	// List all providers
+	providers, err := service.List(ctx)
+	require.NoError(t, err)
+	assert.Len(t, providers, 3)
+
+	// Verify default provider is first, then alphabetical order
+	assert.Equal(t, defaultProvider.ID, providers[0].ID)
+	assert.True(t, providers[0].IsDefault)
+}
+
+func TestDNSProviderService_Update_MultipleFields(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Original",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "original-token"},
+	})
+	require.NoError(t, err)
+
+	// Update multiple fields at once
+	newName := "Updated"
+	newTimeout := 240
+	newInterval := 8
+	enabled := false
+	isDefault := true
+
+	updated, err := service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Name:               &newName,
+		PropagationTimeout: &newTimeout,
+		PollingInterval:    &newInterval,
+		Enabled:            &enabled,
+		IsDefault:          &isDefault,
+		Credentials:        map[string]string{"api_token": "new-token"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "Updated", updated.Name)
+	assert.Equal(t, 240, updated.PropagationTimeout)
+	assert.Equal(t, 8, updated.PollingInterval)
+	assert.False(t, updated.Enabled)
+	assert.True(t, updated.IsDefault)
+
+	// Verify credentials updated
+	decrypted, err := service.GetDecryptedCredentials(ctx, updated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "new-token", decrypted["api_token"])
+}
+
+func TestSupportedProviderTypes(t *testing.T) {
+	// Verify all provider types in SupportedProviderTypes have credential fields defined
+	for _, providerType := range SupportedProviderTypes {
+		t.Run(providerType, func(t *testing.T) {
+			fields, ok := ProviderCredentialFields[providerType]
+			assert.True(t, ok, "Provider %s should have credential fields defined", providerType)
+			assert.NotEmpty(t, fields, "Provider %s should have at least one required field", providerType)
+		})
+	}
+}
+
+func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	// Verify LastUsedAt is initially nil
+	initial, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Nil(t, initial.LastUsedAt)
+
+	// Get decrypted credentials
+	_, err = service.GetDecryptedCredentials(ctx, provider.ID)
+	require.NoError(t, err)
+
+	// Verify LastUsedAt was updated
+	afterGet, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.NotNil(t, afterGet.LastUsedAt)
+}
+
+func TestDNSProviderService_Test_UpdatesStatistics(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	// Verify initial statistics
+	initial, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, initial.SuccessCount)
+	assert.Equal(t, 0, initial.FailureCount)
+	assert.Nil(t, initial.LastUsedAt)
+	assert.Empty(t, initial.LastError)
+
+	// Test the provider (should succeed with basic validation)
+	result, err := service.Test(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+
+	// Verify statistics updated
+	afterTest, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, afterTest.SuccessCount)
+	assert.Equal(t, 0, afterTest.FailureCount)
+	assert.NotNil(t, afterTest.LastUsedAt)
+	assert.Empty(t, afterTest.LastError)
+}
+
+func TestDNSProviderService_Test_FailureUpdatesStatistics(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a cloudflare provider with valid credentials
+	cloudflareCredentials := map[string]string{"api_token": "token"}
+	credJSON, err := json.Marshal(cloudflareCredentials)
+	require.NoError(t, err)
+
+	encryptedCreds, err := encryptor.Encrypt(credJSON)
+	require.NoError(t, err)
+
+	// Manually insert a provider with mismatched provider type and credentials
+	// Provider type is "route53" but credentials are for cloudflare (missing required fields)
+	provider := &models.DNSProvider{
+		UUID:                 "test-mismatch-uuid",
+		Name:                 "Mismatched Provider",
+		ProviderType:         "route53", // Requires access_key_id, secret_access_key, region
+		CredentialsEncrypted: encryptedCreds,
+		PropagationTimeout:   120,
+		PollingInterval:      5,
+		Enabled:              true,
+	}
+	require.NoError(t, db.Create(provider).Error)
+
+	// Test the provider - should fail validation due to mismatched credentials
+	result, err := service.Test(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.False(t, result.Success)
+	assert.Equal(t, "VALIDATION_ERROR", result.Code)
+
+	// Verify failure statistics updated
+	afterTest, err := service.Get(ctx, provider.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, afterTest.SuccessCount)
+	assert.Equal(t, 1, afterTest.FailureCount)
+	assert.NotNil(t, afterTest.LastUsedAt)
+	assert.NotEmpty(t, afterTest.LastError)
+}
+
+func TestDNSProviderService_List_DBError(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// List should fail
+	_, err = service.List(ctx)
+	assert.Error(t, err)
+}
+
+func TestDNSProviderService_Get_DBError(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Get should fail with a DB error (not ErrDNSProviderNotFound)
+	_, err = service.Get(ctx, 1)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, ErrDNSProviderNotFound)
+}
+
+func TestDNSProviderService_Create_DBErrorOnDefaultUnset(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	ctx := context.Background()
+
+	// First, create a default provider with a working DB
+	workingService := NewDNSProviderService(db, encryptor)
+	_, err := workingService.Create(ctx, CreateDNSProviderRequest{
+		Name:         "First Default",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+		IsDefault:    true,
+	})
+	require.NoError(t, err)
+
+	// Now close the DB
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Trying to create another default should fail when trying to unset the existing default
+	_, err = workingService.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Second Default",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token2"},
+		IsDefault:    true,
+	})
+	assert.Error(t, err)
+}
+
+func TestDNSProviderService_Create_DBErrorOnCreate(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Create should fail
+	_, err = service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	assert.Error(t, err)
+}
+
+func TestDNSProviderService_Update_DBErrorOnSave(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create a provider first
+	provider, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Test",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token"},
+	})
+	require.NoError(t, err)
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Update should fail
+	newName := "Updated"
+	_, err = service.Update(ctx, provider.ID, UpdateDNSProviderRequest{
+		Name: &newName,
+	})
+	assert.Error(t, err)
+}
+
+func TestDNSProviderService_Update_DBErrorOnDefaultUnset(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Create two providers, first is default
+	_, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "First",
+		ProviderType: "cloudflare",
+		Credentials:  map[string]string{"api_token": "token1"},
+		IsDefault:    true,
+	})
+	require.NoError(t, err)
+
+	provider2, err := service.Create(ctx, CreateDNSProviderRequest{
+		Name:         "Second",
+		ProviderType: "route53",
+		Credentials: map[string]string{
+			"access_key_id":     "key",
+			"secret_access_key": "secret",
+			"region":            "us-east-1",
+		},
+	})
+	require.NoError(t, err)
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Update to make second provider default should fail
+	isDefault := true
+	_, err = service.Update(ctx, provider2.ID, UpdateDNSProviderRequest{
+		IsDefault: &isDefault,
+	})
+	assert.Error(t, err)
+}
+
+func TestDNSProviderService_Delete_DBError(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	// Close the DB connection to trigger error
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+
+	// Delete should fail
+	err = service.Delete(ctx, 1)
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, ErrDNSProviderNotFound)
+}

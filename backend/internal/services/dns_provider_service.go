@@ -222,7 +222,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	}
 
 	// Handle credentials update
-	if req.Credentials != nil && len(req.Credentials) > 0 {
+	if len(req.Credentials) > 0 {
 		// Validate credentials
 		if err := validateCredentials(provider.ProviderType, req.Credentials); err != nil {
 			return nil, err

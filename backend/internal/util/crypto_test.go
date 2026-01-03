@@ -5,6 +5,7 @@ import (
 )
 
 func TestConstantTimeCompare(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		a        string
@@ -33,6 +34,7 @@ func TestConstantTimeCompare(t *testing.T) {
 }
 
 func TestConstantTimeCompareBytes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		a        []byte

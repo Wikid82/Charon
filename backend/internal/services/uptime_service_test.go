@@ -63,6 +63,16 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	go server.Serve(listener)
 	defer server.Close()
 
+	// Wait for HTTP server to be ready by making a test request
+	for i := 0; i < 10; i++ {
+		conn, err := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	// Create a listener and close it immediately to get a free port that is definitely closed (DOWN)
 	downListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -73,6 +83,8 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	// Seed ProxyHosts
 	// We use the listener address as the "DomainName" so the monitor checks this HTTP server
+	// IMPORTANT: Use different ForwardHost values to avoid grouping into the same UptimeHost,
+	// which would cause the host-level TCP pre-check to use the wrong port.
 	upHost := models.ProxyHost{
 		UUID:        "uuid-1",
 		DomainNames: fmt.Sprintf("127.0.0.1:%d", addr.Port),
@@ -84,8 +96,8 @@ func TestUptimeService_CheckAll(t *testing.T) {
 
 	downHost := models.ProxyHost{
 		UUID:        "uuid-2",
-		DomainNames: fmt.Sprintf("127.0.0.1:%d", downAddr.Port), // Use local closed port
-		ForwardHost: "127.0.0.1",
+		DomainNames: fmt.Sprintf("127.0.0.2:%d", downAddr.Port), // Use local closed port
+		ForwardHost: "127.0.0.2",                                // Different IP to avoid UptimeHost grouping
 		ForwardPort: downAddr.Port,
 		Enabled:     true,
 	}
@@ -1359,4 +1371,123 @@ func TestUptimeService_SyncMonitorForHost(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "https://first.example.com", monitor.URL)
 	})
+}
+
+func TestUptimeService_DeleteMonitor(t *testing.T) {
+	t.Run("deletes monitor and heartbeats", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create monitor
+		monitor := models.UptimeMonitor{
+			ID:       "delete-test-1",
+			Name:     "Delete Test Monitor",
+			Type:     "http",
+			URL:      "http://example.com",
+			Enabled:  true,
+			Status:   "up",
+			Interval: 60,
+		}
+		db.Create(&monitor)
+
+		// Create some heartbeats
+		for i := 0; i < 5; i++ {
+			hb := models.UptimeHeartbeat{
+				MonitorID: monitor.ID,
+				Status:    "up",
+				Latency:   int64(100 + i),
+				CreatedAt: time.Now().Add(-time.Duration(i) * time.Minute),
+			}
+			db.Create(&hb)
+		}
+
+		// Verify heartbeats exist
+		var count int64
+		db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor.ID).Count(&count)
+		assert.Equal(t, int64(5), count)
+
+		// Delete the monitor
+		err := us.DeleteMonitor(monitor.ID)
+		assert.NoError(t, err)
+
+		// Verify monitor is deleted
+		var deletedMonitor models.UptimeMonitor
+		err = db.First(&deletedMonitor, "id = ?", monitor.ID).Error
+		assert.Error(t, err)
+
+		// Verify heartbeats are deleted
+		db.Model(&models.UptimeHeartbeat{}).Where("monitor_id = ?", monitor.ID).Count(&count)
+		assert.Equal(t, int64(0), count)
+	})
+
+	t.Run("returns error for non-existent monitor", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		err := us.DeleteMonitor("non-existent-id")
+		assert.Error(t, err)
+	})
+
+	t.Run("deletes monitor without heartbeats", func(t *testing.T) {
+		db := setupUptimeTestDB(t)
+		ns := NewNotificationService(db)
+		us := NewUptimeService(db, ns)
+
+		// Create monitor without heartbeats
+		monitor := models.UptimeMonitor{
+			ID:       "delete-no-hb",
+			Name:     "No Heartbeats Monitor",
+			Type:     "tcp",
+			URL:      "localhost:8080",
+			Enabled:  true,
+			Status:   "pending",
+			Interval: 60,
+		}
+		db.Create(&monitor)
+
+		// Delete the monitor
+		err := us.DeleteMonitor(monitor.ID)
+		assert.NoError(t, err)
+
+		// Verify monitor is deleted
+		var deletedMonitor models.UptimeMonitor
+		err = db.First(&deletedMonitor, "id = ?", monitor.ID).Error
+		assert.Error(t, err)
+	})
+}
+
+func TestUptimeService_UpdateMonitor_EnabledField(t *testing.T) {
+	db := setupUptimeTestDB(t)
+	ns := NewNotificationService(db)
+	us := NewUptimeService(db, ns)
+
+	monitor := models.UptimeMonitor{
+		ID:       "enabled-test",
+		Name:     "Enabled Test Monitor",
+		Type:     "http",
+		URL:      "http://example.com",
+		Enabled:  true,
+		Interval: 60,
+	}
+	db.Create(&monitor)
+
+	// Disable the monitor
+	updates := map[string]any{
+		"enabled": false,
+	}
+
+	result, err := us.UpdateMonitor(monitor.ID, updates)
+	assert.NoError(t, err)
+	assert.False(t, result.Enabled)
+
+	// Re-enable the monitor
+	updates = map[string]any{
+		"enabled": true,
+	}
+
+	result, err = us.UpdateMonitor(monitor.ID, updates)
+	assert.NoError(t, err)
+	assert.True(t, result.Enabled)
 }

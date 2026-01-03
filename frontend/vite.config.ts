@@ -13,6 +13,24 @@ export default defineConfig({
       }
     }
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts',
+    coverage: {
+      provider: 'istanbul',
+      reporter: ['text', 'json-summary', 'lcov'],
+      reportsDirectory: './coverage',
+      exclude: [
+        'node_modules/',
+        'src/setupTests.ts',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/mockData',
+        'dist/'
+      ]
+    }
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,

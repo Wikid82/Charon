@@ -49,6 +49,20 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: Backend Unit (Verbose)",
+            "type": "shell",
+            "command": "cd backend && if command -v gotestsum &> /dev/null; then gotestsum --format testdox ./...; else go test -v ./...; fi",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Test: Backend Unit (Quick)",
+            "type": "shell",
+            "command": "cd backend && go test -short ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
             "label": "Test: Backend with Coverage",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-backend-coverage",

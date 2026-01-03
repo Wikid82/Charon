@@ -7,6 +7,7 @@ import (
 )
 
 func TestFull(t *testing.T) {
+	t.Parallel()
 	// Default
 	assert.Contains(t, Full(), Version)
 
