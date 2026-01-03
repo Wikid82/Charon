@@ -157,27 +157,47 @@ func TestURLConnectivity_ProductionPathValidation(t *testing.T) {
 	}
 }
 
-func TestURLConnectivity_TestPathCustomTransport(t *testing.T) {
-	// Create a mock server
+func TestURLConnectivity_TestHook_AllowsLocalhostWithInjectedTransport(t *testing.T) {
+	// Deterministic connectivity test using a local server + injected transport.
+	// This does not weaken production defaults because it uses package-private hooks.
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer mockServer.Close()
 
-	// Create custom transport that bypasses DNS/network
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Redirect all requests to mock server (simulates test environment)
-			return net.Dial("tcp", mockServer.Listener.Addr().String())
-		},
-	}
+	reachable, latency, err := testURLConnectivity(
+		mockServer.URL,
+		withAllowLocalhostForTesting(),
+		withTransportForTesting(mockServer.Client().Transport),
+	)
 
-	// Test with custom transport - should NOT perform SSRF validation
-	reachable, latency, err := TestURLConnectivity("http://any-url-works:8080", transport)
-
-	require.NoError(t, err, "test path with custom transport should succeed")
+	require.NoError(t, err)
 	assert.True(t, reachable)
 	assert.Greater(t, latency, float64(0))
+}
+
+func TestValidateRedirectTarget_AllowsLocalhost(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost/redirect", http.NoBody)
+	require.NoError(t, err)
+
+	err = validateRedirectTargetStrict(req, nil, 2, true, true)
+	require.NoError(t, err)
+}
+
+func TestValidateRedirectTarget_BlocksInvalidExternalRedirect(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://example..com/redirect", http.NoBody)
+	require.NoError(t, err)
+
+	err = validateRedirectTargetStrict(req, nil, 2, true, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect target validation failed")
+}
+
+func TestURLConnectivity_RejectsUserinfo(t *testing.T) {
+	reachable, _, err := TestURLConnectivity("http://user:pass@example.com")
+	require.Error(t, err)
+	require.False(t, reachable)
+	assert.Contains(t, err.Error(), "embedded credentials")
 }
 
 func TestURLConnectivity_InvalidScheme(t *testing.T) {
@@ -250,7 +270,7 @@ func TestURLConnectivity_HTTPRequestFailure(t *testing.T) {
 		},
 	}
 
-	reachable, _, err := TestURLConnectivity("http://test.local", transport)
+	reachable, _, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	// Should get a connection error
 	require.Error(t, err)
@@ -276,7 +296,7 @@ func TestURLConnectivity_RedirectHandling(t *testing.T) {
 		},
 	}
 
-	reachable, latency, err := TestURLConnectivity("http://test.local", transport)
+	reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	require.NoError(t, err)
 	assert.True(t, reachable)
@@ -299,7 +319,7 @@ func TestURLConnectivity_2xxSuccess(t *testing.T) {
 				},
 			}
 
-			reachable, latency, err := TestURLConnectivity("http://test.local", transport)
+			reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 			require.NoError(t, err)
 			assert.True(t, reachable)
@@ -329,7 +349,7 @@ func TestURLConnectivity_3xxSuccess(t *testing.T) {
 				},
 			}
 
-			reachable, latency, err := TestURLConnectivity("http://test.local", transport)
+			reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 			// 3xx codes are considered "reachable" (status < 400)
 			require.NoError(t, err)
@@ -355,7 +375,7 @@ func TestURLConnectivity_4xxFailure(t *testing.T) {
 				},
 			}
 
-			reachable, latency, err := TestURLConnectivity("http://test.local", transport)
+			reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), fmt.Sprintf("server returned status %d", code))
@@ -443,13 +463,7 @@ func TestURLConnectivity_UserAgent(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return net.Dial("tcp", mockServer.Listener.Addr().String())
-		},
-	}
-
-	_, _, err := TestURLConnectivity("http://test.local", transport)
+	_, _, err := testURLConnectivity(mockServer.URL, withAllowLocalhostForTesting(), withTransportForTesting(mockServer.Client().Transport))
 	require.NoError(t, err)
 	assert.Equal(t, "Charon-Health-Check/1.0", receivedUA)
 }

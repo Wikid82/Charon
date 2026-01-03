@@ -79,17 +79,18 @@ if [ ! -f "$COVERAGE_FILE" ]; then
 fi
 
 # Generate coverage report once with timeout protection
-COVERAGE_OUTPUT=$(timeout 60 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
-    echo "Error: go tool cover failed or timed out after 60 seconds"
+# NOTE: Large repos can produce big coverage profiles; allow more time for parsing.
+COVERAGE_OUTPUT=$(timeout 180 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
+    echo "Error: go tool cover failed or timed out after 180 seconds"
     echo "This may indicate corrupted coverage data or memory issues"
     exit 1
 }
 
-# Display summary line
-echo "$COVERAGE_OUTPUT" | tail -n 1
+# Extract and display the summary line (total coverage)
+TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | awk '/^total:/ {line=$0} END {print line}')
+echo "$TOTAL_LINE"
 
 # Extract total coverage percentage
-TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | grep total)
 TOTAL_PERCENT=$(echo "$TOTAL_LINE" | awk '{print substr($3, 1, length($3)-1)}')
 
 echo "Computed coverage: ${TOTAL_PERCENT}% (minimum required ${MIN_COVERAGE}%)"

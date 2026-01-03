@@ -322,6 +322,8 @@ func NewSafeHTTPClient(opts ...Option) *http.Client {
 	return &http.Client{
 		Timeout: cfg.Timeout,
 		Transport: &http.Transport{
+			// Explicitly ignore proxy environment variables for SSRF-sensitive requests.
+			Proxy:                 nil,
 			DialContext:           safeDialer(&cfg),
 			DisableKeepAlives:     true,
 			MaxIdleConns:          1,

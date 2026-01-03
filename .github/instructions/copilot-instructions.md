@@ -67,7 +67,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 ## Documentation
 
-- **Features**: Update `docs/features.md` when adding capabilities.
+- **Features**: Update `docs/features.md` when adding capabilities. This is a short "marketing" style list. Keep details to their individual docs.
 - **Links**: Use GitHub Pages URLs (`https://wikid82.github.io/charon/`) for docs and GitHub blob links for repo files.
 
 ## CI/CD & Commit Conventions

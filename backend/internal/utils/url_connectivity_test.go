@@ -52,7 +52,7 @@ func TestTestURLConnectivity_Success(t *testing.T) {
 		body:       "",
 	}
 
-	reachable, latency, err := TestURLConnectivity("http://example.com", transport)
+	reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	assert.NoError(t, err)
 	assert.True(t, reachable)
@@ -76,7 +76,7 @@ func TestTestURLConnectivity_Redirect(t *testing.T) {
 		},
 	}
 
-	reachable, _, err := TestURLConnectivity("http://example.com", transport)
+	reachable, _, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	assert.NoError(t, err)
 	assert.True(t, reachable)
@@ -92,7 +92,7 @@ func TestTestURLConnectivity_TooManyRedirects(t *testing.T) {
 		},
 	}
 
-	reachable, _, err := TestURLConnectivity("http://example.com", transport)
+	reachable, _, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	assert.Error(t, err)
 	assert.False(t, reachable)
@@ -125,7 +125,7 @@ func TestTestURLConnectivity_StatusCodes(t *testing.T) {
 				statusCode: tc.statusCode,
 			}
 
-			reachable, latency, err := TestURLConnectivity("http://example.com", transport)
+			reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 			if tc.expected {
 				assert.NoError(t, err)
@@ -181,7 +181,7 @@ func TestTestURLConnectivity_Timeout(t *testing.T) {
 		err: fmt.Errorf("context deadline exceeded"),
 	}
 
-	reachable, _, err := TestURLConnectivity("http://example.com", transport)
+	reachable, _, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	assert.Error(t, err)
 	assert.False(t, reachable)
@@ -389,7 +389,7 @@ func TestTestURLConnectivity_RedirectLimit_ProductionPath(t *testing.T) {
 	}
 
 	// Test with transport (will use CheckRedirect callback from production path)
-	reachable, latency, err := TestURLConnectivity("http://example.com", transport)
+	reachable, latency, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	// Should fail due to redirect limit
 	assert.False(t, reachable)
@@ -418,7 +418,7 @@ func TestTestURLConnectivity_EmptyDNSResult(t *testing.T) {
 		err: fmt.Errorf("DNS resolution failed: no IP addresses found for host"),
 	}
 
-	reachable, _, err := TestURLConnectivity("http://empty-dns-test.local", transport)
+	reachable, _, err := testURLConnectivity("http://localhost", withAllowLocalhostForTesting(), withTransportForTesting(transport))
 	assert.False(t, reachable)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "connection failed")

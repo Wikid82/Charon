@@ -73,7 +73,7 @@ func TestManager_Rollback_LoadSnapshotFail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	badClient := NewClient(server.URL)
+	badClient := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	manager := NewManager(badClient, nil, tmp, "", false, config.SecurityConfig{})
 	err := manager.rollback(context.Background())
 	assert.Error(t, err)
@@ -142,7 +142,7 @@ func TestManager_ApplyConfig_WithSettings(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
@@ -245,7 +245,7 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning(t *testing.T) {
 		os.Chtimes(p, tmo, tmo)
 	}
 
-	client := NewClient(caddyServer.URL)
+	client := NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 
@@ -281,7 +281,7 @@ func TestManager_ApplyConfig_LoadFailsAndRollbackFails(t *testing.T) {
 	db.Create(&host)
 
 	tmp := t.TempDir()
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
@@ -320,7 +320,7 @@ func TestManager_ApplyConfig_SaveSnapshotFails(t *testing.T) {
 	filePath := filepath.Join(tmp, "file-not-dir")
 	os.WriteFile(filePath, []byte("data"), 0o644)
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, filePath, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
@@ -360,7 +360,7 @@ func TestManager_ApplyConfig_LoadFailsThenRollbackSucceeds(t *testing.T) {
 	db.Create(&host)
 
 	tmp := t.TempDir()
-	client := NewClient(server.URL)
+	client := newTestClient(t, server.URL)
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
@@ -462,7 +462,7 @@ func TestManager_ApplyConfig_WarnsWhenCerberusEnabledWithoutAdminWhitelist(t *te
 	defer caddyServer.Close()
 
 	// Create manager and call ApplyConfig - should now warn but proceed (no error)
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	// The call should succeed (or fail for other reasons, not the admin whitelist check)
@@ -503,7 +503,7 @@ func TestManager_ApplyConfig_ValidateFails(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{})
 
 	err = manager.ApplyConfig(context.Background())
@@ -556,7 +556,7 @@ func TestManager_ApplyConfig_RotateSnapshotsWarning_Stderr(t *testing.T) {
 	readDirFunc = func(path string) ([]os.DirEntry, error) { return nil, fmt.Errorf("dir read fail") }
 	defer func() { readDirFunc = origReadDir }()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, t.TempDir(), "", false, config.SecurityConfig{})
 	err = manager.ApplyConfig(context.Background())
 	// Should succeed despite rotation warning (non-fatal)
@@ -593,7 +593,7 @@ func TestManager_ApplyConfig_PassesAdminWhitelistToGenerateConfig(t *testing.T) 
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer caddyServer.Close()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Stub generateConfigFunc to capture adminWhitelist
 	var capturedAdmin string
@@ -645,7 +645,7 @@ func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	var capturedRules []models.SecurityRuleSet
 	orig := generateConfigFunc
@@ -698,7 +698,7 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Capture wafEnabled and rulesets passed into GenerateConfig
 	var capturedWafEnabled bool
@@ -794,7 +794,7 @@ func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Stub writeFileFunc to return an error for coraza ruleset files only to exercise the warn branch
 	origWrite := writeFileFunc
@@ -854,7 +854,7 @@ func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	// Use tmp as configDir and we already have a file at tmp/coraza which should make MkdirAll to create rulesets fail
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 	// This should not error (failures to create coraza dir are warned only)
@@ -893,7 +893,7 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 	// Ensure DB setting is not present so ACL disabled by default
 	// Manager default SecurityConfig has ACLMode disabled
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "disabled", WAFMode: "disabled", RateLimitMode: "disabled", CrowdSecMode: "disabled"}
 	manager := NewManager(client, db, tmpDir, "", false, secCfg)
 
@@ -1048,7 +1048,7 @@ func TestManager_ApplyConfig_PrependsSecRuleEngineDirectives(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Capture written file content
 	var writtenContent []byte
@@ -1107,7 +1107,7 @@ SecRule REQUEST_BODY "<script>" "id:12345,phase:2,deny,status:403,msg:'XSS block
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Capture written file content
 	var writtenContent []byte
@@ -1158,7 +1158,7 @@ func TestManager_ApplyConfig_DebugMarshalFailure(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Stub jsonMarshalDebugFunc to return an error (exercises the else branch in debug logging)
 	origMarshalDebug := jsonMarshalDebugFunc
@@ -1204,7 +1204,7 @@ func TestManager_ApplyConfig_WAFModeMonitorUsesDetectionOnly(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Capture written file content
 	var writtenContent []byte
@@ -1259,7 +1259,7 @@ func TestManager_ApplyConfig_PerRulesetModeOverride(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Capture written file content
 	var writtenContent []byte
@@ -1320,7 +1320,7 @@ func TestManager_ApplyConfig_RulesetFileCleanup(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmp, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "block"})
 	assert.NoError(t, manager.ApplyConfig(context.Background()))
 
@@ -1374,7 +1374,7 @@ func TestManager_ApplyConfig_RulesetCleanupReadDirError(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Stub readDirFunc to return error
 	origReadDir := readDirFunc
@@ -1425,7 +1425,7 @@ func TestManager_ApplyConfig_RulesetCleanupRemoveError(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Stub removeFileFunc to return error for stale files
 	origRemove := removeFileFunc
@@ -1471,7 +1471,7 @@ func TestManager_ApplyConfig_WAFModeBlockExplicit(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	var writtenContent []byte
 	origWrite := writeFileFunc
@@ -1526,7 +1526,7 @@ func TestManager_ApplyConfig_RulesetNamePathTraversal(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 
 	// Track where files are written
 	var writtenPath string

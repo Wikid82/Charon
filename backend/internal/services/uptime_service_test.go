@@ -42,6 +42,12 @@ func TestUptimeService_CheckAll(t *testing.T) {
 	ns := NewNotificationService(db)
 	us := NewUptimeService(db, ns)
 
+	// Speed up host-level TCP pre-checks for unit tests.
+	us.config.TCPTimeout = 200 * time.Millisecond
+	us.config.MaxRetries = 0
+	us.config.CheckTimeout = 5 * time.Second
+	us.config.StaggerDelay = 0
+
 	// Create a dummy HTTP server for a "UP" host
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -80,7 +86,7 @@ func TestUptimeService_CheckAll(t *testing.T) {
 		UUID:        "uuid-2",
 		DomainNames: fmt.Sprintf("127.0.0.1:%d", downAddr.Port), // Use local closed port
 		ForwardHost: "127.0.0.1",
-		ForwardPort: 54321,
+		ForwardPort: downAddr.Port,
 		Enabled:     true,
 	}
 	db.Create(&downHost)

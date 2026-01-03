@@ -630,6 +630,28 @@ func TestDNSProviderService_GetDecryptedCredentialsError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDecryptionFailed)
 }
 
+func TestDNSProviderService_GetDecryptedCredentials_InvalidJSON_ReturnsErrDecryptionFailed(t *testing.T) {
+	db, encryptor := setupDNSProviderTestDB(t)
+	service := NewDNSProviderService(db, encryptor)
+	ctx := context.Background()
+
+	ciphertext, err := encryptor.Encrypt([]byte("not-json"))
+	require.NoError(t, err)
+
+	provider := &models.DNSProvider{
+		UUID:                 "test-uuid-json",
+		Name:                 "Bad JSON",
+		ProviderType:         "cloudflare",
+		CredentialsEncrypted: ciphertext,
+		Enabled:              true,
+	}
+	require.NoError(t, db.Create(provider).Error)
+
+	_, err = service.GetDecryptedCredentials(ctx, provider.ID)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrDecryptionFailed)
+}
+
 func TestDNSProviderService_UpdateDefaultLogic(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)

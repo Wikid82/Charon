@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
 
@@ -1048,6 +1051,15 @@ type lapiDecision struct {
 	Until     string `json:"until,omitempty"`
 }
 
+const (
+	// Default CrowdSec LAPI port to avoid conflict with Charon management API on port 8080.
+	defaultCrowdsecLAPIPort = 8085
+)
+
+func validateCrowdsecLAPIBaseURL(raw string) (*url.URL, error) {
+	return security.ValidateInternalServiceBaseURL(raw, defaultCrowdsecLAPIPort, security.InternalServiceHostAllowlist())
+}
+
 // GetLAPIDecisions queries CrowdSec LAPI directly for current decisions.
 // This is an alternative to ListDecisions which uses cscli.
 // Query params:
@@ -1065,23 +1077,29 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		}
 	}
 
-	// Build query string
-	queryParams := make([]string, 0)
-	if ip := c.Query("ip"); ip != "" {
-		queryParams = append(queryParams, "ip="+ip)
-	}
-	if scope := c.Query("scope"); scope != "" {
-		queryParams = append(queryParams, "scope="+scope)
-	}
-	if decisionType := c.Query("type"); decisionType != "" {
-		queryParams = append(queryParams, "type="+decisionType)
+	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	if err != nil {
+		logger.Log().WithError(err).WithField("lapi_url", lapiURL).Warn("Blocked CrowdSec LAPI URL by internal allowlist policy")
+		// Fallback to cscli-based method.
+		h.ListDecisions(c)
+		return
 	}
 
-	// Build request URL
-	reqURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
-	if len(queryParams) > 0 {
-		reqURL += "?" + strings.Join(queryParams, "&")
+	q := url.Values{}
+	if ip := strings.TrimSpace(c.Query("ip")); ip != "" {
+		q.Set("ip", ip)
 	}
+	if scope := strings.TrimSpace(c.Query("scope")); scope != "" {
+		q.Set("scope", scope)
+	}
+	if decisionType := strings.TrimSpace(c.Query("type")); decisionType != "" {
+		q.Set("type", decisionType)
+	}
+
+	endpoint := baseURL.ResolveReference(&url.URL{Path: "/v1/decisions"})
+	endpoint.RawQuery = q.Encode()
+	// Use validated+rebuilt URL for request construction (taint break).
+	reqURL := endpoint.String()
 
 	// Get API key
 	apiKey := getLAPIKey()
@@ -1104,10 +1122,10 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	req.Header.Set("Accept", "application/json")
 
 	// Execute request
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := network.NewInternalServiceHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Log().WithError(err).WithField("lapi_url", lapiURL).Warn("Failed to query LAPI decisions")
+		logger.Log().WithError(err).WithField("lapi_url", baseURL.String()).Warn("Failed to query LAPI decisions")
 		// Fallback to cscli-based method
 		h.ListDecisions(c)
 		return
@@ -1120,7 +1138,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		logger.Log().WithField("status", resp.StatusCode).WithField("lapi_url", lapiURL).Warn("LAPI returned non-OK status")
+		logger.Log().WithField("status", resp.StatusCode).WithField("lapi_url", baseURL.String()).Warn("LAPI returned non-OK status")
 		// Fallback to cscli-based method
 		h.ListDecisions(c)
 		return
@@ -1129,7 +1147,7 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 	// Check content-type to ensure we're getting JSON (not HTML from a proxy/frontend)
 	contentType := resp.Header.Get("Content-Type")
 	if contentType != "" && !strings.Contains(contentType, "application/json") {
-		logger.Log().WithField("content_type", contentType).WithField("lapi_url", lapiURL).Warn("LAPI returned non-JSON content-type, falling back to cscli")
+		logger.Log().WithField("content_type", contentType).WithField("lapi_url", baseURL.String()).Warn("LAPI returned non-JSON content-type, falling back to cscli")
 		// Fallback to cscli-based method
 		h.ListDecisions(c)
 		return
@@ -1213,36 +1231,42 @@ func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	healthURL := strings.TrimRight(lapiURL, "/") + "/health"
+	baseURL, err := validateCrowdsecLAPIBaseURL(lapiURL)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "invalid LAPI URL (blocked by SSRF policy)", "lapi_url": lapiURL})
+		return
+	}
+
+	healthURL := baseURL.ResolveReference(&url.URL{Path: "/health"}).String()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, http.NoBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"healthy": false, "error": "failed to create request"})
 		return
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := network.NewInternalServiceHTTPClient(5 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		// Try decisions endpoint as fallback health check
-		decisionsURL := strings.TrimRight(lapiURL, "/") + "/v1/decisions"
+		decisionsURL := baseURL.ResolveReference(&url.URL{Path: "/v1/decisions"}).String()
 		req2, _ := http.NewRequestWithContext(ctx, http.MethodHead, decisionsURL, http.NoBody)
 		resp2, err2 := client.Do(req2)
 		if err2 != nil {
-			c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "LAPI unreachable", "lapi_url": lapiURL})
+			c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "LAPI unreachable", "lapi_url": baseURL.String()})
 			return
 		}
 		defer resp2.Body.Close()
 		// 401 is expected without auth but indicates LAPI is running
 		if resp2.StatusCode == http.StatusOK || resp2.StatusCode == http.StatusUnauthorized {
-			c.JSON(http.StatusOK, gin.H{"healthy": true, "lapi_url": lapiURL, "note": "health endpoint unavailable, verified via decisions endpoint"})
+			c.JSON(http.StatusOK, gin.H{"healthy": true, "lapi_url": baseURL.String(), "note": "health endpoint unavailable, verified via decisions endpoint"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "unexpected status", "status": resp2.StatusCode, "lapi_url": lapiURL})
+		c.JSON(http.StatusOK, gin.H{"healthy": false, "error": "unexpected status", "status": resp2.StatusCode, "lapi_url": baseURL.String()})
 		return
 	}
 	defer resp.Body.Close()
 
-	c.JSON(http.StatusOK, gin.H{"healthy": resp.StatusCode == http.StatusOK, "lapi_url": lapiURL, "status": resp.StatusCode})
+	c.JSON(http.StatusOK, gin.H{"healthy": resp.StatusCode == http.StatusOK, "lapi_url": baseURL.String(), "status": resp.StatusCode})
 }
 
 // ListDecisions calls cscli to get current decisions (banned IPs)
