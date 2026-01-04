@@ -268,6 +268,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 				// Audit logs for DNS providers
 				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
 
+				// DNS Provider Auto-Detection (Phase 4)
+				dnsDetectionService := services.NewDNSDetectionService(db)
+				dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
+				protected.POST("/dns-providers/detect", dnsDetectionHandler.Detect)
+				protected.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
+
 				// Multi-Credential Management (Phase 3)
 				credentialService := services.NewCredentialService(db, encryptionService)
 				credentialHandler := handlers.NewCredentialHandler(credentialService)

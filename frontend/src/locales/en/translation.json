@@ -1080,6 +1080,20 @@
       "dnsimple": "DNSimple"
     }
   },
+  "dns_detection": {
+    "detecting": "Detecting DNS provider...",
+    "detected": "{{provider}} detected",
+    "confidence_high": "High confidence",
+    "confidence_medium": "Medium confidence",
+    "confidence_low": "Low confidence",
+    "confidence_none": "No match",
+    "not_detected": "Could not detect DNS provider",
+    "use_suggested": "Use {{provider}}",
+    "select_manually": "Select manually",
+    "nameservers": "Nameservers",
+    "error": "Detection failed: {{error}}",
+    "wildcard_required": "Auto-detection works with wildcard domains (*.example.com)"
+  },
   "encryption": {
     "title": "Encryption Key Management",
     "description": "Manage encryption keys and rotate DNS provider credentials",

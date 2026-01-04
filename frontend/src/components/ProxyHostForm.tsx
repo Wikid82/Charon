@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import type { ProxyHost, ApplicationPreset } from '../api/proxyHosts'
@@ -15,6 +15,9 @@ import { parse } from 'tldts'
 import { Alert } from './ui/Alert'
 import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
 import DNSProviderSelector from './DNSProviderSelector'
+import { useDetectDNSProvider } from '../hooks/useDNSDetection'
+import { DNSDetectionResult } from './DNSDetectionResult'
+import type { DNSProvider } from '../api/dnsProviders'
 
 // Application preset configurations
 const APPLICATION_PRESETS: { value: ApplicationPreset; label: string; description: string }[] = [
@@ -119,6 +122,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
   const [copiedField, setCopiedField] = useState<string | null>(null)
 
+  // DNS auto-detection state
+  const { mutateAsync: detectProvider, isPending: isDetecting, data: detectionResult, reset: resetDetection } = useDetectDNSProvider()
+  const [manualProviderSelection, setManualProviderSelection] = useState(false)
+  const detectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Fetch Charon internal IP on mount (legacy: CPMP internal IP)
   useEffect(() => {
     fetch('/api/v1/health')
@@ -130,6 +138,72 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       })
       .catch(() => {})
   }, [])
+
+  // Auto-detect DNS provider when wildcard domain is entered (debounced 500ms)
+  useEffect(() => {
+    // Clear any pending detection
+    if (detectionTimeoutRef.current) {
+      clearTimeout(detectionTimeoutRef.current)
+      detectionTimeoutRef.current = null
+    }
+
+    // Reset detection if domain is cleared or manual selection is active
+    if (!formData.domain_names || manualProviderSelection) {
+      resetDetection()
+      return
+    }
+
+    // Check if domain contains wildcard
+    const domains = formData.domain_names.split(',').map(d => d.trim())
+    const wildcardDomain = domains.find(d => d.startsWith('*'))
+
+    if (!wildcardDomain) {
+      resetDetection()
+      return
+    }
+
+    // Extract base domain from wildcard (*.example.com -> example.com)
+    const baseDomain = wildcardDomain.replace(/^\*\./, '')
+
+    // Don't detect if provider already set (unless detection succeeded before)
+    if (formData.dns_provider_id && !detectionResult?.suggested_provider) {
+      return
+    }
+
+    // Debounce detection call by 500ms
+    detectionTimeoutRef.current = setTimeout(() => {
+      detectProvider(baseDomain).catch(err => {
+        console.error('DNS detection failed:', err)
+      })
+    }, 500)
+
+    return () => {
+      if (detectionTimeoutRef.current) {
+        clearTimeout(detectionTimeoutRef.current)
+      }
+    }
+  }, [formData.domain_names, formData.dns_provider_id, detectProvider, resetDetection, detectionResult, manualProviderSelection])
+
+  // Auto-select suggested provider if confidence is high
+  useEffect(() => {
+    if (detectionResult?.suggested_provider && detectionResult.confidence === 'high' && !manualProviderSelection && !formData.dns_provider_id) {
+      setFormData(prev => ({ ...prev, dns_provider_id: detectionResult.suggested_provider!.id }))
+      toast.success(`Auto-selected: ${detectionResult.suggested_provider.name}`)
+    }
+  }, [detectionResult, manualProviderSelection, formData.dns_provider_id])
+
+  // Handle using suggested provider
+  const handleUseSuggested = useCallback((provider: DNSProvider) => {
+    setFormData(prev => ({ ...prev, dns_provider_id: provider.id }))
+    setManualProviderSelection(false)
+    toast.success(`Selected: ${provider.name}`)
+  }, [])
+
+  // Handle manual provider selection
+  const handleManualSelection = useCallback(() => {
+    setManualProviderSelection(true)
+  }, [])
+
 
   // Auto-detect application preset from Docker image
   const detectApplicationPreset = (imageName: string): ApplicationPreset => {
@@ -658,7 +732,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* DNS Provider Selector for Wildcard Domains */}
           {hasWildcardDomain && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Alert variant="info">
                 <Info className="h-4 w-4" />
                 <div>
@@ -670,9 +744,24 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 </div>
               </Alert>
 
+              {/* DNS Detection Result */}
+              {(isDetecting || detectionResult) && !manualProviderSelection && (
+                <DNSDetectionResult
+                  result={detectionResult!}
+                  isLoading={isDetecting}
+                  onUseSuggested={handleUseSuggested}
+                  onSelectManually={handleManualSelection}
+                />
+              )}
+
               <DNSProviderSelector
                 value={formData.dns_provider_id ?? undefined}
-                onChange={(id) => setFormData(prev => ({ ...prev, dns_provider_id: id ?? null }))}
+                onChange={(id) => {
+                  setFormData(prev => ({ ...prev, dns_provider_id: id ?? null }))
+                  if (id) {
+                    setManualProviderSelection(true)
+                  }
+                }}
                 required={true}
               />
             </div>
