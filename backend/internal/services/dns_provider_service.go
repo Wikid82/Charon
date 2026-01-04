@@ -105,14 +105,23 @@ type DNSProviderService interface {
 type dnsProviderService struct {
 	db              *gorm.DB
 	encryptor       *crypto.EncryptionService
+	rotationService *crypto.RotationService
 	securityService *SecurityService
 }
 
 // NewDNSProviderService creates a new DNS provider service.
 func NewDNSProviderService(db *gorm.DB, encryptor *crypto.EncryptionService) DNSProviderService {
+	// Attempt to create rotation service (optional for backward compatibility)
+	rotationService, err := crypto.NewRotationService(db)
+	if err != nil {
+		// Fallback to non-rotation mode
+		fmt.Printf("Warning: RotationService initialization failed, using basic encryption: %v\n", err)
+	}
+
 	return &dnsProviderService{
 		db:              db,
 		encryptor:       encryptor,
+		rotationService: rotationService,
 		securityService: NewSecurityService(db),
 	}
 }
@@ -149,15 +158,27 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		return nil, err
 	}
 
-	// Encrypt credentials
+	// Encrypt credentials using RotationService if available
+	var encryptedCreds string
+	var keyVersion int
 	credentialsJSON, err := json.Marshal(req.Credentials)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 	}
 
-	encryptedCreds, err := s.encryptor.Encrypt(credentialsJSON)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+	if s.rotationService != nil {
+		// Use rotation service for version tracking
+		encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+		}
+	} else {
+		// Fallback to basic encryption
+		encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+		}
+		keyVersion = 1
 	}
 
 	// Set defaults
@@ -185,6 +206,7 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		Name:                 req.Name,
 		ProviderType:         req.ProviderType,
 		CredentialsEncrypted: encryptedCreds,
+		KeyVersion:           keyVersion,
 		PropagationTimeout:   propagationTimeout,
 		PollingInterval:      pollingInterval,
 		IsDefault:            req.IsDefault,
@@ -264,19 +286,30 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			return nil, err
 		}
 
-		// Encrypt new credentials
+		// Encrypt new credentials with version tracking
 		credentialsJSON, err := json.Marshal(req.Credentials)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 		}
 
-		encryptedCreds, err := s.encryptor.Encrypt(credentialsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+		var encryptedCreds string
+		var keyVersion int
+		if s.rotationService != nil {
+			encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+			}
+		} else {
+			encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
+			}
+			keyVersion = 1
 		}
 
 		changedFields["credentials"] = true
 		provider.CredentialsEncrypted = encryptedCreds
+		provider.KeyVersion = keyVersion
 	}
 
 	// Handle default provider logic
@@ -447,10 +480,19 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		return nil, err
 	}
 
-	// Decrypt credentials
-	decryptedData, err := s.encryptor.Decrypt(provider.CredentialsEncrypted)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
+	// Decrypt credentials using rotation service if available (with version fallback)
+	var decryptedData []byte
+	if s.rotationService != nil {
+		decryptedData, err = s.rotationService.DecryptWithVersion(provider.CredentialsEncrypted, provider.KeyVersion)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
+		}
+	} else {
+		// Fallback to basic decryption
+		decryptedData, err = s.encryptor.Decrypt(provider.CredentialsEncrypted)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
+		}
 	}
 
 	// Parse JSON
@@ -466,8 +508,9 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{
-		"purpose": "credentials_access",
-		"success": true,
+		"purpose":     "credentials_access",
+		"success":     true,
+		"key_version": provider.KeyVersion,
 	})
 	s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),

@@ -19,21 +19,47 @@ import (
 func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	t.Helper()
 
-	// Use pure in-memory database (not shared cache) to avoid test interference
-	// Each test gets its own isolated database
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+	// Use shared cache memory database with mutex for proper test isolation
+	// This prevents "no such table" errors that occur with :memory: databases
+	// when tests run in parallel or have timing issues
+	dbPath := ":memory:?cache=shared&mode=memory&_mutex=full"
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
+		// Disable prepared statements to avoid cache issues
+		PrepareStmt: false,
 	})
 	require.NoError(t, err)
+
+	// Get underlying SQL DB for connection pool configuration
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+
+	// Force single connection to prevent parallel access issues
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 
 	// Auto-migrate schema - SecurityAudit must be migrated FIRST before creating service
 	// because DNSProviderService starts a background goroutine that writes audit logs
 	err = db.AutoMigrate(&models.SecurityAudit{}, &models.DNSProvider{})
 	require.NoError(t, err)
 
+	// Verify tables were created
+	if !db.Migrator().HasTable(&models.DNSProvider{}) {
+		t.Fatal("failed to create dns_providers table")
+	}
+	if !db.Migrator().HasTable(&models.SecurityAudit{}) {
+		t.Fatal("failed to create security_audits table")
+	}
+
 	// Create encryption service with test key
 	encryptor, err := crypto.NewEncryptionService("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // 32-byte key in base64
 	require.NoError(t, err)
+
+	// Register cleanup
+	t.Cleanup(func() {
+		sqlDB.Close()
+	})
 
 	return db, encryptor
 }

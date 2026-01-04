@@ -266,6 +266,19 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
 				// Audit logs for DNS providers
 				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+
+				// Encryption Management - Admin only endpoints
+				rotationService, rotErr := crypto.NewRotationService(db)
+				if rotErr != nil {
+					logger.Log().WithError(rotErr).Warn("Failed to initialize rotation service - key rotation features will be unavailable")
+				} else {
+					encryptionHandler := handlers.NewEncryptionHandler(rotationService, securityService)
+					adminEncryption := protected.Group("/admin/encryption")
+					adminEncryption.GET("/status", encryptionHandler.GetStatus)
+					adminEncryption.POST("/rotate", encryptionHandler.Rotate)
+					adminEncryption.GET("/history", encryptionHandler.GetHistory)
+					adminEncryption.POST("/validate", encryptionHandler.Validate)
+				}
 			}
 		}
 
