@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Settings } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,8 @@ import {
 import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
 import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
 import { defaultProviderSchemas } from '../data/dnsProviderSchemas'
+import { useEnableMultiCredentials, useCredentials } from '../hooks/useCredentials'
+import CredentialManager from './CredentialManager'
 
 interface DNSProviderFormProps {
   open: boolean
@@ -38,6 +40,8 @@ export default function DNSProviderForm({
   const { t } = useTranslation()
   const { data: providerTypes, isLoading: typesLoading } = useDNSProviderTypes()
   const { createMutation, updateMutation, testCredentialsMutation } = useDNSProviderMutations()
+  const enableMultiCredsMutation = useEnableMultiCredentials()
+  const { data: existingCredentials } = useCredentials(provider?.id || 0)
 
   const [name, setName] = useState('')
   const [providerType, setProviderType] = useState<string>('')
@@ -45,7 +49,9 @@ export default function DNSProviderForm({
   const [propagationTimeout, setPropagationTimeout] = useState(120)
   const [pollingInterval, setPollingInterval] = useState(5)
   const [isDefault, setIsDefault] = useState(false)
+  const [useMultiCredentials, setUseMultiCredentials] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showCredentialManager, setShowCredentialManager] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // Populate form when editing
@@ -56,6 +62,7 @@ export default function DNSProviderForm({
       setPropagationTimeout(provider.propagation_timeout)
       setPollingInterval(provider.polling_interval)
       setIsDefault(provider.is_default)
+      setUseMultiCredentials((provider as any).use_multi_credentials || false)
       setCredentials({}) // Don't pre-fill credentials (they're encrypted)
     } else {
       resetForm()
@@ -69,7 +76,9 @@ export default function DNSProviderForm({
     setPropagationTimeout(120)
     setPollingInterval(5)
     setIsDefault(false)
+    setUseMultiCredentials(false)
     setShowAdvanced(false)
+    setShowCredentialManager(false)
     setTestResult(null)
   }
 
@@ -254,6 +263,71 @@ export default function DNSProviderForm({
                   </Alert>
                 )}
               </div>
+
+              {/* Multi-Credential Mode (only when editing) */}
+              {provider && (
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="use-multi-credentials"
+                        checked={useMultiCredentials}
+                        onCheckedChange={async (checked) => {
+                          if (checked && !useMultiCredentials) {
+                            // Enabling multi-credential mode
+                            try {
+                              await enableMultiCredsMutation.mutateAsync(provider.id)
+                              setUseMultiCredentials(true)
+                            } catch (error: any) {
+                              console.error('Failed to enable multi-credentials:', error)
+                            }
+                          } else if (!checked && useMultiCredentials && existingCredentials?.length) {
+                            // Warn before disabling if credentials exist
+                            if (
+                              !confirm(
+                                t(
+                                  'credentials.disableWarning',
+                                  'Disabling multi-credential mode will remove all configured credentials. Continue?'
+                                )
+                              )
+                            ) {
+                              return
+                            }
+                            setUseMultiCredentials(false)
+                          } else {
+                            setUseMultiCredentials(checked === true)
+                          }
+                        }}
+                        disabled={enableMultiCredsMutation.isPending}
+                      />
+                      <Label htmlFor="use-multi-credentials" className="cursor-pointer">
+                        {t('credentials.useMultiCredentials', 'Use Multiple Credentials (Advanced)')}
+                      </Label>
+                    </div>
+                    {useMultiCredentials && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowCredentialManager(true)}
+                      >
+                        <Settings className="w-4 h-4 mr-2" />
+                        {t('credentials.manageCredentials', 'Manage Credentials')}
+                      </Button>
+                    )}
+                  </div>
+                  {useMultiCredentials && (
+                    <Alert variant="info">
+                      <p className="text-sm">
+                        {t(
+                          'credentials.multiCredentialInfo',
+                          'Multi-credential mode allows you to configure different credentials for specific zones or domains.'
+                        )}
+                      </p>
+                    </Alert>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -321,6 +395,16 @@ export default function DNSProviderForm({
             </Button>
           </DialogFooter>
         </form>
+
+        {/* Credential Manager Modal */}
+        {provider && showCredentialManager && (
+          <CredentialManager
+            open={showCredentialManager}
+            onOpenChange={setShowCredentialManager}
+            provider={provider}
+            providerTypeInfo={selectedProviderInfo}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
