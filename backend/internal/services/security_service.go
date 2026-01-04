@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,8 @@ var (
 type SecurityService struct {
 	db        *gorm.DB
 	auditChan chan *models.SecurityAudit
-	done      chan struct{} // Channel to signal goroutine to stop
+	done      chan struct{}  // Channel to signal goroutine to stop
+	wg        sync.WaitGroup // WaitGroup to track goroutine completion
 }
 
 // NewSecurityService returns a SecurityService using the provided DB
@@ -36,6 +38,7 @@ func NewSecurityService(db *gorm.DB) *SecurityService {
 		done:      make(chan struct{}),
 	}
 	// Start background goroutine to process audit events asynchronously
+	s.wg.Add(1)
 	go s.processAuditEvents()
 	return s
 }
@@ -44,6 +47,21 @@ func NewSecurityService(db *gorm.DB) *SecurityService {
 func (s *SecurityService) Close() {
 	close(s.done)      // Signal the goroutine to stop
 	close(s.auditChan) // Close the audit channel
+	s.wg.Wait()        // Wait for the goroutine to finish
+}
+
+// Flush processes all pending audit logs synchronously (useful for testing)
+func (s *SecurityService) Flush() {
+	// Wait for all pending audits to be processed
+	// In practice, we wait for the channel to be empty and then a bit more
+	// to ensure the database write completes
+	for i := 0; i < 20; i++ { // Max 200ms wait
+		if len(s.auditChan) == 0 {
+			time.Sleep(10 * time.Millisecond) // Extra wait for DB write
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // Get returns the first SecurityConfig row (singleton config)
@@ -221,6 +239,8 @@ func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 
 // processAuditEvents processes audit events from the channel in the background
 func (s *SecurityService) processAuditEvents() {
+	defer s.wg.Done() // Mark goroutine as done when it exits
+
 	for {
 		select {
 		case audit, ok := <-s.auditChan:

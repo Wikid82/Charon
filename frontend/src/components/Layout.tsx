@@ -72,6 +72,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.rateLimiting'), path: '/security/rate-limiting', icon: '⚡' },
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
       { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
+      { name: t('navigation.encryption'), path: '/security/encryption', icon: '🔑' },
     ]},
     {
       name: t('navigation.settings'),

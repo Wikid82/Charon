@@ -18,6 +18,9 @@ type DNSProvider struct {
 	// Encrypted credentials (JSON blob, encrypted with AES-256-GCM)
 	CredentialsEncrypted string `json:"-" gorm:"type:text;column:credentials_encrypted"`
 
+	// Encryption key version used for credentials (supports key rotation)
+	KeyVersion int `json:"key_version" gorm:"default:1;index"`
+
 	// Propagation settings
 	PropagationTimeout int `json:"propagation_timeout" gorm:"default:120"` // seconds
 	PollingInterval    int `json:"polling_interval" gorm:"default:5"`      // seconds
