@@ -1,10 +1,6 @@
 {
-  "go.buildTags": "integration",
   "gopls": {
-    "buildFlags": ["-tags=integration"],
-    "env": {
-      "GOFLAGS": "-tags=integration"
-    }
+    "buildFlags": ["-tags=integration"]
   },
   "[go]": {
     "editor.formatOnSave": true,
