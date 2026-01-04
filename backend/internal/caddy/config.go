@@ -129,6 +129,104 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				continue
 			}
 
+			// **CHANGED: Multi-credential support**
+			// If provider uses multi-credentials, create separate policies per domain
+			if dnsConfig.UseMultiCredentials && len(dnsConfig.ZoneCredentials) > 0 {
+				// Create a separate TLS automation policy for each domain with its own credentials
+				for baseDomain, credentials := range dnsConfig.ZoneCredentials {
+					// Find all domains that match this base domain
+					var matchingDomains []string
+					for _, domain := range domains {
+						if extractBaseDomain(domain) == baseDomain {
+							matchingDomains = append(matchingDomains, domain)
+						}
+					}
+
+					if len(matchingDomains) == 0 {
+						continue // No domains for this credential
+					}
+
+					// Build provider config with zone-specific credentials
+					providerConfig := map[string]any{
+						"name": dnsConfig.ProviderType,
+					}
+					for key, value := range credentials {
+						providerConfig[key] = value
+					}
+
+					// Build issuer config with these credentials
+					var issuers []any
+					switch sslProvider {
+					case "letsencrypt":
+						acmeIssuer := map[string]any{
+							"module": "acme",
+							"email":  acmeEmail,
+							"challenges": map[string]any{
+								"dns": map[string]any{
+									"provider":            providerConfig,
+									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+								},
+							},
+						}
+						if acmeStaging {
+							acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+						}
+						issuers = append(issuers, acmeIssuer)
+					case "zerossl":
+						issuers = append(issuers, map[string]any{
+							"module": "zerossl",
+							"challenges": map[string]any{
+								"dns": map[string]any{
+									"provider":            providerConfig,
+									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+								},
+							},
+						})
+					default: // "both" or empty
+						acmeIssuer := map[string]any{
+							"module": "acme",
+							"email":  acmeEmail,
+							"challenges": map[string]any{
+								"dns": map[string]any{
+									"provider":            providerConfig,
+									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+								},
+							},
+						}
+						if acmeStaging {
+							acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
+						}
+						issuers = append(issuers, acmeIssuer)
+						issuers = append(issuers, map[string]any{
+							"module": "zerossl",
+							"challenges": map[string]any{
+								"dns": map[string]any{
+									"provider":            providerConfig,
+									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+								},
+							},
+						})
+					}
+
+					// Create TLS automation policy for this domain with zone-specific credentials
+					tlsPolicies = append(tlsPolicies, &AutomationPolicy{
+						Subjects:   dedupeDomains(matchingDomains),
+						IssuersRaw: issuers,
+					})
+
+					logger.Log().WithFields(map[string]any{
+						"provider_id":     providerID,
+						"base_domain":     baseDomain,
+						"domain_count":    len(matchingDomains),
+						"credential_used": true,
+					}).Debug("created DNS challenge policy with zone-specific credential")
+				}
+
+				// Skip the original single-credential logic below
+				continue
+			}
+
+			// **ORIGINAL: Single-credential mode (backward compatible)**
 			// Build provider config for Caddy with decrypted credentials
 			providerConfig := map[string]any{
 				"name": dnsConfig.ProviderType,

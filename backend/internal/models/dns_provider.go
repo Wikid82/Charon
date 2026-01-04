@@ -15,7 +15,14 @@ type DNSProvider struct {
 	Enabled      bool   `json:"enabled" gorm:"default:true;index"`
 	IsDefault    bool   `json:"is_default" gorm:"default:false"`
 
+	// Multi-credential mode (enables zone-specific credentials)
+	UseMultiCredentials bool `json:"use_multi_credentials" gorm:"default:false"`
+
+	// Relationship to zone-specific credentials
+	Credentials []DNSProviderCredential `json:"credentials,omitempty" gorm:"foreignKey:DNSProviderID"`
+
 	// Encrypted credentials (JSON blob, encrypted with AES-256-GCM)
+	// Kept for backward compatibility when UseMultiCredentials=false
 	CredentialsEncrypted string `json:"-" gorm:"type:text;column:credentials_encrypted"`
 
 	// Encryption key version used for credentials (supports key rotation)

@@ -67,6 +67,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
 		&models.DNSProvider{},
+		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -266,6 +267,17 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
 				// Audit logs for DNS providers
 				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+
+				// Multi-Credential Management (Phase 3)
+				credentialService := services.NewCredentialService(db, encryptionService)
+				credentialHandler := handlers.NewCredentialHandler(credentialService)
+				protected.GET("/dns-providers/:id/credentials", credentialHandler.List)
+				protected.POST("/dns-providers/:id/credentials", credentialHandler.Create)
+				protected.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
+				protected.PUT("/dns-providers/:id/credentials/:cred_id", credentialHandler.Update)
+				protected.DELETE("/dns-providers/:id/credentials/:cred_id", credentialHandler.Delete)
+				protected.POST("/dns-providers/:id/credentials/:cred_id/test", credentialHandler.Test)
+				protected.POST("/dns-providers/:id/enable-multi-credentials", credentialHandler.EnableMultiCredentials)
 
 				// Encryption Management - Admin only endpoints
 				rotationService, rotErr := crypto.NewRotationService(db)
