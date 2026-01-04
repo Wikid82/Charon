@@ -29,6 +29,7 @@ Successfully implemented security-focused tests to improve Charon backend covera
   - parsePort
 
 ### ✅ 3. utils/url_testing.go: Added security edge cases (89.2% package)
+
 **File**: `backend/internal/utils/url_testing_security_test.go` [NEW]
 
 - Adversarial SSRF protection tests
@@ -40,8 +41,10 @@ Successfully implemented security-focused tests to improve Charon backend covera
 
 ## Coverage Impact
 
+### Tests Implemented
+
 | Package | Before | After | Lines Covered |
-|---------|--------|-------|---------------|
+| ------- | ------ | ----- | ------------- |
 | testutil | 0% | **100%** | +16 |
 | security | 77.55% | **95.7%** | +11 |
 | utils | 89.2% | 89.2% | edge cases added |
@@ -94,7 +97,7 @@ All tests follow **adversarial security-first** approach:
 - Validate error handling paths
 - Verify defense-in-depth layers
 
-**DONE**
+## DONE
 
 ## Files Created
 
