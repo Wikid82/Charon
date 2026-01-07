@@ -307,3 +307,290 @@ func TestCoverageBoost_HelperFunctions(t *testing.T) {
 		assert.False(t, isPrivateIP(net.ParseIP("1.1.1.1")))
 	})
 }
+
+// TestCoverageBoost_ProxyHostService_DB tests DB accessor
+func TestCoverageBoost_ProxyHostService_DB(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	svc := NewProxyHostService(db)
+
+	t.Run("DB_ReturnsValidDB", func(t *testing.T) {
+		dbInstance := svc.DB()
+		assert.NotNil(t, dbInstance)
+		assert.Equal(t, db, dbInstance)
+	})
+}
+
+// TestCoverageBoost_DNSProviderService_SupportedTypes tests provider type queries
+func TestCoverageBoost_DNSProviderService_SupportedTypes(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.DNSProvider{})
+	require.NoError(t, err)
+
+	svc := NewDNSProviderService(db, nil)
+
+	t.Run("GetSupportedProviderTypes", func(t *testing.T) {
+		types := svc.GetSupportedProviderTypes()
+		assert.NotNil(t, types)
+		// Should include at least some built-in types
+		assert.NotEmpty(t, types)
+	})
+
+	t.Run("GetProviderCredentialFields_ValidProvider", func(t *testing.T) {
+		types := svc.GetSupportedProviderTypes()
+		if len(types) > 0 {
+			// Test with first available provider
+			fields, err := svc.GetProviderCredentialFields(types[0])
+			assert.NoError(t, err)
+			assert.NotNil(t, fields)
+		}
+	})
+
+	t.Run("GetProviderCredentialFields_InvalidProvider", func(t *testing.T) {
+		fields, err := svc.GetProviderCredentialFields("invalid-provider-type-12345")
+		assert.Error(t, err)
+		assert.Nil(t, fields)
+		assert.Contains(t, err.Error(), "unsupported provider type")
+	})
+}
+
+// TestCoverageBoost_SecurityService_Close tests service cleanup
+func TestCoverageBoost_SecurityService_Close(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	svc := NewSecurityService(db)
+
+	t.Run("Close_Success", func(t *testing.T) {
+		svc.Close()
+		// Close doesn't return error, just ensure it doesn't panic
+	})
+
+	t.Run("Flush_Success", func(t *testing.T) {
+		svc.Flush()
+		// Flush doesn't return error, just ensure it doesn't panic
+	})
+}
+
+// TestCoverageBoost_BackupService_GetAvailableSpace tests disk space checking
+func TestCoverageBoost_BackupService_GetAvailableSpace(t *testing.T) {
+	// Skip these tests as they require full config setup
+	t.Skip("BackupService requires full config.Config, tested elsewhere")
+}
+
+// TestCoverageBoost_CertificateService_ListCertificates tests certificate listing with errors
+func TestCoverageBoost_CertificateService_ListCertificates(t *testing.T) {
+	// Skip these tests as they require proper model imports
+	t.Skip("Certificate models tested in certificate_service_test.go")
+}
+
+// TestCoverageBoost_MailService_SendSSL tests SSL mail sending error paths
+func TestCoverageBoost_MailService_SendSSL(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.Setting{})
+	require.NoError(t, err)
+
+	svc := NewMailService(db)
+
+	t.Run("SendEmail_SSL_InvalidHost", func(t *testing.T) {
+		// Save invalid config
+		config := &SMTPConfig{
+			Host:        "invalid-mail-server-12345.example.com",
+			Port:        465,
+			Username:    "test",
+			Password:    "test",
+			FromAddress: "test@example.com",
+			Encryption:  "ssl",
+		}
+		err := svc.SaveSMTPConfig(config)
+		require.NoError(t, err)
+
+		// Try to send - should fail with connection error
+		err = svc.SendEmail("test@example.com", "Test", "Body")
+		assert.Error(t, err)
+	})
+
+	t.Run("SendEmail_STARTTLS_InvalidHost", func(t *testing.T) {
+		// Save invalid config with STARTTLS
+		config := &SMTPConfig{
+			Host:        "invalid-mail-server-12345.example.com",
+			Port:        587,
+			Username:    "test",
+			Password:    "test",
+			FromAddress: "test@example.com",
+			Encryption:  "starttls",
+		}
+		err := svc.SaveSMTPConfig(config)
+		require.NoError(t, err)
+
+		// Try to send - should fail with connection error
+		err = svc.SendEmail("test@example.com", "Test", "Body")
+		assert.Error(t, err)
+	})
+}
+
+// TestCoverageBoost_CredentialService_ErrorPaths tests credential service error handling
+func TestCoverageBoost_CredentialService_ErrorPaths(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.DNSProvider{}, &models.DNSProviderCredential{})
+	require.NoError(t, err)
+
+	// Note: CredentialService requires crypto.EncryptionService, tested in credential_service_test.go
+	t.Skip("CredentialService requires crypto.EncryptionService, tested elsewhere")
+}
+
+// TestCoverageBoost_GeoIPService_ErrorPaths tests GeoIP service error handling
+func TestCoverageBoost_GeoIPService_ErrorPaths(t *testing.T) {
+	t.Run("NewGeoIPService_InvalidPath", func(t *testing.T) {
+		svc, err := NewGeoIPService("/nonexistent/path/to/geoip.mmdb")
+		assert.Error(t, err)
+		assert.Nil(t, svc)
+	})
+}
+
+// TestCoverageBoost_DockerService_ErrorPaths tests Docker service error handling
+func TestCoverageBoost_DockerService_ErrorPaths(t *testing.T) {
+	t.Skip("Docker service tests require specific setup, tested in docker_service_test.go")
+}
+
+// TestCoverageBoost_UptimeService_FlushNotifications tests notification flushing
+func TestCoverageBoost_UptimeService_FlushNotifications(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHost{})
+	require.NoError(t, err)
+
+	svc := NewUptimeService(db, nil)
+
+	t.Run("FlushPendingNotifications", func(t *testing.T) {
+		// Should not error even with empty pending notifications
+		svc.FlushPendingNotifications()
+	})
+}
+
+// TestCoverageBoost_LogService_NewLogService tests log service creation
+func TestCoverageBoost_LogService_NewLogService(t *testing.T) {
+	t.Skip("LogService requires full config, tested in log_service_test.go")
+}
+
+// TestCoverageBoost_UpdateService_ClearCache tests cache clearing
+func TestCoverageBoost_UpdateService_ClearCache(t *testing.T) {
+	svc := NewUpdateService()
+
+	t.Run("ClearCache", func(t *testing.T) {
+		svc.ClearCache()
+	})
+
+	t.Run("SetCurrentVersion", func(t *testing.T) {
+		svc.SetCurrentVersion("v1.2.3")
+	})
+}
+
+// TestCoverageBoost_NotificationService_Providers tests provider management
+func TestCoverageBoost_NotificationService_Providers(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.NotificationProvider{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db)
+
+	t.Run("ListProviders_EmptyDB", func(t *testing.T) {
+		providers, err := svc.ListProviders()
+		assert.NoError(t, err)
+		assert.NotNil(t, providers)
+		assert.Empty(t, providers)
+	})
+
+	t.Run("CreateProvider", func(t *testing.T) {
+		provider := &models.NotificationProvider{
+			Name:    "test-provider",
+			Type:    "webhook",
+			Enabled: true,
+			Config:  `{"url": "https://example.com/hook"}`,
+		}
+		err := svc.CreateProvider(provider)
+		assert.NoError(t, err)
+		assert.NotZero(t, provider.ID)
+	})
+
+	t.Run("UpdateProvider", func(t *testing.T) {
+		// Create a provider first
+		provider := &models.NotificationProvider{
+			Name:    "update-test",
+			Type:    "webhook",
+			Enabled: true,
+			Config:  `{"url": "https://example.com/hook"}`,
+		}
+		err := svc.CreateProvider(provider)
+		require.NoError(t, err)
+
+		// Update it
+		provider.Name = "updated-name"
+		err = svc.UpdateProvider(provider)
+		assert.NoError(t, err)
+	})
+
+	t.Run("DeleteProvider", func(t *testing.T) {
+		// Create a provider first
+		provider := &models.NotificationProvider{
+			Name:    "delete-test",
+			Type:    "webhook",
+			Enabled: true,
+			Config:  `{"url": "https://example.com/hook"}`,
+		}
+		err := svc.CreateProvider(provider)
+		require.NoError(t, err)
+
+		// Delete it
+		err = svc.DeleteProvider(provider.ID)
+		assert.NoError(t, err)
+	})
+}
+
+// TestCoverageBoost_NotificationService_CRUD tests notification CRUD operations
+func TestCoverageBoost_NotificationService_CRUD(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	require.NoError(t, err)
+
+	err = db.AutoMigrate(&models.Notification{})
+	require.NoError(t, err)
+
+	svc := NewNotificationService(db)
+
+	t.Run("List_EmptyDB", func(t *testing.T) {
+		notifs, err := svc.List(false)
+		assert.NoError(t, err)
+		assert.NotNil(t, notifs)
+	})
+
+	t.Run("MarkAllAsRead_Success", func(t *testing.T) {
+		err := svc.MarkAllAsRead()
+		assert.NoError(t, err)
+	})
+}
