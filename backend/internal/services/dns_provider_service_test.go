@@ -13,6 +13,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
 // setupTestDB creates an in-memory SQLite database for testing.
@@ -761,7 +763,7 @@ func TestAllProviderTypes(t *testing.T) {
 	testCases := map[string]map[string]string{
 		"cloudflare":     {"api_token": "token"},
 		"route53":        {"access_key_id": "key", "secret_access_key": "secret", "region": "us-east-1"},
-		"digitalocean":   {"auth_token": "token"},
+		"digitalocean":   {"api_token": "token"},
 		"googleclouddns": {"service_account_json": "{}", "project": "test-project"},
 		"namecheap":      {"api_user": "user", "api_key": "key", "client_ip": "1.2.3.4"},
 		"godaddy":        {"api_key": "key", "api_secret": "secret"},
@@ -772,9 +774,9 @@ func TestAllProviderTypes(t *testing.T) {
 			"subscription_id": "sub",
 			"resource_group":  "rg",
 		},
-		"hetzner":  {"api_key": "key"},
+		"hetzner":  {"api_token": "key"},
 		"vultr":    {"api_key": "key"},
-		"dnsimple": {"oauth_token": "token", "account_id": "12345"},
+		"dnsimple": {"api_token": "token", "account_id": "12345"},
 	}
 
 	for providerType, creds := range testCases {
@@ -1134,7 +1136,7 @@ func TestDNSProviderService_TestCredentials_AllProviders(t *testing.T) {
 	testCases := map[string]map[string]string{
 		"cloudflare":     {"api_token": "token"},
 		"route53":        {"access_key_id": "key", "secret_access_key": "secret", "region": "us-east-1"},
-		"digitalocean":   {"auth_token": "token"},
+		"digitalocean":   {"api_token": "token"},
 		"googleclouddns": {"service_account_json": "{}", "project": "test-project"},
 		"namecheap":      {"api_user": "user", "api_key": "key", "client_ip": "1.2.3.4"},
 		"godaddy":        {"api_key": "key", "api_secret": "secret"},
@@ -1145,9 +1147,9 @@ func TestDNSProviderService_TestCredentials_AllProviders(t *testing.T) {
 			"subscription_id": "sub",
 			"resource_group":  "rg",
 		},
-		"hetzner":  {"api_key": "key"},
+		"hetzner":  {"api_token": "key"},
 		"vultr":    {"api_key": "key"},
-		"dnsimple": {"oauth_token": "token", "account_id": "12345"},
+		"dnsimple": {"api_token": "token", "account_id": "12345"},
 	}
 
 	for providerType, creds := range testCases {
@@ -1216,8 +1218,6 @@ func TestDNSProviderService_Create_CustomTimeouts(t *testing.T) {
 	assert.Equal(t, 10, provider.PollingInterval)
 }
 
-
-
 func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
@@ -1234,7 +1234,7 @@ func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
 	_, err = service.Create(ctx, CreateDNSProviderRequest{
 		Name:         "A Provider",
 		ProviderType: "hetzner",
-		Credentials:  map[string]string{"api_key": "key"},
+		Credentials:  map[string]string{"api_token": "key"},
 	})
 	require.NoError(t, err)
 
@@ -1297,7 +1297,6 @@ func TestDNSProviderService_Update_MultipleFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new-token", decrypted["api_token"])
 }
-
 
 func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
@@ -1677,7 +1676,7 @@ func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
 		Name:         "To Be Deleted",
 		ProviderType: "digitalocean",
-		Credentials:  map[string]string{"auth_token": "test-token"},
+		Credentials:  map[string]string{"api_token": "test-token"},
 	})
 	require.NoError(t, err)
 

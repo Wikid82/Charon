@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
 func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DNSProvider) {
