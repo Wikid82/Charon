@@ -6,6 +6,8 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
 func TestGenerateConfig_DNSChallenge_LetsEncrypt_StagingCAAndPropagationTimeout(t *testing.T) {
