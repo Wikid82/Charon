@@ -158,6 +158,24 @@ docker run -d \
 
 **Open <http://localhost:8080>** and start adding your websites!
 
+### Requirements
+
+**Server:**
+
+- Docker 20.10+ or Docker Compose V2
+- Linux, macOS, or Windows with WSL2
+
+**Browser:**
+
+- Tested with React 19.2.3
+- Compatible with modern browsers:
+  - Chrome/Edge 90+
+  - Firefox 88+
+  - Safari 14+
+  - Opera 76+
+
+> **Note:** If you encounter errors after upgrading, try a hard refresh (`Ctrl+Shift+R`) or clearing your browser cache. See [Troubleshooting Guide](docs/troubleshooting/react-production-errors.md) for details.
+
 ### Upgrading? Run Migrations
 
 If you're upgrading from a previous version with persistent data:
@@ -244,7 +262,8 @@ All JSON templates support these variables:
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
 **[🚀 5-Minute Guide](https://wikid82.github.io/charon/getting-started)** — Your first website up and running
-**[💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
+**[� Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
+**[�💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
 **[🐛 Report Problems](https://github.com/Wikid82/charon/issues)** — Something broken? Let us know
 
 ---
