@@ -9,6 +9,7 @@ import (
 
 // TestRecordURLValidation tests URL validation metrics recording.
 func TestRecordURLValidation(t *testing.T) {
+	t.Parallel()
 	// Reset metrics before test
 	URLValidationCounter.Reset()
 
@@ -24,7 +25,9 @@ func TestRecordURLValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			initialCount := testutil.ToFloat64(URLValidationCounter.WithLabelValues(tt.result, tt.reason))
 
 			RecordURLValidation(tt.result, tt.reason)
@@ -39,6 +42,7 @@ func TestRecordURLValidation(t *testing.T) {
 
 // TestRecordSSRFBlock tests SSRF block metrics recording.
 func TestRecordSSRFBlock(t *testing.T) {
+	t.Parallel()
 	// Reset metrics before test
 	SSRFBlockCounter.Reset()
 
@@ -54,7 +58,9 @@ func TestRecordSSRFBlock(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			initialCount := testutil.ToFloat64(SSRFBlockCounter.WithLabelValues(tt.ipType, tt.userID))
 
 			RecordSSRFBlock(tt.ipType, tt.userID)
@@ -69,6 +75,7 @@ func TestRecordSSRFBlock(t *testing.T) {
 
 // TestRecordURLTestDuration tests URL test duration histogram recording.
 func TestRecordURLTestDuration(t *testing.T) {
+	t.Parallel()
 	// Record various durations
 	durations := []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5}
 
@@ -83,6 +90,7 @@ func TestRecordURLTestDuration(t *testing.T) {
 
 // TestMetricsLabels verifies metric labels are correct.
 func TestMetricsLabels(t *testing.T) {
+	t.Parallel()
 	// Verify metrics are registered and accessible
 	if URLValidationCounter == nil {
 		t.Error("URLValidationCounter is nil")
@@ -97,6 +105,7 @@ func TestMetricsLabels(t *testing.T) {
 
 // TestMetricsRegistration tests that metrics can be registered with Prometheus.
 func TestMetricsRegistration(t *testing.T) {
+	t.Parallel()
 	registry := prometheus.NewRegistry()
 
 	// Attempt to register the metrics

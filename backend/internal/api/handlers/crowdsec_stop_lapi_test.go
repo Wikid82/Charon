@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -15,6 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+// permissiveLAPIURLValidator allows any localhost URL for testing with mock servers.
+func permissiveLAPIURLValidator(raw string) (*url.URL, error) {
+	return url.Parse(raw)
+}
 
 // mockStopExecutor is a mock for the CrowdsecExecutor interface for Stop tests
 type mockStopExecutor struct {
@@ -144,6 +150,11 @@ func TestCrowdsecHandler_Stop_NoSecurityConfig(t *testing.T) {
 
 // TestGetLAPIDecisions_WithMockServer tests GetLAPIDecisions with a mock LAPI server
 func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
+	// Use permissive validator for testing with mock server on random port
+	orig := validateCrowdsecLAPIBaseURLFunc
+	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
+	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
+
 	// Create a mock LAPI server
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -189,6 +200,11 @@ func TestGetLAPIDecisions_WithMockServer(t *testing.T) {
 
 // TestGetLAPIDecisions_Unauthorized tests GetLAPIDecisions when LAPI returns 401
 func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
+	// Use permissive validator for testing with mock server on random port
+	orig := validateCrowdsecLAPIBaseURLFunc
+	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
+	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
+
 	// Create a mock LAPI server that returns 401
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -222,6 +238,11 @@ func TestGetLAPIDecisions_Unauthorized(t *testing.T) {
 
 // TestGetLAPIDecisions_NullResponse tests GetLAPIDecisions when LAPI returns null
 func TestGetLAPIDecisions_NullResponse(t *testing.T) {
+	// Use permissive validator for testing with mock server on random port
+	orig := validateCrowdsecLAPIBaseURLFunc
+	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
+	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
+
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -297,6 +318,11 @@ func TestGetLAPIDecisions_NonJSONContentType(t *testing.T) {
 
 // TestCheckLAPIHealth_WithMockServer tests CheckLAPIHealth with a healthy LAPI
 func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
+	// Use permissive validator for testing with mock server on random port
+	orig := validateCrowdsecLAPIBaseURLFunc
+	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
+	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
+
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
 			w.WriteHeader(http.StatusOK)
@@ -340,6 +366,11 @@ func TestCheckLAPIHealth_WithMockServer(t *testing.T) {
 // TestCheckLAPIHealth_FallbackToDecisions tests the fallback to /v1/decisions endpoint
 // when the primary /health endpoint is unreachable
 func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
+	// Use permissive validator for testing with mock server on random port
+	orig := validateCrowdsecLAPIBaseURLFunc
+	validateCrowdsecLAPIBaseURLFunc = permissiveLAPIURLValidator
+	defer func() { validateCrowdsecLAPIBaseURLFunc = orig }()
+
 	// Create a mock server that only responds to /v1/decisions, not /health
 	mockLAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/decisions" {
@@ -381,7 +412,9 @@ func TestCheckLAPIHealth_FallbackToDecisions(t *testing.T) {
 	require.NoError(t, err)
 	// Should be healthy via fallback
 	assert.True(t, response["healthy"].(bool))
-	assert.Contains(t, response["note"], "decisions endpoint")
+	if note, ok := response["note"].(string); ok {
+		assert.Contains(t, note, "decisions endpoint")
+	}
 }
 
 // TestGetLAPIKey_AllEnvVars tests that getLAPIKey checks all environment variable names

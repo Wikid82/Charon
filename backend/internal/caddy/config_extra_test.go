@@ -11,7 +11,7 @@ import (
 )
 
 func TestGenerateConfig_CatchAllFrontend(t *testing.T) {
-	cfg, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -33,7 +33,7 @@ func TestGenerateConfig_AdvancedInvalidJSON(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -64,7 +64,7 @@ func TestGenerateConfig_AdvancedArrayHandler(t *testing.T) {
 		},
 	}
 
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -78,7 +78,7 @@ func TestGenerateConfig_LowercaseDomains(t *testing.T) {
 	hosts := []models.ProxyHost{
 		{UUID: "d1", DomainNames: "UPPER.EXAMPLE.COM", ForwardHost: "a", ForwardPort: 80, Enabled: true},
 	}
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// Debug prints removed
@@ -94,7 +94,7 @@ func TestGenerateConfig_AdvancedObjectHandler(t *testing.T) {
 		Enabled:        true,
 		AdvancedConfig: `{"handler":"headers","response":{"set":{"X-Obj":["1"]}}}`,
 	}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// First handler should be headers
@@ -111,7 +111,7 @@ func TestGenerateConfig_AdvancedHeadersStringToArray(t *testing.T) {
 		Enabled:        true,
 		AdvancedConfig: `{"handler":"headers","request":{"set":{"Upgrade":"websocket"}},"response":{"set":{"X-Obj":"1"}}}`,
 	}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// Debug prints removed
@@ -172,7 +172,7 @@ func TestGenerateConfig_ACLWhitelistIncluded(t *testing.T) {
 	aclH, err := buildACLHandler(&acl, "")
 	require.NoError(t, err)
 	require.NotNil(t, aclH)
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// Accept either a subroute (ACL) or reverse_proxy as first handler
@@ -184,7 +184,7 @@ func TestGenerateConfig_ACLWhitelistIncluded(t *testing.T) {
 
 func TestGenerateConfig_SkipsEmptyDomainEntries(t *testing.T) {
 	hosts := []models.ProxyHost{{UUID: "u1", DomainNames: ", test.example.com", ForwardHost: "a", ForwardPort: 80, Enabled: true}}
-	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	require.Equal(t, []string{"test.example.com"}, route.Match[0].Host)
@@ -192,7 +192,7 @@ func TestGenerateConfig_SkipsEmptyDomainEntries(t *testing.T) {
 
 func TestGenerateConfig_AdvancedNoHandlerKey(t *testing.T) {
 	host := models.ProxyHost{UUID: "adv3", DomainNames: "nohandler.example.com", ForwardHost: "app", ForwardPort: 8080, Enabled: true, AdvancedConfig: `{"foo":"bar"}`}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// No headers handler appended; last handler is reverse_proxy
@@ -202,7 +202,7 @@ func TestGenerateConfig_AdvancedNoHandlerKey(t *testing.T) {
 
 func TestGenerateConfig_AdvancedUnexpectedJSONStructure(t *testing.T) {
 	host := models.ProxyHost{UUID: "adv4", DomainNames: "struct.example.com", ForwardHost: "app", ForwardPort: 8080, Enabled: true, AdvancedConfig: `42`}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// Expect main reverse proxy handler exists but no appended advanced handler
@@ -229,7 +229,7 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	secCfg := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 
@@ -252,7 +252,7 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 
 func TestGenerateConfig_SecurityPipeline_OmitWhenDisabled(t *testing.T) {
 	host := models.ProxyHost{UUID: "pipe2", DomainNames: "pipe2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 
@@ -315,7 +315,7 @@ func TestGetAccessLogPath(t *testing.T) {
 
 // TestGenerateConfig_LoggingConfigured verifies logging is configured in GenerateConfig output
 func TestGenerateConfig_LoggingConfigured(t *testing.T) {
-	cfg, err := GenerateConfig([]models.ProxyHost{}, "/data/caddy/data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{}, "/data/caddy/data", "", "", "", false, true, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Logging should be configured

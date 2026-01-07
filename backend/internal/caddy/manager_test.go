@@ -46,7 +46,7 @@ func TestManager_ApplyConfig(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
@@ -83,7 +83,7 @@ func TestManager_ApplyConfig_Failure(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
@@ -118,7 +118,7 @@ func TestManager_Ping(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
 
 	err := manager.Ping(context.Background())
@@ -137,7 +137,7 @@ func TestManager_GetCurrentConfig(t *testing.T) {
 	}))
 	defer caddyServer.Close()
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
 
 	cfg, err := manager.GetCurrentConfig(context.Background())
@@ -162,7 +162,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
 
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create 15 dummy config files
@@ -218,7 +218,7 @@ func TestManager_Rollback_Success(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// 1. Apply valid config (creates snapshot)
@@ -321,7 +321,7 @@ func TestManager_Rollback_Failure(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a dummy snapshot manually so rollback has something to try
@@ -503,7 +503,7 @@ func TestManager_ApplyConfig_WAFMonitor(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{CerberusEnabled: true, WAFMode: "enabled"})
 
 	// Capture file writes to verify WAF mode injection

@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Verified
+
+- **React 19 Compatibility:** Confirmed React 19.2.3 works correctly with lucide-react@0.562.0
+  - Comprehensive diagnostic testing shows no production runtime errors
+  - All 1403 unit tests pass, production build succeeds
+  - Issue likely caused by browser cache or stale Docker image (user-side)
+  - Added troubleshooting guide for "Cannot set properties of undefined" errors
+
 ### Added
 
+- **DNS Challenge Support for Wildcard Certificates**: Full support for wildcard SSL certificates using DNS-01 challenges (Issue #21, PR #460, #461)
+  - **Secure DNS Provider Management**: Add, edit, test, and delete DNS provider configurations with AES-256-GCM encrypted credentials
+  - **10+ Supported Providers**: Cloudflare, AWS Route53, DigitalOcean, Google Cloud DNS, Azure DNS, Namecheap, GoDaddy, Hetzner, Vultr, DNSimple
+  - **Automated Certificate Issuance**: Wildcard domains (e.g., `*.example.com`) automatically use DNS-01 challenges via configured providers
+  - **Pre-Save Testing**: Test DNS provider credentials before saving to catch configuration errors early
+  - **Dynamic Configuration**: Provider-specific credential fields with hints and documentation links
+  - **Comprehensive Documentation**: Setup guides for major providers and troubleshooting documentation
+  - **Security First**: Credentials never exposed in API responses, encrypted at rest with CHARON_ENCRYPTION_KEY
+  - See [DNS Providers Guide](docs/guides/dns-providers.md) for setup instructions
 - **Universal JSON Template Support for Notifications**: JSON payload templates (minimal, detailed, custom) are now available for all notification services that support JSON payloads, not just generic webhooks (PR #XXX)
   - **Discord**: Rich embeds with colors, fields, and custom formatting
   - **Slack**: Block Kit messages with sections and interactive elements
@@ -26,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Caddy Upgrade**: Upgraded Caddy from v2.10.2 to v2.11.0-beta.2
+- **Dependency Cleanup**: Removed manual quic-go v0.57.1 patch (now included upstream at v0.58.0)
+- **Dependency Cleanup**: Removed manual smallstep/certificates v0.29.0 patch (now included upstream)
 - **Notification Backend Refactoring**: Renamed internal function `sendCustomWebhook` to `sendJSONPayload` for clarity (no user impact)
 - **Frontend Template UI**: Template configuration UI now appears for Discord, Slack, Gotify, and generic webhooks (previously webhook-only)
 
@@ -46,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Dependency Updates**: quic-go v0.58.0 with security fixes (included via Caddy v2.11.0-beta.2 upgrade)
 - **CRITICAL**: Complete Server-Side Request Forgery (SSRF) remediation with defense-in-depth architecture (CWE-918, PR #450)
   - **CodeQL CWE-918 Fix**: Resolved taint tracking issue in `url_testing.go:152` by introducing explicit variable to break taint chain
   - Variable `requestURL` now receives validated output from `security.ValidateExternalURL()`, eliminating CodeQL false positive

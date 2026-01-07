@@ -8,6 +8,7 @@ import (
 )
 
 func TestMetrics_Register(t *testing.T) {
+	t.Parallel()
 	// Create a new registry for testing
 	reg := prometheus.NewRegistry()
 
@@ -50,6 +51,7 @@ func TestMetrics_Register(t *testing.T) {
 }
 
 func TestMetrics_Increment(t *testing.T) {
+	t.Parallel()
 	// Test that increment functions don't panic
 	assert.NotPanics(t, func() {
 		IncWAFRequest()

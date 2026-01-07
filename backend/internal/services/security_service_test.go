@@ -3,6 +3,7 @@ package services
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -384,6 +385,9 @@ func TestSecurityService_LogAudit(t *testing.T) {
 	assert.NotEmpty(t, audit.UUID)
 	assert.False(t, audit.CreatedAt.IsZero())
 
+	// Give time for async audit logging to process
+	time.Sleep(150 * time.Millisecond)
+
 	// Verify audit was stored
 	var stored models.SecurityAudit
 	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
@@ -506,4 +510,194 @@ func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
 			assert.Error(t, err, "Mode %q should be invalid", mode)
 		}
 	}
+}
+
+func TestSecurityService_ListAuditLogs(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create test audit logs
+	testAudits := []models.SecurityAudit{
+		{
+			UUID:          "audit-1",
+			Actor:         "user-1",
+			Action:        "dns_provider_create",
+			EventCategory: "dns_provider",
+			ResourceUUID:  "provider-1",
+			Details:       `{"name":"Provider 1"}`,
+		},
+		{
+			UUID:          "audit-2",
+			Actor:         "user-2",
+			Action:        "dns_provider_update",
+			EventCategory: "dns_provider",
+			ResourceUUID:  "provider-2",
+			Details:       `{"changed_fields":{"name":true}}`,
+		},
+		{
+			UUID:          "audit-3",
+			Actor:         "user-1",
+			Action:        "dns_provider_delete",
+			EventCategory: "dns_provider",
+			ResourceUUID:  "provider-3",
+			Details:       `{"name":"Provider 3"}`,
+		},
+	}
+
+	for _, audit := range testAudits {
+		err := db.Create(&audit).Error
+		assert.NoError(t, err)
+	}
+
+	// Test listing all audits
+	audits, total, err := svc.ListAuditLogs(AuditLogFilter{}, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, audits, 3)
+
+	// Test filter by actor
+	audits, total, err = svc.ListAuditLogs(AuditLogFilter{Actor: "user-1"}, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, audits, 2)
+
+	// Test filter by action
+	audits, total, err = svc.ListAuditLogs(AuditLogFilter{Action: "dns_provider_create"}, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, audits, 1)
+
+	// Test filter by event category
+	audits, total, err = svc.ListAuditLogs(AuditLogFilter{EventCategory: "dns_provider"}, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+
+	// Test pagination
+	audits, total, err = svc.ListAuditLogs(AuditLogFilter{}, 1, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, audits, 2)
+
+	// Second page
+	audits, total, err = svc.ListAuditLogs(AuditLogFilter{}, 2, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, audits, 1)
+}
+
+func TestSecurityService_GetAuditLogByUUID(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Create test audit log
+	testAudit := models.SecurityAudit{
+		UUID:          "audit-test-uuid",
+		Actor:         "user-1",
+		Action:        "dns_provider_create",
+		EventCategory: "dns_provider",
+		ResourceUUID:  "provider-1",
+		Details:       `{"name":"Test Provider"}`,
+	}
+	err := db.Create(&testAudit).Error
+	assert.NoError(t, err)
+
+	// Test retrieving existing audit log
+	audit, err := svc.GetAuditLogByUUID("audit-test-uuid")
+	assert.NoError(t, err)
+	assert.NotNil(t, audit)
+	assert.Equal(t, "audit-test-uuid", audit.UUID)
+	assert.Equal(t, "user-1", audit.Actor)
+
+	// Test retrieving non-existent audit log
+	audit, err = svc.GetAuditLogByUUID("non-existent-uuid")
+	assert.Error(t, err)
+	assert.Nil(t, audit)
+	assert.Equal(t, "audit log not found", err.Error())
+}
+
+func TestSecurityService_ListAuditLogsByProvider(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	providerID := uint(123)
+	otherProviderID := uint(456)
+
+	// Create test audit logs
+	testAudits := []models.SecurityAudit{
+		{
+			UUID:          "audit-provider-1",
+			Actor:         "user-1",
+			Action:        "dns_provider_create",
+			EventCategory: "dns_provider",
+			ResourceID:    &providerID,
+			ResourceUUID:  "provider-uuid-1",
+			Details:       `{"name":"Provider 1"}`,
+		},
+		{
+			UUID:          "audit-provider-2",
+			Actor:         "user-1",
+			Action:        "dns_provider_update",
+			EventCategory: "dns_provider",
+			ResourceID:    &providerID,
+			ResourceUUID:  "provider-uuid-1",
+			Details:       `{"changed_fields":{"name":true}}`,
+		},
+		{
+			UUID:          "audit-other-provider",
+			Actor:         "user-2",
+			Action:        "dns_provider_create",
+			EventCategory: "dns_provider",
+			ResourceID:    &otherProviderID,
+			ResourceUUID:  "provider-uuid-2",
+			Details:       `{"name":"Other Provider"}`,
+		},
+	}
+
+	for _, audit := range testAudits {
+		err := db.Create(&audit).Error
+		assert.NoError(t, err)
+	}
+
+	// Test listing audits for specific provider
+	audits, total, err := svc.ListAuditLogsByProvider(providerID, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, audits, 2)
+
+	// Test listing audits for other provider
+	audits, total, err = svc.ListAuditLogsByProvider(otherProviderID, 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, audits, 1)
+
+	// Test pagination
+	audits, total, err = svc.ListAuditLogsByProvider(providerID, 1, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, audits, 1)
+}
+
+func TestSecurityService_AsyncAuditLogging(t *testing.T) {
+	db := setupSecurityTestDB(t)
+	svc := NewSecurityService(db)
+
+	// Log audit asynchronously
+	audit := &models.SecurityAudit{
+		Actor:         "user-1",
+		Action:        "test_action",
+		EventCategory: "test_category",
+		Details:       "test details",
+	}
+	err := svc.LogAudit(audit)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, audit.UUID)
+
+	// Give some time for async processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify audit was stored
+	var stored models.SecurityAudit
+	err = db.Where("uuid = ?", audit.UUID).First(&stored).Error
+	assert.NoError(t, err)
+	assert.Equal(t, "test_action", stored.Action)
 }

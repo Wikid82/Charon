@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,12 +24,44 @@ var (
 )
 
 type SecurityService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	auditChan chan *models.SecurityAudit
+	done      chan struct{}  // Channel to signal goroutine to stop
+	wg        sync.WaitGroup // WaitGroup to track goroutine completion
 }
 
 // NewSecurityService returns a SecurityService using the provided DB
 func NewSecurityService(db *gorm.DB) *SecurityService {
-	return &SecurityService{db: db}
+	s := &SecurityService{
+		db:        db,
+		auditChan: make(chan *models.SecurityAudit, 100), // Buffered channel with capacity 100
+		done:      make(chan struct{}),
+	}
+	// Start background goroutine to process audit events asynchronously
+	s.wg.Add(1)
+	go s.processAuditEvents()
+	return s
+}
+
+// Close gracefully stops the SecurityService and waits for audit processing to complete
+func (s *SecurityService) Close() {
+	close(s.done)      // Signal the goroutine to stop
+	close(s.auditChan) // Close the audit channel
+	s.wg.Wait()        // Wait for the goroutine to finish
+}
+
+// Flush processes all pending audit logs synchronously (useful for testing)
+func (s *SecurityService) Flush() {
+	// Wait for all pending audits to be processed
+	// In practice, we wait for the channel to be empty and then a bit more
+	// to ensure the database write completes
+	for i := 0; i < 20; i++ { // Max 200ms wait
+		if len(s.auditChan) == 0 {
+			time.Sleep(10 * time.Millisecond) // Extra wait for DB write
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // Get returns the first SecurityConfig row (singleton config)
@@ -181,7 +214,7 @@ func (s *SecurityService) ListDecisions(limit int) ([]models.SecurityDecision, e
 	return res, nil
 }
 
-// LogAudit stores an audit entry
+// LogAudit stores an audit entry asynchronously via buffered channel
 func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 	if a == nil {
 		return nil
@@ -192,7 +225,128 @@ func (s *SecurityService) LogAudit(a *models.SecurityAudit) error {
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now()
 	}
-	return s.db.Create(a).Error
+
+	// Non-blocking send to avoid blocking main operations
+	select {
+	case s.auditChan <- a:
+		return nil
+	default:
+		// If channel is full, log the event but don't block
+		// In production, consider incrementing a dropped events metric
+		return errors.New("audit channel full, event dropped")
+	}
+}
+
+// processAuditEvents processes audit events from the channel in the background
+func (s *SecurityService) processAuditEvents() {
+	defer s.wg.Done() // Mark goroutine as done when it exits
+
+	for {
+		select {
+		case audit, ok := <-s.auditChan:
+			if !ok {
+				// Channel closed, exit goroutine
+				return
+			}
+			if err := s.db.Create(audit).Error; err != nil {
+				// Silently ignore errors from closed databases (common in tests)
+				// Only log for other types of errors
+				errMsg := err.Error()
+				if !strings.Contains(errMsg, "no such table") &&
+					!strings.Contains(errMsg, "database is closed") {
+					fmt.Printf("Failed to write audit log: %v\n", err)
+				}
+			}
+		case <-s.done:
+			// Service is shutting down, exit goroutine
+			return
+		}
+	}
+}
+
+// AuditLogFilter represents filtering criteria for audit log queries
+type AuditLogFilter struct {
+	Actor         string
+	Action        string
+	EventCategory string
+	ResourceUUID  string
+	StartDate     *time.Time
+	EndDate       *time.Time
+}
+
+// ListAuditLogs retrieves audit logs with pagination and filtering
+func (s *SecurityService) ListAuditLogs(filter AuditLogFilter, page, limit int) ([]models.SecurityAudit, int64, error) {
+	var audits []models.SecurityAudit
+	var total int64
+
+	// Build query with filters
+	query := s.db.Model(&models.SecurityAudit{})
+
+	if filter.Actor != "" {
+		query = query.Where("actor = ?", filter.Actor)
+	}
+	if filter.Action != "" {
+		query = query.Where("action = ?", filter.Action)
+	}
+	if filter.EventCategory != "" {
+		query = query.Where("event_category = ?", filter.EventCategory)
+	}
+	if filter.ResourceUUID != "" {
+		query = query.Where("resource_uuid = ?", filter.ResourceUUID)
+	}
+	if filter.StartDate != nil {
+		query = query.Where("created_at >= ?", *filter.StartDate)
+	}
+	if filter.EndDate != nil {
+		query = query.Where("created_at <= ?", *filter.EndDate)
+	}
+
+	// Get total count
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	offset := (page - 1) * limit
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&audits).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return audits, total, nil
+}
+
+// GetAuditLogByUUID retrieves a single audit log by its UUID
+func (s *SecurityService) GetAuditLogByUUID(auditUUID string) (*models.SecurityAudit, error) {
+	var audit models.SecurityAudit
+	if err := s.db.Where("uuid = ?", auditUUID).First(&audit).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("audit log not found")
+		}
+		return nil, err
+	}
+	return &audit, nil
+}
+
+// ListAuditLogsByProvider retrieves audit logs for a specific DNS provider with pagination
+func (s *SecurityService) ListAuditLogsByProvider(providerID uint, page, limit int) ([]models.SecurityAudit, int64, error) {
+	var audits []models.SecurityAudit
+	var total int64
+
+	query := s.db.Model(&models.SecurityAudit{}).
+		Where("event_category = ? AND resource_id = ?", "dns_provider", providerID)
+
+	// Get total count
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Apply pagination
+	offset := (page - 1) * limit
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&audits).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return audits, total, nil
 }
 
 // UpsertRuleSet saves or updates a ruleset content

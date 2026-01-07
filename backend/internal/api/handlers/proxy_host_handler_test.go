@@ -163,7 +163,7 @@ func TestProxyHostErrors(t *testing.T) {
 
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
-	client := caddy.NewClient(caddyServer.URL)
+	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
@@ -443,7 +443,7 @@ func TestProxyHostWithCaddyIntegration(t *testing.T) {
 
 	// Setup Caddy Manager
 	tmpDir := t.TempDir()
-	client := caddy.NewClient(caddyServer.URL)
+	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Setup Handler
@@ -1677,7 +1677,7 @@ func TestUpdate_IntegrationCaddyConfig(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}))
 
 	tmpDir := t.TempDir()
-	client := caddy.NewClient(caddyServer.URL)
+	client := caddy.NewClientWithExpectedPort(caddyServer.URL, expectedPortFromURL(t, caddyServer.URL))
 	manager := caddy.NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	ns := services.NewNotificationService(db)

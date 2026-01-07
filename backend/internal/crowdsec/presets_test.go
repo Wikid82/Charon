@@ -3,6 +3,7 @@ package crowdsec
 import "testing"
 
 func TestListCuratedPresetsReturnsCopy(t *testing.T) {
+	t.Parallel()
 	got := ListCuratedPresets()
 	if len(got) == 0 {
 		t.Fatalf("expected curated presets, got none")
@@ -17,6 +18,7 @@ func TestListCuratedPresetsReturnsCopy(t *testing.T) {
 }
 
 func TestFindPreset(t *testing.T) {
+	t.Parallel()
 	preset, ok := FindPreset("honeypot-friendly-defaults")
 	if !ok {
 		t.Fatalf("expected to find curated preset")
@@ -37,6 +39,7 @@ func TestFindPreset(t *testing.T) {
 }
 
 func TestFindPresetCaseVariants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		slug  string
@@ -50,7 +53,9 @@ func TestFindPresetCaseVariants(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, ok := FindPreset(tt.slug)
 			if ok != tt.found {
 				t.Errorf("FindPreset(%q) found=%v, want %v", tt.slug, ok, tt.found)
@@ -60,6 +65,7 @@ func TestFindPresetCaseVariants(t *testing.T) {
 }
 
 func TestListCuratedPresetsReturnsDifferentCopy(t *testing.T) {
+	t.Parallel()
 	list1 := ListCuratedPresets()
 	list2 := ListCuratedPresets()
 

@@ -116,7 +116,7 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 	}
 
 	// crowdsecEnabled=true should configure app-level CrowdSec
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
 
@@ -172,7 +172,7 @@ func TestGenerateConfig_CrowdSecDisabled(t *testing.T) {
 	}
 
 	// crowdsecEnabled=false should NOT configure CrowdSec
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
 

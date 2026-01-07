@@ -53,6 +53,11 @@ type ProxyHost struct {
 	// X-Forwarded-For is handled natively by Caddy (not explicitly set)
 	EnableStandardHeaders *bool `json:"enable_standard_headers,omitempty" gorm:"default:true"`
 
+	// DNS Challenge configuration
+	DNSProviderID   *uint        `json:"dns_provider_id,omitempty" gorm:"index"`
+	DNSProvider     *DNSProvider `json:"dns_provider,omitempty" gorm:"foreignKey:DNSProviderID"`
+	UseDNSChallenge bool         `json:"use_dns_challenge" gorm:"default:false"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

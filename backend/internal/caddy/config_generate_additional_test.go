@@ -22,7 +22,7 @@ func TestGenerateConfig_ZerosslAndBothProviders(t *testing.T) {
 	}
 
 	// Zerossl provider
-	cfgZ, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "zerossl", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfgZ, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "zerossl", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, cfgZ.Apps.TLS)
 	// Expect only zerossl issuer present
@@ -37,7 +37,7 @@ func TestGenerateConfig_ZerosslAndBothProviders(t *testing.T) {
 	require.True(t, foundZerossl)
 
 	// Default/both provider
-	cfgBoth, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfgBoth, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	issuersBoth := cfgBoth.Apps.TLS.Automation.Policies[0].IssuersRaw
 	// We should have at least 2 issuers (acme + zerossl)
@@ -55,7 +55,7 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	sec := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, sec, nil)
 	require.NoError(t, err)
 
 	server := cfg.Apps.HTTP.Servers["charon_server"]
@@ -100,7 +100,7 @@ func TestGenerateConfig_ACLLogWarning(t *testing.T) {
 	acl := models.AccessList{ID: 300, Name: "BadACL", Enabled: true, Type: "blacklist", IPRules: "invalid-json"}
 	host := models.ProxyHost{UUID: "acl-log", DomainNames: "acl-err.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl}
 
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
@@ -112,7 +112,7 @@ func TestGenerateConfig_ACLHandlerIncluded(t *testing.T) {
 	ipRules := `[ { "cidr": "10.0.0.0/8" } ]`
 	acl := models.AccessList{ID: 301, Name: "WL3", Enabled: true, Type: "whitelist", IPRules: ipRules}
 	host := models.ProxyHost{UUID: "acl-incl", DomainNames: "acl-incl.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
@@ -140,7 +140,7 @@ func TestGenerateConfig_DecisionsBlockWithAdminExclusion(t *testing.T) {
 	host := models.ProxyHost{UUID: "dec1", DomainNames: "dec.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	// create a security decision to block 1.2.3.4
 	dec := models.SecurityDecision{Action: "block", IP: "1.2.3.4"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	b, _ := json.MarshalIndent(route.Handle, "", "  ")
@@ -170,7 +170,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	host := models.ProxyHost{UUID: "wafref", DomainNames: "wafref.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	// No rulesets provided but secCfg references a rulesource
 	sec := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "nonexistent-rs"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
 	// Since a ruleset name was requested but none exists, NO waf handler should be created
 	// (Bug fix: don't create a no-op WAF handler without directives)
@@ -185,7 +185,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	sec2 := &models.SecurityConfig{WAFMode: "block", WAFLearning: true}
-	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, sec2)
+	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, sec2, nil)
 	require.NoError(t, err)
 	route2 := cfg2.Apps.HTTP.Servers["charon_server"].Routes[0]
 	monitorFound := false
@@ -200,7 +200,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-disabled", DomainNames: "wafd.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{WAFMode: "disabled", WAFRulesSource: "owasp-crs"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	for _, h := range route.Handle {
@@ -215,7 +215,7 @@ func TestGenerateConfig_WAFSelectedSetsContentAndMode(t *testing.T) {
 	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
 	sec := &models.SecurityConfig{WAFMode: "block"}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, sec, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
@@ -234,7 +234,7 @@ func TestGenerateConfig_DecisionAdminPartsEmpty(t *testing.T) {
 	host := models.ProxyHost{UUID: "dec2", DomainNames: "dec2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	dec := models.SecurityDecision{Action: "block", IP: "2.3.4.5"}
 	// Provide an adminWhitelist with an empty segment to trigger p == ""
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, ", 10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, ", 10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
@@ -271,7 +271,7 @@ func TestGenerateConfig_WAFUsesRuleSet(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-1", DomainNames: "waf.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// check waf handler present with directives containing Include
@@ -295,7 +295,7 @@ func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-host-adv", DomainNames: "waf-adv.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "{\"handler\":\"waf\",\"ruleset_name\":\"host-rs\"}"}
 	rs := models.SecurityRuleSet{Name: "host-rs", SourceURL: "http://example.com/host-rs", Content: "rule X"}
 	rulesetPaths := map[string]string{"host-rs": "/tmp/host-rs.conf"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// check waf handler present with directives containing Include from host AdvancedConfig
@@ -316,7 +316,7 @@ func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig_Array(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-host-adv-arr", DomainNames: "waf-adv-arr.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "[{\"handler\":\"waf\",\"ruleset_name\":\"host-rs-array\"}]"}
 	rs := models.SecurityRuleSet{Name: "host-rs-array", SourceURL: "http://example.com/host-rs-array", Content: "rule X"}
 	rulesetPaths := map[string]string{"host-rs-array": "/tmp/host-rs-array.conf"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	// check waf handler present with directives containing Include from host AdvancedConfig array
@@ -340,7 +340,7 @@ func TestGenerateConfig_WAFUsesRulesetFromSecCfgFallback(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-fallback", DomainNames: "waf-fallback.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "owasp-crs"}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-fallback.conf"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, rulesetPaths, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, rulesetPaths, nil, sec, nil)
 	require.NoError(t, err)
 	// since secCfg requested owasp-crs and we have a path, the waf handler should include the path in directives
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
@@ -359,7 +359,7 @@ func TestGenerateConfig_WAFUsesRulesetFromSecCfgFallback(t *testing.T) {
 func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 	host := models.ProxyHost{UUID: "rl-1", DomainNames: "rl.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{RateLimitRequests: 10, RateLimitWindowSec: 60, RateLimitBurst: 5}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, true, false, "", nil, nil, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, true, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0]
 	found := false
@@ -384,7 +384,7 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 	host := models.ProxyHost{UUID: "cs-1", DomainNames: "cs.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	sec := &models.SecurityConfig{CrowdSecMode: "local", CrowdSecAPIURL: "http://cs.local"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, false, false, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
 
 	// Check app-level CrowdSec configuration
@@ -414,7 +414,7 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 }
 
 func TestGenerateConfig_EmptyHostsAndNoFrontend(t *testing.T) {
-	cfg, err := GenerateConfig([]models.ProxyHost{}, "/data/caddy/data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{}, "/data/caddy/data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	// Should return base config without server routes
 	_, found := cfg.Apps.HTTP.Servers["charon_server"]
@@ -426,7 +426,7 @@ func TestGenerateConfig_SkipsInvalidCustomCert(t *testing.T) {
 	cert := models.SSLCertificate{ID: 1, UUID: "c1", Name: "CustomCert", Provider: "custom", Certificate: "cert", PrivateKey: ""}
 	host := models.ProxyHost{UUID: "h1", DomainNames: "a.example.com", Enabled: true, ForwardHost: "127.0.0.1", ForwardPort: 8080, Certificate: &cert, CertificateID: ptrUint(1)}
 
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	// Custom cert missing key should not be in LoadPEM
 	if cfg.Apps.TLS != nil && cfg.Apps.TLS.Certificates != nil {
@@ -439,7 +439,7 @@ func TestGenerateConfig_SkipsDuplicateDomains(t *testing.T) {
 	// Two hosts with same domain - one newer than other should be kept only once
 	h1 := models.ProxyHost{UUID: "h1", DomainNames: "dup.com", Enabled: true, ForwardHost: "127.0.0.1", ForwardPort: 8080}
 	h2 := models.ProxyHost{UUID: "h2", DomainNames: "dup.com", Enabled: true, ForwardHost: "127.0.0.2", ForwardPort: 8081}
-	cfg, err := GenerateConfig([]models.ProxyHost{h1, h2}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{h1, h2}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	// Expect that only one route exists for dup.com (one for the domain)
@@ -449,7 +449,7 @@ func TestGenerateConfig_SkipsDuplicateDomains(t *testing.T) {
 func TestGenerateConfig_LoadPEMSetsTLSWhenNoACME(t *testing.T) {
 	cert := models.SSLCertificate{ID: 1, UUID: "c1", Name: "LoadPEM", Provider: "custom", Certificate: "cert", PrivateKey: "key"}
 	host := models.ProxyHost{UUID: "h1", DomainNames: "pem.com", Enabled: true, ForwardHost: "127.0.0.1", ForwardPort: 8080, Certificate: &cert, CertificateID: &cert.ID}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Apps.TLS)
 	require.NotNil(t, cfg.Apps.TLS.Certificates)
@@ -457,7 +457,7 @@ func TestGenerateConfig_LoadPEMSetsTLSWhenNoACME(t *testing.T) {
 
 func TestGenerateConfig_DefaultAcmeStaging(t *testing.T) {
 	hosts := []models.ProxyHost{{UUID: "h1", DomainNames: "a.example.com", Enabled: true, ForwardHost: "127.0.0.1", ForwardPort: 8080}}
-	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "", true, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "admin@example.com", "/frontend/dist", "", true, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	// Should include acme issuer with CA staging URL
 	issuers := cfg.Apps.TLS.Automation.Policies[0].IssuersRaw
@@ -478,7 +478,7 @@ func TestGenerateConfig_ACLHandlerBuildError(t *testing.T) {
 	// create host with an ACL with invalid JSON to force buildACLHandler to error
 	acl := models.AccessList{ID: 10, Name: "BadACL", Enabled: true, Type: "blacklist", IPRules: "invalid"}
 	host := models.ProxyHost{UUID: "h1", DomainNames: "a.example.com", Enabled: true, ForwardHost: "127.0.0.1", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	// Even if ACL handler error occurs, config should still be returned with routes
@@ -489,7 +489,7 @@ func TestGenerateConfig_ACLHandlerBuildError(t *testing.T) {
 func TestGenerateConfig_SkipHostDomainEmptyAndDisabled(t *testing.T) {
 	disabled := models.ProxyHost{UUID: "h1", Enabled: false, DomainNames: "skip.com", ForwardHost: "127.0.0.1", ForwardPort: 8080}
 	emptyDomain := models.ProxyHost{UUID: "h2", Enabled: true, DomainNames: "", ForwardHost: "127.0.0.1", ForwardPort: 8080}
-	cfg, err := GenerateConfig([]models.ProxyHost{disabled, emptyDomain}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{disabled, emptyDomain}, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	// Both hosts should be skipped; only routes from no hosts should be only catch-all if frontend provided

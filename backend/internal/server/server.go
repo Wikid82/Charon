@@ -2,6 +2,9 @@
 package server
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,6 +23,12 @@ func NewRouter(frontendDir string) *gin.Engine {
 		router.StaticFile("/logo.png", frontendDir+"/logo.png")
 		router.StaticFile("/favicon.png", frontendDir+"/favicon.png")
 		router.NoRoute(func(c *gin.Context) {
+			// API routes should never fall back to the SPA HTML.
+			path := c.Request.URL.Path
+			if path == "/api" || strings.HasPrefix(path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
 			c.File(frontendDir + "/index.html")
 		})
 	}

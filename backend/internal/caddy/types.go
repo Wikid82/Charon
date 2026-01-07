@@ -259,6 +259,18 @@ type AutomationConfig struct {
 
 // AutomationPolicy defines certificate management for specific domains.
 type AutomationPolicy struct {
-	Subjects   []string      `json:"subjects,omitempty"`
-	IssuersRaw []any `json:"issuers,omitempty"`
+	Subjects   []string `json:"subjects,omitempty"`
+	IssuersRaw []any    `json:"issuers,omitempty"`
+}
+
+// DNSChallengeConfig configures DNS-01 challenge settings
+type DNSChallengeConfig struct {
+	Provider           map[string]any `json:"provider"`
+	PropagationTimeout int64          `json:"propagation_timeout,omitempty"` // nanoseconds
+	Resolvers          []string       `json:"resolvers,omitempty"`
+}
+
+// ChallengesConfig configures ACME challenge types
+type ChallengesConfig struct {
+	DNS *DNSChallengeConfig `json:"dns,omitempty"`
 }
