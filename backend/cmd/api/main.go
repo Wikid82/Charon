@@ -18,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/server"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/version"
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Register built-in DNS providers
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -75,6 +76,7 @@ func main() {
 				&models.SecurityRuleSet{},
 				&models.CrowdsecPresetEvent{},
 				&models.CrowdsecConsoleEnrollment{},
+				&models.Plugin{}, // Add Plugin model for Phase 5
 			); err != nil {
 				log.Fatalf("migration failed: %v", err)
 			}
@@ -142,6 +144,7 @@ func main() {
 		&models.SecurityRuleSet{},
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.Plugin{}, // Add Plugin model for Phase 5
 	}
 
 	missingTables := false
@@ -173,6 +176,18 @@ func main() {
 
 	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
+
+	// Initialize plugin loader and load external DNS provider plugins (Phase 5)
+	logger.Log().Info("Initializing DNS provider plugin system...")
+	pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
+	if pluginDir == "" {
+		pluginDir = "/app/plugins"
+	}
+	pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil) // No signature verification for now
+	if err := pluginLoader.LoadAllPlugins(); err != nil {
+		logger.Log().WithError(err).Warn("Failed to load external DNS provider plugins")
+	}
+	logger.Log().Info("Plugin system initialized")
 
 	router := server.NewRouter(cfg.FrontendDir)
 	// Initialize structured logger with same writer as stdlib log so both capture logs

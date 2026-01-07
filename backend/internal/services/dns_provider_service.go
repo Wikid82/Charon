@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -26,33 +27,8 @@ var (
 	ErrDecryptionFailed = errors.New("failed to decrypt credentials")
 )
 
-// SupportedProviderTypes defines the list of supported DNS provider types.
-var SupportedProviderTypes = []string{
-	"cloudflare",
-	"route53",
-	"digitalocean",
-	"googleclouddns",
-	"namecheap",
-	"godaddy",
-	"azure",
-	"hetzner",
-	"vultr",
-	"dnsimple",
-}
-
-// ProviderCredentialFields maps provider types to their required credential fields.
-var ProviderCredentialFields = map[string][]string{
-	"cloudflare":     {"api_token"},
-	"route53":        {"access_key_id", "secret_access_key", "region"},
-	"digitalocean":   {"auth_token"},
-	"googleclouddns": {"service_account_json", "project"},
-	"namecheap":      {"api_user", "api_key", "client_ip"},
-	"godaddy":        {"api_key", "api_secret"},
-	"azure":          {"tenant_id", "client_id", "client_secret", "subscription_id", "resource_group"},
-	"hetzner":        {"api_key"},
-	"vultr":          {"api_key"},
-	"dnsimple":       {"oauth_token", "account_id"},
-}
+// Registry-based provider management replaces hardcoded provider types.
+// Provider types and credential fields are now queried from dnsprovider.Global().
 
 // CreateDNSProviderRequest represents the request to create a new DNS provider.
 type CreateDNSProviderRequest struct {
@@ -99,6 +75,8 @@ type DNSProviderService interface {
 	Test(ctx context.Context, id uint) (*TestResult, error)
 	TestCredentials(ctx context.Context, req CreateDNSProviderRequest) (*TestResult, error)
 	GetDecryptedCredentials(ctx context.Context, id uint) (map[string]string, error)
+	GetSupportedProviderTypes() []string
+	GetProviderCredentialFields(providerType string) ([]dnsprovider.CredentialFieldSpec, error)
 }
 
 // dnsProviderService implements the DNSProviderService interface.
@@ -528,42 +506,41 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 
 // isValidProviderType checks if a provider type is supported.
 func isValidProviderType(providerType string) bool {
-	for _, supported := range SupportedProviderTypes {
-		if providerType == supported {
-			return true
-		}
-	}
-	return false
+	return dnsprovider.Global().IsSupported(providerType)
 }
 
 // validateCredentials validates that all required credential fields are present.
 func validateCredentials(providerType string, credentials map[string]string) error {
-	requiredFields, ok := ProviderCredentialFields[providerType]
+	// Get provider from registry
+	provider, ok := dnsprovider.Global().Get(providerType)
 	if !ok {
 		return ErrInvalidProviderType
 	}
 
-	// Check for required fields
-	for _, field := range requiredFields {
-		if value, exists := credentials[field]; !exists || value == "" {
-			return fmt.Errorf("%w: missing field '%s'", ErrInvalidCredentials, field)
-		}
+	// Use provider's validation method
+	if err := provider.ValidateCredentials(credentials); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidCredentials, err)
 	}
 
 	return nil
 }
 
-// testDNSProviderCredentials performs a basic validation test on DNS provider credentials.
-// In a real implementation, this would make actual API calls to the DNS provider.
-// For now, we simulate the test with basic validation.
+// testDNSProviderCredentials performs validation and testing of DNS provider credentials.
 func testDNSProviderCredentials(providerType string, credentials map[string]string) *TestResult {
-	// Simulate validation logic
-	// In production, this would make actual API calls to verify credentials
-
 	startTime := time.Now()
 
-	// Basic validation - check if credentials have the expected structure
-	if err := validateCredentials(providerType, credentials); err != nil {
+	// Get provider from registry
+	provider, ok := dnsprovider.Global().Get(providerType)
+	if !ok {
+		return &TestResult{
+			Success: false,
+			Error:   "Provider type not supported",
+			Code:    "INVALID_PROVIDER_TYPE",
+		}
+	}
+
+	// Basic validation
+	if err := provider.ValidateCredentials(credentials); err != nil {
 		return &TestResult{
 			Success: false,
 			Error:   err.Error(),
@@ -571,16 +548,40 @@ func testDNSProviderCredentials(providerType string, credentials map[string]stri
 		}
 	}
 
-	// Simulate API call delay
+	// Test credentials with provider API
+	if err := provider.TestCredentials(credentials); err != nil {
+		return &TestResult{
+			Success: false,
+			Error:   err.Error(),
+			Code:    "CREDENTIALS_TEST_FAILED",
+		}
+	}
+
 	elapsed := time.Since(startTime).Milliseconds()
 
-	// For now, return success if validation passed
-	// TODO: Implement actual API calls to DNS providers
 	return &TestResult{
 		Success:           true,
-		Message:           "DNS provider credentials validated successfully (basic validation only)",
+		Message:           "DNS provider credentials validated and tested successfully",
 		PropagationTimeMs: elapsed,
 	}
+}
+
+// GetSupportedProviderTypes returns all registered provider types from the registry.
+func (s *dnsProviderService) GetSupportedProviderTypes() []string {
+	return dnsprovider.Global().Types()
+}
+
+// GetProviderCredentialFields returns the credential field specifications for a provider type.
+func (s *dnsProviderService) GetProviderCredentialFields(providerType string) ([]dnsprovider.CredentialFieldSpec, error) {
+	provider, ok := dnsprovider.Global().Get(providerType)
+	if !ok {
+		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
+	}
+
+	// Combine required and optional fields
+	fields := provider.RequiredCredentialFields()
+	fields = append(fields, provider.OptionalCredentialFields()...)
+	return fields, nil
 }
 
 // Helper functions to extract context information for audit logging

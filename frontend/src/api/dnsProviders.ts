@@ -58,10 +58,15 @@ export interface DNSProviderTypeInfo {
   fields: Array<{
     name: string
     label: string
-    type: 'text' | 'password'
+    type: 'text' | 'password' | 'textarea' | 'select'
     required: boolean
     default?: string
     hint?: string
+    placeholder?: string
+    options?: Array<{
+      value: string
+      label: string
+    }>
   }>
   documentation_url: string
 }

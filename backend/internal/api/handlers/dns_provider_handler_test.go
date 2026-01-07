@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -70,6 +71,19 @@ func (m *MockDNSProviderService) TestCredentials(ctx context.Context, req servic
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*services.TestResult), args.Error(1)
+}
+
+func (m *MockDNSProviderService) GetSupportedProviderTypes() []string {
+	args := m.Called()
+	return args.Get(0).([]string)
+}
+
+func (m *MockDNSProviderService) GetProviderCredentialFields(providerType string) ([]dnsprovider.CredentialFieldSpec, error) {
+	args := m.Called(providerType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]dnsprovider.CredentialFieldSpec), args.Error(1)
 }
 
 func (m *MockDNSProviderService) GetDecryptedCredentials(ctx context.Context, id uint) (map[string]string, error) {

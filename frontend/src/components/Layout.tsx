@@ -87,6 +87,14 @@ export default function Layout({ children }: LayoutProps) {
       ]
     },
     {
+      name: t('navigation.admin'),
+      path: '/admin',
+      icon: '👑',
+      children: [
+        { name: t('navigation.plugins'), path: '/admin/plugins', icon: '🔌' },
+      ]
+    },
+    {
       name: t('navigation.tasks'),
       path: '/tasks',
       icon: '📋',
