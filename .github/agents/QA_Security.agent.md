@@ -75,6 +75,7 @@ The task is not complete until ALL of the following pass with zero issues:
     - Zero Critical/High issues allowed
 
 2. **Coverage Tests (MANDATORY - Run Explicitly)**:
+    - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
     - **Backend**: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
     - **Frontend**: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
     - **Why**: These are in manual stage of pre-commit for performance. You MUST run them via VS Code tasks or scripts.

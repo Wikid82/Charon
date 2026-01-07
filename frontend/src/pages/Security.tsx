@@ -253,6 +253,13 @@ export default function Security() {
     <div className="flex items-center gap-2">
       <Button
         variant="secondary"
+        onClick={() => navigate('/security/audit-logs')}
+      >
+        <Activity className="w-4 h-4 mr-2" />
+        {t('security.auditLogs')}
+      </Button>
+      <Button
+        variant="secondary"
         onClick={() => setShowNotificationSettings(true)}
         disabled={!status.cerberus?.enabled}
       >

@@ -44,6 +44,7 @@ export interface ProxyHost {
   certificate?: Certificate | null;
   access_list_id?: number | null;
   security_header_profile_id?: number | null;
+  dns_provider_id?: number | null;
   security_header_profile?: {
     id: number;
     uuid: string;

@@ -12,8 +12,8 @@ ARG VCS_REF
 # avoid accidentally pulling a v3 major release. Renovate can still update
 # this ARG to a specific v2.x tag when desired.
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
-## If the requested tag isn't available, fall back to a known-good v2.10.2 build.
-ARG CADDY_VERSION=2.10.2
+## If the requested tag isn't available, fall back to a known-good v2.11.0-beta.2 build.
+ARG CADDY_VERSION=2.11.0-beta.2
 ## When an official caddy image tag isn't available on the host, use a
 ## plain Alpine base image and overwrite its caddy binary with our
 ## xcaddy-built binary in the later COPY step. This avoids relying on
@@ -141,10 +141,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # Renovate tracks these via regex manager in renovate.json
         # renovate: datasource=go depName=github.com/expr-lang/expr
         go get github.com/expr-lang/expr@v1.17.7; \
-        # renovate: datasource=go depName=github.com/quic-go/quic-go
-        go get github.com/quic-go/quic-go@v0.57.1; \
-        # renovate: datasource=go depName=github.com/smallstep/certificates
-        go get github.com/smallstep/certificates@v0.29.0; \
         # Clean up go.mod and ensure all dependencies are resolved
         go mod tidy; \
         echo "Dependencies patched successfully"; \
@@ -250,7 +246,7 @@ WORKDIR /app
 # su-exec is used for dropping privileges after Docker socket group setup
 # Explicitly upgrade c-ares to fix CVE-2025-62408
 # hadolint ignore=DL3018
-RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec \
+RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gettext su-exec libcap-utils \
     && apk --no-cache upgrade \
     && apk --no-cache upgrade c-ares
 
@@ -268,6 +264,9 @@ RUN mkdir -p /app/data/geoip && \
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
+
+# Allow non-root to bind privileged ports (80/443) securely
+RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
 # Copy CrowdSec binaries from the crowdsec-builder stage (built with Go 1.25.5+)
 # This ensures we don't have stdlib vulnerabilities from older Go versions
@@ -375,6 +374,8 @@ RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 # NOTE: The entrypoint script starts as root to handle Docker socket permissions,
 # then drops privileges to the charon user before starting applications.
 # This is necessary for Docker integration while maintaining security.
+
+USER charon
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

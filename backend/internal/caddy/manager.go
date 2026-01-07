@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -32,9 +33,31 @@ var (
 	validateConfigFunc = Validate
 )
 
+// DNSProviderConfig contains a DNS provider with its decrypted credentials
+// for use in Caddy DNS challenge configuration generation
+type DNSProviderConfig struct {
+	ID                 uint
+	ProviderType       string
+	PropagationTimeout int
+
+	// Single-credential mode: Use these credentials for all domains
+	Credentials map[string]string
+
+	// Multi-credential mode: Use zone-specific credentials
+	UseMultiCredentials bool
+	ZoneCredentials     map[string]map[string]string // map[baseDomain]credentials
+}
+
+// CaddyClient defines the interface for interacting with Caddy Admin API
+type CaddyClient interface {
+	Load(ctx context.Context, config *Config) error
+	Ping(ctx context.Context) error
+	GetConfig(ctx context.Context) (*Config, error)
+}
+
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
 type Manager struct {
-	client      *Client
+	client      CaddyClient
 	db          *gorm.DB
 	configDir   string
 	frontendDir string
@@ -43,7 +66,7 @@ type Manager struct {
 }
 
 // NewManager creates a configuration manager.
-func NewManager(client *Client, db *gorm.DB, configDir, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
+func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
 	return &Manager{
 		client:      client,
 		db:          db,
@@ -58,8 +81,156 @@ func NewManager(client *Client, db *gorm.DB, configDir, frontendDir string, acme
 func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Fetch all proxy hosts from database
 	var hosts []models.ProxyHost
-	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Find(&hosts).Error; err != nil {
+	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
+	}
+
+	// Fetch all DNS providers for DNS challenge configuration
+	var dnsProviders []models.DNSProvider
+	if err := m.db.Where("enabled = ?", true).Find(&dnsProviders).Error; err != nil {
+		logger.Log().WithError(err).Warn("failed to load DNS providers for config generation")
+	}
+
+	// Decrypt DNS provider credentials for config generation
+	// We need an encryption service to decrypt the credentials
+	var dnsProviderConfigs []DNSProviderConfig
+	if len(dnsProviders) > 0 {
+		// Try to get encryption key from environment
+		encryptionKey := os.Getenv("CHARON_ENCRYPTION_KEY")
+		if encryptionKey == "" {
+			// Try alternative env vars
+			for _, key := range []string{"ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
+				if val := os.Getenv(key); val != "" {
+					encryptionKey = val
+					break
+				}
+			}
+		}
+
+		if encryptionKey != "" {
+			// Import crypto package for inline decryption
+			encryptor, err := crypto.NewEncryptionService(encryptionKey)
+			if err != nil {
+				logger.Log().WithError(err).Warn("failed to initialize encryption service for DNS provider credentials")
+			} else {
+				// Decrypt each DNS provider's credentials
+				for _, provider := range dnsProviders {
+					// Skip if provider uses multi-credentials (will be handled in Phase 2)
+					if provider.UseMultiCredentials {
+						// Add to dnsProviderConfigs with empty Credentials for now
+						// Phase 2 will populate ZoneCredentials
+						dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
+							ID:                 provider.ID,
+							ProviderType:       provider.ProviderType,
+							PropagationTimeout: provider.PropagationTimeout,
+							Credentials:        nil, // Will be populated in Phase 2
+						})
+						continue
+					}
+
+					if provider.CredentialsEncrypted == "" {
+						continue
+					}
+
+					decryptedData, err := encryptor.Decrypt(provider.CredentialsEncrypted)
+					if err != nil {
+						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to decrypt DNS provider credentials")
+						continue
+					}
+
+					var credentials map[string]string
+					if err := json.Unmarshal(decryptedData, &credentials); err != nil {
+						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to parse DNS provider credentials")
+						continue
+					}
+
+					dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
+						ID:                 provider.ID,
+						ProviderType:       provider.ProviderType,
+						PropagationTimeout: provider.PropagationTimeout,
+						Credentials:        credentials,
+					})
+				}
+			}
+		} else {
+			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set, DNS challenge configuration will be skipped")
+		}
+	}
+
+	// Phase 2: Resolve zone-specific credentials for multi-credential providers
+	// For each provider with UseMultiCredentials=true, build a map of domain->credentials
+	// by iterating through all proxy hosts that use DNS challenge
+	for i := range dnsProviderConfigs {
+		cfg := &dnsProviderConfigs[i]
+
+		// Find the provider in the dnsProviders slice to check UseMultiCredentials
+		var provider *models.DNSProvider
+		for j := range dnsProviders {
+			if dnsProviders[j].ID == cfg.ID {
+				provider = &dnsProviders[j]
+				break
+			}
+		}
+
+		// Skip if not multi-credential mode or provider not found
+		if provider == nil || !provider.UseMultiCredentials {
+			continue
+		}
+
+		// Enable multi-credential mode for this provider config
+		cfg.UseMultiCredentials = true
+		cfg.ZoneCredentials = make(map[string]map[string]string)
+
+		// Preload credentials for this provider (eager loading for better logging)
+		if err := m.db.Preload("Credentials").First(provider, provider.ID).Error; err != nil {
+			logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to preload credentials for provider")
+			continue
+		}
+
+		// Iterate through proxy hosts to find domains that use this provider
+		for _, host := range hosts {
+			if !host.Enabled || host.DNSProviderID == nil || *host.DNSProviderID != provider.ID {
+				continue
+			}
+
+			// Extract base domain from host's domain names
+			baseDomain := extractBaseDomain(host.DomainNames)
+			if baseDomain == "" {
+				continue
+			}
+
+			// Skip if we already resolved credentials for this domain
+			if _, exists := cfg.ZoneCredentials[baseDomain]; exists {
+				continue
+			}
+
+			// Resolve the appropriate credential for this domain
+			credentials, err := m.getCredentialForDomain(provider.ID, baseDomain, provider)
+			if err != nil {
+				logger.Log().
+					WithError(err).
+					WithField("provider_id", provider.ID).
+					WithField("domain", baseDomain).
+					Warn("failed to resolve credential for domain, DNS challenge will be skipped for this domain")
+				continue
+			}
+
+			// Store resolved credentials for this domain
+			cfg.ZoneCredentials[baseDomain] = credentials
+
+			logger.Log().WithFields(map[string]any{
+				"provider_id":   provider.ID,
+				"provider_type": provider.ProviderType,
+				"domain":        baseDomain,
+			}).Debug("resolved credential for domain")
+		}
+
+		// Log summary of credential resolution for audit trail
+		logger.Log().WithFields(map[string]any{
+			"provider_id":      provider.ID,
+			"provider_type":    provider.ProviderType,
+			"domains_resolved": len(cfg.ZoneCredentials),
+		}).Info("multi-credential DNS provider resolution complete")
 	}
 
 	// Fetch ACME email setting
@@ -225,7 +396,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg)
+	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs)
 	if err != nil {
 		return fmt.Errorf("generate config: %w", err)
 	}

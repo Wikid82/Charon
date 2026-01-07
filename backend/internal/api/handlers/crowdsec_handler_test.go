@@ -1230,3 +1230,456 @@ func TestCrowdsecStart_LAPINotReadyTimeout(t *testing.T) {
 	require.False(t, resp["lapi_ready"].(bool))
 	require.Contains(t, resp, "warning")
 }
+
+// ============================================
+// Additional Coverage Tests
+// ============================================
+
+// fakeExecWithError returns an error for executor operations
+type fakeExecWithError struct {
+	statusError error
+	startError  error
+	stopError   error
+}
+
+func (f *fakeExecWithError) Start(ctx context.Context, binPath, configDir string) (int, error) {
+	if f.startError != nil {
+		return 0, f.startError
+	}
+	return 12345, nil
+}
+
+func (f *fakeExecWithError) Stop(ctx context.Context, configDir string) error {
+	return f.stopError
+}
+
+func (f *fakeExecWithError) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
+	if f.statusError != nil {
+		return false, 0, f.statusError
+	}
+	return true, 12345, nil
+}
+
+func TestCrowdsecHandler_Status_Error(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fe := &fakeExecWithError{statusError: errors.New("status check failed")}
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, fe, "/bin/false", t.TempDir())
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/status", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "status check failed")
+}
+
+func TestCrowdsecHandler_Start_ExecutorError(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fe := &fakeExecWithError{startError: errors.New("failed to start process")}
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, fe, "/bin/false", t.TempDir())
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "failed to start process")
+}
+
+func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := setupCrowdDB(t)
+	// Use a non-existent directory
+	nonExistentDir := "/tmp/crowdsec-nonexistent-test-" + t.Name()
+	os.RemoveAll(nonExistentDir)
+
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
+	// Remove any cache dir created during handler init so Export sees missing dir
+	_ = os.RemoveAll(nonExistentDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/export", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "crowdsec config not found")
+}
+
+func TestCrowdsecHandler_ReadFile_NotFound(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file?path=nonexistent.conf", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "not found")
+}
+
+func TestCrowdsecHandler_ReadFile_MissingPath(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/file", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "path required")
+}
+
+func TestCrowdsecHandler_ListDecisions_Success(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns valid JSON decisions
+	mockExec := &mockCmdExecutor{
+		output: []byte(`[{"id": 1, "origin": "cscli", "type": "ban", "scope": "ip", "value": "192.168.1.1", "duration": "24h", "scenario": "manual ban"}]`),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, float64(1), resp["total"])
+}
+
+func TestCrowdsecHandler_ListDecisions_Empty(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns null (no decisions)
+	mockExec := &mockCmdExecutor{
+		output: []byte("null\n"),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, float64(0), resp["total"])
+}
+
+func TestCrowdsecHandler_ListDecisions_CscliError(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns an error
+	mockExec := &mockCmdExecutor{
+		output: []byte("cscli not found"),
+		err:    errors.New("command failed"),
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Contains(t, w.Body.String(), "cscli not available")
+}
+
+func TestCrowdsecHandler_ListDecisions_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	// Mock executor that returns invalid JSON
+	mockExec := &mockCmdExecutor{
+		output: []byte("not valid json"),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/decisions", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "failed to parse")
+}
+
+func TestCrowdsecHandler_BanIP_Success(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte("Decision created"),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	body := `{"ip": "192.168.1.100", "duration": "1h", "reason": "test ban"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/ban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "banned", resp["status"])
+	require.Equal(t, "192.168.1.100", resp["ip"])
+}
+
+func TestCrowdsecHandler_BanIP_MissingIP(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	body := `{"duration": "1h"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/ban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "ip is required")
+}
+
+func TestCrowdsecHandler_BanIP_EmptyIP(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	body := `{"ip": "   "}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/ban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "cannot be empty")
+}
+
+func TestCrowdsecHandler_BanIP_DefaultDuration(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte("Decision created"),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	// No duration specified - should default to 24h
+	body := `{"ip": "192.168.1.100"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/ban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "24h", resp["duration"])
+}
+
+func TestCrowdsecHandler_UnbanIP_Success(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte("Decision deleted"),
+		err:    nil,
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "unbanned", resp["status"])
+}
+
+func TestCrowdsecHandler_UnbanIP_Error(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	mockExec := &mockCmdExecutor{
+		output: []byte("error"),
+		err:    errors.New("delete failed"),
+	}
+
+	db := setupCrowdDB(t)
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", t.TempDir())
+	h.CmdExec = mockExec
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/crowdsec/ban/192.168.1.100", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "failed to unban")
+}
+
+func TestCrowdsecHandler_GetCachedPreset_CerberusDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
+
+	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/test-slug", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "cerberus disabled")
+}
+
+func TestCrowdsecHandler_GetCachedPreset_HubUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+
+	h := NewCrowdsecHandler(OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
+	// Set Hub to nil to simulate unavailable
+	h.Hub = nil
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/test-slug", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "unavailable")
+}
+
+func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
+
+	db := OpenTestDB(t)
+	tmpDir := t.TempDir()
+	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/crowdsec/presets/cache/", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	// Empty slug should result in 404 (route not matched) or 400
+	require.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusBadRequest)
+}

@@ -14,6 +14,9 @@ import (
 // TestCerberusIntegration runs the scripts/cerberus_integration.sh
 // to verify all security features work together without conflicts.
 func TestCerberusIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

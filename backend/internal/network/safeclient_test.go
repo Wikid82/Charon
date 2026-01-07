@@ -10,6 +10,7 @@ import (
 )
 
 func TestIsPrivateIP(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		ip       string
@@ -56,7 +57,9 @@ func TestIsPrivateIP(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("failed to parse IP: %s", tt.ip)
@@ -70,6 +73,7 @@ func TestIsPrivateIP(t *testing.T) {
 }
 
 func TestIsPrivateIP_NilIP(t *testing.T) {
+	t.Parallel()
 	// nil IP should return true (block by default for safety)
 	result := IsPrivateIP(nil)
 	if result != true {
@@ -78,6 +82,7 @@ func TestIsPrivateIP_NilIP(t *testing.T) {
 }
 
 func TestSafeDialer_BlocksPrivateIPs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		address     string
@@ -91,7 +96,9 @@ func TestSafeDialer_BlocksPrivateIPs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			opts := &ClientOptions{
 				AllowLocalhost: false,
 				DialTimeout:    time.Second,
@@ -113,6 +120,7 @@ func TestSafeDialer_BlocksPrivateIPs(t *testing.T) {
 }
 
 func TestSafeDialer_AllowsLocalhost(t *testing.T) {
+	t.Parallel()
 	// Create a local test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -140,6 +148,7 @@ func TestSafeDialer_AllowsLocalhost(t *testing.T) {
 }
 
 func TestSafeDialer_AllowedDomains(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		AllowedDomains: []string{"app.crowdsec.net", "hub.crowdsec.net"},
@@ -166,6 +175,7 @@ func TestSafeDialer_AllowedDomains(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_DefaultOptions(t *testing.T) {
+	t.Parallel()
 	client := NewSafeHTTPClient()
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil")
@@ -176,6 +186,7 @@ func TestNewSafeHTTPClient_DefaultOptions(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_WithTimeout(t *testing.T) {
+	t.Parallel()
 	client := NewSafeHTTPClient(WithTimeout(10 * time.Second))
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil")
@@ -186,6 +197,10 @@ func TestNewSafeHTTPClient_WithTimeout(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_WithAllowLocalhost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	// Create a local test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -210,6 +225,10 @@ func TestNewSafeHTTPClient_WithAllowLocalhost(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_BlocksSSRF(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	client := NewSafeHTTPClient(
 		WithTimeout(2 * time.Second),
 	)
@@ -225,6 +244,7 @@ func TestNewSafeHTTPClient_BlocksSSRF(t *testing.T) {
 
 	for _, url := range urls {
 		t.Run(url, func(t *testing.T) {
+			t.Parallel()
 			resp, err := client.Get(url)
 			if err == nil {
 				defer resp.Body.Close()
@@ -235,6 +255,10 @@ func TestNewSafeHTTPClient_BlocksSSRF(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_WithMaxRedirects(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	redirectCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectCount++
@@ -260,6 +284,7 @@ func TestNewSafeHTTPClient_WithMaxRedirects(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_WithAllowedDomains(t *testing.T) {
+	t.Parallel()
 	client := NewSafeHTTPClient(
 		WithTimeout(2*time.Second),
 		WithAllowedDomains("example.com"),
@@ -274,6 +299,7 @@ func TestNewSafeHTTPClient_WithAllowedDomains(t *testing.T) {
 }
 
 func TestClientOptions_Defaults(t *testing.T) {
+	t.Parallel()
 	opts := defaultOptions()
 
 	if opts.Timeout != 10*time.Second {
@@ -288,6 +314,7 @@ func TestClientOptions_Defaults(t *testing.T) {
 }
 
 func TestWithDialTimeout(t *testing.T) {
+	t.Parallel()
 	client := NewSafeHTTPClient(WithDialTimeout(5 * time.Second))
 	if client == nil {
 		t.Fatal("NewSafeHTTPClient() returned nil")
@@ -331,6 +358,7 @@ func BenchmarkNewSafeHTTPClient(b *testing.B) {
 // Additional tests to increase coverage
 
 func TestSafeDialer_InvalidAddress(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -348,6 +376,7 @@ func TestSafeDialer_InvalidAddress(t *testing.T) {
 }
 
 func TestSafeDialer_LoopbackIPv6(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: true,
 		DialTimeout:    time.Second,
@@ -366,6 +395,7 @@ func TestSafeDialer_LoopbackIPv6(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_EmptyHostname(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -380,6 +410,7 @@ func TestValidateRedirectTarget_EmptyHostname(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_Localhost(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -401,6 +432,7 @@ func TestValidateRedirectTarget_Localhost(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_127(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -420,6 +452,7 @@ func TestValidateRedirectTarget_127(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_IPv6Loopback(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -439,6 +472,10 @@ func TestValidateRedirectTarget_IPv6Loopback(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_NoRedirectsByDefault(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.Redirect(w, r, "/redirected", http.StatusFound)
@@ -466,6 +503,7 @@ func TestNewSafeHTTPClient_NoRedirectsByDefault(t *testing.T) {
 }
 
 func TestIsPrivateIP_IPv4MappedIPv6(t *testing.T) {
+	t.Parallel()
 	// Test IPv4-mapped IPv6 addresses
 	tests := []struct {
 		name     string
@@ -478,7 +516,9 @@ func TestIsPrivateIP_IPv4MappedIPv6(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("failed to parse IP: %s", tt.ip)
@@ -492,6 +532,7 @@ func TestIsPrivateIP_IPv4MappedIPv6(t *testing.T) {
 }
 
 func TestIsPrivateIP_Multicast(t *testing.T) {
+	t.Parallel()
 	// Test multicast addresses
 	tests := []struct {
 		name     string
@@ -503,7 +544,9 @@ func TestIsPrivateIP_Multicast(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("failed to parse IP: %s", tt.ip)
@@ -517,6 +560,7 @@ func TestIsPrivateIP_Multicast(t *testing.T) {
 }
 
 func TestIsPrivateIP_Unspecified(t *testing.T) {
+	t.Parallel()
 	// Test unspecified addresses
 	tests := []struct {
 		name     string
@@ -528,7 +572,9 @@ func TestIsPrivateIP_Unspecified(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("failed to parse IP: %s", tt.ip)
@@ -544,6 +590,7 @@ func TestIsPrivateIP_Unspecified(t *testing.T) {
 // Phase 1 Coverage Improvement Tests
 
 func TestValidateRedirectTarget_DNSFailure(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    100 * time.Millisecond, // Short timeout to force DNS failure quickly
@@ -562,6 +609,7 @@ func TestValidateRedirectTarget_DNSFailure(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_PrivateIPInRedirect(t *testing.T) {
+	t.Parallel()
 	// Test that redirects to private IPs are properly blocked
 	opts := &ClientOptions{
 		AllowLocalhost: false,
@@ -578,6 +626,7 @@ func TestValidateRedirectTarget_PrivateIPInRedirect(t *testing.T) {
 
 	for _, url := range privateHosts {
 		t.Run(url, func(t *testing.T) {
+			t.Parallel()
 			req, _ := http.NewRequest("GET", url, http.NoBody)
 			err := validateRedirectTarget(req, opts)
 			if err == nil {
@@ -588,6 +637,7 @@ func TestValidateRedirectTarget_PrivateIPInRedirect(t *testing.T) {
 }
 
 func TestSafeDialer_AllIPsPrivate(t *testing.T) {
+	t.Parallel()
 	// Test that when all resolved IPs are private, the connection is blocked
 	opts := &ClientOptions{
 		AllowLocalhost: false,
@@ -608,6 +658,7 @@ func TestSafeDialer_AllIPsPrivate(t *testing.T) {
 
 	for _, addr := range privateAddresses {
 		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
 			conn, err := dialer(ctx, "tcp", addr)
 			if err == nil {
 				conn.Close()
@@ -618,6 +669,10 @@ func TestSafeDialer_AllIPsPrivate(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_RedirectToPrivateIP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	// Create a server that redirects to a private IP
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
@@ -645,6 +700,7 @@ func TestNewSafeHTTPClient_RedirectToPrivateIP(t *testing.T) {
 }
 
 func TestSafeDialer_DNSResolutionFailure(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    100 * time.Millisecond,
@@ -665,6 +721,7 @@ func TestSafeDialer_DNSResolutionFailure(t *testing.T) {
 }
 
 func TestSafeDialer_NoIPsReturned(t *testing.T) {
+	t.Parallel()
 	// This tests the edge case where DNS returns no IP addresses
 	// In practice this is rare, but we need to handle it
 	opts := &ClientOptions{
@@ -684,6 +741,10 @@ func TestSafeDialer_NoIPsReturned(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_TooManyRedirects(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	redirectCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectCount++
@@ -711,6 +772,7 @@ func TestNewSafeHTTPClient_TooManyRedirects(t *testing.T) {
 }
 
 func TestValidateRedirectTarget_AllowedLocalhost(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: true,
 		DialTimeout:    time.Second,
@@ -725,6 +787,7 @@ func TestValidateRedirectTarget_AllowedLocalhost(t *testing.T) {
 
 	for _, url := range localhostURLs {
 		t.Run(url, func(t *testing.T) {
+			t.Parallel()
 			req, _ := http.NewRequest("GET", url, http.NoBody)
 			err := validateRedirectTarget(req, opts)
 			if err != nil {
@@ -735,6 +798,10 @@ func TestValidateRedirectTarget_AllowedLocalhost(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_MetadataEndpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	// Test that cloud metadata endpoints are blocked
 	client := NewSafeHTTPClient(
 		WithTimeout(2 * time.Second),
@@ -751,6 +818,7 @@ func TestNewSafeHTTPClient_MetadataEndpoint(t *testing.T) {
 }
 
 func TestSafeDialer_IPv4MappedIPv6(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    time.Second,
@@ -768,6 +836,7 @@ func TestSafeDialer_IPv4MappedIPv6(t *testing.T) {
 }
 
 func TestClientOptions_AllFunctionalOptions(t *testing.T) {
+	t.Parallel()
 	// Test all functional options together
 	client := NewSafeHTTPClient(
 		WithTimeout(15*time.Second),
@@ -786,6 +855,7 @@ func TestClientOptions_AllFunctionalOptions(t *testing.T) {
 }
 
 func TestSafeDialer_ContextCancelled(t *testing.T) {
+	t.Parallel()
 	opts := &ClientOptions{
 		AllowLocalhost: false,
 		DialTimeout:    5 * time.Second,
@@ -803,6 +873,10 @@ func TestSafeDialer_ContextCancelled(t *testing.T) {
 }
 
 func TestNewSafeHTTPClient_RedirectValidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
 	// Server that redirects to itself (valid redirect)
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

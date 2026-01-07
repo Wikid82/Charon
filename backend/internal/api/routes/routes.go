@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -65,6 +66,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.UserPermittedHost{}, // Join table for user permissions
 		&models.CrowdsecPresetEvent{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.DNSProvider{},
+		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
+		&models.Plugin{},                // Phase 5: DNS provider plugins
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -180,6 +184,12 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/security/notifications/settings", securityNotificationHandler.GetSettings)
 		protected.PUT("/security/notifications/settings", securityNotificationHandler.UpdateSettings)
 
+		// Audit Logs
+		securityService := services.NewSecurityService(db)
+		auditLogHandler := handlers.NewAuditLogHandler(securityService)
+		protected.GET("/audit-logs", auditLogHandler.List)
+		protected.GET("/audit-logs/:uuid", auditLogHandler.Get)
+
 		// Settings
 		settingsHandler := handlers.NewSettingsHandler(db)
 		protected.GET("/settings", settingsHandler.GetSettings)
@@ -239,6 +249,73 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		protected.GET("/domains", domainHandler.List)
 		protected.POST("/domains", domainHandler.Create)
 		protected.DELETE("/domains/:id", domainHandler.Delete)
+
+		// DNS Providers - only available if encryption key is configured
+		if cfg.EncryptionKey != "" {
+			encryptionService, err := crypto.NewEncryptionService(cfg.EncryptionKey)
+			if err != nil {
+				logger.Log().WithError(err).Error("Failed to initialize encryption service - DNS provider features will be unavailable")
+			} else {
+				dnsProviderService := services.NewDNSProviderService(db, encryptionService)
+				dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
+				protected.GET("/dns-providers", dnsProviderHandler.List)
+				protected.POST("/dns-providers", dnsProviderHandler.Create)
+				protected.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
+				protected.GET("/dns-providers/:id", dnsProviderHandler.Get)
+				protected.PUT("/dns-providers/:id", dnsProviderHandler.Update)
+				protected.DELETE("/dns-providers/:id", dnsProviderHandler.Delete)
+				protected.POST("/dns-providers/:id/test", dnsProviderHandler.Test)
+				protected.POST("/dns-providers/test", dnsProviderHandler.TestCredentials)
+				// Audit logs for DNS providers
+				protected.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+
+				// DNS Provider Auto-Detection (Phase 4)
+				dnsDetectionService := services.NewDNSDetectionService(db)
+				dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
+				protected.POST("/dns-providers/detect", dnsDetectionHandler.Detect)
+				protected.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
+
+				// Multi-Credential Management (Phase 3)
+				credentialService := services.NewCredentialService(db, encryptionService)
+				credentialHandler := handlers.NewCredentialHandler(credentialService)
+				protected.GET("/dns-providers/:id/credentials", credentialHandler.List)
+				protected.POST("/dns-providers/:id/credentials", credentialHandler.Create)
+				protected.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
+				protected.PUT("/dns-providers/:id/credentials/:cred_id", credentialHandler.Update)
+				protected.DELETE("/dns-providers/:id/credentials/:cred_id", credentialHandler.Delete)
+				protected.POST("/dns-providers/:id/credentials/:cred_id/test", credentialHandler.Test)
+				protected.POST("/dns-providers/:id/enable-multi-credentials", credentialHandler.EnableMultiCredentials)
+
+				// Encryption Management - Admin only endpoints
+				rotationService, rotErr := crypto.NewRotationService(db)
+				if rotErr != nil {
+					logger.Log().WithError(rotErr).Warn("Failed to initialize rotation service - key rotation features will be unavailable")
+				} else {
+					encryptionHandler := handlers.NewEncryptionHandler(rotationService, securityService)
+					adminEncryption := protected.Group("/admin/encryption")
+					adminEncryption.GET("/status", encryptionHandler.GetStatus)
+					adminEncryption.POST("/rotate", encryptionHandler.Rotate)
+					adminEncryption.GET("/history", encryptionHandler.GetHistory)
+					adminEncryption.POST("/validate", encryptionHandler.Validate)
+				}
+
+				// Plugin Management (Phase 5) - Admin only endpoints
+				pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
+				if pluginDir == "" {
+					pluginDir = "/app/plugins"
+				}
+				pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
+				pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
+				adminPlugins := protected.Group("/admin/plugins")
+				adminPlugins.GET("", pluginHandler.ListPlugins)
+				adminPlugins.GET("/:id", pluginHandler.GetPlugin)
+				adminPlugins.POST("/:id/enable", pluginHandler.EnablePlugin)
+				adminPlugins.POST("/:id/disable", pluginHandler.DisablePlugin)
+				adminPlugins.POST("/reload", pluginHandler.ReloadPlugins)
+			}
+		} else {
+			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
+		}
 
 		// Docker
 		dockerService, err := services.NewDockerService()

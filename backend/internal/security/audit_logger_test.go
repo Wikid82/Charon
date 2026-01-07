@@ -9,6 +9,7 @@ import (
 
 // TestAuditEvent_JSONSerialization tests that audit events serialize correctly to JSON.
 func TestAuditEvent_JSONSerialization(t *testing.T) {
+	t.Parallel()
 	event := AuditEvent{
 		Timestamp:     "2025-12-31T12:00:00Z",
 		Action:        "url_validation",
@@ -60,6 +61,7 @@ func TestAuditEvent_JSONSerialization(t *testing.T) {
 
 // TestAuditLogger_LogURLValidation tests audit logging of URL validation events.
 func TestAuditLogger_LogURLValidation(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger()
 
 	event := AuditEvent{
@@ -87,6 +89,7 @@ func TestAuditLogger_LogURLValidation(t *testing.T) {
 
 // TestAuditLogger_LogURLTest tests the convenience method for URL tests.
 func TestAuditLogger_LogURLTest(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger()
 
 	// Should not panic
@@ -95,6 +98,7 @@ func TestAuditLogger_LogURLTest(t *testing.T) {
 
 // TestAuditLogger_LogSSRFBlock tests the convenience method for SSRF blocks.
 func TestAuditLogger_LogSSRFBlock(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger()
 
 	resolvedIPs := []string{"10.0.0.1", "192.168.1.1"}
@@ -105,6 +109,7 @@ func TestAuditLogger_LogSSRFBlock(t *testing.T) {
 
 // TestGlobalAuditLogger tests the global audit logger functions.
 func TestGlobalAuditLogger(t *testing.T) {
+	t.Parallel()
 	// Test global functions don't panic
 	LogURLTest("test.com", "req-global", "user-global", "192.0.2.10", "allowed")
 	LogSSRFBlock("blocked.local", []string{"127.0.0.1"}, "loopback", "user-global", "198.51.100.10")
@@ -112,6 +117,7 @@ func TestGlobalAuditLogger(t *testing.T) {
 
 // TestAuditEvent_RequiredFields tests that required fields are enforced.
 func TestAuditEvent_RequiredFields(t *testing.T) {
+	t.Parallel()
 	// CRITICAL: UserID field must be present for attribution
 	event := AuditEvent{
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
@@ -138,6 +144,7 @@ func TestAuditEvent_RequiredFields(t *testing.T) {
 
 // TestAuditLogger_TimestampFormat tests that timestamps use RFC3339 format.
 func TestAuditLogger_TimestampFormat(t *testing.T) {
+	t.Parallel()
 	logger := NewAuditLogger()
 
 	event := AuditEvent{

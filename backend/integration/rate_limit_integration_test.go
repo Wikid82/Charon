@@ -20,6 +20,9 @@ import (
 // - Requests exceeding the limit return HTTP 429
 // - Rate limit window resets correctly
 func TestRateLimitIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	// Set a timeout for the entire test (rate limit tests need time for window resets)

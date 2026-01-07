@@ -36,12 +36,30 @@ cd "${PROJECT_ROOT}/backend"
 # Execute tests
 log_step "EXECUTION" "Running backend unit tests"
 
-# Run go test with all passed arguments
-if go test "$@" ./...; then
-    log_success "Backend unit tests passed"
-    exit 0
+# Check if short mode is enabled
+SHORT_FLAG=""
+if [[ "${CHARON_TEST_SHORT:-false}" == "true" ]]; then
+    SHORT_FLAG="-short"
+    log_info "Running in short mode (skipping integration and heavy network tests)"
+fi
+
+# Run tests with gotestsum if available, otherwise fall back to go test
+if command -v gotestsum &> /dev/null; then
+    if gotestsum --format pkgname -- $SHORT_FLAG "$@" ./...; then
+        log_success "Backend unit tests passed"
+        exit 0
+    else
+        exit_code=$?
+        log_error "Backend unit tests failed (exit code: ${exit_code})"
+        exit "${exit_code}"
+    fi
 else
-    exit_code=$?
-    log_error "Backend unit tests failed (exit code: ${exit_code})"
-    exit "${exit_code}"
+    if go test $SHORT_FLAG "$@" ./...; then
+        log_success "Backend unit tests passed"
+        exit 0
+    else
+        exit_code=$?
+        log_error "Backend unit tests failed (exit code: ${exit_code})"
+        exit "${exit_code}"
+    fi
 fi
