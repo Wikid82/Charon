@@ -68,15 +68,41 @@ func main() {
 				log.Fatalf("connect database: %v", err)
 			}
 
-			logger.Log().Info("Running database migrations for security tables...")
+			logger.Log().Info("Running database migrations for all models...")
 			if err := db.AutoMigrate(
+				// Core models
+				&models.ProxyHost{},
+				&models.Location{},
+				&models.CaddyConfig{},
+				&models.RemoteServer{},
+				&models.SSLCertificate{},
+				&models.AccessList{},
+				&models.SecurityHeaderProfile{},
+				&models.User{},
+				&models.Setting{},
+				&models.ImportSession{},
+				&models.Notification{},
+				&models.NotificationProvider{},
+				&models.NotificationTemplate{},
+				&models.NotificationConfig{},
+				&models.UptimeMonitor{},
+				&models.UptimeHeartbeat{},
+				&models.UptimeHost{},
+				&models.UptimeNotificationEvent{},
+				&models.Domain{},
+				&models.UserPermittedHost{},
+				// Security models
 				&models.SecurityConfig{},
 				&models.SecurityDecision{},
 				&models.SecurityAudit{},
 				&models.SecurityRuleSet{},
 				&models.CrowdsecPresetEvent{},
 				&models.CrowdsecConsoleEnrollment{},
-				&models.Plugin{}, // Add Plugin model for Phase 5
+				// DNS Provider models (Issue #21)
+				&models.DNSProvider{},
+				&models.DNSProviderCredential{},
+				// Plugin model (Phase 5)
+				&models.Plugin{},
 			); err != nil {
 				log.Fatalf("migration failed: %v", err)
 			}
@@ -135,33 +161,9 @@ func main() {
 		log.Fatalf("connect database: %v", err)
 	}
 
-	// Verify critical security tables exist before starting server
-	// This prevents silent failures in CrowdSec reconciliation
-	securityModels := []any{
-		&models.SecurityConfig{},
-		&models.SecurityDecision{},
-		&models.SecurityAudit{},
-		&models.SecurityRuleSet{},
-		&models.CrowdsecPresetEvent{},
-		&models.CrowdsecConsoleEnrollment{},
-		&models.Plugin{}, // Add Plugin model for Phase 5
-	}
-
-	missingTables := false
-	for _, model := range securityModels {
-		if !db.Migrator().HasTable(model) {
-			missingTables = true
-			logger.Log().Warnf("Missing security table for model %T - running migration", model)
-		}
-	}
-
-	if missingTables {
-		logger.Log().Warn("Security tables missing - running auto-migration")
-		if err := db.AutoMigrate(securityModels...); err != nil {
-			log.Fatalf("failed to migrate security tables: %v", err)
-		}
-		logger.Log().Info("Security tables migrated successfully")
-	}
+	// Note: All database migrations are centralized in routes.Register()
+	// This ensures migrations run exactly once and in the correct order.
+	// DO NOT add AutoMigrate calls here - they cause "duplicate column" errors.
 
 	// Reconcile CrowdSec state after migrations, before HTTP server starts
 	// This ensures CrowdSec is running if user preference was to have it enabled
