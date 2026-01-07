@@ -35,6 +35,7 @@ const UsersPage = lazy(() => import('./pages/UsersPage'))
 const SecurityHeaders = lazy(() => import('./pages/SecurityHeaders'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
 const EncryptionManagement = lazy(() => import('./pages/EncryptionManagement'))
+const Plugins = lazy(() => import('./pages/Plugins'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="admin/plugins" element={<Plugins />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}

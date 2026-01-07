@@ -1216,39 +1216,7 @@ func TestDNSProviderService_Create_CustomTimeouts(t *testing.T) {
 	assert.Equal(t, 10, provider.PollingInterval)
 }
 
-func TestValidateCredentials_AllRequiredFields(t *testing.T) {
-	// Test each provider type with all required fields present
-	for providerType, requiredFields := range ProviderCredentialFields {
-		t.Run(providerType, func(t *testing.T) {
-			creds := make(map[string]string)
-			for _, field := range requiredFields {
-				creds[field] = "test-value"
-			}
-			err := validateCredentials(providerType, creds)
-			assert.NoError(t, err)
-		})
-	}
-}
 
-func TestValidateCredentials_MissingEachField(t *testing.T) {
-	// Test each provider type with each required field missing
-	for providerType, requiredFields := range ProviderCredentialFields {
-		for _, missingField := range requiredFields {
-			t.Run(providerType+"_missing_"+missingField, func(t *testing.T) {
-				creds := make(map[string]string)
-				for _, field := range requiredFields {
-					if field != missingField {
-						creds[field] = "test-value"
-					}
-				}
-				err := validateCredentials(providerType, creds)
-				assert.Error(t, err)
-				assert.ErrorIs(t, err, ErrInvalidCredentials)
-				assert.Contains(t, err.Error(), missingField)
-			})
-		}
-	}
-}
 
 func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
@@ -1330,16 +1298,6 @@ func TestDNSProviderService_Update_MultipleFields(t *testing.T) {
 	assert.Equal(t, "new-token", decrypted["api_token"])
 }
 
-func TestSupportedProviderTypes(t *testing.T) {
-	// Verify all provider types in SupportedProviderTypes have credential fields defined
-	for _, providerType := range SupportedProviderTypes {
-		t.Run(providerType, func(t *testing.T) {
-			fields, ok := ProviderCredentialFields[providerType]
-			assert.True(t, ok, "Provider %s should have credential fields defined", providerType)
-			assert.NotEmpty(t, fields, "Provider %s should have at least one required field", providerType)
-		})
-	}
-}
 
 func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)

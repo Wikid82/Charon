@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
-
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
@@ -132,6 +132,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			// **CHANGED: Multi-credential support**
 			// If provider uses multi-credentials, create separate policies per domain
 			if dnsConfig.UseMultiCredentials && len(dnsConfig.ZoneCredentials) > 0 {
+				// Get provider plugin from registry
+				provider, ok := dnsprovider.Global().Get(dnsConfig.ProviderType)
+				if !ok {
+					logger.Log().WithField("provider_type", dnsConfig.ProviderType).Warn("DNS provider type not found in registry")
+					continue
+				}
+
 				// Create a separate TLS automation policy for each domain with its own credentials
 				for baseDomain, credentials := range dnsConfig.ZoneCredentials {
 					// Find all domains that match this base domain
@@ -146,13 +153,16 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 						continue // No domains for this credential
 					}
 
-					// Build provider config with zone-specific credentials
-					providerConfig := map[string]any{
-						"name": dnsConfig.ProviderType,
+					// Build provider config using registry plugin
+					var providerConfig map[string]any
+					if provider.SupportsMultiCredential() {
+						providerConfig = provider.BuildCaddyConfigForZone(baseDomain, credentials)
+					} else {
+						providerConfig = provider.BuildCaddyConfig(credentials)
 					}
-					for key, value := range credentials {
-						providerConfig[key] = value
-					}
+
+					// Get propagation timeout from provider
+					propagationTimeout := int64(provider.PropagationTimeout().Seconds())
 
 					// Build issuer config with these credentials
 					var issuers []any
@@ -164,7 +174,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 							"challenges": map[string]any{
 								"dns": map[string]any{
 									"provider":            providerConfig,
-									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+									"propagation_timeout": propagationTimeout * 1_000_000_000,
 								},
 							},
 						}
@@ -178,7 +188,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 							"challenges": map[string]any{
 								"dns": map[string]any{
 									"provider":            providerConfig,
-									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+									"propagation_timeout": propagationTimeout * 1_000_000_000,
 								},
 							},
 						})
@@ -189,7 +199,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 							"challenges": map[string]any{
 								"dns": map[string]any{
 									"provider":            providerConfig,
-									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+									"propagation_timeout": propagationTimeout * 1_000_000_000,
 								},
 							},
 						}
@@ -202,7 +212,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 							"challenges": map[string]any{
 								"dns": map[string]any{
 									"provider":            providerConfig,
-									"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+									"propagation_timeout": propagationTimeout * 1_000_000_000,
 								},
 							},
 						})
@@ -227,15 +237,18 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 
 			// **ORIGINAL: Single-credential mode (backward compatible)**
-			// Build provider config for Caddy with decrypted credentials
-			providerConfig := map[string]any{
-				"name": dnsConfig.ProviderType,
+			// Get provider plugin from registry
+			provider, ok := dnsprovider.Global().Get(dnsConfig.ProviderType)
+			if !ok {
+				logger.Log().WithField("provider_type", dnsConfig.ProviderType).Warn("DNS provider type not found in registry")
+				continue
 			}
 
-			// Add all credential fields to the provider config
-			for key, value := range dnsConfig.Credentials {
-				providerConfig[key] = value
-			}
+			// Build provider config using registry plugin
+			providerConfig := provider.BuildCaddyConfig(dnsConfig.Credentials)
+
+			// Get propagation timeout from provider
+			propagationTimeout := int64(provider.PropagationTimeout().Seconds())
 
 			// Create DNS challenge issuer
 			var issuers []any
@@ -247,7 +260,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					"challenges": map[string]any{
 						"dns": map[string]any{
 							"provider":            providerConfig,
-							"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000, // convert seconds to nanoseconds
+							"propagation_timeout": propagationTimeout * 1_000_000_000, // convert seconds to nanoseconds
 						},
 					},
 				}
@@ -262,7 +275,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					"challenges": map[string]any{
 						"dns": map[string]any{
 							"provider":            providerConfig,
-							"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+							"propagation_timeout": propagationTimeout * 1_000_000_000,
 						},
 					},
 				})
@@ -273,7 +286,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					"challenges": map[string]any{
 						"dns": map[string]any{
 							"provider":            providerConfig,
-							"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+							"propagation_timeout": propagationTimeout * 1_000_000_000,
 						},
 					},
 				}
@@ -286,7 +299,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					"challenges": map[string]any{
 						"dns": map[string]any{
 							"provider":            providerConfig,
-							"propagation_timeout": int64(dnsConfig.PropagationTimeout) * 1_000_000_000,
+							"propagation_timeout": propagationTimeout * 1_000_000_000,
 						},
 					},
 				})

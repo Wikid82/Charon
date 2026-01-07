@@ -68,6 +68,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.CrowdsecConsoleEnrollment{},
 		&models.DNSProvider{},
 		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
+		&models.Plugin{},                // Phase 5: DNS provider plugins
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -297,7 +298,23 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 					adminEncryption.GET("/history", encryptionHandler.GetHistory)
 					adminEncryption.POST("/validate", encryptionHandler.Validate)
 				}
+
+				// Plugin Management (Phase 5) - Admin only endpoints
+				pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
+				if pluginDir == "" {
+					pluginDir = "/app/plugins"
+				}
+				pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
+				pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
+				adminPlugins := protected.Group("/admin/plugins")
+				adminPlugins.GET("", pluginHandler.ListPlugins)
+				adminPlugins.GET("/:id", pluginHandler.GetPlugin)
+				adminPlugins.POST("/:id/enable", pluginHandler.EnablePlugin)
+				adminPlugins.POST("/:id/disable", pluginHandler.DisablePlugin)
+				adminPlugins.POST("/reload", pluginHandler.ReloadPlugins)
 			}
+		} else {
+			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
 		}
 
 		// Docker
