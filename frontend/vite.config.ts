@@ -36,44 +36,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Increase chunk size warning limit to 600KB (reasonable for modern networks)
-    chunkSizeWarningLimit: 600,
-    // Code splitting for better caching and parallel loading
+    // TEMPORARY: Disable code splitting to diagnose React initialization issue
+    // If this works, the problem is module loading order in async chunks
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        manualChunks: (id) => {
-          // React core - changes rarely
-          if (id.includes('node_modules/react') ||
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/react-router')) {
-            return 'react-vendor'
-          }
-
-          // TanStack Query - changes rarely
-          if (id.includes('node_modules/@tanstack/react-query')) {
-            return 'query'
-          }
-
-          // Radix UI components - large and stable
-          if (id.includes('node_modules/@radix-ui')) {
-            return 'radix-ui'
-          }
-
-          // Recharts for dashboard - large but used infrequently
-          if (id.includes('node_modules/recharts')) {
-            return 'recharts'
-          }
-
-          // Icons - large but cacheable
-          if (id.includes('node_modules/lucide-react')) {
-            return 'icons'
-          }
-
-          // All other node_modules into vendor chunk
-          if (id.includes('node_modules')) {
-            return 'vendor'
-          }
-        }
+        // Disable code splitting - bundle everything into one file
+        manualChunks: undefined,
+        inlineDynamicImports: true
       }
     }
   }
