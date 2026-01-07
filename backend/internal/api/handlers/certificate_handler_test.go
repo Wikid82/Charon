@@ -37,7 +37,6 @@ func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	r.Use(mockAuthMiddleware())
 
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
