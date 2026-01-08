@@ -35,16 +35,16 @@ func TestPluginHandler_ListPlugins(t *testing.T) {
 
 	// Create a failed plugin in DB
 	failedPlugin := models.Plugin{
-		UUID:      "plugin-uuid-1",
-		Name:      "Failed Plugin",
-		Type:      "failed-type",
-		Enabled:   false,
-		Status:    models.PluginStatusError,
-		Error:     "Failed to load",
-		Version:   "1.0.0",
-		Author:    "Test Author",
-		FilePath:  "/path/to/plugin.so",
-		LoadedAt:  nil,
+		UUID:     "plugin-uuid-1",
+		Name:     "Failed Plugin",
+		Type:     "failed-type",
+		Enabled:  false,
+		Status:   models.PluginStatusError,
+		Error:    "Failed to load",
+		Version:  "1.0.0",
+		Author:   "Test Author",
+		FilePath: "/path/to/plugin.so",
+		LoadedAt: nil,
 	}
 	db.Create(&failedPlugin)
 
@@ -301,7 +301,7 @@ func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
 	responseBody := w.Body.String()
 	assert.True(t,
 		strings.Contains(responseBody, "already disabled") ||
-		strings.Contains(responseBody, "disabled successfully"),
+			strings.Contains(responseBody, "disabled successfully"),
 		"Expected message about already disabled or successful disable, got: %s", responseBody)
 }
 
@@ -649,8 +649,8 @@ func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
 	// since the plugin is enabled in DB regardless of load success
 	assert.True(t,
 		strings.Contains(responseBody, "enabled but failed to load") ||
-		strings.Contains(responseBody, "enabled successfully") ||
-		strings.Contains(responseBody, "already enabled"),
+			strings.Contains(responseBody, "enabled successfully") ||
+			strings.Contains(responseBody, "already enabled"),
 		"Expected success or load failure message, got: %s", responseBody)
 
 	// Verify database was updated
