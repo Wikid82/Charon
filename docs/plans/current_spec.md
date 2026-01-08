@@ -1,503 +1,448 @@
-# DNS Routes Implementation Plan
+# Plan: Add CHARON_ENCRYPTION_KEY to Docker Compose Files and README
 
-**Last Updated:** January 8, 2026
-**Status:** 🟡 READY FOR IMPLEMENTATION
-**Priority:** P1 - Navigation broken
-
----
-
-## Problem Statement
-
-The `Layout.tsx` navigation was updated to include a DNS menu with children:
-- `/dns` (parent)
-- `/dns/providers`
-- `/dns/plugins`
-
-However, no corresponding routes were added to `App.tsx`, causing React Router errors:
-```
-No routes matched location "/dns/providers"
-No routes matched location "/dns/plugins"
-No routes matched location "/dns/"
-```
+**Created:** January 8, 2026
+**Status:** 🟢 READY FOR IMPLEMENTATION
+**Priority:** P1 - Security Enhancement
 
 ---
 
-## Current State Analysis
+## Overview
 
-### Layout.tsx Navigation (Lines 64-69)
-```tsx
-{ name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
-  { name: t('navigation.dnsProviders'), path: '/dns/providers', icon: '🧭' },
-  { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
-] },
+Add the `CHARON_ENCRYPTION_KEY` environment variable to all Docker Compose files and update README.md documentation examples. This variable is required for encrypting sensitive data at rest.
+
+---
+
+## Files to Modify
+
+| # | File Path | Has Charon Service | Needs Update |
+|---|-----------|-------------------|--------------|
+| 1 | `.docker/compose/docker-compose.yml` | ✅ Yes | ✅ Yes |
+| 2 | `.docker/compose/docker-compose.dev.yml` | ✅ Yes (as `app`) | ✅ Yes |
+| 3 | `.docker/compose/docker-compose.local.yml` | ✅ Yes | ✅ Yes |
+| 4 | `.docker/compose/docker-compose.remote.yml` | ❌ No (docker-socket-proxy only) | ❌ No |
+| 5 | `docker-compose.test.yml` (root) | ✅ Yes | ✅ Yes |
+| 6 | `README.md` | N/A (documentation) | ✅ Yes |
+| 7 | `.docker/compose/README.md` | N/A (documentation) | ❌ No (no env examples) |
+
+**Note:** `docker-compose.remote.yml` only contains the `docker-socket-proxy` service for remote Docker socket access. It does NOT run Charon itself, so no environment variable is needed.
+
+---
+
+## Detailed Changes
+
+### 1. `.docker/compose/docker-compose.yml`
+
+**Current environment section (lines 10-35):**
+```yaml
+    environment:
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      ...
 ```
 
-### App.tsx Current Routes (Lines 64-66)
-The DNS-related route currently exists as:
-```tsx
-<Route path="dns-providers" element={<DNSProviders />} />
+**Insert after:** `- TZ=UTC # Set timezone (e.g., America/New_York)` (line 12)
+
+**Snippet to add:**
+```yaml
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
 ```
 
-### Existing Page Components
-| Component | Path | Status |
-|-----------|------|--------|
-| `DNSProviders.tsx` | `/pages/DNSProviders.tsx` | ✅ Exists |
-| `Plugins.tsx` | `/pages/Plugins.tsx` | ✅ Exists |
-
-### Pattern Reference: Nested Routes
-
-**Settings Pattern** (Lines 79-87 in App.tsx):
-```tsx
-<Route path="settings" element={<Settings />}>
-  <Route index element={<SystemSettings />} />
-  <Route path="system" element={<SystemSettings />} />
-  <Route path="notifications" element={<Notifications />} />
-  <Route path="smtp" element={<SMTPSettings />} />
-  <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
-  <Route path="account" element={<Account />} />
-  <Route path="account-management" element={<UsersPage />} />
-</Route>
-```
-
-**Settings.tsx Structure**:
-- Uses `<Outlet />` to render child routes
-- Provides tab navigation UI for child pages
-- Wraps content in `PageShell` component
-
-**Tasks Pattern** (Lines 89-98 in App.tsx):
-```tsx
-<Route path="tasks" element={<Tasks />}>
-  <Route index element={<Backups />} />
-  <Route path="backups" element={<Backups />} />
-  <Route path="logs" element={<Logs />} />
-  <Route path="import">
-    <Route path="caddyfile" element={<ImportCaddy />} />
-    <Route path="crowdsec" element={<ImportCrowdSec />} />
-  </Route>
-</Route>
+**Full context for edit:**
+```yaml
+    environment:
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
 ```
 
 ---
 
-## Implementation Plan
+### 2. `.docker/compose/docker-compose.dev.yml`
 
-### Phase 1: Create DNS Parent Page
+**Current environment section (lines 13-25):**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CPM_ENV=development
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      - CHARON_DB_PATH=/app/data/charon.db
+      ...
+```
 
-**File**: `frontend/src/pages/DNS.tsx` (NEW)
+**Insert after:** `- CPM_HTTP_PORT=80` (line 17)
 
-```tsx
-import { Link, Outlet, useLocation } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { PageShell } from '../components/layout/PageShell'
-import { cn } from '../utils/cn'
-import { Cloud, Puzzle } from 'lucide-react'
+**Snippet to add:**
+```yaml
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+```
 
-export default function DNS() {
-  const { t } = useTranslation()
-  const location = useLocation()
-
-  const isActive = (path: string) => location.pathname === path
-
-  const navItems = [
-    { path: '/dns/providers', label: t('navigation.dnsProviders'), icon: Cloud },
-    { path: '/dns/plugins', label: t('navigation.plugins'), icon: Puzzle },
-  ]
-
-  return (
-    <PageShell
-      title={t('dns.title')}
-      description={t('dns.description')}
-      actions={
-        <div className="flex items-center gap-2 text-content-muted">
-          <Cloud className="h-5 w-5" />
-        </div>
-      }
-    >
-      {/* Tab Navigation */}
-      <nav className="flex items-center gap-1 p-1 bg-surface-subtle rounded-lg w-fit">
-        {navItems.map(({ path, label, icon: Icon }) => (
-          <Link
-            key={path}
-            to={path}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all duration-fast',
-              isActive(path)
-                ? 'bg-surface-elevated text-content-primary shadow-sm'
-                : 'text-content-secondary hover:text-content-primary hover:bg-surface-muted'
-            )}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
-        ))}
-      </nav>
-
-      {/* Content Area */}
-      <div className="bg-surface-elevated border border-border rounded-lg p-6">
-        <Outlet />
-      </div>
-    </PageShell>
-  )
-}
+**Full context for edit:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CPM_ENV=development
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_DB_PATH=/app/data/charon.db
 ```
 
 ---
 
-### Phase 2: Update App.tsx Routes
+### 3. `.docker/compose/docker-compose.local.yml`
 
-**File**: `frontend/src/App.tsx`
-
-#### Changes Required:
-
-1. **Add lazy import** (after line 24):
-```tsx
-const DNS = lazy(() => import('./pages/DNS'))
+**Current environment section (lines 14-26):**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      ...
 ```
 
-2. **Replace single dns-providers route** (line 66):
+**Insert after:** `- TZ=America/New_York` (line 17)
 
-**REMOVE**:
-```tsx
-<Route path="dns-providers" element={<DNSProviders />} />
+**Snippet to add:**
+```yaml
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
 ```
 
-**ADD** (after the domains route, ~line 65):
-```tsx
-{/* DNS Routes */}
-<Route path="dns" element={<DNS />}>
-  <Route index element={<DNSProviders />} />
-  <Route path="providers" element={<DNSProviders />} />
-  <Route path="plugins" element={<Plugins />} />
-</Route>
-
-{/* Legacy redirect for old bookmarks */}
-<Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
-```
-
-#### Full Diff Preview:
-
-```diff
- const Dashboard = lazy(() => import('./pages/Dashboard'))
- const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
- const RemoteServers = lazy(() => import('./pages/RemoteServers'))
-+const DNS = lazy(() => import('./pages/DNS'))
- const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
-```
-
-```diff
-              <Route path="domains" element={<Domains />} />
-              <Route path="certificates" element={<Certificates />} />
--              <Route path="dns-providers" element={<DNSProviders />} />
-+
-+              {/* DNS Routes */}
-+              <Route path="dns" element={<DNS />}>
-+                <Route index element={<DNSProviders />} />
-+                <Route path="providers" element={<DNSProviders />} />
-+                <Route path="plugins" element={<Plugins />} />
-+              </Route>
-+
-+              {/* Legacy redirect for old bookmarks */}
-+              <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
-+
-              <Route path="security" element={<Security />} />
+**Full context for edit:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
 ```
 
 ---
 
-### Phase 3: Update DNSProviders.tsx
+### 4. `docker-compose.test.yml` (project root)
 
-The `DNSProviders.tsx` component currently uses `PageShell` directly. When rendered inside `DNS.tsx`, it will be wrapped twice. We need to remove `PageShell` since the parent DNS component provides it.
+**Current environment section (lines 14-28):**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      ...
+```
 
-**File**: `frontend/src/pages/DNSProviders.tsx`
+**Insert after:** `- TZ=America/New_York` (line 17)
 
-**Changes Required**:
+**Snippet to add:**
+```yaml
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+```
 
-```diff
--import { PageShell } from '../components/layout/PageShell'
-+// PageShell removed - parent DNS component provides the shell
-
- export default function DNSProviders() {
-   // ... existing state and handlers ...
-
--  return (
--    <PageShell
--      title={t('dnsProviders.title')}
--      description={t('dnsProviders.description')}
--      actions={headerActions}
--    >
-+  return (
-+    <div className="space-y-6">
-+      {/* Header with Add Button */}
-+      <div className="flex justify-end">
-+        {headerActions}
-+      </div>
-+
-       {/* Info Alert */}
-       <Alert variant="info" icon={Cloud}>
-         ...
-       </Alert>
-
-       {/* Loading State */}
-       ...
-
-       {/* Empty State */}
-       ...
-
-       {/* Provider Cards Grid */}
-       ...
-
-       {/* Add/Edit Form Dialog */}
-       ...
--    </PageShell>
-+    </div>
-   )
- }
+**Full context for edit:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
 ```
 
 ---
 
-### Phase 4: Update Plugins.tsx
+### 5. `README.md` - Docker Compose Example
 
-**File**: `frontend/src/pages/Plugins.tsx`
+**Location:** Around lines 107-123 (Quick Start section)
 
-Apply the same pattern - remove `PageShell` wrapper since `DNS.tsx` provides it.
+**Current:**
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+    volumes:
+      - ./charon-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CHARON_ENV=production
 
-**Changes Required**:
+```
 
-```diff
--import { PageShell } from '../components/layout/PageShell'
-+// PageShell removed - parent DNS component provides the shell
+**Replace with:**
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:latest
+    container_name: charon
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8080:8080"
+    volumes:
+      - ./charon-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CHARON_ENV=production
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
 
- export default function Plugins() {
-   // ... existing state and handlers ...
-
--  return (
--    <PageShell
--      title={t('plugins.title', 'DNS Provider Plugins')}
--      description={t('plugins.description', '...')}
--      actions={headerActions}
--    >
-+  return (
-+    <div className="space-y-6">
-+      {/* Header with Reload Button */}
-+      <div className="flex justify-end">
-+        {headerActions}
-+      </div>
-+
-       {/* Info Alert */}
-       ...
-
-       {/* Loading State */}
-       ...
-
-       {/* Empty State */}
-       ...
-
-       {/* Built-in Plugins Section */}
-       ...
-
-       {/* External Plugins Section */}
-       ...
-
-       {/* Metadata Modal */}
-       ...
--    </PageShell>
-+    </div>
-   )
- }
 ```
 
 ---
 
-### Phase 5: Add i18n Translation Keys
+### 6. `README.md` - Docker Run One-Liner
 
-**File**: `frontend/src/locales/en/translation.json`
+**Location:** Around lines 130-141 (Docker Run section)
 
-Add to the `navigation` section (around line 54):
-
-```json
-"dns": "DNS",
+**Current:**
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 443:443/udp \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  ghcr.io/wikid82/charon:latest
 ```
 
-Add new section for DNS parent page (after `dnsProviders` section):
-
-```json
-"dns": {
-  "title": "DNS Management",
-  "description": "Manage DNS providers and plugins for certificate automation"
-},
+**Replace with:**
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 443:443/udp \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
+  ghcr.io/wikid82/charon:latest
 ```
 
-**Files to update** (all locale files):
-- `frontend/src/locales/en/translation.json`
-- `frontend/src/locales/de/translation.json`
-- `frontend/src/locales/es/translation.json`
-- `frontend/src/locales/fr/translation.json`
-- `frontend/src/locales/zh/translation.json`
+**Note:** For the one-liner, we cannot include the comment inline. Users can generate the key using `openssl rand -base64 32` as shown in the compose example above it.
 
 ---
 
-### Phase 6: Remove admin/plugins Route (Cleanup)
+## Files NOT Modified (with Justification)
 
-**File**: `frontend/src/App.tsx`
+### `.docker/compose/docker-compose.remote.yml`
+This file contains ONLY the `docker-socket-proxy` service using the `alpine/socat` image. It is deployed on **remote servers** to expose their Docker socket to Charon. Charon itself does NOT run from this compose file, so no `CHARON_ENCRYPTION_KEY` is needed.
 
-The current route at line 76:
-```tsx
-<Route path="admin/plugins" element={<Plugins />} />
+**File contents:**
+```yaml
+services:
+  docker-socket-proxy:
+    image: alpine/socat
+    container_name: docker-socket-proxy
+    # ... no environment section for Charon
 ```
 
-This should be **replaced** with a redirect for backwards compatibility:
-
-```tsx
-<Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
-```
+### `.docker/compose/README.md`
+This file contains usage documentation for compose files. It does NOT include environment variable examples or configuration snippets, so no update is needed.
 
 ---
 
-## Test Updates
+## Summary Table
 
-### New Test File: DNS.test.tsx
-
-**File**: `frontend/src/pages/__tests__/DNS.test.tsx` (NEW)
-
-```tsx
-import { describe, it, expect, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
-import DNS from '../DNS'
-import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
-
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => {
-      const translations: Record<string, string> = {
-        'dns.title': 'DNS Management',
-        'dns.description': 'Manage DNS providers and plugins',
-        'navigation.dnsProviders': 'DNS Providers',
-        'navigation.plugins': 'Plugins',
-      }
-      return translations[key] || key
-    },
-  }),
-}))
-
-describe('DNS page', () => {
-  it('renders DNS management page with navigation tabs', async () => {
-    renderWithQueryClient(<DNS />, { routeEntries: ['/dns/providers'] })
-
-    expect(await screen.findByText('DNS Management')).toBeInTheDocument()
-    expect(screen.getByText('DNS Providers')).toBeInTheDocument()
-    expect(screen.getByText('Plugins')).toBeInTheDocument()
-  })
-
-  it('highlights active tab based on route', async () => {
-    renderWithQueryClient(<DNS />, { routeEntries: ['/dns/providers'] })
-
-    const nav = screen.getByRole('navigation')
-    const providersLink = within(nav).getByText('DNS Providers').closest('a')
-
-    // Active tab should have the elevated style class
-    expect(providersLink).toHaveClass('bg-surface-elevated')
-  })
-
-  it('provides tab navigation links', async () => {
-    renderWithQueryClient(<DNS />, { routeEntries: ['/dns'] })
-
-    const providersLink = screen.getByRole('link', { name: /dns providers/i })
-    const pluginsLink = screen.getByRole('link', { name: /plugins/i })
-
-    expect(providersLink).toHaveAttribute('href', '/dns/providers')
-    expect(pluginsLink).toHaveAttribute('href', '/dns/plugins')
-  })
-})
-```
-
-### Update Existing Tests
-
-**File**: `frontend/src/pages/__tests__/Plugins.test.tsx`
-
-Add route entry to test context since Plugins is now a child route:
-
-```diff
-- renderWithQueryClient(<Plugins />)
-+ renderWithQueryClient(<Plugins />, { routeEntries: ['/dns/plugins'] })
-```
-
----
-
-## Files Summary
-
-| File | Action | Description |
-|------|--------|-------------|
-| `frontend/src/pages/DNS.tsx` | **CREATE** | New parent component for DNS routes |
-| `frontend/src/App.tsx` | **MODIFY** | Add DNS route group, legacy redirects |
-| `frontend/src/pages/DNSProviders.tsx` | **MODIFY** | Remove PageShell wrapper |
-| `frontend/src/pages/Plugins.tsx` | **MODIFY** | Remove PageShell wrapper |
-| `frontend/src/locales/en/translation.json` | **MODIFY** | Add DNS translation keys |
-| `frontend/src/locales/de/translation.json` | **MODIFY** | Add DNS translation keys |
-| `frontend/src/locales/es/translation.json` | **MODIFY** | Add DNS translation keys |
-| `frontend/src/locales/fr/translation.json` | **MODIFY** | Add DNS translation keys |
-| `frontend/src/locales/zh/translation.json` | **MODIFY** | Add DNS translation keys |
-| `frontend/src/pages/__tests__/DNS.test.tsx` | **CREATE** | Tests for DNS parent component |
-| `frontend/src/pages/__tests__/Plugins.test.tsx` | **MODIFY** | Update route entries |
-
----
-
-## Verification Checklist
-
-- [ ] `/dns` route renders DNS page with providers as default
-- [ ] `/dns/providers` renders DNSProviders component
-- [ ] `/dns/plugins` renders Plugins component
-- [ ] `/dns-providers` redirects to `/dns/providers`
-- [ ] `/admin/plugins` redirects to `/dns/plugins`
-- [ ] Navigation sidebar correctly highlights active routes
-- [ ] Tab navigation within DNS page works correctly
-- [ ] All existing DNS provider functionality preserved
-- [ ] All existing Plugins functionality preserved
-- [ ] Tests pass: `npm test`
-- [ ] TypeScript compiles: `npm run type-check`
-- [ ] Linting passes: `npm run lint`
+| File | Line to Insert After | Snippet |
+|------|---------------------|---------|
+| `.docker/compose/docker-compose.yml` | `- TZ=UTC # Set timezone...` | 2-line block with comment |
+| `.docker/compose/docker-compose.dev.yml` | `- CPM_HTTP_PORT=80` | 2-line block with comment |
+| `.docker/compose/docker-compose.local.yml` | `- TZ=America/New_York` | 2-line block with comment |
+| `docker-compose.test.yml` | `- TZ=America/New_York` | 2-line block with comment |
+| `README.md` (compose example) | `- CHARON_ENV=production` | 2-line block with comment |
+| `README.md` (docker run) | `-e CHARON_ENV=production \` | Single `-e` flag line |
 
 ---
 
 ## Implementation Order
 
-1. Create `DNS.tsx` parent component
-2. Update `App.tsx` with new route structure
-3. Modify `DNSProviders.tsx` to remove PageShell
-4. Modify `Plugins.tsx` to remove PageShell
-5. Add i18n translation keys (all locales)
-6. Create `DNS.test.tsx`
-7. Update `Plugins.test.tsx` route entries
-8. Run tests and verify
-9. Manual browser testing
+1. `.docker/compose/docker-compose.yml` — Primary production file
+2. `.docker/compose/docker-compose.dev.yml` — Development override
+3. `.docker/compose/docker-compose.local.yml` — Local development
+4. `docker-compose.test.yml` — Test environment (project root)
+5. `README.md` — User-facing documentation (both examples)
 
 ---
 
-## Risk Assessment
+## Validation Checklist
 
-| Risk | Mitigation |
-|------|-----------|
-| Breaking existing `/dns-providers` bookmarks | Add redirect route |
-| Breaking `/admin/plugins` URL | Add redirect route |
-| Double PageShell wrapping | Remove PageShell from child components |
-| Missing translations | Add keys to all 5 locale files |
-| Test failures | Update route entries in test renders |
+After implementation, verify:
+
+- [ ] All 4 compose files have the `CHARON_ENCRYPTION_KEY` variable
+- [ ] All have the comment `# Generate with: openssl rand -base64 32` above the variable
+- [ ] README.md docker-compose example includes the variable with comment
+- [ ] README.md docker run example includes `-e CHARON_ENCRYPTION_KEY=...`
+- [ ] YAML syntax is valid (run `docker compose -f <file> config` on each file)
+- [ ] Variable placement is consistent across all files (after TZ or early env vars)
 
 ---
 
-## Estimated Effort
+## Exact Edit Snippets for Implementation Agent
 
-| Task | Time |
-|------|------|
-| Create DNS.tsx | 15 min |
-| Update App.tsx routes | 10 min |
-| Update DNSProviders.tsx | 10 min |
-| Update Plugins.tsx | 10 min |
-| Update i18n files (5) | 15 min |
-| Create DNS.test.tsx | 15 min |
-| Update Plugins.test.tsx | 5 min |
-| Testing & verification | 20 min |
-| **Total** | **~1.5 hours**
+### Edit 1: `.docker/compose/docker-compose.yml`
+
+**Find this block:**
+```yaml
+    environment:
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      - CHARON_HTTP_PORT=8080
+```
+
+**Replace with:**
+```yaml
+    environment:
+      - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
+      - TZ=UTC # Set timezone (e.g., America/New_York)
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
+```
+
+---
+
+### Edit 2: `.docker/compose/docker-compose.dev.yml`
+
+**Find this block:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CPM_ENV=development
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      - CHARON_DB_PATH=/app/data/charon.db
+```
+
+**Replace with:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CPM_ENV=development
+      - CHARON_HTTP_PORT=8080
+      - CPM_HTTP_PORT=80
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_DB_PATH=/app/data/charon.db
+```
+
+---
+
+### Edit 3: `.docker/compose/docker-compose.local.yml`
+
+**Find this block:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      - CHARON_HTTP_PORT=8080
+```
+
+**Replace with:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
+```
+
+---
+
+### Edit 4: `docker-compose.test.yml` (project root)
+
+**Find this block:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      - CHARON_HTTP_PORT=8080
+```
+
+**Replace with:**
+```yaml
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+      - CHARON_HTTP_PORT=8080
+```
+
+---
+
+### Edit 5: `README.md` - Docker Compose Example
+
+**Find this block:**
+```yaml
+    environment:
+      - CHARON_ENV=production
+
+```
+
+**Replace with:**
+```yaml
+    environment:
+      - CHARON_ENV=production
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
+
+```
+
+---
+
+### Edit 6: `README.md` - Docker Run One-Liner
+
+**Find this block:**
+```bash
+  -e CHARON_ENV=production \
+  ghcr.io/wikid82/charon:latest
+```
+
+**Replace with:**
+```bash
+  -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
+  ghcr.io/wikid82/charon:latest
+```
+
+---
+
+## Ready for Implementation
+
+This plan is complete. An implementation agent can now execute these changes using the exact edit snippets provided above
 
 ### Remediation Phases
 
