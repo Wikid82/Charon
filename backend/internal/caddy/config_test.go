@@ -1402,3 +1402,419 @@ func TestGenerateConfig_WithWAFPerHostDisabled(t *testing.T) {
 		require.NotEqual(t, "waf", h["handler"], "WAF handler should NOT be present for waf-disabled host")
 	}
 }
+
+// TestGenerateConfig_WithDisabledHost verifies disabled hosts are skipped
+func TestGenerateConfig_WithDisabledHost(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "uuid-enabled",
+			DomainNames: "enabled.example.com",
+			ForwardHost: "app1",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+		{
+			UUID:        "uuid-disabled",
+			DomainNames: "disabled.example.com",
+			ForwardHost: "app2",
+			ForwardPort: 8081,
+			Enabled:     false, // Disabled
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	// Only 1 route for the enabled host
+	require.Len(t, server.Routes, 1)
+	require.Equal(t, []string{"enabled.example.com"}, server.Routes[0].Match[0].Host)
+}
+
+// TestGenerateConfig_WithFrontendDir verifies catch-all route with frontend
+func TestGenerateConfig_WithFrontendDir(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "uuid-1",
+			DomainNames: "app.example.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "/var/www/html", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	// Should have 2 routes: 1 for the host + 1 catch-all for frontend
+	require.Len(t, server.Routes, 2)
+
+	// Last route should be catch-all with file_server
+	catchAll := server.Routes[1]
+	require.Nil(t, catchAll.Match)
+	require.True(t, catchAll.Terminal)
+
+	// Check handlers include rewrite and file_server
+	var foundRewrite, foundFileServer bool
+	for _, h := range catchAll.Handle {
+		if h["handler"] == "rewrite" {
+			foundRewrite = true
+		}
+		if h["handler"] == "file_server" {
+			foundFileServer = true
+		}
+	}
+	require.True(t, foundRewrite, "catch-all should have rewrite handler")
+	require.True(t, foundFileServer, "catch-all should have file_server handler")
+}
+
+// TestGenerateConfig_CustomCertificate verifies custom certificates are loaded
+func TestGenerateConfig_CustomCertificate(t *testing.T) {
+	certUUID := "cert-uuid-123"
+	cert := models.SSLCertificate{
+		UUID:        certUUID,
+		Name:        "Custom Cert",
+		Provider:    "custom",
+		Certificate: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		PrivateKey:  "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+	}
+	certID := uint(1)
+
+	hosts := []models.ProxyHost{
+		{
+			UUID:          "uuid-1",
+			DomainNames:   "secure.example.com",
+			ForwardHost:   "app",
+			ForwardPort:   8080,
+			Enabled:       true,
+			CertificateID: &certID,
+			Certificate:   &cert,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Check TLS certificates are loaded
+	require.NotNil(t, config.Apps.TLS)
+	require.NotNil(t, config.Apps.TLS.Certificates)
+	require.NotNil(t, config.Apps.TLS.Certificates.LoadPEM)
+	require.Len(t, config.Apps.TLS.Certificates.LoadPEM, 1)
+
+	loadPEM := config.Apps.TLS.Certificates.LoadPEM[0]
+	require.Equal(t, cert.Certificate, loadPEM.Certificate)
+	require.Equal(t, cert.PrivateKey, loadPEM.Key)
+	require.Contains(t, loadPEM.Tags, certUUID)
+}
+
+// TestGenerateConfig_CustomCertificateMissingData verifies invalid custom certs are skipped
+func TestGenerateConfig_CustomCertificateMissingData(t *testing.T) {
+	// Certificate missing private key
+	cert := models.SSLCertificate{
+		UUID:        "cert-uuid-123",
+		Name:        "Bad Cert",
+		Provider:    "custom",
+		Certificate: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		PrivateKey:  "", // Missing
+	}
+	certID := uint(1)
+
+	hosts := []models.ProxyHost{
+		{
+			UUID:          "uuid-1",
+			DomainNames:   "secure.example.com",
+			ForwardHost:   "app",
+			ForwardPort:   8080,
+			Enabled:       true,
+			CertificateID: &certID,
+			Certificate:   &cert,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	// TLS should be configured but without the invalid custom cert
+	if config.Apps.TLS != nil && config.Apps.TLS.Certificates != nil {
+		require.Empty(t, config.Apps.TLS.Certificates.LoadPEM)
+	}
+}
+
+// TestGenerateConfig_LetsEncryptCertificateNotLoaded verifies ACME certs aren't loaded via LoadPEM
+func TestGenerateConfig_LetsEncryptCertificateNotLoaded(t *testing.T) {
+	cert := models.SSLCertificate{
+		UUID:        "cert-uuid-123",
+		Name:        "Let's Encrypt Cert",
+		Provider:    "letsencrypt", // Not custom
+		Certificate: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		PrivateKey:  "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----",
+	}
+	certID := uint(1)
+
+	hosts := []models.ProxyHost{
+		{
+			UUID:          "uuid-1",
+			DomainNames:   "secure.example.com",
+			ForwardHost:   "app",
+			ForwardPort:   8080,
+			Enabled:       true,
+			CertificateID: &certID,
+			Certificate:   &cert,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Let's Encrypt certs should NOT be loaded via LoadPEM (ACME handles them)
+	if config.Apps.TLS != nil && config.Apps.TLS.Certificates != nil {
+		require.Empty(t, config.Apps.TLS.Certificates.LoadPEM)
+	}
+}
+
+// TestGenerateConfig_NormalizeAdvancedConfig verifies advanced config normalization
+func TestGenerateConfig_NormalizeAdvancedConfig(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:           "uuid-advanced",
+			DomainNames:    "advanced.example.com",
+			ForwardHost:    "app",
+			ForwardPort:    8080,
+			Enabled:        true,
+			AdvancedConfig: `{"handler": "headers", "response": {"set": {"X-Custom": "value"}}}`,
+		},
+	}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	require.Len(t, server.Routes, 1)
+
+	route := server.Routes[0]
+	// Should have headers handler + reverse_proxy
+	require.GreaterOrEqual(t, len(route.Handle), 2)
+
+	var foundHeaders bool
+	for _, h := range route.Handle {
+		if h["handler"] == "headers" {
+			foundHeaders = true
+			break
+		}
+	}
+	require.True(t, foundHeaders, "advanced config handler should be present")
+}
+
+// TestGenerateConfig_NoACMEEmailNoTLS verifies no TLS config when no ACME email
+func TestGenerateConfig_NoACMEEmailNoTLS(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "uuid-1",
+			DomainNames: "app.example.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	// No ACME email
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	// TLS automation policies should not be set
+	require.Nil(t, config.Apps.TLS)
+}
+
+// TestGenerateConfig_SecurityDecisionsWithAdminWhitelist verifies admin bypass for blocks
+func TestGenerateConfig_SecurityDecisionsWithAdminWhitelist(t *testing.T) {
+	hosts := []models.ProxyHost{
+		{
+			UUID:        "test-uuid",
+			DomainNames: "test.example.com",
+			ForwardHost: "app",
+			ForwardPort: 8080,
+			Enabled:     true,
+		},
+	}
+
+	decisions := []models.SecurityDecision{
+		{IP: "1.2.3.4", Action: "block"},
+	}
+
+	// With admin whitelist
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, decisions, nil, nil)
+	require.NoError(t, err)
+
+	server := config.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+
+	route := server.Routes[0]
+	b, _ := json.Marshal(route.Handle)
+	s := string(b)
+
+	// Should contain blocked IP and admin whitelist exclusion
+	require.Contains(t, s, "1.2.3.4")
+	require.Contains(t, s, "10.0.0.1/32")
+}
+
+// TestBuildSecurityHeadersHandler_DefaultProfile verifies default profile when enabled
+func TestBuildSecurityHeadersHandler_DefaultProfile(t *testing.T) {
+	host := &models.ProxyHost{
+		SecurityHeadersEnabled: true,
+		SecurityHeaderProfile:  nil, // Use default
+	}
+
+	h, err := buildSecurityHeadersHandler(host)
+	require.NoError(t, err)
+	require.NotNil(t, h)
+
+	response := h["response"].(map[string]any)
+	headers := response["set"].(map[string][]string)
+
+	// Should have default HSTS
+	require.Contains(t, headers, "Strict-Transport-Security")
+	// Should have X-Frame-Options
+	require.Contains(t, headers, "X-Frame-Options")
+	// Should have X-Content-Type-Options
+	require.Contains(t, headers, "X-Content-Type-Options")
+}
+
+// TestHasWildcard verifies wildcard detection
+func TestHasWildcard(t *testing.T) {
+	tests := []struct {
+		name     string
+		domains  []string
+		expected bool
+	}{
+		{"no_wildcard", []string{"example.com", "test.com"}, false},
+		{"with_wildcard", []string{"example.com", "*.test.com"}, true},
+		{"only_wildcard", []string{"*.example.com"}, true},
+		{"empty", []string{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasWildcard(tt.domains)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestDedupeDomains verifies domain deduplication
+func TestDedupeDomains(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{"no_dupes", []string{"a.com", "b.com"}, []string{"a.com", "b.com"}},
+		{"with_dupes", []string{"a.com", "b.com", "a.com"}, []string{"a.com", "b.com"}},
+		{"all_dupes", []string{"a.com", "a.com", "a.com"}, []string{"a.com"}},
+		{"empty", []string{}, []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := dedupeDomains(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestNormalizeAdvancedConfig_NestedRoutes verifies nested route normalization
+func TestNormalizeAdvancedConfig_NestedRoutes(t *testing.T) {
+	// Test with nested routes structure
+	input := map[string]any{
+		"handler": "subroute",
+		"routes": []any{
+			map[string]any{
+				"handle": []any{
+					map[string]any{
+						"handler": "headers",
+						"response": map[string]any{
+							"set": map[string]any{
+								"X-Test": "value", // String should become []string
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result := NormalizeAdvancedConfig(input)
+	require.NotNil(t, result)
+
+	// The nested headers should be normalized
+	m := result.(map[string]any)
+	routes := m["routes"].([]any)
+	routeMap := routes[0].(map[string]any)
+	handles := routeMap["handle"].([]any)
+	handlerMap := handles[0].(map[string]any)
+	response := handlerMap["response"].(map[string]any)
+	setHeaders := response["set"].(map[string]any)
+
+	// String should be converted to []string
+	xTest := setHeaders["X-Test"]
+	require.IsType(t, []string{}, xTest)
+	require.Equal(t, []string{"value"}, xTest)
+}
+
+// TestNormalizeAdvancedConfig_ArrayInput verifies array normalization
+func TestNormalizeAdvancedConfig_ArrayInput(t *testing.T) {
+	input := []any{
+		map[string]any{
+			"handler": "headers",
+			"response": map[string]any{
+				"set": map[string]any{
+					"X-Test": "value",
+				},
+			},
+		},
+	}
+
+	result := NormalizeAdvancedConfig(input)
+	require.NotNil(t, result)
+
+	arr := result.([]any)
+	require.Len(t, arr, 1)
+}
+
+// TestGetCrowdSecAPIKey verifies API key retrieval from environment
+func TestGetCrowdSecAPIKey(t *testing.T) {
+	// Save original values
+	origVars := map[string]string{}
+	envVars := []string{"CROWDSEC_API_KEY", "CROWDSEC_BOUNCER_API_KEY", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"}
+	for _, v := range envVars {
+		origVars[v] = os.Getenv(v)
+		os.Unsetenv(v)
+	}
+	defer func() {
+		for k, v := range origVars {
+			if v != "" {
+				os.Setenv(k, v)
+			} else {
+				os.Unsetenv(k)
+			}
+		}
+	}()
+
+	// No keys set - should return empty
+	result := getCrowdSecAPIKey()
+	require.Equal(t, "", result)
+
+	// Set primary key
+	os.Setenv("CROWDSEC_API_KEY", "primary-key")
+	result = getCrowdSecAPIKey()
+	require.Equal(t, "primary-key", result)
+
+	// Test fallback priority
+	os.Unsetenv("CROWDSEC_API_KEY")
+	os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
+	result = getCrowdSecAPIKey()
+	require.Equal(t, "bouncer-key", result)
+}
