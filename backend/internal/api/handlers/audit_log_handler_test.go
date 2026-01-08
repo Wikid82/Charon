@@ -363,3 +363,53 @@ func TestAuditLogHandler_ListWithDateFilters(t *testing.T) {
 		})
 	}
 }
+
+// TestAuditLogHandler_ServiceErrors tests error handling when service layer fails
+func TestAuditLogHandler_ServiceErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupAuditLogTestDB(t)
+	securityService := services.NewSecurityService(db)
+	handler := NewAuditLogHandler(securityService)
+
+	t.Run("List fails when database unavailable", func(t *testing.T) {
+		// Close the database to trigger error
+		sqlDB, err := db.DB()
+		assert.NoError(t, err)
+		sqlDB.Close()
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs", nil)
+
+		handler.List(c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Contains(t, w.Body.String(), "Failed to retrieve audit logs")
+	})
+
+	t.Run("ListByProvider fails when database unavailable", func(t *testing.T) {
+		// Database is already closed from previous test
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{gin.Param{Key: "id", Value: "123"}}
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/dns-providers/123/audit-logs", nil)
+
+		handler.ListByProvider(c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Contains(t, w.Body.String(), "Failed to retrieve audit logs")
+	})
+
+	t.Run("Get fails when database unavailable", func(t *testing.T) {
+		// Database is already closed from previous tests
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{gin.Param{Key: "uuid", Value: "some-uuid"}}
+		c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/audit-logs/some-uuid", nil)
+
+		handler.Get(c)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Contains(t, w.Body.String(), "Failed to retrieve audit log")
+	})
+}

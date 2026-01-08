@@ -1,8 +1,8 @@
-# Charon Feature & Remediation Tracker
+# Test Coverage Plan - 85%+ Coverage Target
 
 **Last Updated:** January 7, 2026
 
-This document serves as the central index for all active plans, implementation specs, and outstanding work items.
+This document outlines the comprehensive plan to achieve 85%+ test coverage, addressing 457 lines of missing coverage across 10 files.
 
 ---
 
@@ -1645,3 +1645,504 @@ Before starting implementation, verify:
 3. ✅ Added Phase 0: Pre-implementation verification with evidence gathering
 4. ✅ Enhanced Phase 3: Comprehensive validation (IP + action + string sanitization)
 5. ✅ Corrected test expectations: 200 OR 400 are both valid (not just 400)
+
+## Executive Summary
+
+**Current Status**: 72.96% coverage (457 lines missing)
+**Target**: 85%+ coverage
+**Gap**: ~12% coverage increase needed
+**Impact**: Approximately 90-110 additional test lines needed to reach target
+
+### Priority Breakdown
+
+| Priority | File | Missing Lines | Partials | Impact | Effort |
+|----------|------|---------------|----------|--------|--------|
+| **CRITICAL** | plugin_handler.go | 173 | 0 | 38% of gap | High |
+| **HIGH** | credential_handler.go | 70 | 20 | 15% of gap | Medium |
+| **HIGH** | caddy/config.go | 38 | 9 | 8% of gap | High |
+| **MEDIUM** | caddy/manager_helpers.go | 28 | 10 | 6% of gap | Medium |
+| **MEDIUM** | encryption_handler.go | 24 | 4 | 5% of gap | Low |
+| **MEDIUM** | caddy/manager.go | 13 | 8 | 3% of gap | Medium |
+| **MEDIUM** | audit_log_handler.go | 10 | 6 | 2% of gap | Low |
+| **LOW** | settings_handler.go | 7 | 2 | 2% of gap | Low |
+| **LOW** | crowdsec/hub_sync.go | 4 | 4 | 1% of gap | Low |
+| **LOW** | routes/routes.go | 6 | 1 | 1% of gap | Low |
+
+---
+
+## Phase 1: Critical Priority - Plugin Handler (0% Coverage)
+
+### File: `backend/internal/api/handlers/plugin_handler.go`
+
+**Status**: 0.00% coverage (173 lines missing)
+**Priority**: CRITICAL - Highest impact
+**Existing Tests**: None found
+**New Test File**: `backend/internal/api/handlers/plugin_handler_test.go`
+
+#### Uncovered Functions
+
+1. **`NewPluginHandler(db, pluginLoader)`** - Constructor
+2. **`ListPlugins(c *gin.Context)`** - GET /admin/plugins
+3. **`GetPlugin(c *gin.Context)`** - GET /admin/plugins/:id
+4. **`EnablePlugin(c *gin.Context)`** - POST /admin/plugins/:id/enable
+5. **`DisablePlugin(c *gin.Context)`** - POST /admin/plugins/:id/disable
+6. **`ReloadPlugins(c *gin.Context)`** - POST /admin/plugins/reload
+
+#### Test Strategy
+
+**Test Infrastructure Needed**:
+- Mock `PluginLoaderService` for testing without filesystem
+- Mock `dnsprovider.Global()` registry
+- Test fixtures for plugin database records
+- Gin test context helpers
+
+**Test Cases** (estimated 15-20 tests):
+
+##### ListPlugins Tests (5 tests)
+```go
+TestListPlugins_EmptyDatabase
+TestListPlugins_BuiltInProvidersOnly
+TestListPlugins_MixedBuiltInAndExternal
+TestListPlugins_FailedPluginWithError
+TestListPlugins_DatabaseReadError
+```
+
+##### GetPlugin Tests (4 tests)
+```go
+TestGetPlugin_Success
+TestGetPlugin_InvalidID
+TestGetPlugin_NotFound
+TestGetPlugin_DatabaseError
+```
+
+##### EnablePlugin Tests (4 tests)
+```go
+TestEnablePlugin_Success
+TestEnablePlugin_AlreadyEnabled
+TestEnablePlugin_PluginLoadFailure
+TestEnablePlugin_DatabaseError
+```
+
+##### DisablePlugin Tests (4 tests)
+```go
+TestDisablePlugin_Success
+TestDisablePlugin_AlreadyDisabled
+TestDisablePlugin_InUseByDNSProvider
+TestDisablePlugin_DatabaseError
+```
+
+##### ReloadPlugins Tests (3 tests)
+```go
+TestReloadPlugins_Success
+TestReloadPlugins_LoadError
+TestReloadPlugins_NoPluginsDirectory
+```
+
+**Mocks Needed**:
+```go
+type MockPluginLoader struct {
+    LoadPluginFunc    func(path string) error
+    UnloadPluginFunc  func(providerType string) error
+    LoadAllFunc       func() error
+    ListLoadedFunc    func() []string
+}
+
+type MockDNSProviderRegistry struct {
+    ListFunc    func() []dnsprovider.ProviderPlugin
+    GetFunc     func(providerType string) (dnsprovider.ProviderPlugin, bool)
+}
+```
+
+**Estimated Coverage Gain**: +38% (173 lines)
+
+---
+
+## Phase 2: High Priority - Credential Handler (32.83% Coverage)
+
+### File: `backend/internal/api/handlers/credential_handler.go`
+
+**Status**: 32.83% coverage (70 missing, 20 partials)
+**Priority**: HIGH
+**Existing Tests**: None found
+**New Test File**: `backend/internal/api/handlers/credential_handler_test.go`
+
+#### Uncovered Functions
+
+All functions have partial coverage - error paths not tested:
+
+1. **`List(c *gin.Context)`** - GET /api/v1/dns-providers/:id/credentials
+2. **`Create(c *gin.Context)`** - POST /api/v1/dns-providers/:id/credentials
+3. **`Get(c *gin.Context)`** - GET /api/v1/dns-providers/:id/credentials/:cred_id
+4. **`Update(c *gin.Context)`** - PUT /api/v1/dns-providers/:id/credentials/:cred_id
+5. **`Delete(c *gin.Context)`** - DELETE /api/v1/dns-providers/:id/credentials/:cred_id
+6. **`Test(c *gin.Context)`** - POST /api/v1/dns-providers/:id/credentials/:cred_id/test
+7. **`EnableMultiCredentials(c *gin.Context)`** - POST /api/v1/dns-providers/:id/enable-multi-credentials
+
+#### Missing Coverage Areas
+
+- Invalid ID parameter handling
+- Provider not found errors
+- Multi-credential mode disabled errors
+- Encryption failures
+- Service layer error propagation
+
+#### Test Strategy
+
+**Test Cases** (estimated 21 tests):
+
+##### List Tests (3 tests)
+```go
+TestListCredentials_Success
+TestListCredentials_InvalidProviderID
+TestListCredentials_ProviderNotFound
+TestListCredentials_MultiCredentialNotEnabled
+```
+
+##### Create Tests (4 tests)
+```go
+TestCreateCredential_Success
+TestCreateCredential_InvalidProviderID
+TestCreateCredential_InvalidCredentials
+TestCreateCredential_EncryptionFailure
+```
+
+##### Get Tests (3 tests)
+```go
+TestGetCredential_Success
+TestGetCredential_InvalidCredentialID
+TestGetCredential_NotFound
+```
+
+##### Update Tests (4 tests)
+```go
+TestUpdateCredential_Success
+TestUpdateCredential_InvalidCredentialID
+TestUpdateCredential_InvalidCredentials
+TestUpdateCredential_EncryptionFailure
+```
+
+##### Delete Tests (3 tests)
+```go
+TestDeleteCredential_Success
+TestDeleteCredential_InvalidCredentialID
+TestDeleteCredential_NotFound
+```
+
+##### Test Tests (3 tests)
+```go
+TestTestCredential_Success
+TestTestCredential_InvalidCredentialID
+TestTestCredential_TestFailure
+```
+
+##### EnableMultiCredentials Tests (1 test)
+```go
+TestEnableMultiCredentials_Success
+TestEnableMultiCredentials_ProviderNotFound
+```
+
+**Mock Requirements**:
+```go
+type MockCredentialService struct {
+    ListFunc   func(ctx context.Context, providerID uint) ([]models.DNSProviderCredential, error)
+    CreateFunc func(ctx context.Context, providerID uint, req CreateCredentialRequest) (*models.DNSProviderCredential, error)
+    GetFunc    func(ctx context.Context, providerID, credentialID uint) (*models.DNSProviderCredential, error)
+    UpdateFunc func(ctx context.Context, providerID, credentialID uint, req UpdateCredentialRequest) (*models.DNSProviderCredential, error)
+    DeleteFunc func(ctx context.Context, providerID, credentialID uint) error
+    TestFunc   func(ctx context.Context, providerID, credentialID uint) (*TestResult, error)
+}
+```
+
+**Estimated Coverage Gain**: +15% (70 lines + 20 partials)
+
+---
+
+## Phase 3: High Priority - Caddy Config Generation (79.82% Coverage)
+
+### File: `backend/internal/caddy/config.go`
+
+**Status**: 79.82% coverage (38 missing, 9 partials)
+**Priority**: HIGH - Complex business logic
+**Existing Tests**: Partial coverage exists
+**Test File**: `backend/internal/caddy/config_test.go` (exists, needs expansion)
+
+#### Missing Coverage Areas
+
+**Functions with gaps**:
+1. `GenerateConfig()` - Multi-credential DNS challenge logic (lines 140-230)
+2. `buildWAFHandler()` - WAF ruleset selection logic (lines 850-920)
+3. `buildRateLimitHandler()` - Bypass list parsing (lines 1020-1050)
+4. `buildACLHandler()` - Geo-blocking CEL expression logic (lines 700-780)
+5. `buildSecurityHeadersHandler()` - CSP/Permissions Policy building (lines 950-1010)
+
+#### Test Strategy
+
+**Test Cases** (estimated 12 tests):
+
+##### Multi-Credential DNS Challenge Tests (4 tests)
+```go
+TestGenerateConfig_MultiCredentialDNSChallenge_ZoneMatching
+TestGenerateConfig_MultiCredentialDNSChallenge_WildcardMatching
+TestGenerateConfig_MultiCredentialDNSChallenge_CatchAllCredential
+TestGenerateConfig_MultiCredentialDNSChallenge_NoMatchingCredential
+```
+
+##### WAF Handler Tests (3 tests)
+```go
+TestBuildWAFHandler_RulesetPrioritySelection
+TestBuildWAFHandler_PerRulesetModeOverride
+TestBuildWAFHandler_EmptyDirectivesReturnsNil
+```
+
+##### Rate Limit Handler Tests (2 tests)
+```go
+TestBuildRateLimitHandler_WithBypassList
+TestBuildRateLimitHandler_InvalidBypassCIDRs
+```
+
+##### ACL Handler Tests (2 tests)
+```go
+TestBuildACLHandler_GeoWhitelistCEL
+TestBuildACLHandler_GeoBlacklistCEL
+```
+
+##### Security Headers Tests (1 test)
+```go
+TestBuildSecurityHeadersHandler_CSPAndPermissionsPolicy
+```
+
+**Test Fixtures**:
+```go
+type ConfigTestFixture struct {
+    Hosts            []models.ProxyHost
+    DNSProviders     []DNSProviderConfig
+    Rulesets         []models.SecurityRuleSet
+    SecurityConfig   *models.SecurityConfig
+    RulesetPaths     map[string]string
+}
+```
+
+**Estimated Coverage Gain**: +8% (38 lines + 9 partials)
+
+---
+
+## Phase 4: Medium Priority - Remaining Handlers
+
+### Summary Table
+
+| File | Coverage | Missing | Priority | Tests | Gain |
+|------|----------|---------|----------|-------|------|
+| manager_helpers.go | 59.57% | 28+10 | Medium | 8 | +6% |
+| encryption_handler.go | 78.29% | 24+4 | Medium | 6 | +5% |
+| manager.go | 76.13% | 13+8 | Medium | 5 | +3% |
+| audit_log_handler.go | 78.08% | 10+6 | Medium | 4 | +2% |
+| settings_handler.go | 84.48% | 7+2 | Low | 3 | +2% |
+| hub_sync.go | 80.48% | 4+4 | Low | 2 | +1% |
+| routes.go | 89.06% | 6+1 | Low | 2 | +1% |
+
+### Details
+
+#### manager_helpers.go
+**Functions**: `extractBaseDomain()`, `matchesZoneFilter()`, `getCredentialForDomain()`
+**Strategy**: Edge case testing for domain matching logic
+
+#### encryption_handler.go
+**Functions**: All functions - admin check errors
+**Strategy**: Non-admin user tests, error path tests
+
+#### manager.go
+**Functions**: `ApplyConfig()`, `computeEffectiveFlags()`
+**Strategy**: Error path coverage for rollback scenarios
+
+#### audit_log_handler.go
+**Functions**: All functions - error paths
+**Strategy**: Service layer error propagation tests
+
+#### settings_handler.go
+**Functions**: `TestPublicURL()` - SSRF validation
+**Strategy**: Security validation edge cases
+
+#### hub_sync.go
+**Functions**: `validateHubURL()` - edge cases
+**Strategy**: URL validation security tests
+
+#### routes.go
+**Functions**: `Register()` - error paths
+**Strategy**: Initialization error handling tests
+
+---
+
+## Test Infrastructure & Patterns
+
+### Existing Test Helpers
+
+1. **`testutil.GetTestTx(t, db)`** - Transaction-based test isolation
+2. **`testutil.WithTx(t, db, fn)`** - Transaction wrapper for tests
+3. Shared DB pattern for fast parallel tests
+
+### Required New Test Infrastructure
+
+#### 1. Gin Test Helpers
+```go
+// backend/internal/testutil/gin.go
+func NewTestGinContext() (*gin.Context, *httptest.ResponseRecorder)
+func SetGinContextUser(c *gin.Context, userID uint, role string)
+func SetGinContextParam(c *gin.Context, key, value string)
+```
+
+#### 2. Mock DNS Provider Registry
+```go
+// backend/internal/testutil/dns_mocks.go
+type MockDNSProviderRegistry struct { ... }
+func NewMockDNSProviderRegistry() *MockDNSProviderRegistry
+```
+
+#### 3. Mock Plugin Loader
+```go
+// backend/internal/testutil/plugin_mocks.go
+type MockPluginLoader struct { ... }
+func NewMockPluginLoader() *MockPluginLoader
+```
+
+#### 4. Test Fixtures
+```go
+// backend/internal/testutil/fixtures.go
+func CreateTestDNSProvider(tx *gorm.DB) *models.DNSProvider
+func CreateTestProxyHost(tx *gorm.DB) *models.ProxyHost
+func CreateTestPlugin(tx *gorm.DB) *models.Plugin
+```
+
+---
+
+## Implementation Plan
+
+### Week 1: Critical Priority
+- **Day 1-2**: Set up test infrastructure (Gin helpers, mocks)
+- **Day 3-5**: Implement `plugin_handler_test.go` (173 lines)
+- **Target**: +38% coverage
+
+### Week 2: High Priority Part 1
+- **Day 1-3**: Implement `credential_handler_test.go` (70 lines + 20 partials)
+- **Day 4-5**: Start `config_test.go` expansion (38 lines + 9 partials)
+- **Target**: +20% coverage (cumulative: 58%)
+
+### Week 3: High Priority Part 2 & Medium Priority
+- **Day 1-2**: Complete `config_test.go`
+- **Day 3-5**: Implement remaining medium priority handlers
+- **Target**: +15% coverage (cumulative: 73%)
+
+### Week 4: Low Priority & Buffer
+- **Day 1-2**: Implement low priority handlers
+- **Day 3-5**: Buffer time for test failures, refactoring, CI integration
+- **Target**: +12% coverage (cumulative: 85%+)
+
+---
+
+## Coverage Validation Strategy
+
+### CI Integration
+1. Add coverage threshold check to GitHub Actions workflow
+2. Fail builds if coverage drops below 85%
+3. Generate coverage reports as PR comments
+
+### Coverage Verification Commands
+```bash
+# Run full test suite with coverage
+go test -v -race -coverprofile=coverage.out ./...
+
+# Generate HTML coverage report
+go tool cover -html=coverage.out -o coverage.html
+
+# Check coverage by file
+go tool cover -func=coverage.out | grep -E "(plugin_handler|credential_handler|config)"
+
+# Verify 85% threshold
+COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')
+if (( $(echo "$COVERAGE < 85" | bc -l) )); then
+  echo "Coverage $COVERAGE% is below 85% threshold"
+  exit 1
+fi
+```
+
+---
+
+## Risk Assessment & Mitigation
+
+### Risks
+
+1. **Plugin Handler Complexity** - No existing test patterns for plugin system
+   - *Mitigation*: Start with simple mock-based tests, iterate
+
+2. **Caddy Config Generation Complexity** - 1000+ line function with many branches
+   - *Mitigation*: Focus on untested branches only, use table tests
+
+3. **Test Flakiness** - Network/filesystem dependencies
+   - *Mitigation*: Use mocks for external dependencies, in-memory DB for tests
+
+4. **Time Constraints** - 457 lines to cover in 4 weeks
+   - *Mitigation*: Prioritize high-impact files first, parallelize work
+
+### Success Criteria
+
+- [ ] 85%+ overall coverage achieved
+- [ ] All critical files (plugin_handler, credential_handler, config) have >80% coverage
+- [ ] All tests pass on CI with race detection enabled
+- [ ] No test flakiness observed over 10 consecutive CI runs
+- [ ] Coverage reports integrated into PR workflow
+
+---
+
+## Notes
+
+- **Test Philosophy**: Focus on business logic and error paths, not just happy paths
+- **Performance**: Use transaction-based test isolation for speed (testutil.GetTestTx)
+- **Security**: Ensure SSRF validation and auth checks are thoroughly tested
+- **Documentation**: Add godoc comments to test functions explaining what they test
+
+---
+
+## Appendix: Quick Reference
+
+### Test File Locations
+```
+backend/internal/api/handlers/
+  plugin_handler_test.go         (NEW - Phase 1)
+  credential_handler_test.go     (NEW - Phase 2)
+  encryption_handler_test.go     (EXPAND - Phase 4)
+  audit_log_handler_test.go      (EXPAND - Phase 4)
+  settings_handler_test.go       (EXPAND - Phase 4)
+
+backend/internal/caddy/
+  config_test.go                  (EXPAND - Phase 3)
+  manager_helpers_test.go         (NEW - Phase 4)
+  manager_test.go                 (EXPAND - Phase 4)
+
+backend/internal/crowdsec/
+  hub_sync_test.go                (EXPAND - Phase 4)
+
+backend/internal/api/routes/
+  routes_test.go                  (NEW - Phase 4)
+```
+
+### Command Reference
+```bash
+# Run tests for specific file
+go test -v ./backend/internal/api/handlers -run TestPluginHandler
+
+# Run tests with race detection
+go test -race ./...
+
+# Generate coverage for specific package
+go test -coverprofile=plugin.cover ./backend/internal/api/handlers
+go tool cover -html=plugin.cover
+
+# Run all tests and check threshold
+make test-coverage-check
+```
+
+---
+
+**Document Status**: Draft v1.0
+**Created**: 2026-01-07
+**Last Updated**: 2026-01-07
+**Next Review**: After Phase 1 completion
