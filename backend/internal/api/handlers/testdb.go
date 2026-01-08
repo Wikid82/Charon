@@ -57,6 +57,9 @@ func initTemplateDB() {
 		&models.CaddyConfig{},
 		&models.Domain{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.Plugin{},
+		&models.DNSProvider{},
+		&models.DNSProviderCredential{},
 	)
 }
 
@@ -141,6 +144,9 @@ func OpenTestDBWithMigrations(t *testing.T) *gorm.DB {
 		&models.CaddyConfig{},
 		&models.Domain{},
 		&models.CrowdsecConsoleEnrollment{},
+		&models.Plugin{},
+		&models.DNSProvider{},
+		&models.DNSProviderCredential{},
 	); err != nil {
 		t.Fatalf("failed to migrate test db: %v", err)
 	}
