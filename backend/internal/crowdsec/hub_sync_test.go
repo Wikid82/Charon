@@ -2034,10 +2034,10 @@ func TestExtractTarGz_SpecialCharactersInFilenames(t *testing.T) {
 	targetDir := t.TempDir()
 
 	files := map[string]string{
-		"file with spaces.txt":     "content 1",
-		"file-with-dashes.yaml":    "content 2",
+		"file with spaces.txt":      "content 1",
+		"file-with-dashes.yaml":     "content 2",
 		"file_with_underscores.yml": "content 3",
-		"file.multiple.dots.txt":   "content 4",
+		"file.multiple.dots.txt":    "content 4",
 	}
 
 	archive := makeTarGz(t, files)
@@ -2277,9 +2277,9 @@ func TestPeekFirstYAML_FindsYAML(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
 	archive := makeTarGz(t, map[string]string{
-		"readme.txt":    "readme content",
-		"config.yaml":   "name: test\nversion: 1.0",
-		"another.yml":   "other: config",
+		"readme.txt":  "readme content",
+		"config.yaml": "name: test\nversion: 1.0",
+		"another.yml": "other: config",
 	})
 
 	result := svc.peekFirstYAML(archive)
@@ -2291,7 +2291,7 @@ func TestPeekFirstYAML_NoYAMLFiles(t *testing.T) {
 	t.Parallel()
 	svc := NewHubService(nil, nil, t.TempDir())
 	archive := makeTarGz(t, map[string]string{
-		"readme.txt": "readme",
+		"readme.txt":  "readme",
 		"config.json": "{}",
 	})
 
