@@ -1,74 +1,503 @@
-# Test Coverage Plan - 85%+ Coverage Target
+# DNS Routes Implementation Plan
 
-**Last Updated:** January 7, 2026
-
-This document outlines the comprehensive plan to achieve 85%+ test coverage, addressing 457 lines of missing coverage across 10 files.
+**Last Updated:** January 8, 2026
+**Status:** 🟡 READY FOR IMPLEMENTATION
+**Priority:** P1 - Navigation broken
 
 ---
 
-## Section 0: ACTIVE - Test Failure Remediation Plan - PR #460 + #461 + CI Run #20773147447
+## Problem Statement
 
-**Status:** 🔴 CRITICAL - 30 Tests Failing in CI
-**Created:** January 7, 2026
-**Updated:** January 7, 2026 (Added PR #460 + CI failures)
-**Priority:** P0 (Blocking PR #461)
-**Context:** DNS Challenge Multi-Credential Support + Additional Test Failures
+The `Layout.tsx` navigation was updated to include a DNS menu with children:
+- `/dns` (parent)
+- `/dns/providers`
+- `/dns/plugins`
 
-### Executive Summary
+However, no corresponding routes were added to `App.tsx`, causing React Router errors:
+```
+No routes matched location "/dns/providers"
+No routes matched location "/dns/plugins"
+No routes matched location "/dns/"
+```
 
-Comprehensive remediation plan covering test failures from multiple sources:
-- **PR #461** (24 tests): DNS Challenge multi-credential support
-- **PR #460 Test Output** (5 tests): Backend handler failures
-- **CI Run #20773147447** (1 test): Frontend timeout
+---
 
-**Total:** 30 unique test failures categorized into 5 root causes:
-1. **DNS Provider Registry Not Initialized** - Critical blocker for 18 tests
-2. **Credential Field Name Mismatches** - Affects 4 service tests
-3. **Security Handler Error Handling** - 1 test returning 500 instead of 400
-4. **Security Settings Database Override** - 5 tests failing due to record not found
-5. **Certificate Deletion Race Condition** - 1 test with database locking
-6. **Frontend Test Timeout** - 1 test with race condition
+## Current State Analysis
 
-### Root Causes Identified
+### Layout.tsx Navigation (Lines 64-69)
+```tsx
+{ name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
+  { name: t('navigation.dnsProviders'), path: '/dns/providers', icon: '🧭' },
+  { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
+] },
+```
 
-#### 1. DNS Provider Registry Not Initialized (CRITICAL)
-- **Impact:** 18 tests failing (credential handlers + Caddy tests)
-- **Issue:** `dnsprovider.Global().Get()` returns not found
-- **Fix:** Create test helper to initialize registry with all providers
+### App.tsx Current Routes (Lines 64-66)
+The DNS-related route currently exists as:
+```tsx
+<Route path="dns-providers" element={<DNSProviders />} />
+```
 
-#### 2. Credential Field Name Inconsistencies
-- **Impact:** 4 DNS provider service tests
-- **Providers Affected:** hetzner (api_key→api_token), digitalocean (auth_token→api_token), dnsimple (oauth_token→api_token)
-- **Fix:** Update test data field names
+### Existing Page Components
+| Component | Path | Status |
+|-----------|------|--------|
+| `DNSProviders.tsx` | `/pages/DNSProviders.tsx` | ✅ Exists |
+| `Plugins.tsx` | `/pages/Plugins.tsx` | ✅ Exists |
 
-#### 3. Security Handler Returns 500 for Invalid Input
-- **Impact:** 1 security audit test
-- **Issue:** Missing input validation before database operations
-- **Fix:** Add validation returning 400 for malicious inputs
+### Pattern Reference: Nested Routes
 
-#### 4. Security Settings Database Override Not Working (NEW - PR #460)
-- **Impact:** 5 security handler tests
-- **Tests Failing:**
-  - `TestSecurityHandler_ACL_DBOverride`
-  - `TestSecurityHandler_CrowdSec_Mode_DBOverride`
-  - `TestSecurityHandler_GetStatus_RespectsSettingsTable` (5 sub-tests)
-  - `TestSecurityHandler_GetStatus_WAFModeFromSettings`
-  - `TestSecurityHandler_GetStatus_RateLimitModeFromSettings`
-- **Issue:** `GetStatus` handler returns "record not found" when querying `security_configs` table
-- **Root Cause:** Handler queries `security_configs` table which is empty in tests, but tests expect settings from `settings` table to override config
-- **Fix:** Ensure handler checks `settings` table first before falling back to `security_configs`
+**Settings Pattern** (Lines 79-87 in App.tsx):
+```tsx
+<Route path="settings" element={<Settings />}>
+  <Route index element={<SystemSettings />} />
+  <Route path="system" element={<SystemSettings />} />
+  <Route path="notifications" element={<Notifications />} />
+  <Route path="smtp" element={<SMTPSettings />} />
+  <Route path="crowdsec" element={<Navigate to="/security/crowdsec" replace />} />
+  <Route path="account" element={<Account />} />
+  <Route path="account-management" element={<UsersPage />} />
+</Route>
+```
 
-#### 5. Certificate Deletion Database Lock (NEW - PR #460)
-- **Impact:** 1 test (`TestDeleteCertificate_CreatesBackup`)
-- **Issue:** `database table is locked: ssl_certificates` causing 500 error
-- **Root Cause:** SQLite in-memory database lock contention when backup and delete happen in rapid succession
-- **Fix:** Add proper transaction handling or retry logic with backoff
+**Settings.tsx Structure**:
+- Uses `<Outlet />` to render child routes
+- Provides tab navigation UI for child pages
+- Wraps content in `PageShell` component
 
-#### 6. Frontend LiveLogViewer Test Timeout (NEW - CI #20773147447)
-- **Impact:** 1 test (`LiveLogViewer.test.tsx:374` - "displays blocked requests with special styling")
-- **Issue:** Test times out after 5000ms waiting for DOM elements
-- **Root Cause:** Multiple assertions in single `waitFor` block + complex regex matching + async state update timing
-- **Fix:** Split assertions into separate `waitFor` calls or use `findBy` queries
+**Tasks Pattern** (Lines 89-98 in App.tsx):
+```tsx
+<Route path="tasks" element={<Tasks />}>
+  <Route index element={<Backups />} />
+  <Route path="backups" element={<Backups />} />
+  <Route path="logs" element={<Logs />} />
+  <Route path="import">
+    <Route path="caddyfile" element={<ImportCaddy />} />
+    <Route path="crowdsec" element={<ImportCrowdSec />} />
+  </Route>
+</Route>
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: Create DNS Parent Page
+
+**File**: `frontend/src/pages/DNS.tsx` (NEW)
+
+```tsx
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { PageShell } from '../components/layout/PageShell'
+import { cn } from '../utils/cn'
+import { Cloud, Puzzle } from 'lucide-react'
+
+export default function DNS() {
+  const { t } = useTranslation()
+  const location = useLocation()
+
+  const isActive = (path: string) => location.pathname === path
+
+  const navItems = [
+    { path: '/dns/providers', label: t('navigation.dnsProviders'), icon: Cloud },
+    { path: '/dns/plugins', label: t('navigation.plugins'), icon: Puzzle },
+  ]
+
+  return (
+    <PageShell
+      title={t('dns.title')}
+      description={t('dns.description')}
+      actions={
+        <div className="flex items-center gap-2 text-content-muted">
+          <Cloud className="h-5 w-5" />
+        </div>
+      }
+    >
+      {/* Tab Navigation */}
+      <nav className="flex items-center gap-1 p-1 bg-surface-subtle rounded-lg w-fit">
+        {navItems.map(({ path, label, icon: Icon }) => (
+          <Link
+            key={path}
+            to={path}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all duration-fast',
+              isActive(path)
+                ? 'bg-surface-elevated text-content-primary shadow-sm'
+                : 'text-content-secondary hover:text-content-primary hover:bg-surface-muted'
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </Link>
+        ))}
+      </nav>
+
+      {/* Content Area */}
+      <div className="bg-surface-elevated border border-border rounded-lg p-6">
+        <Outlet />
+      </div>
+    </PageShell>
+  )
+}
+```
+
+---
+
+### Phase 2: Update App.tsx Routes
+
+**File**: `frontend/src/App.tsx`
+
+#### Changes Required:
+
+1. **Add lazy import** (after line 24):
+```tsx
+const DNS = lazy(() => import('./pages/DNS'))
+```
+
+2. **Replace single dns-providers route** (line 66):
+
+**REMOVE**:
+```tsx
+<Route path="dns-providers" element={<DNSProviders />} />
+```
+
+**ADD** (after the domains route, ~line 65):
+```tsx
+{/* DNS Routes */}
+<Route path="dns" element={<DNS />}>
+  <Route index element={<DNSProviders />} />
+  <Route path="providers" element={<DNSProviders />} />
+  <Route path="plugins" element={<Plugins />} />
+</Route>
+
+{/* Legacy redirect for old bookmarks */}
+<Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
+```
+
+#### Full Diff Preview:
+
+```diff
+ const Dashboard = lazy(() => import('./pages/Dashboard'))
+ const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
+ const RemoteServers = lazy(() => import('./pages/RemoteServers'))
++const DNS = lazy(() => import('./pages/DNS'))
+ const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
+```
+
+```diff
+              <Route path="domains" element={<Domains />} />
+              <Route path="certificates" element={<Certificates />} />
+-              <Route path="dns-providers" element={<DNSProviders />} />
++
++              {/* DNS Routes */}
++              <Route path="dns" element={<DNS />}>
++                <Route index element={<DNSProviders />} />
++                <Route path="providers" element={<DNSProviders />} />
++                <Route path="plugins" element={<Plugins />} />
++              </Route>
++
++              {/* Legacy redirect for old bookmarks */}
++              <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
++
+              <Route path="security" element={<Security />} />
+```
+
+---
+
+### Phase 3: Update DNSProviders.tsx
+
+The `DNSProviders.tsx` component currently uses `PageShell` directly. When rendered inside `DNS.tsx`, it will be wrapped twice. We need to remove `PageShell` since the parent DNS component provides it.
+
+**File**: `frontend/src/pages/DNSProviders.tsx`
+
+**Changes Required**:
+
+```diff
+-import { PageShell } from '../components/layout/PageShell'
++// PageShell removed - parent DNS component provides the shell
+
+ export default function DNSProviders() {
+   // ... existing state and handlers ...
+
+-  return (
+-    <PageShell
+-      title={t('dnsProviders.title')}
+-      description={t('dnsProviders.description')}
+-      actions={headerActions}
+-    >
++  return (
++    <div className="space-y-6">
++      {/* Header with Add Button */}
++      <div className="flex justify-end">
++        {headerActions}
++      </div>
++
+       {/* Info Alert */}
+       <Alert variant="info" icon={Cloud}>
+         ...
+       </Alert>
+
+       {/* Loading State */}
+       ...
+
+       {/* Empty State */}
+       ...
+
+       {/* Provider Cards Grid */}
+       ...
+
+       {/* Add/Edit Form Dialog */}
+       ...
+-    </PageShell>
++    </div>
+   )
+ }
+```
+
+---
+
+### Phase 4: Update Plugins.tsx
+
+**File**: `frontend/src/pages/Plugins.tsx`
+
+Apply the same pattern - remove `PageShell` wrapper since `DNS.tsx` provides it.
+
+**Changes Required**:
+
+```diff
+-import { PageShell } from '../components/layout/PageShell'
++// PageShell removed - parent DNS component provides the shell
+
+ export default function Plugins() {
+   // ... existing state and handlers ...
+
+-  return (
+-    <PageShell
+-      title={t('plugins.title', 'DNS Provider Plugins')}
+-      description={t('plugins.description', '...')}
+-      actions={headerActions}
+-    >
++  return (
++    <div className="space-y-6">
++      {/* Header with Reload Button */}
++      <div className="flex justify-end">
++        {headerActions}
++      </div>
++
+       {/* Info Alert */}
+       ...
+
+       {/* Loading State */}
+       ...
+
+       {/* Empty State */}
+       ...
+
+       {/* Built-in Plugins Section */}
+       ...
+
+       {/* External Plugins Section */}
+       ...
+
+       {/* Metadata Modal */}
+       ...
+-    </PageShell>
++    </div>
+   )
+ }
+```
+
+---
+
+### Phase 5: Add i18n Translation Keys
+
+**File**: `frontend/src/locales/en/translation.json`
+
+Add to the `navigation` section (around line 54):
+
+```json
+"dns": "DNS",
+```
+
+Add new section for DNS parent page (after `dnsProviders` section):
+
+```json
+"dns": {
+  "title": "DNS Management",
+  "description": "Manage DNS providers and plugins for certificate automation"
+},
+```
+
+**Files to update** (all locale files):
+- `frontend/src/locales/en/translation.json`
+- `frontend/src/locales/de/translation.json`
+- `frontend/src/locales/es/translation.json`
+- `frontend/src/locales/fr/translation.json`
+- `frontend/src/locales/zh/translation.json`
+
+---
+
+### Phase 6: Remove admin/plugins Route (Cleanup)
+
+**File**: `frontend/src/App.tsx`
+
+The current route at line 76:
+```tsx
+<Route path="admin/plugins" element={<Plugins />} />
+```
+
+This should be **replaced** with a redirect for backwards compatibility:
+
+```tsx
+<Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
+```
+
+---
+
+## Test Updates
+
+### New Test File: DNS.test.tsx
+
+**File**: `frontend/src/pages/__tests__/DNS.test.tsx` (NEW)
+
+```tsx
+import { describe, it, expect, vi } from 'vitest'
+import { screen, within } from '@testing-library/react'
+import DNS from '../DNS'
+import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'dns.title': 'DNS Management',
+        'dns.description': 'Manage DNS providers and plugins',
+        'navigation.dnsProviders': 'DNS Providers',
+        'navigation.plugins': 'Plugins',
+      }
+      return translations[key] || key
+    },
+  }),
+}))
+
+describe('DNS page', () => {
+  it('renders DNS management page with navigation tabs', async () => {
+    renderWithQueryClient(<DNS />, { routeEntries: ['/dns/providers'] })
+
+    expect(await screen.findByText('DNS Management')).toBeInTheDocument()
+    expect(screen.getByText('DNS Providers')).toBeInTheDocument()
+    expect(screen.getByText('Plugins')).toBeInTheDocument()
+  })
+
+  it('highlights active tab based on route', async () => {
+    renderWithQueryClient(<DNS />, { routeEntries: ['/dns/providers'] })
+
+    const nav = screen.getByRole('navigation')
+    const providersLink = within(nav).getByText('DNS Providers').closest('a')
+
+    // Active tab should have the elevated style class
+    expect(providersLink).toHaveClass('bg-surface-elevated')
+  })
+
+  it('provides tab navigation links', async () => {
+    renderWithQueryClient(<DNS />, { routeEntries: ['/dns'] })
+
+    const providersLink = screen.getByRole('link', { name: /dns providers/i })
+    const pluginsLink = screen.getByRole('link', { name: /plugins/i })
+
+    expect(providersLink).toHaveAttribute('href', '/dns/providers')
+    expect(pluginsLink).toHaveAttribute('href', '/dns/plugins')
+  })
+})
+```
+
+### Update Existing Tests
+
+**File**: `frontend/src/pages/__tests__/Plugins.test.tsx`
+
+Add route entry to test context since Plugins is now a child route:
+
+```diff
+- renderWithQueryClient(<Plugins />)
++ renderWithQueryClient(<Plugins />, { routeEntries: ['/dns/plugins'] })
+```
+
+---
+
+## Files Summary
+
+| File | Action | Description |
+|------|--------|-------------|
+| `frontend/src/pages/DNS.tsx` | **CREATE** | New parent component for DNS routes |
+| `frontend/src/App.tsx` | **MODIFY** | Add DNS route group, legacy redirects |
+| `frontend/src/pages/DNSProviders.tsx` | **MODIFY** | Remove PageShell wrapper |
+| `frontend/src/pages/Plugins.tsx` | **MODIFY** | Remove PageShell wrapper |
+| `frontend/src/locales/en/translation.json` | **MODIFY** | Add DNS translation keys |
+| `frontend/src/locales/de/translation.json` | **MODIFY** | Add DNS translation keys |
+| `frontend/src/locales/es/translation.json` | **MODIFY** | Add DNS translation keys |
+| `frontend/src/locales/fr/translation.json` | **MODIFY** | Add DNS translation keys |
+| `frontend/src/locales/zh/translation.json` | **MODIFY** | Add DNS translation keys |
+| `frontend/src/pages/__tests__/DNS.test.tsx` | **CREATE** | Tests for DNS parent component |
+| `frontend/src/pages/__tests__/Plugins.test.tsx` | **MODIFY** | Update route entries |
+
+---
+
+## Verification Checklist
+
+- [ ] `/dns` route renders DNS page with providers as default
+- [ ] `/dns/providers` renders DNSProviders component
+- [ ] `/dns/plugins` renders Plugins component
+- [ ] `/dns-providers` redirects to `/dns/providers`
+- [ ] `/admin/plugins` redirects to `/dns/plugins`
+- [ ] Navigation sidebar correctly highlights active routes
+- [ ] Tab navigation within DNS page works correctly
+- [ ] All existing DNS provider functionality preserved
+- [ ] All existing Plugins functionality preserved
+- [ ] Tests pass: `npm test`
+- [ ] TypeScript compiles: `npm run type-check`
+- [ ] Linting passes: `npm run lint`
+
+---
+
+## Implementation Order
+
+1. Create `DNS.tsx` parent component
+2. Update `App.tsx` with new route structure
+3. Modify `DNSProviders.tsx` to remove PageShell
+4. Modify `Plugins.tsx` to remove PageShell
+5. Add i18n translation keys (all locales)
+6. Create `DNS.test.tsx`
+7. Update `Plugins.test.tsx` route entries
+8. Run tests and verify
+9. Manual browser testing
+
+---
+
+## Risk Assessment
+
+| Risk | Mitigation |
+|------|-----------|
+| Breaking existing `/dns-providers` bookmarks | Add redirect route |
+| Breaking `/admin/plugins` URL | Add redirect route |
+| Double PageShell wrapping | Remove PageShell from child components |
+| Missing translations | Add keys to all 5 locale files |
+| Test failures | Update route entries in test renders |
+
+---
+
+## Estimated Effort
+
+| Task | Time |
+|------|------|
+| Create DNS.tsx | 15 min |
+| Update App.tsx routes | 10 min |
+| Update DNSProviders.tsx | 10 min |
+| Update Plugins.tsx | 10 min |
+| Update i18n files (5) | 15 min |
+| Create DNS.test.tsx | 15 min |
+| Update Plugins.test.tsx | 5 min |
+| Testing & verification | 20 min |
+| **Total** | **~1.5 hours**
 
 ### Remediation Phases
 

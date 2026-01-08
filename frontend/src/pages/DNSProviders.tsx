@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Cloud } from 'lucide-react'
-import { PageShell } from '../components/layout/PageShell'
 import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
 import DNSProviderCard from '../components/DNSProviderCard'
 import DNSProviderForm from '../components/DNSProviderForm'
@@ -76,11 +75,12 @@ export default function DNSProviders() {
   )
 
   return (
-    <PageShell
-      title={t('dnsProviders.title')}
-      description={t('dnsProviders.description')}
-      actions={headerActions}
-    >
+    <div className="space-y-6">
+      {/* Header with Add Button */}
+      <div className="flex justify-end">
+        {headerActions}
+      </div>
+
       {/* Info Alert */}
       <Alert variant="info" icon={Cloud}>
         <strong>{t('dnsProviders.note')}:</strong> {t('dnsProviders.noteText')}
@@ -131,6 +131,6 @@ export default function DNSProviders() {
         provider={editingProvider}
         onSuccess={handleFormSuccess}
       />
-    </PageShell>
+    </div>
   )
 }
