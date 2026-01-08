@@ -857,3 +857,175 @@ func TestPluginHandler_Count(t *testing.T) {
 	// ReloadPlugins: 2 (Success, WithErrors)
 	// Total: 20+ tests ✓
 }
+
+// =============================================================================
+// Additional DB Error Path Tests for coverage
+// =============================================================================
+
+// TestPluginHandler_EnablePlugin_DBUpdateError tests DB error when updating plugin enabled status
+func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+
+	plugin := models.Plugin{
+		UUID:     "plugin-db-error",
+		Name:     "DB Error Plugin",
+		Type:     "db-error-type",
+		Enabled:  false,
+		Status:   models.PluginStatusError,
+		FilePath: "/path/to/dberror.so",
+	}
+	db.Create(&plugin)
+
+	handler := NewPluginHandler(db, pluginLoader)
+
+	// Close the underlying connection to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	router := gin.New()
+	router.POST("/plugins/:id/enable", handler.EnablePlugin)
+
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 internal server error
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestPluginHandler_DisablePlugin_DBUpdateError tests DB error when updating plugin disabled status
+func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+
+	plugin := models.Plugin{
+		UUID:     "plugin-disable-error",
+		Name:     "Disable Error Plugin",
+		Type:     "disable-error-type",
+		Enabled:  true,
+		Status:   models.PluginStatusLoaded,
+		FilePath: "/path/to/disableerror.so",
+	}
+	db.Create(&plugin)
+
+	handler := NewPluginHandler(db, pluginLoader)
+
+	// Close the underlying connection to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	router := gin.New()
+	router.POST("/plugins/:id/disable", handler.DisablePlugin)
+
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 internal server error
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestPluginHandler_GetPlugin_DBInternalError tests DB internal error when getting a plugin
+func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+
+	// Create a plugin first
+	plugin := models.Plugin{
+		UUID:     "plugin-get-error",
+		Name:     "Get Error Plugin",
+		Type:     "get-error-type",
+		Enabled:  true,
+		FilePath: "/path/to/geterror.so",
+	}
+	db.Create(&plugin)
+
+	handler := NewPluginHandler(db, pluginLoader)
+
+	// Close the underlying connection to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	router := gin.New()
+	router.GET("/plugins/:id", handler.GetPlugin)
+
+	req := httptest.NewRequest(http.MethodGet, "/plugins/1", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 internal server error
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to get plugin")
+}
+
+// TestPluginHandler_EnablePlugin_FirstDBLookupError tests DB error in first plugin lookup
+func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+
+	// Create a plugin
+	plugin := models.Plugin{
+		UUID:     "plugin-first-lookup",
+		Name:     "First Lookup Plugin",
+		Type:     "first-lookup-type",
+		Enabled:  false,
+		FilePath: "/path/to/firstlookup.so",
+	}
+	db.Create(&plugin)
+
+	handler := NewPluginHandler(db, pluginLoader)
+
+	// Close the underlying connection to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	router := gin.New()
+	router.POST("/plugins/:id/enable", handler.EnablePlugin)
+
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/enable", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 internal server error (DB lookup failure)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to get plugin")
+}
+
+// TestPluginHandler_DisablePlugin_FirstDBLookupError tests DB error in first plugin lookup during disable
+func TestPluginHandler_DisablePlugin_FirstDBLookupError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := OpenTestDBWithMigrations(t)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+
+	// Create a plugin
+	plugin := models.Plugin{
+		UUID:     "plugin-disable-lookup",
+		Name:     "Disable Lookup Plugin",
+		Type:     "disable-lookup-type",
+		Enabled:  true,
+		FilePath: "/path/to/disablelookup.so",
+	}
+	db.Create(&plugin)
+
+	handler := NewPluginHandler(db, pluginLoader)
+
+	// Close the underlying connection to simulate DB error
+	sqlDB, _ := db.DB()
+	sqlDB.Close()
+
+	router := gin.New()
+	router.POST("/plugins/:id/disable", handler.DisablePlugin)
+
+	req := httptest.NewRequest(http.MethodPost, "/plugins/1/disable", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Should return 500 internal server error (DB lookup failure)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to get plugin")
+}

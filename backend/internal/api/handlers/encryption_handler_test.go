@@ -782,3 +782,145 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 	// Should have failure count > 0 due to decryption error
 	assert.Greater(t, result.FailureCount, 0)
 }
+
+// TestEncryptionHandler_GetActorFromGinContext_InvalidType tests getActorFromGinContext with invalid type
+func TestEncryptionHandler_GetActorFromGinContext_InvalidType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	var capturedActor string
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", int64(999)) // int64 instead of uint or string
+		c.Next()
+	})
+	router.GET("/test", func(c *gin.Context) {
+		capturedActor = getActorFromGinContext(c)
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	router.ServeHTTP(w, req)
+
+	// Invalid type should return "system" as fallback
+	assert.Equal(t, "system", capturedActor)
+}
+
+// TestEncryptionHandler_RotateWithPartialFailures tests rotation that has some successes and failures
+func TestEncryptionHandler_RotateWithPartialFailures(t *testing.T) {
+	db := setupEncryptionTestDB(t)
+
+	// Generate test keys
+	currentKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+	nextKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+
+	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	defer func() {
+		os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+	}()
+
+	// Create a valid provider
+	currentService, err := crypto.NewEncryptionService(currentKey)
+	require.NoError(t, err)
+
+	validCreds := map[string]string{"api_key": "valid123"}
+	credJSON, _ := json.Marshal(validCreds)
+	validEncrypted, _ := currentService.Encrypt(credJSON)
+
+	validProvider := models.DNSProvider{
+		UUID:                 "valid-provider-uuid",
+		Name:                 "Valid Provider",
+		ProviderType:         "cloudflare",
+		CredentialsEncrypted: validEncrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(&validProvider).Error)
+
+	// Create an invalid provider (corrupted encrypted data)
+	invalidProvider := models.DNSProvider{
+		UUID:                 "invalid-provider-uuid",
+		Name:                 "Invalid Provider",
+		ProviderType:         "route53",
+		CredentialsEncrypted: "corrupted-data-that-cannot-be-decrypted",
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(&invalidProvider).Error)
+
+	rotationService, err := crypto.NewRotationService(db)
+	require.NoError(t, err)
+
+	securityService := services.NewSecurityService(db)
+	defer securityService.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	router.ServeHTTP(w, req)
+	securityService.Flush()
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result crypto.RotationResult
+	err = json.Unmarshal(w.Body.Bytes(), &result)
+	require.NoError(t, err)
+
+	// Should have at least 2 providers attempted
+	assert.Equal(t, 2, result.TotalProviders)
+	// Should have at least 1 success (valid provider)
+	assert.GreaterOrEqual(t, result.SuccessCount, 1)
+	// Should have at least 1 failure (invalid provider)
+	assert.GreaterOrEqual(t, result.FailureCount, 1)
+	// Failed providers list should be populated
+	assert.NotEmpty(t, result.FailedProviders)
+}
+
+// TestEncryptionHandler_isAdmin_NoRoleSet tests isAdmin when no role is set
+func TestEncryptionHandler_isAdmin_NoRoleSet(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	// No middleware setting user_role
+	router.GET("/test", func(c *gin.Context) {
+		if isAdmin(c) {
+			c.JSON(http.StatusOK, gin.H{"admin": true})
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"admin": false})
+		}
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestEncryptionHandler_isAdmin_NonAdminRole tests isAdmin with non-admin role
+func TestEncryptionHandler_isAdmin_NonAdminRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_role", "user") // Regular user, not admin
+		c.Next()
+	})
+	router.GET("/test", func(c *gin.Context) {
+		if isAdmin(c) {
+			c.JSON(http.StatusOK, gin.H{"admin": true})
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"admin": false})
+		}
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
