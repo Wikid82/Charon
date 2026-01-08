@@ -51,6 +51,7 @@
     "remoteServers": "Remote Servers",
     "domains": "Domains",
     "certificates": "Certificates",
+    "dns": "DNS",
     "dnsProviders": "DNS Providers",
     "security": "Security",
     "accessLists": "Access Lists",
@@ -1026,6 +1027,10 @@
       "strict": "Strong security for web applications.\n✓ Best for: Web-only dashboards, admin panels.\n⚠ May break mobile apps and API clients.\nNot recommended for Radarr, Plex, or services with companion apps.",
       "paranoid": "Maximum security for high-risk applications.\n✓ Best for: Banking, healthcare, compliance-critical apps.\n⚠ WILL break mobile apps, API clients, and OAuth flows.\nOnly use if you understand and can customize every header."
     }
+  },
+  "dns": {
+    "title": "DNS Management",
+    "description": "Manage DNS providers and plugins for certificate automation"
   },
   "dnsProviders": {
     "title": "DNS Providers",

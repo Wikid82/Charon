@@ -121,9 +121,10 @@ describe('Plugins page', () => {
   it('renders plugin management page', async () => {
     renderWithQueryClient(<Plugins />)
 
-    expect(await screen.findByText('DNS Provider Plugins')).toBeInTheDocument()
-    // Check that page renders without errors
-    expect(screen.getByRole('button', { name: /reload plugins/i })).toBeInTheDocument()
+    // The page now renders inside DNS parent which provides the PageShell
+    // Check that page content renders without errors
+    expect(await screen.findByRole('button', { name: /reload plugins/i })).toBeInTheDocument()
+    expect(screen.getByText('Note:')).toBeInTheDocument()
   })
 
   it('displays built-in plugins section', async () => {

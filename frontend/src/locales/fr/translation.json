@@ -51,6 +51,9 @@
     "remoteServers": "Serveurs Distants",
     "domains": "Domaines",
     "certificates": "Certificats",
+    "dns": "DNS",
+    "dnsProviders": "Fournisseurs DNS",
+    "plugins": "Plugins",
     "security": "Sécurité",
     "accessLists": "Listes d'Accès",
     "crowdsec": "CrowdSec",
@@ -974,5 +977,9 @@
       "strict": "Sécurité renforcée pour les applications web.\n✓ Idéal pour : Tableaux de bord web uniquement, panneaux d'administration.\n⚠ Peut affecter les apps mobiles et clients API.\nNon recommandé pour Radarr, Plex ou services avec apps companion.",
       "paranoid": "Sécurité maximale pour les applications à haut risque.\n✓ Idéal pour : Banque, santé, apps critiques de conformité.\n⚠ AFFECTERA les apps mobiles, clients API et flux OAuth.\nUtilisez uniquement si vous comprenez et pouvez personnaliser chaque en-tête."
     }
+  },
+  "dns": {
+    "title": "Gestion DNS",
+    "description": "Gérer les fournisseurs DNS et les plugins pour l'automatisation des certificats"
   }
 }
