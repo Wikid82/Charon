@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -192,4 +193,35 @@ func TestClient_Ping_TransportError(t *testing.T) {
 	err := client.Ping(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "caddy unreachable")
+}
+
+func TestClient_GetConfig_BaseURLNil_ReturnsError(t *testing.T) {
+	client := &Client{
+		baseURL:    nil,
+		httpClient: http.DefaultClient,
+		initErr:    nil,
+	}
+
+	_, err := client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "base URL is not configured")
+}
+
+func TestClient_RequestCreationErrors_FromInvalidResolvedURL(t *testing.T) {
+	client := &Client{
+		baseURL: &url.URL{Scheme: "http", Host: "example.com\n"},
+		initErr: nil,
+	}
+
+	err := client.Load(context.Background(), &Config{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	_, err = client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	err = client.Ping(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
 }
