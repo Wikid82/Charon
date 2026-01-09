@@ -12,6 +12,7 @@ import { AuthProvider } from './context/AuthContext'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
+const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
@@ -63,7 +64,17 @@ export default function App() {
               <Route path="remote-servers" element={<RemoteServers />} />
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
-              <Route path="dns-providers" element={<DNSProviders />} />
+
+              {/* DNS Routes */}
+              <Route path="dns" element={<DNS />}>
+                <Route index element={<Navigate to="/dns/providers" replace />} />
+                <Route path="providers" element={<DNSProviders />} />
+                <Route path="plugins" element={<Plugins />} />
+              </Route>
+
+              {/* Legacy redirect for old bookmarks */}
+              <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
+
               <Route path="security" element={<Security />} />
               <Route path="security/audit-logs" element={<AuditLogs />} />
               <Route path="security/access-lists" element={<AccessLists />} />
@@ -75,7 +86,7 @@ export default function App() {
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="users" element={<UsersPage />} />
-              <Route path="admin/plugins" element={<Plugins />} />
+              <Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}

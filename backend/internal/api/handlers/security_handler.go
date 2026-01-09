@@ -268,6 +268,25 @@ func (h *SecurityHandler) CreateDecision(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ip and action are required"})
 		return
 	}
+
+	// CRITICAL: Validate IP format to prevent SQL injection via IP field
+	// Must accept both single IPs and CIDR ranges
+	if !isValidIP(payload.IP) && !isValidCIDR(payload.IP) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address format"})
+		return
+	}
+
+	// CRITICAL: Validate action enum
+	// Only accept known action types to prevent injection via action field
+	validActions := []string{"block", "allow", "captcha"}
+	if !contains(validActions, payload.Action) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action"})
+		return
+	}
+
+	// Sanitize details field (limit length, strip control characters)
+	payload.Details = sanitizeString(payload.Details, 1000)
+
 	// Populate source
 	payload.Source = "manual"
 	if err := h.svc.LogDecision(&payload); err != nil {
@@ -793,4 +812,42 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+// isValidIP validates that s is a valid IPv4 or IPv6 address
+func isValidIP(s string) bool {
+	return net.ParseIP(s) != nil
+}
+
+// isValidCIDR validates that s is a valid CIDR notation
+func isValidCIDR(s string) bool {
+	_, _, err := net.ParseCIDR(s)
+	return err == nil
+}
+
+// contains checks if a string exists in a slice
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeString removes control characters and enforces max length
+func sanitizeString(s string, maxLen int) string {
+	// Remove null bytes and other control characters
+	s = strings.Map(func(r rune) rune {
+		if r == 0 || (r < 32 && r != '\n' && r != '\r' && r != '\t') {
+			return -1 // Remove character
+		}
+		return r
+	}, s)
+
+	// Enforce max length
+	if len(s) > maxLen {
+		return s[:maxLen]
+	}
+	return s
 }

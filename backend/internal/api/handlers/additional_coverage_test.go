@@ -269,7 +269,7 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"ip":     "192.168.1.1",
-		"action": "ban",
+		"action": "block", // Use valid action to pass validation
 	})
 
 	w := httptest.NewRecorder()
