@@ -37,7 +37,6 @@ func setupCertTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(mockAuthMiddleware())
-	r.Use(mockAuthMiddleware())
 
 	svc := services.NewCertificateService("/tmp", db)
 	h := NewCertificateHandler(svc, nil, nil)
@@ -85,7 +84,8 @@ func toStr(id uint) string {
 
 // Test that deleting a certificate NOT in use creates a backup and deletes successfully
 func TestDeleteCertificate_CreatesBackup(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	// Add _txlock=immediate to prevent lock contention during rapid backup + delete operations
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared&_txlock=immediate", t.Name())), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)
 	}

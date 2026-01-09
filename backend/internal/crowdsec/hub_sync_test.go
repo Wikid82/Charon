@@ -1663,3 +1663,713 @@ func TestHubHTTPErrorCanFallback(t *testing.T) {
 		require.False(t, err.CanFallback())
 	})
 }
+
+// TestValidateHubURL_EdgeCases tests additional edge cases for SSRF protection
+func TestValidateHubURL_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		url       string
+		wantError bool
+		errorMsg  string
+	}{
+		{
+			name:      "Missing hostname",
+			url:       "https://",
+			wantError: true,
+			errorMsg:  "missing hostname",
+		},
+		{
+			name:      "Invalid URL format - unsupported scheme caught",
+			url:       "not-a-url",
+			wantError: true,
+			errorMsg:  "unsupported scheme",
+		},
+		{
+			name:      "FTP scheme rejected",
+			url:       "ftp://hub-data.crowdsec.net/file.tgz",
+			wantError: true,
+			errorMsg:  "unsupported scheme",
+		},
+		{
+			name:      "File scheme rejected",
+			url:       "file:///etc/passwd",
+			wantError: true,
+			errorMsg:  "unsupported scheme",
+		},
+		{
+			name:      "Test domain allowed",
+			url:       "http://test.hub/api/index.json",
+			wantError: false,
+		},
+		{
+			name:      "Example.com allowed for testing",
+			url:       "http://example.com/index.json",
+			wantError: false,
+		},
+		{
+			name:      ".local domain allowed",
+			url:       "http://myserver.local/index.json",
+			wantError: false,
+		},
+		{
+			name:      "Subdomain of example.com allowed",
+			url:       "http://test.example.com/index.json",
+			wantError: false,
+		},
+		{
+			name:      "IPv6 loopback allowed",
+			url:       "http://[::1]:8080/index.json",
+			wantError: false,
+		},
+		{
+			name:      "Unknown production domain rejected",
+			url:       "https://malicious-hub.com/index.json",
+			wantError: true,
+			errorMsg:  "unknown hub domain",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateHubURL(tt.url)
+			if tt.wantError {
+				require.Error(t, err)
+				if tt.errorMsg != "" {
+					require.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// ============================================
+// NewHubService Constructor Tests
+// ============================================
+
+func TestNewHubService_DefaultTimeouts(t *testing.T) {
+	t.Parallel()
+	exec := &recordingExec{}
+	cache, err := NewHubCache(t.TempDir(), time.Hour)
+	require.NoError(t, err)
+
+	svc := NewHubService(exec, cache, t.TempDir())
+
+	require.NotNil(t, svc)
+	require.Equal(t, defaultPullTimeout, svc.PullTimeout)
+	require.Equal(t, defaultApplyTimeout, svc.ApplyTimeout)
+	require.NotNil(t, svc.HTTPClient)
+	require.Equal(t, defaultHubBaseURL, svc.HubBaseURL)
+}
+
+func TestNewHubService_EnvVarTimeouts_Valid(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_PULL_TIMEOUT_SECONDS", "30")
+	t.Setenv("HUB_APPLY_TIMEOUT_SECONDS", "60")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	require.Equal(t, 30*time.Second, svc.PullTimeout)
+	require.Equal(t, 60*time.Second, svc.ApplyTimeout)
+}
+
+func TestNewHubService_EnvVarTimeouts_Invalid(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_PULL_TIMEOUT_SECONDS", "invalid")
+	t.Setenv("HUB_APPLY_TIMEOUT_SECONDS", "not-a-number")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	// Should fall back to defaults for invalid values
+	require.Equal(t, defaultPullTimeout, svc.PullTimeout)
+	require.Equal(t, defaultApplyTimeout, svc.ApplyTimeout)
+}
+
+func TestNewHubService_EnvVarTimeouts_Negative(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_PULL_TIMEOUT_SECONDS", "-10")
+	t.Setenv("HUB_APPLY_TIMEOUT_SECONDS", "0")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	// Should fall back to defaults for non-positive values
+	require.Equal(t, defaultPullTimeout, svc.PullTimeout)
+	require.Equal(t, defaultApplyTimeout, svc.ApplyTimeout)
+}
+
+func TestNewHubService_EnvVarTimeouts_Whitespace(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_PULL_TIMEOUT_SECONDS", "  45  ")
+	t.Setenv("HUB_APPLY_TIMEOUT_SECONDS", "\t90\n")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	// Should trim whitespace and parse correctly
+	require.Equal(t, 45*time.Second, svc.PullTimeout)
+	require.Equal(t, 90*time.Second, svc.ApplyTimeout)
+}
+
+func TestNewHubService_CustomHubBaseURL(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_BASE_URL", "https://custom.hub.example.com")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	require.Equal(t, "https://custom.hub.example.com", svc.HubBaseURL)
+}
+
+func TestNewHubService_CustomMirrorBaseURL(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv()
+	t.Setenv("HUB_MIRROR_BASE_URL", "https://mirror.example.com")
+
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	require.Equal(t, "https://mirror.example.com", svc.MirrorBaseURL)
+}
+
+// ============================================
+// backupExisting Additional Tests
+// ============================================
+
+func TestBackupExisting_CopyFallback_Success(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+
+	// Create complex directory structure
+	require.NoError(t, os.MkdirAll(filepath.Join(dataDir, "configs", "scenarios"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "main.yaml"), []byte("main config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "sub.yaml"), []byte("sub config"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "configs", "scenarios", "s1.yaml"), []byte("scenario 1"), 0o644))
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := filepath.Join(t.TempDir(), "backup")
+
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+
+	// Verify all files were backed up
+	require.FileExists(t, filepath.Join(backupPath, "main.yaml"))
+	require.FileExists(t, filepath.Join(backupPath, "configs", "sub.yaml"))
+	require.FileExists(t, filepath.Join(backupPath, "configs", "scenarios", "s1.yaml"))
+
+	// Verify content integrity
+	content, err := os.ReadFile(filepath.Join(backupPath, "configs", "scenarios", "s1.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "scenario 1", string(content))
+}
+
+func TestBackupExisting_RenameSuccess(t *testing.T) {
+	t.Parallel()
+	baseDir := t.TempDir()
+	dataDir := filepath.Join(baseDir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "file.txt"), []byte("content"), 0o644))
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := filepath.Join(baseDir, "backup")
+
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+
+	// Original should be gone (renamed, not copied)
+	require.NoDirExists(t, dataDir)
+	// Backup should exist with content
+	require.FileExists(t, filepath.Join(backupPath, "file.txt"))
+}
+
+func TestBackupExisting_EmptyDirectory(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := filepath.Join(t.TempDir(), "backup")
+
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+
+	// Backup should exist even for empty dir
+	require.DirExists(t, backupPath)
+}
+
+func TestBackupExisting_PreservesPermissions(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	execFile := filepath.Join(dataDir, "executable.sh")
+	require.NoError(t, os.WriteFile(execFile, []byte("#!/bin/bash"), 0o755))
+
+	svc := NewHubService(nil, nil, dataDir)
+	backupPath := filepath.Join(t.TempDir(), "backup")
+
+	err := svc.backupExisting(backupPath)
+	require.NoError(t, err)
+
+	// Check permissions were preserved
+	origInfo, err := os.Stat(execFile)
+	if err == nil {
+		// If original still exists (rename succeeded)
+		backupInfo, err := os.Stat(filepath.Join(backupPath, "executable.sh"))
+		require.NoError(t, err)
+		require.Equal(t, origInfo.Mode(), backupInfo.Mode())
+	} else {
+		// If original was renamed (which removes it)
+		backupInfo, err := os.Stat(filepath.Join(backupPath, "executable.sh"))
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o755), backupInfo.Mode()&0o777)
+	}
+}
+
+// ============================================
+// extractTarGz Security Tests
+// ============================================
+
+func TestExtractTarGz_NestedPathTraversal(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// Create archive with nested path traversal
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+
+	hdr := &tar.Header{Name: "dir/../../etc/shadow", Mode: 0o644, Size: 7}
+	require.NoError(t, tw.WriteHeader(hdr))
+	_, err := tw.Write([]byte("hacked!"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsafe path")
+}
+
+func TestExtractTarGz_AbsolutePathWithDots(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+
+	hdr := &tar.Header{Name: "/tmp/../etc/passwd", Mode: 0o644, Size: 4}
+	require.NoError(t, tw.WriteHeader(hdr))
+	_, err := tw.Write([]byte("root"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsafe path")
+}
+
+func TestExtractTarGz_EmptyArchive(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// Create empty tar.gz
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.NoError(t, err)
+
+	// Target directory should exist but be empty
+	require.DirExists(t, targetDir)
+	entries, err := os.ReadDir(targetDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestExtractTarGz_InvalidTarAfterGzip(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// Create gzipped data that is not a valid tar
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	_, err := gw.Write([]byte("this is not a tar archive"))
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+
+	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tar")
+}
+
+func TestExtractTarGz_LargeNestedStructure(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	// Create archive with deeply nested directories
+	files := map[string]string{
+		"a/b/c/d/e/f/g/h/file.txt": "deep file",
+		"x/y/z/file.yaml":          "another file",
+	}
+
+	archive := makeTarGz(t, files)
+
+	err := svc.extractTarGz(context.Background(), archive, targetDir)
+	require.NoError(t, err)
+
+	require.FileExists(t, filepath.Join(targetDir, "a", "b", "c", "d", "e", "f", "g", "h", "file.txt"))
+	require.FileExists(t, filepath.Join(targetDir, "x", "y", "z", "file.yaml"))
+}
+
+func TestExtractTarGz_SpecialCharactersInFilenames(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	files := map[string]string{
+		"file with spaces.txt":      "content 1",
+		"file-with-dashes.yaml":     "content 2",
+		"file_with_underscores.yml": "content 3",
+		"file.multiple.dots.txt":    "content 4",
+	}
+
+	archive := makeTarGz(t, files)
+
+	err := svc.extractTarGz(context.Background(), archive, targetDir)
+	require.NoError(t, err)
+
+	require.FileExists(t, filepath.Join(targetDir, "file with spaces.txt"))
+	require.FileExists(t, filepath.Join(targetDir, "file-with-dashes.yaml"))
+	require.FileExists(t, filepath.Join(targetDir, "file_with_underscores.yml"))
+	require.FileExists(t, filepath.Join(targetDir, "file.multiple.dots.txt"))
+}
+
+func TestExtractTarGz_DirectoriesWithoutFiles(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+
+	// Add directory entry without files
+	hdr := &tar.Header{
+		Name:     "empty-dir/",
+		Mode:     0o755,
+		Typeflag: tar.TypeDir,
+	}
+	require.NoError(t, tw.WriteHeader(hdr))
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	err := svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.NoError(t, err)
+
+	require.DirExists(t, filepath.Join(targetDir, "empty-dir"))
+}
+
+func TestExtractTarGz_SkipsSpecialFileTypes(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	targetDir := t.TempDir()
+
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	tw := tar.NewWriter(gw)
+
+	// Add a character device (should be skipped)
+	hdr := &tar.Header{
+		Name:     "dev-null",
+		Mode:     0o666,
+		Typeflag: tar.TypeChar,
+	}
+	require.NoError(t, tw.WriteHeader(hdr))
+
+	// Add a regular file
+	regularHdr := &tar.Header{
+		Name: "regular.txt",
+		Mode: 0o644,
+		Size: 7,
+	}
+	require.NoError(t, tw.WriteHeader(regularHdr))
+	_, err := tw.Write([]byte("content"))
+	require.NoError(t, err)
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	err = svc.extractTarGz(context.Background(), buf.Bytes(), targetDir)
+	require.NoError(t, err)
+
+	// Special file should not exist
+	require.NoFileExists(t, filepath.Join(targetDir, "dev-null"))
+	// Regular file should exist
+	require.FileExists(t, filepath.Join(targetDir, "regular.txt"))
+}
+
+// ============================================
+// asString Tests
+// ============================================
+
+func TestAsString_Nil(t *testing.T) {
+	t.Parallel()
+	result := asString(nil)
+	require.Equal(t, "", result)
+}
+
+func TestAsString_String(t *testing.T) {
+	t.Parallel()
+	result := asString("hello")
+	require.Equal(t, "hello", result)
+}
+
+func TestAsString_Int(t *testing.T) {
+	t.Parallel()
+	result := asString(42)
+	require.Equal(t, "42", result)
+}
+
+func TestAsString_Float(t *testing.T) {
+	t.Parallel()
+	result := asString(3.14)
+	require.Contains(t, result, "3.14")
+}
+
+func TestAsString_Bool(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "true", asString(true))
+	require.Equal(t, "false", asString(false))
+}
+
+func TestAsString_Struct(t *testing.T) {
+	t.Parallel()
+	type testStruct struct {
+		Name string
+		Age  int
+	}
+	result := asString(testStruct{Name: "Alice", Age: 30})
+	require.Contains(t, result, "Alice")
+	require.Contains(t, result, "30")
+}
+
+func TestAsString_EmptyString(t *testing.T) {
+	t.Parallel()
+	result := asString("")
+	require.Equal(t, "", result)
+}
+
+// ============================================
+// fetchIndexHTTPFromURL Additional Tests
+// ============================================
+
+func TestFetchIndexHTTPFromURL_ParseRawIndexFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	rawIndexBody := `{
+		"collections": {
+			"crowdsecurity/nginx": {
+				"path": "collections/crowdsecurity/nginx.tgz",
+				"version": "1.5",
+				"description": "Nginx collection"
+			}
+		}
+	}`
+
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusOK, rawIndexBody)
+		resp.Header.Set("Content-Type", "application/json")
+		return resp, nil
+	})}
+
+	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/.index.json")
+	require.NoError(t, err)
+	require.Len(t, idx.Items, 1)
+	require.Equal(t, "crowdsecurity/nginx", idx.Items[0].Name)
+	require.Equal(t, "collections", idx.Items[0].Type)
+}
+
+func TestFetchIndexHTTPFromURL_EmptyJSONArray(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		// Return empty items array which will trigger raw index parsing,
+		// which will also fail because there are no sections
+		resp := newResponse(http.StatusOK, `{"items":[]}`)
+		resp.Header.Set("Content-Type", "application/json")
+		return resp, nil
+	})}
+
+	// Empty items array triggers raw index parsing (map[string]map[string]...), which succeeds
+	// but returns empty index. This is actually valid JSON but semantically empty.
+	// The code returns idx even if empty in this case (no error), so we should not expect an error.
+	idx, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	require.NoError(t, err)
+	require.Empty(t, idx.Items, "should parse successfully but return empty items")
+}
+
+func TestFetchIndexHTTPFromURL_InvalidJSON(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping network I/O test in short mode")
+	}
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+
+	svc.HTTPClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := newResponse(http.StatusOK, `{invalid json`)
+		resp.Header.Set("Content-Type", "application/json")
+		return resp, nil
+	})}
+
+	_, err := svc.fetchIndexHTTPFromURL(context.Background(), "http://test.hub/index.json")
+	require.Error(t, err)
+}
+
+// ============================================
+// isGzip Tests
+// ============================================
+
+func TestIsGzip_ValidGzip(t *testing.T) {
+	t.Parallel()
+	buf := &bytes.Buffer{}
+	gw := gzip.NewWriter(buf)
+	_, err := gw.Write([]byte("test data"))
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+
+	require.True(t, isGzip(buf.Bytes()))
+}
+
+func TestIsGzip_NotGzip(t *testing.T) {
+	t.Parallel()
+	require.False(t, isGzip([]byte("plain text")))
+	require.False(t, isGzip([]byte{}))
+	require.False(t, isGzip([]byte{0x00}))
+}
+
+func TestIsGzip_TooShort(t *testing.T) {
+	t.Parallel()
+	require.False(t, isGzip([]byte{0x1f}))
+	require.False(t, isGzip([]byte{}))
+}
+
+// ============================================
+// peekFirstYAML Tests
+// ============================================
+
+func TestPeekFirstYAML_FindsYAML(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	archive := makeTarGz(t, map[string]string{
+		"readme.txt":  "readme content",
+		"config.yaml": "name: test\nversion: 1.0",
+		"another.yml": "other: config",
+	})
+
+	result := svc.peekFirstYAML(archive)
+	require.NotEmpty(t, result)
+	require.Contains(t, result, "name: test")
+}
+
+func TestPeekFirstYAML_NoYAMLFiles(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	archive := makeTarGz(t, map[string]string{
+		"readme.txt":  "readme",
+		"config.json": "{}",
+	})
+
+	result := svc.peekFirstYAML(archive)
+	require.Empty(t, result)
+}
+
+func TestPeekFirstYAML_InvalidArchive(t *testing.T) {
+	t.Parallel()
+	svc := NewHubService(nil, nil, t.TempDir())
+	result := svc.peekFirstYAML([]byte("not a gzip archive"))
+	require.Empty(t, result)
+}
+
+// ============================================
+// findIndexEntry Tests
+// ============================================
+
+func TestFindIndexEntry_ExactMatch(t *testing.T) {
+	t.Parallel()
+	idx := HubIndex{
+		Items: []HubIndexEntry{
+			{Name: "crowdsecurity/nginx", Title: "Nginx"},
+			{Name: "crowdsecurity/apache", Title: "Apache"},
+		},
+	}
+
+	entry, found := findIndexEntry(idx, "crowdsecurity/nginx")
+	require.True(t, found)
+	require.Equal(t, "crowdsecurity/nginx", entry.Name)
+}
+
+func TestFindIndexEntry_ShortName(t *testing.T) {
+	t.Parallel()
+	idx := HubIndex{
+		Items: []HubIndexEntry{
+			{Name: "crowdsecurity/nginx", Title: "Nginx"},
+		},
+	}
+
+	entry, found := findIndexEntry(idx, "nginx")
+	require.True(t, found)
+	require.Equal(t, "crowdsecurity/nginx", entry.Name)
+}
+
+func TestFindIndexEntry_AmbiguousShortName(t *testing.T) {
+	t.Parallel()
+	idx := HubIndex{
+		Items: []HubIndexEntry{
+			{Name: "crowdsecurity/test", Title: "Test 1"},
+			{Name: "vendor/test", Title: "Test 2"},
+		},
+	}
+
+	_, found := findIndexEntry(idx, "test")
+	require.False(t, found, "ambiguous short name should not match")
+}
+
+func TestFindIndexEntry_NotFound(t *testing.T) {
+	t.Parallel()
+	idx := HubIndex{
+		Items: []HubIndexEntry{
+			{Name: "crowdsecurity/nginx", Title: "Nginx"},
+		},
+	}
+
+	_, found := findIndexEntry(idx, "nonexistent")
+	require.False(t, found)
+}
+
+func TestFindIndexEntry_EmptySlug(t *testing.T) {
+	t.Parallel()
+	idx := HubIndex{
+		Items: []HubIndexEntry{
+			{Name: "crowdsecurity/test", Title: "Test"},
+		},
+	}
+
+	_, found := findIndexEntry(idx, "  ")
+	require.False(t, found)
+}

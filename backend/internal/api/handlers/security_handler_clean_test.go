@@ -2,31 +2,27 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+// setupTestDB creates a test database using the robust OpenTestDB function
+// which configures SQLite with WAL journal mode and busy timeout for parallel test execution.
+// It pre-migrates Setting and SecurityConfig tables needed by the security handler tests.
 func setupTestDB(t *testing.T) *gorm.DB {
-	// lightweight in-memory DB unique per test run
-	dsn := fmt.Sprintf("file:security_handler_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open DB: %v", err)
-	}
+	t.Helper()
+	db := OpenTestDB(t)
 	if err := db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}); err != nil {
-		t.Fatalf("failed to migrate: %v", err)
+		t.Fatalf("failed to migrate test db: %v", err)
 	}
 	return db
 }

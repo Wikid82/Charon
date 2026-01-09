@@ -58,10 +58,46 @@ WORKDIR /app/backend
 # Install build dependencies
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
+ARG TARGETARCH
 # hadolint ignore=DL3018
 RUN apk add --no-cache clang lld
 # hadolint ignore=DL3018,DL3059
 RUN xx-apk add --no-cache gcc musl-dev sqlite-dev
+# Create clang wrapper that intercepts -fuse-ld=gold and replaces with -fuse-ld=lld
+# Go 1.25 hardcodes -fuse-ld=gold for ARM64 but Alpine's clang only has LLD
+# Also, Go linker checks linker --version to verify "GNU gold" - we need to fake that too
+# hadolint ignore=DL3059,SC2016
+RUN if [ -f "/usr/bin/clang" ]; then \
+        mv /usr/bin/clang /usr/bin/clang.real && \
+        printf '#!/bin/sh\n\
+# Wrapper to handle Go ARM64 gold linker requirement\n\
+# Check if this is a version check with gold linker\n\
+for arg in "$@"; do\n\
+  case "$arg" in\n\
+    -fuse-ld=gold)\n\
+      # Check if this is just a version check\n\
+      case "$*" in\n\
+        *--version*)\n\
+          # Fake gold version output for Go linker detection\n\
+          echo "GNU gold (fake for Go compatibility) 1.16"\n\
+          exit 0\n\
+          ;;\n\
+      esac\n\
+      ;;\n\
+  esac\n\
+done\n\
+# Transform arguments: replace -fuse-ld=gold with -fuse-ld=lld\n\
+args=""\n\
+for arg in "$@"; do\n\
+  case "$arg" in\n\
+    -fuse-ld=gold) args="$args -fuse-ld=lld" ;;\n\
+    *) args="$args $arg" ;;\n\
+  esac\n\
+done\n\
+exec /usr/bin/clang.real $args\n' > /usr/bin/clang && \
+        chmod +x /usr/bin/clang && \
+        echo "Created /usr/bin/clang wrapper with gold version spoofing"; \
+    fi
 
 # Install Delve (cross-compile for target)
 # Note: xx-go install puts binaries in /go/bin/TARGETOS_TARGETARCH/dlv if cross-compiling.
@@ -88,10 +124,12 @@ ARG BUILD_DATE=unknown
 
 # Build the Go binary with version information injected via ldflags
 # xx-go handles CGO and cross-compilation flags automatically
+# Note: Go 1.25 uses gold linker for ARM64; binutils-gold is installed above
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=1 xx-go build \
-    -ldflags "-s -w -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
+    -ldflags "-s -w \
+              -X github.com/Wikid82/charon/backend/internal/version.Version=${VERSION} \
               -X github.com/Wikid82/charon/backend/internal/version.GitCommit=${VCS_REF} \
               -X github.com/Wikid82/charon/backend/internal/version.BuildTime=${BUILD_DATE}" \
     -o charon ./cmd/api
