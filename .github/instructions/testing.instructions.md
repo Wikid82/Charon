@@ -16,3 +16,5 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 ## 3. Coverage & Completion
 * **Coverage Gate:** A task is not "Complete" until a coverage report is generated.
 * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
+* **Patch Coverage Gate (Codecov):** If production code is modified, Codecov **patch coverage must be 100%** for the modified lines. Do not relax thresholds; add targeted tests.
+* **Patch Triage Requirement:** Plans must include the exact missing/partial patch line ranges copied from Codecov’s **Patch** view.

@@ -53,6 +53,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
         - Run `npm run test:ci`.
     - **Gate 3: Coverage (MANDATORY)**:
         - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
+        - If patch coverage fails, identify missing patch line ranges in Codecov Patch view and add targeted tests.
         - **VS Code Task**: Use "Test: Frontend with Coverage" (recommended)
         - **Manual Script**: Execute `/projects/Charon/scripts/frontend-test-coverage.sh` from the root directory
         - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)
