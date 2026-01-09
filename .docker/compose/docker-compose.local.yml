@@ -13,6 +13,8 @@ services:
       - CHARON_ENV=development
       - CHARON_DEBUG=1
       - TZ=America/New_York
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist

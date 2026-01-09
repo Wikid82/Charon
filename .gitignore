@@ -244,3 +244,4 @@ docker-compose.test.yml
 my-codeql-db/**
 codeql-linux64.zip
 backend/main
+**.out

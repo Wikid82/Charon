@@ -63,7 +63,10 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
-    { name: t('navigation.dnsProviders'), path: '/dns-providers', icon: '☁️' },
+    { name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
+      { name: t('navigation.dnsProviders'), path: '/dns/providers', icon: '🧭' },
+      { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
+    ] },
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
     { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
@@ -84,14 +87,6 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
         { name: t('navigation.adminAccount'), path: '/settings/account', icon: '🛡️' },
         { name: t('navigation.accountManagement'), path: '/settings/account-management', icon: '👥' },
-      ]
-    },
-    {
-      name: t('navigation.admin'),
-      path: '/admin',
-      icon: '👑',
-      children: [
-        { name: t('navigation.plugins'), path: '/admin/plugins', icon: '🔌' },
       ]
     },
     {

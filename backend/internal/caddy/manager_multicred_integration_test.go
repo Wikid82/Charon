@@ -14,18 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
 // encryptCredentials is a helper to encrypt credentials for test fixtures
 func encryptCredentials(t *testing.T, credentials map[string]string) string {
 	t.Helper()
 
-	// Use a valid 32-byte base64-encoded key (decodes to exactly 32 bytes)
-	encryptionKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-	if encryptionKey == "" {
-		encryptionKey = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-		os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
-	}
+	// Always use a valid 32-byte base64-encoded key (decodes to exactly 32 bytes)
+	// base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
+	// = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
+	os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey)
 
 	encryptor, err := crypto.NewEncryptionService(encryptionKey)
 	require.NoError(t, err)

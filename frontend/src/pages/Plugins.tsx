@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, Package, AlertCircle, CheckCircle, XCircle, Info } from 'lucide-react'
-import { PageShell } from '../components/layout/PageShell'
 import {
   Button,
   Badge,
@@ -126,14 +125,12 @@ export default function Plugins() {
   )
 
   return (
-    <PageShell
-      title={t('plugins.title', 'DNS Provider Plugins')}
-      description={t(
-        'plugins.description',
-        'Manage built-in and external DNS provider plugins for certificate automation'
-      )}
-      actions={headerActions}
-    >
+    <div className="space-y-6">
+      {/* Header with Reload Button */}
+      <div className="flex justify-end">
+        {headerActions}
+      </div>
+
       {/* Info Alert */}
       <Alert variant="info" icon={Package}>
         <strong>{t('plugins.note', 'Note')}:</strong>{' '}
@@ -387,6 +384,6 @@ export default function Plugins() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageShell>
+    </div>
   )
 }

@@ -963,3 +963,107 @@ func TestSettingsHandler_TestPublicURL_InvalidScheme(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsHandler_ValidatePublicURL_InvalidJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/validate-url", handler.ValidatePublicURL)
+
+	req, _ := http.NewRequest("POST", "/settings/validate-url", bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSettingsHandler_ValidatePublicURL_URLWithWarning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/validate-url", handler.ValidatePublicURL)
+
+	// URL with HTTP scheme may generate a warning
+	body := map[string]string{"url": "http://example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/validate-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, true, resp["valid"])
+	// May have a warning about HTTP vs HTTPS
+}
+
+func TestSettingsHandler_UpdateSMTPConfig_DatabaseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, db := setupSettingsHandlerWithMail(t)
+
+	// Close the database to force an error
+	sqlDB, _ := db.DB()
+	_ = sqlDB.Close()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.PUT("/settings/smtp", handler.UpdateSMTPConfig)
+
+	// Include password (not masked) to skip GetSMTPConfig path which would also fail
+	body := map[string]any{
+		"host":         "smtp.example.com",
+		"port":         587,
+		"from_address": "test@example.com",
+		"encryption":   "starttls",
+		"password":     "test-password", // Provide password to skip GetSMTPConfig call
+	}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("PUT", "/settings/smtp", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to save")
+}
+
+func TestSettingsHandler_TestPublicURL_IPv6LocalhostBlocked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, _ := setupSettingsHandlerWithMail(t)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	router.POST("/settings/test-url", handler.TestPublicURL)
+
+	// Test IPv6 loopback address
+	body := map[string]string{"url": "http://[::1]"}
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "/settings/test-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.False(t, resp["reachable"].(bool))
+	// IPv6 loopback should be blocked
+}

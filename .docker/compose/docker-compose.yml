@@ -11,6 +11,8 @@ services:
     environment:
       - CHARON_ENV=production # CHARON_ preferred; CPM_ values still supported
       - TZ=UTC # Set timezone (e.g., America/New_York)
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist

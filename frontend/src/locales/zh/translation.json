@@ -51,6 +51,9 @@
     "remoteServers": "远程服务器",
     "domains": "域名",
     "certificates": "证书",
+    "dns": "DNS",
+    "dnsProviders": "DNS 提供商",
+    "plugins": "插件",
     "security": "安全",
     "accessLists": "访问列表",
     "crowdsec": "CrowdSec",
@@ -976,5 +979,9 @@
       "strict": "Web 应用程序的强安全性。\n✓ 适用于：纯 Web 仪表板、管理面板。\n⚠ 可能会影响移动应用和 API 客户端。\n不推荐用于 Radarr、Plex 或带有配套应用的服务。",
       "paranoid": "高风险应用程序的最大安全性。\n✓ 适用于：银行、医疗、合规关键应用。\n⚠ 将会影响移动应用、API 客户端和 OAuth 流程。\n仅在您了解并能自定义每个头时使用。"
     }
+  },
+  "dns": {
+    "title": "DNS 管理",
+    "description": "管理 DNS 提供商和插件以实现证书自动化"
   }
 }
