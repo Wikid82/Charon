@@ -4,14 +4,14 @@
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local . && docker compose -f /projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build -t charon:local . && docker compose -f .docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "Build & Run: Local Docker Image No-Cache",
             "type": "shell",
-            "command": "docker build --no-cache -t charon:local . && docker compose -f /projects/Charon/.docker/compose//projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build --no-cache -t charon:local . && docker compose -f .docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
             "problemMatcher": []
         },
