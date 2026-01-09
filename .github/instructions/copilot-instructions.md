@@ -108,7 +108,7 @@ Before marking an implementation task as complete, perform the following in orde
     - Do not output code that violates pre-commit standards.
 
 3. **Coverage Testing** (MANDATORY - Non-negotiable):
-    - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
+    - **MANDATORY**: Patch coverage must cover 100% of modified lines (Codecov Patch view must be green). If patch coverage fails, add targeted tests for the missing patch line ranges.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
         - If coverage drops below threshold, write additional tests to restore coverage.

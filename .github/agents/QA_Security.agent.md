@@ -31,7 +31,7 @@ Your job is to act as an ADVERSARY. The Developer says "it works"; your job is t
     - **Creation**: Write a new test file (e.g., `internal/api/tests/audit_test.go`) to test the *flow*.
     - **Run**: Execute `.github/skills`, `go test ./internal/api/tests/...` (or specific path). Run local CodeQL and Trivy scans (they are built as VS Code Tasks so they just need to be triggered to run), pre-commit all files, and triage any findings.
         - **GolangCI-Lint (CRITICAL)**: Always run VS Code task "Lint: GolangCI-Lint (Docker)" - NOT "Lint: Go Vet". The Go Vet task only runs `go vet` which misses gocritic, bodyclose, and other linters that CI runs. GolangCI-Lint in Docker ensures parity with CI.
-        - When creating tests, if there are folders that don't require testing make sure to update `codecov.yml` to exclude them from coverage reports or this throws off the difference between local and CI coverage.
+        - Prefer fixing patch coverage with tests. Only adjust `.codecov.yml` ignores when code is truly non-production (e.g., test-only helpers), and document why.
     - **Cleanup**: If the test was temporary, delete it. If it's valuable, keep it.
 </workflow>
 
