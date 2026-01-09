@@ -1,0 +1,3 @@
+ok  	github.com/Wikid82/charon/backend/cmd/api	(cached)	coverage: 0.0% of statements
+ok  	github.com/Wikid82/charon/backend/cmd/seed	(cached)	coverage: 63.2% of statements
+?   	github.com/Wikid82/charon/backend/integration	[no test files]

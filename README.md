@@ -126,6 +126,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
+      # Generate with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here
 
 ```
 
@@ -147,6 +149,7 @@ docker run -d \
   -v ./charon-data:/app/data \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
   ghcr.io/wikid82/charon:latest
 ```
 

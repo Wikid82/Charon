@@ -113,6 +113,11 @@ ignore:
   - "backend/internal/api/handlers/testdb.go"
   - "backend/internal/api/handlers/test_helpers.go"
 
+  # DNS provider implementations (tested via integration tests, not unit tests)
+  # These are plugin implementations that interact with external DNS APIs
+  # and are validated through service-level integration tests
+  - "backend/pkg/dnsprovider/builtin/**"
+
   # ==========================================================================
   # Frontend test utilities and helpers
   # These are test infrastructure, not application code
