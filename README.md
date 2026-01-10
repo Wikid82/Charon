@@ -66,7 +66,11 @@ Free SSL certificates that request, install, and renew themselves. Your sites ge
 
 Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
 
-### 🔗 **Smart Proxy Headers**
+### � **Supply Chain Security**
+
+Verifiable builds with cryptographic signatures, SLSA provenance attestation, and comprehensive SBOMs. Verify what you run with transparent, tamper-proof evidence.
+
+### �🔗 **Smart Proxy Headers**
 
 Automatically adds standard headers (X-Real-IP, X-Forwarded-Proto, etc.) so your backend applications see real client IPs, enforce HTTPS correctly, and log accurately—with full backward compatibility for existing hosts.
 
@@ -264,8 +268,7 @@ All JSON templates support these variables:
 ## Getting Help
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
-**[🚀 5-Minute Guide](https://wikid82.github.io/charon/getting-started)** — Your first website up and running
-**[� Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
+**[🚀 5-Minute Guide](https://wikid82.github.io/charon/getting-started)** — Your first website up and running**[🔐 Supply Chain Security](docs/guides/supply-chain-security-user-guide.md)** — Verify signatures and build provenance**[� Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
 **[�💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
 **[🐛 Report Problems](https://github.com/Wikid82/charon/issues)** — Something broken? Let us know
 
