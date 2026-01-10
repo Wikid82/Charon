@@ -245,3 +245,4 @@ my-codeql-db/**
 codeql-linux64.zip
 backend/main
 **.out
+docs/plans/supply_chain_security_implementation.md.backup

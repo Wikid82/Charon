@@ -1,297 +1,137 @@
-# Patch Coverage Remediation Plan (Codecov) — Backend
+
+# Security Remediation Plan — DoD Failures (CodeQL + Trivy)
 
 **Created:** 2026-01-09
 
+This plan addresses the **HIGH/CRITICAL security findings** reported in [docs/reports/qa_report.md](docs/reports/qa_report.md).
+
+> The prior Codecov patch-coverage plan was moved to [docs/plans/patch_coverage_spec.md](docs/plans/patch_coverage_spec.md).
+
 ## Goal
 
-Restore **Codecov patch coverage** to green by ensuring **100% of modified lines** are executed by tests.
+Restore DoD to ✅ PASS by eliminating **all HIGH/CRITICAL** findings from:
 
-- **Codecov patch coverage:** 92.93866%
-- **Reported missing patch lines:** ~99
+- CodeQL (Go + JS) results produced by **Security: CodeQL All (CI-Aligned)**
+- Trivy results produced by **Security: Trivy Scan**
 
 Hard constraints:
-- Do **not** lower Codecov thresholds.
-- Fix with **targeted tests** (only add micro “test hooks” if absolutely unavoidable).
-
-## Scope (two workstreams; both in-scope)
+- Do **not** weaken gates (no suppressing findings unless a false-positive is proven and documented).
+- Prefer minimal, targeted changes.
+- Avoid adding new runtime dependencies.
 
-### Workstream A (required): Patch coverage fixes for 10 backend files
+## Scope
 
-This workstream fixes Codecov **patch coverage** by adding targeted tests (and only minimal seams if unavoidable) for the following backend files:
+From the QA report:
 
-1. backend/internal/api/handlers/plugin_handler.go
-2. backend/internal/api/handlers/encryption_handler.go
-3. backend/internal/api/handlers/credential_handler.go
-4. backend/internal/api/handlers/settings_handler.go
-5. backend/internal/api/handlers/crowdsec_handler.go
-6. backend/internal/api/handlers/proxy_host_handler.go
-7. backend/internal/api/handlers/security_handler.go
-8. backend/internal/caddy/config.go
-9. backend/internal/caddy/client.go
-10. backend/internal/api/handlers/testdb.go (special: ignored in `.codecov.yml` but may still show up)
+### CodeQL Go
 
-### Workstream B (required): Prevention updates (instructions + agent files)
+- Rule: `go/email-injection` (**CRITICAL**)
+- Location: `backend/internal/services/mail_service.go` (reported around lines ~222, ~340, ~393)
 
-This workstream updates the following files to ensure future production-code changes include the patch-coverage triage + tests needed to keep Codecov patch coverage green:
+### CodeQL JS
 
-- .github/instructions/testing.instructions.md
-- .github/instructions/copilot-instructions.md
-- .github/instructions/taming-copilot.instructions.md
-- .github/agents/Backend_Dev.agent.md
-- .github/agents/QA_Security.agent.md
-- .github/agents/Supervisor.agent.md
-- .github/agents/Frontend_Dev.agent.md (only if frontend changes are involved; otherwise leave untouched)
+- Rule: `js/incomplete-hostname-regexp` (**HIGH**)
+- Location: `frontend/src/pages/__tests__/ProxyHosts-extra.test.tsx` (reported around line ~252)
 
-Non-goals:
-- No unrelated refactors.
-- No new integration tests requiring external services.
+### Trivy
 
-## Missing Files Table (copy from Codecov patch report)
+QA report note: Trivy filesystem scan may be picking up **workspace caches/artifacts** (e.g., `.cache/go/pkg/mod/...` and other generated directories) in addition to repo-tracked files, while the **image scan may already be clean**.
 
-Codecov “Patch” view is the source of truth. Paste the **exact missing/partial line ranges** into this table.
+## Step 0 — Trivy triage (required first)
 
-Note: Codecov “Patch” view is the source of truth. This table is only for tracking what you copied from Codecov and what test you’ll add.
+Objective: Re-run the current Trivy task and determine whether HIGH/CRITICAL findings are attributable to:
+- **Repo-tracked paths** (e.g., `backend/go.mod`, `backend/go.sum`, `Dockerfile`, `frontend/`, etc.), or
+- **Generated/cache paths** under the workspace (e.g., `.cache/`, `**/*.cover`, `codeql-db-*`, temporary build outputs).
 
-| File | Missing patch line ranges (Codecov) | Partial patch line ranges (Codecov) | Primary test strategy |
-|------|-------------------------------------|-------------------------------------|-----------------------|
-| backend/internal/api/handlers/plugin_handler.go | (paste) | (paste) | Gin handler tests (httptest) to hit error + warn-but-200 branches |
-| backend/internal/api/handlers/encryption_handler.go | (paste) | (paste) | Handler tests for rotate/validate error + success branches |
-| backend/internal/api/handlers/credential_handler.go | (paste) | (paste) | Handler tests for parse/notfound/service-error branches |
-| backend/internal/api/handlers/settings_handler.go | (paste) | (paste) | Handler tests for URL test/SSRF + “reachable=false” mapping |
-| backend/internal/api/handlers/crowdsec_handler.go | (paste) | (paste) | Handler tests using httptest.Server to force non-200/non-JSON branches |
-| backend/internal/api/handlers/proxy_host_handler.go | (paste) | (paste) | Handler tests for JSON type coercion and invalid payload validation |
-| backend/internal/api/handlers/security_handler.go | (paste) | (paste) | Handler tests for effective-status branches + validation branches |
-| backend/internal/caddy/config.go | (paste) | (paste) | Unit tests for helper branches + config generation edge cases |
-| backend/internal/caddy/client.go | (paste) | (paste) | Unit tests for HTTP non-200 + endpoint/parse branches |
-| backend/internal/api/handlers/testdb.go | (paste) | (paste) | Prefer moving helpers into *_test.go; else fix ignore/path mismatch |
+Steps:
+1. Run **Security: Trivy Scan**.
+2. For each HIGH/CRITICAL item, record the affected file path(s) reported by Trivy.
+3. Classify each finding:
+   - **Repo-tracked**: path is under version control (or clearly part of the shipped build artifact, e.g., the built `app/charon` binary or image layers).
+   - **Scan-scope noise**: path is a workspace cache/artifact directory not intended as deliverable input.
 
-## Why patch coverage missed (common patterns)
+Decision outcomes:
+- If HIGH/CRITICAL are **repo-tracked / shipped** → remediate by upgrading only the affected components to Trivy’s fixed versions (see Workstreams C/D).
+- If HIGH/CRITICAL are **only cache/artifact paths** → treat as scan-scope noise and align Trivy scan scope to repo contents by excluding those directories (without disabling scanners or suppressing findings).
 
-Patch coverage misses are usually caused by newly-changed lines being in branches that existing tests don’t naturally hit:
+## Workstreams (by role)
 
-- Error-only branches (DB errors, JSON decode failures, upstream non-200)
-- “Warn but succeed” flows (HTTP 200 with a warning field)
-- JSON type coercion (e.g., `map[string]any` decoding numbers vs strings)
-- Env-driven branches (missing `t.Setenv` in tests)
-- Codecov ignore/path normalization mismatch (repo-relative path vs module path in coverprofile)
+### Workstream A — Backend (Backend_Dev): Fix `go/email-injection`
 
-## Handling partial (yellow) patch lines
+Objective: Ensure no untrusted data can inject additional headers/body content into SMTP `DATA`.
 
-Partial patch lines (yellow) usually mean the line executed, but **not all branches associated with that line** did.
+Implementation direction (minimal + CodeQL-friendly):
 
-Common causes:
-- Short-circuit boolean logic (e.g., `a && b`, `a || b`) where tests only exercise one side.
-- Multi-branch conditionals (`if/else if/else`, `switch`) where only one case is hit.
-- Error wrapping/logging paths that run only when an upstream returns an error.
+1. **Centralize email header construction** (avoid raw `fmt.Sprintf("%s: %s\r\n", ...)` with untrusted input).
+2. **Reject** header values containing `\r` or `\n` (and other control characters if feasible).
+3. Ensure email addresses are created using strict parsing/formatting (`net/mail`) and avoid concatenating raw address strings.
+4. Add unit tests that attempt CRLF injection in subject/from/to and assert the send/build path rejects it.
 
-Guidance:
-- Treat yellow lines like “missing branch coverage”, not “missing statement coverage”.
-- Write the smallest additional test that triggers the unhit branch (invalid input, not-found, service error, upstream non-200, etc.).
-- Prefer deterministic seams: `httptest.Server` for upstream failures; fake services/mocks for DB/service errors; explicit `t.Setenv` for env-driven branches.
+Acceptance criteria:
+- CodeQL Go scan shows **0** `go/email-injection` findings.
+- Backend unit tests cover the rejection paths.
 
-## How to locate exact missing lines in Codecov (triage)
+### Workstream B — Frontend (Frontend_Dev): Fix `js/incomplete-hostname-regexp`
 
-1. Open the PR in GitHub.
-2. Open the Codecov check details (“Details” / “View report”).
-3. Switch to **Patch** (not Project).
-4. Filter to the 10 scoped files.
-5. For each file, copy the exact missing (red) and partial (yellow) line ranges.
-6. Map each range to a minimal test that executes the branch.
+Objective: Remove an “incomplete hostname regex” pattern flagged by CodeQL.
 
-Local assist (for understanding branches; Codecov still authoritative):
-- Run VS Code task: **Test: Backend with Coverage**.
-- View coverage HTML: `go tool cover -html=backend/coverage.txt`.
+Preferred change:
+- Replace hostname regex usage with an exact string match (or an anchored + escaped regex like `^link\.example\.com$`).
 
-## Remediation Plan (tight, test-first)
+Acceptance criteria:
+- CodeQL JS scan shows **0** `js/incomplete-hostname-regexp` findings.
 
-1. Extract missing patch line ranges from Codecov and fill the table above.
-2. For each missing range:
-   - Identify the branch (if/switch/early return) causing it.
-   - Add the shortest test that executes it.
-3. Re-run VS Code task **Test: Backend with Coverage**.
-4. Confirm Codecov patch view is green (100% patch coverage).
+### Workstream C — Container / embedded binaries (DevOps): Fix Trivy image finding
 
-## Per-File Testing Strategy (scoped)
+Objective: Ensure the built image does not ship `crowdsec`/`cscli` binaries that embed vulnerable `github.com/expr-lang/expr v1.17.2`.
 
-Only add tests that hit the lines Codecov marks missing.
+Implementation direction:
 
-### 1) backend/internal/api/handlers/plugin_handler.go
+1. If any changes are made to `Dockerfile` (including the CrowdSec build stage), rebuild the image (**no-cache recommended**) before validating.
+2. Prefer **bumping the pinned CrowdSec version** in `Dockerfile` to a release that already depends on `expr >= 1.17.7`.
+3. If no suitable CrowdSec release is available, patch the build in the CrowdSec build stage similarly to the existing Caddy stage override (force `expr@1.17.7` before building).
 
-- Prioritize handler tests that cover:
-  - invalid `:id` parsing → 400
-  - not found → 404
-  - DB update failures → 500
-  - loader reload/load failures (often warn-but-200) → assert response body, not just status
+Acceptance criteria:
+- Trivy image scan reports **0 HIGH/CRITICAL**.
 
-### 2) backend/internal/api/handlers/encryption_handler.go
+### Workstream D — Go module upgrades (Backend_Dev + QA_Security): Fix Trivy repo scan findings
 
-- Add/extend tests to cover:
-  - request bind/validation errors → 400
-  - service-layer failures → 500
-  - success path + any new audit/log branches
+Objective: Eliminate Trivy filesystem-scan HIGH/CRITICAL findings without over-upgrading unrelated dependencies.
 
-### 3) backend/internal/api/handlers/credential_handler.go
+Implementation direction (conditional; driven by Step 0 triage):
 
-- Add/extend tests to cover:
-  - invalid ID parse → 400
-  - not found → 404
-  - create/update invalid provider / credential validation failures (where applicable)
-  - “test credentials” endpoint: service error mapping
+1. If Trivy attributes HIGH/CRITICAL to `backend/go.mod` / `backend/go.sum` **or** to the built `app/charon` binary:
+  - Bump **only the specific Go modules Trivy flags** to Trivy’s fixed versions.
+  - Run `go mod tidy` and ensure builds/tests stay green.
+2. If Trivy attributes HIGH/CRITICAL **only** to workspace caches / generated artifacts (e.g., `.cache/go/pkg/mod/...`):
+  - Treat as scan-scope noise and align Trivy’s filesystem scan scope to repo-tracked content by excluding those directories.
+  - This is **not** gate weakening: scanners stay enabled and the project must still achieve **0 HIGH/CRITICAL** in Trivy outputs.
 
-### 4) backend/internal/api/handlers/settings_handler.go
+Acceptance criteria:
+- Trivy scan reports **0 HIGH/CRITICAL**.
 
-- Add/extend tests to cover:
-  - invalid URL input → 400
-  - SSRF-blocked / unreachable cases that return 200 but set `reachable=false`
-  - network failures and how they’re represented in the response
+## Validation (VS Code tasks)
 
-### 5) backend/internal/api/handlers/crowdsec_handler.go
+Run tasks in this order (only run frontend ones if Workstream B changes anything under `frontend/`):
 
-- Use `httptest.Server` to deterministically cover:
-  - upstream non-200 responses
-  - upstream non-JSON responses
-  - query param forwarding (capture server request URL)
+1. **Build: Backend**
+2. **Test: Backend with Coverage**
+3. **Security: CodeQL All (CI-Aligned)**
+4. **Security: Trivy Scan** (explicitly verify **both** filesystem-scan and image-scan outputs are **0 HIGH/CRITICAL**)
+5. **Lint: Pre-commit (All Files)**
 
-### 6) backend/internal/api/handlers/proxy_host_handler.go
+If any changes are made to `Dockerfile` / CrowdSec build stage:
 
-- Add/extend tests that submit JSON payloads exercising type coercion:
-  - wrong types (string vs number) → 400
-  - boundary values (negative ports, missing required fields)
-  - normalization branches (if Codecov points to them)
+6. **Build & Run: Local Docker Image No-Cache** (recommended)
+7. **Security: Trivy Scan** (re-verify image scan after rebuild)
 
-### 7) backend/internal/api/handlers/security_handler.go
+If `frontend/` changes are made:
 
-- Add/extend tests to cover:
-  - effective-status branch selection (settings vs DB vs defaults)
-  - validation branches (IP/CIDR parsing, enum validation, etc.)
+6. **Lint: TypeScript Check**
+7. **Test: Frontend with Coverage**
+8. **Lint: Frontend**
 
-### 8) backend/internal/caddy/config.go
+## Handoff checklist
 
-- Prefer helper-level unit tests (cheaper and more targeted) to cover:
-  - header normalization helpers
-  - CSP/security header composition
-  - CIDR parsing and bypass list validation
-  - skip/empty branches (e.g., “missing provider config → skip policy”)
-
-### 9) backend/internal/caddy/client.go
-
-- Add/extend tests for:
-  - endpoint validation failures
-  - HTTP non-200 response branches
-  - parse/marshal error branches (only if Codecov points to them)
-
-### 10) backend/internal/api/handlers/testdb.go (special)
-
-If Codecov patch view includes this file:
-
-What’s happening:
-- `.codecov.yml` currently ignores `backend/internal/api/handlers/testdb.go`, but Go coverprofiles can report paths as module-import paths (example from `backend/coverage.txt`): `github.com/Wikid82/charon/backend/internal/.../testdb.go`.
-- If Codecov is matching against the coverprofile path form, the repo-relative ignore may not apply.
-
-Make it actionable:
-1. Confirm what path form the coverprofile is using:
-  - `grep -n "testdb.go" backend/coverage.txt`
-2. If the result is a module/import-path form (example: `github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go`), add one additional ignore entry to `.codecov.yml` so it matches what Codecov is actually seeing.
-  - Minimal, explicit (exact repo/module path): `"**/github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go"`
-  - More resilient (still narrow): `"**/github.com/**/backend/internal/api/handlers/testdb.go"`
-
-Note:
-- Do not add `"**/backend/internal/api/handlers/testdb.go"` unless it’s missing; the repo-relative ignore is already present.
-
-Why this is minimal:
-- `.codecov.yml` already ignores the repo-relative path, but ignore matching can fail if Codecov consumes coverprofile paths that include the module/import prefix.
-- Only add the extra ignore if the grep confirms the import-path form is present.
-
-Preferred approach (in order):
-1. Move test-only helpers into a `_test.go` file.
-  - Caution: this is only safe if **no other packages’ tests import those helpers**. Anything in `*_test.go` cannot be imported by other packages.
-2. Otherwise, keep the helper in non-test code but rely on `.codecov.yml` ignores that match the coverprofile path form.
-
-## Prevention: required instruction/agent updates (diff-style)
-
-These are the minimal guardrails to prevent future patch-coverage regressions.
-
-### A) .github/instructions/testing.instructions.md
-
-```diff
-@@
- ## 3. Coverage & Completion
- * **Coverage Gate:** A task is not "Complete" until a coverage report is generated.
- * **Threshold Compliance:** You must compare the final coverage percentage against the project's threshold (Default: 85% unless specified otherwise). If coverage drops, you must identify the "uncovered lines" and add targeted tests.
-+* **Patch Coverage Gate (Codecov):** If production code is modified, Codecov **patch coverage must be 100%** for the modified lines. Do not relax thresholds; add targeted tests.
-+* **Patch Triage Requirement:** Plans must include the exact missing/partial patch line ranges copied from Codecov’s **Patch** view.
-```
-
-### B) .github/instructions/taming-copilot.instructions.md
-
-```diff
-@@
- ## Surgical Code Modification
--    **Focus on the Core Request**: Generate code that directly addresses the user's request, without adding extra features or handling edge cases that were not mentioned.
-+    **Focus on the Core Request**: Generate code that directly addresses the user's request, without adding extra features or handling edge cases that were not mentioned.
-+    **Spec Hygiene**: When asked to update a plan/spec file, do not append unrelated/archived plans; keep it strictly scoped to the current task.
-```
-
-### C) .github/instructions/copilot-instructions.md
-
-```diff
-@@
- 3. **Coverage Testing** (MANDATORY - Non-negotiable):
--    - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
-+    - **MANDATORY**: Patch coverage must cover 100% of modified lines (Codecov Patch view must be green). If patch coverage fails, add targeted tests for the missing patch line ranges.
-```
-
-### D) .github/agents/Backend_Dev.agent.md
-
-```diff
-@@
- 3. **Verification (Definition of Done)**:
-@@
--    - **Coverage (MANDATORY)**: Run the coverage script explicitly. This is NOT run by pre-commit automatically.
-+    - **Coverage (MANDATORY)**: Run the coverage task/script explicitly and confirm Codecov patch view is green for modified lines.
-```
-
-### E) .github/agents/Frontend_Dev.agent.md (only if frontend changes are involved)
-
-```diff
-@@
- 3. **Verification (Quality Gates)**:
-@@
-     - **Gate 3: Coverage (MANDATORY)**:
-@@
-         - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
-+        - If patch coverage fails, identify missing patch line ranges in Codecov Patch view and add targeted tests.
-```
-
-### F) .github/agents/QA_Security.agent.md
-
-```diff
-@@
--        - When creating tests, if there are folders that don't require testing make sure to update `.codecov.yml` to exclude them from coverage reports or this throws off the difference between local and CI coverage.
-+        - Prefer fixing patch coverage with tests. Only adjust `.codecov.yml` ignores when code is truly non-production (e.g., test-only helpers), and document why.
-```
-
-### G) .github/agents/Supervisor.agent.md
-
-```diff
-@@
--      -   **Plan Completeness**: Does the plan cover all edge cases? Are there any missing components or unclear requirements?
-+      -   **Plan Completeness**: Does the plan cover all edge cases? Are there any missing components or unclear requirements?
-+      -   **Patch Coverage Completeness**: If coverage is in scope, does the plan include Codecov Patch missing/partial line ranges and the exact tests needed to execute them?
-```
-
-## Validation Checklist (patch-coverage scope)
-
-Required vs optional alignment:
-- Required for this plan to be considered complete: Workstream A + Workstream B changes landed.
-- This validation checklist is intentionally focused on Workstream A (patch coverage remediation). For additional repo-wide Definition of Done items, follow `.github/instructions/copilot-instructions.md`.
-- Workstream B validation is “diff applied + reviewer confirmation” (it doesn’t impact Go patch coverage directly).
-
-Run these tasks in order:
-
-1. **Test: Backend with Coverage**
-  - Pass criteria: task succeeds; `backend/coverage.txt` generated; zero failing tests.
-  - Outcome criteria: Codecov patch status becomes green (100% patch coverage).
-
-2. **Lint: Pre-commit (All Files)** (optional; general DoD)
-  - Pass criteria: all hooks pass.
+- Attach updated `codeql-results-*.sarif` and Trivy artifacts for **both filesystem and image** outputs to the QA rerun.
+- Confirm the QA report’s pass/fail criteria are satisfied (no HIGH/CRITICAL findings).
