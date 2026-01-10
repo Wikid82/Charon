@@ -183,6 +183,107 @@ services:
 
 ---
 
+## Supply Chain Security
+
+Charon implements comprehensive supply chain security measures to ensure the integrity and authenticity of releases. Every release includes cryptographic signatures, SLSA provenance attestation, and Software Bill of Materials (SBOM).
+
+### Verification Commands
+
+#### Verify Container Image Signature
+
+All official Charon images are signed with Sigstore Cosign:
+
+```bash
+# Install cosign (if not already installed)
+curl -LO https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+sudo chmod +x /usr/local/bin/cosign
+
+# Verify image signature
+cosign verify \
+  --certificate-identity-regexp='https://github.com/Wikid82/charon' \
+  --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+  ghcr.io/wikid82/charon:latest
+```
+
+Successful verification output confirms:
+- The image was built by GitHub Actions
+- The build came from the official Charon repository
+- The image has not been tampered with since signing
+
+#### Verify SLSA Provenance
+
+SLSA (Supply-chain Levels for Software Artifacts) provenance provides tamper-proof evidence of how the software was built:
+
+```bash
+# Install slsa-verifier (if not already installed)
+curl -LO https://github.com/slsa-framework/slsa-verifier/releases/latest/download/slsa-verifier-linux-amd64
+sudo mv slsa-verifier-linux-amd64 /usr/local/bin/slsa-verifier
+sudo chmod +x /usr/local/bin/slsa-verifier
+
+# Download provenance from release assets
+curl -LO https://github.com/Wikid82/charon/releases/latest/download/provenance.json
+
+# Verify provenance
+slsa-verifier verify-artifact \
+  --provenance-path provenance.json \
+  --source-uri github.com/Wikid82/charon \
+  ./backend/charon-binary
+```
+
+#### Inspect Software Bill of Materials (SBOM)
+
+Every release includes a comprehensive SBOM in SPDX format:
+
+```bash
+# Download SBOM from release assets
+curl -LO https://github.com/Wikid82/charon/releases/latest/download/sbom.spdx.json
+
+# View SBOM contents
+cat sbom.spdx.json | jq .
+
+# Check for known vulnerabilities (requires Grype)
+grype sbom:sbom.spdx.json
+```
+
+### Transparency Log (Rekor)
+
+All signatures are recorded in the public Sigstore Rekor transparency log, providing an immutable audit trail:
+
+- **Search the log**: <https://search.sigstore.dev/>
+- **Query by image**: Search for `ghcr.io/wikid82/charon`
+- **View entry details**: Each entry includes commit SHA, workflow run, and signing timestamp
+
+### Automated Verification in CI/CD
+
+Integrate supply chain verification into your deployment pipeline:
+
+```yaml
+# Example GitHub Actions workflow
+- name: Verify Charon Image
+  run: |
+    cosign verify \
+      --certificate-identity-regexp='https://github.com/Wikid82/charon' \
+      --certificate-oidc-issuer='https://token.actions.githubusercontent.com' \
+      ghcr.io/wikid82/charon:${{ env.VERSION }}
+```
+
+### What's Protected
+
+- **Container Images**: All `ghcr.io/wikid82/charon:*` images are signed
+- **Release Binaries**: Backend binaries include provenance attestation
+- **Build Process**: SLSA Level 3 compliant build provenance
+- **Dependencies**: Complete SBOM including all direct and transitive dependencies
+
+### Learn More
+
+- **[User Guide](docs/guides/supply-chain-security-user-guide.md)**: Step-by-step verification instructions
+- **[Developer Guide](docs/guides/supply-chain-security-developer-guide.md)**: Integration into development workflow
+- **[Sigstore Documentation](https://docs.sigstore.dev/)**: Technical details on signing and verification
+- **[SLSA Framework](https://slsa.dev/)**: Supply chain security framework overview
+
+---
+
 ## Security Audits & Scanning
 
 ### Automated Scanning
