@@ -113,3 +113,29 @@ Per instruction: **no fixes were made**. Suggested remediation steps:
 - Backend coverage profile: `backend/coverage.txt`
 - CodeQL results: `codeql-results-go.sarif`, `codeql-results-js.sarif`, `codeql-results-javascript.sarif`
 - Trivy results: `trivy-scan-output.txt`, `trivy-image-scan.txt`
+
+## Trivy triage (2026-01-10)
+
+**Task rerun**: VS Code task “Security: Trivy Scan”
+
+**Primary artifact (current task output)**:
+- `.trivy_logs/trivy-report.txt`
+
+**What the task is actually scanning**:
+- Image scan only (`trivy image --severity CRITICAL,HIGH charon:local`), not a filesystem/repo scan.
+
+**Current HIGH/CRITICAL summary (from `.trivy_logs/trivy-report.txt`)**:
+- **CRITICAL=0, HIGH=8**
+- All HIGH findings are in **built image contents**, specifically:
+	- `usr/local/bin/crowdsec` (**HIGH=4**) and `usr/local/bin/cscli` (**HIGH=4**)
+	- Vulnerabilities are attributed to **Go stdlib** in those binaries (built with Go `v1.25.1`):
+		- `CVE-2025-58183`, `CVE-2025-58186`, `CVE-2025-58187`, `CVE-2025-61729`
+
+**Attribution**:
+- Repo-tracked source paths: **none** (this task does not scan the repo filesystem)
+- Generated artifacts/caches: **none** (this task does not scan the repo filesystem)
+- Built image contents: **YES** (CrowdSec binaries embed vulnerable Go stdlib)
+
+**What must be fixed next (no fixes applied here)**:
+- **Dockerfile/CrowdSec bump**: update the CrowdSec build stage/version/toolchain so `crowdsec` and `cscli` are built with a Go version that includes the fixes (per Trivy, fixed in Go `1.25.2+`, `1.25.3+`, and `1.25.5+` depending on CVE), then rebuild `charon:local` and rerun Trivy.
+- If DoD is intended to gate repo dependencies too, consider **scan-scope alignment** (add a separate Trivy filesystem scan of repo-tracked paths with excludes for workspace caches like `.cache/`, `codeql-db*/`, and scan outputs).

@@ -249,7 +249,8 @@ describe('ProxyHosts page extra tests', () => {
     renderWithProviders(<ProxyHosts />)
 
     await waitFor(() => expect(screen.getByText('link.example.com')).toBeInTheDocument())
-    const link = screen.getByRole('link', { name: /link.example.com/ })
+    // Use exact string match to avoid incomplete hostname regex (CodeQL js/incomplete-hostname-regexp)
+    const link = screen.getByRole('link', { name: 'link.example.com' })
     await userEvent.click(link)
     expect(openSpy).toHaveBeenCalled()
     openSpy.mockRestore()

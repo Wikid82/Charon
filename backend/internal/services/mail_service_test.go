@@ -1,6 +1,7 @@
 package services
 
 import (
+	"net/mail"
 	"strings"
 	"testing"
 
@@ -37,11 +38,9 @@ func TestMailService_SaveAndGetSMTPConfig(t *testing.T) {
 		Encryption:  "starttls",
 	}
 
-	// Save config
 	err := svc.SaveSMTPConfig(config)
 	require.NoError(t, err)
 
-	// Retrieve config
 	retrieved, err := svc.GetSMTPConfig()
 	require.NoError(t, err)
 
@@ -57,7 +56,6 @@ func TestMailService_UpdateSMTPConfig(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Save initial config
 	config := &SMTPConfig{
 		Host:        "smtp.example.com",
 		Port:        587,
@@ -69,14 +67,12 @@ func TestMailService_UpdateSMTPConfig(t *testing.T) {
 	err := svc.SaveSMTPConfig(config)
 	require.NoError(t, err)
 
-	// Update config
 	config.Host = "smtp.newhost.com"
 	config.Port = 465
 	config.Encryption = "ssl"
 	err = svc.SaveSMTPConfig(config)
 	require.NoError(t, err)
 
-	// Verify update
 	retrieved, err := svc.GetSMTPConfig()
 	require.NoError(t, err)
 
@@ -137,11 +133,9 @@ func TestMailService_GetSMTPConfig_Defaults(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Get config without saving anything
 	config, err := svc.GetSMTPConfig()
 	require.NoError(t, err)
 
-	// Should have defaults
 	assert.Equal(t, 587, config.Port)
 	assert.Equal(t, "starttls", config.Encryption)
 	assert.Empty(t, config.Host)
@@ -151,110 +145,26 @@ func TestMailService_BuildEmail(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	msg := svc.buildEmail(
-		"sender@example.com",
-		"recipient@example.com",
-		"Test Subject",
-		"<html><body>Test Body</body></html>",
-	)
+	fromAddr, err := mail.ParseAddress("sender@example.com")
+	require.NoError(t, err)
+	toAddr, err := mail.ParseAddress("recipient@example.com")
+	require.NoError(t, err)
+
+	msg, err := svc.buildEmail(fromAddr, toAddr, nil, "Test Subject", "<html><body>Test Body</body></html>")
+	require.NoError(t, err)
 
 	msgStr := string(msg)
-	assert.Contains(t, msgStr, "From: sender@example.com")
-	assert.Contains(t, msgStr, "To: recipient@example.com")
+	// Addresses are RFC-formatted and may include angle brackets
+	assert.Contains(t, msgStr, "From:")
+	assert.Contains(t, msgStr, "sender@example.com")
+	assert.Contains(t, msgStr, "To:")
+	assert.Contains(t, msgStr, "recipient@example.com")
 	assert.Contains(t, msgStr, "Subject: Test Subject")
 	assert.Contains(t, msgStr, "Content-Type: text/html")
 	assert.Contains(t, msgStr, "Test Body")
 }
 
-// TestMailService_HeaderInjectionPrevention tests that CRLF injection is prevented (CWE-93)
-func TestMailService_HeaderInjectionPrevention(t *testing.T) {
-	db := setupMailTestDB(t)
-	svc := NewMailService(db)
-
-	tests := []struct {
-		name            string
-		subject         string
-		subjectShouldBe string // The sanitized subject line
-	}{
-		{
-			name:            "subject with CRLF injection attempt",
-			subject:         "Normal Subject\r\nBcc: attacker@evil.com",
-			subjectShouldBe: "Normal SubjectBcc: attacker@evil.com", // CRLF stripped, text concatenated
-		},
-		{
-			name:            "subject with LF injection attempt",
-			subject:         "Normal Subject\nX-Injected: malicious",
-			subjectShouldBe: "Normal SubjectX-Injected: malicious",
-		},
-		{
-			name:            "subject with null byte",
-			subject:         "Normal Subject\x00Hidden",
-			subjectShouldBe: "Normal SubjectHidden",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			msg := svc.buildEmail(
-				"sender@example.com",
-				"recipient@example.com",
-				tc.subject,
-				"<p>Body</p>",
-			)
-
-			msgStr := string(msg)
-
-			// Verify sanitized subject appears
-			assert.Contains(t, msgStr, "Subject: "+tc.subjectShouldBe)
-
-			// Split by the header/body separator to get headers only
-			parts := strings.SplitN(msgStr, "\r\n\r\n", 2)
-			require.Len(t, parts, 2, "Email should have headers and body separated by CRLFCRLF")
-			headers := parts[0]
-
-			// Count the number of header lines - there should be exactly 5:
-			// From, To, Subject, MIME-Version, Content-Type
-			headerLines := strings.Split(headers, "\r\n")
-			assert.Equal(t, 5, len(headerLines),
-				"Should have exactly 5 header lines (no injected headers)")
-
-			// Verify no injected headers appear as separate lines
-			for _, line := range headerLines {
-				if strings.HasPrefix(line, "Bcc:") || strings.HasPrefix(line, "X-Injected:") {
-					t.Errorf("Injected header found: %s", line)
-				}
-			}
-		})
-	}
-}
-
-// TestSanitizeEmailHeader tests the sanitizeEmailHeader function directly
-func TestSanitizeEmailHeader(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"clean string", "Normal Subject", "Normal Subject"},
-		{"CR removal", "Subject\rInjected", "SubjectInjected"},
-		{"LF removal", "Subject\nInjected", "SubjectInjected"},
-		{"CRLF removal", "Subject\r\nBcc: evil@hacker.com", "SubjectBcc: evil@hacker.com"},
-		{"null byte removal", "Subject\x00Hidden", "SubjectHidden"},
-		{"tab removal", "Subject\tTabbed", "SubjectTabbed"},
-		{"multiple control chars", "A\r\n\x00\x1f\x7fB", "AB"},
-		{"empty string", "", ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := sanitizeEmailHeader(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-// TestValidateEmailAddress tests email address validation
-func TestValidateEmailAddress(t *testing.T) {
+func TestParseEmailAddressForHeader(t *testing.T) {
 	tests := []struct {
 		name    string
 		email   string
@@ -270,7 +180,7 @@ func TestValidateEmailAddress(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEmailAddress(tc.email)
+			_, err := parseEmailAddressForHeader("to", tc.email)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -280,10 +190,46 @@ func TestValidateEmailAddress(t *testing.T) {
 	}
 }
 
-// TestMailService_SMTPDotStuffing tests SMTP dot-stuffing to prevent email injection (CWE-93)
+func TestMailService_BuildEmail_RejectsCRLFInSubject(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	fromAddr, err := mail.ParseAddress("sender@example.com")
+	require.NoError(t, err)
+	toAddr, err := mail.ParseAddress("recipient@example.com")
+	require.NoError(t, err)
+
+	_, err = svc.buildEmail(fromAddr, toAddr, nil, "Normal\r\nBcc: attacker@evil.com", "<p>Body</p>")
+	assert.Error(t, err)
+}
+
+func TestMailService_BuildEmail_RejectsCRLFInReplyTo(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	fromAddr, err := mail.ParseAddress("sender@example.com")
+	require.NoError(t, err)
+	toAddr, err := mail.ParseAddress("recipient@example.com")
+	require.NoError(t, err)
+
+	// Create reply-to address with CRLF injection attempt in the name field
+	replyToAddr := &mail.Address{
+		Name:    "Attacker\r\nBcc: evil@example.com",
+		Address: "attacker@example.com",
+	}
+
+	_, err = svc.buildEmail(fromAddr, toAddr, replyToAddr, "Test Subject", "<p>Body</p>")
+	assert.Error(t, err, "Should reject CRLF in reply-to name")
+}
+
 func TestMailService_SMTPDotStuffing(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
+
+	fromAddr, err := mail.ParseAddress("from@example.com")
+	require.NoError(t, err)
+	toAddr, err := mail.ParseAddress("to@example.com")
+	require.NoError(t, err)
 
 	tests := []struct {
 		name          string
@@ -314,10 +260,10 @@ func TestMailService_SMTPDotStuffing(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := svc.buildEmail("from@example.com", "to@example.com", "Test", tc.htmlBody)
+			msg, err := svc.buildEmail(fromAddr, toAddr, nil, "Test", tc.htmlBody)
+			require.NoError(t, err)
 			msgStr := string(msg)
 
-			// Extract body (everything after \r\n\r\n)
 			parts := strings.Split(msgStr, "\r\n\r\n")
 			require.Len(t, parts, 2, "Email should have headers and body")
 			body := parts[1]
@@ -327,7 +273,6 @@ func TestMailService_SMTPDotStuffing(t *testing.T) {
 	}
 }
 
-// TestSanitizeEmailBody tests the sanitizeEmailBody function directly
 func TestSanitizeEmailBody(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -368,12 +313,26 @@ func TestMailService_SendEmail_NotConfigured(t *testing.T) {
 	assert.Contains(t, err.Error(), "not configured")
 }
 
-// TestSMTPConfigSerialization ensures config fields are properly stored
+func TestMailService_SendEmail_RejectsCRLFInSubject(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	config := &SMTPConfig{
+		Host:        "smtp.example.com",
+		Port:        587,
+		FromAddress: "noreply@example.com",
+	}
+	require.NoError(t, svc.SaveSMTPConfig(config))
+
+	err := svc.SendEmail("recipient@example.com", "Hello\r\nBcc: evil@example.com", "Body")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid subject")
+}
+
 func TestSMTPConfigSerialization(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Test with special characters in password
 	config := &SMTPConfig{
 		Host:        "smtp.example.com",
 		Port:        587,
@@ -393,19 +352,15 @@ func TestSMTPConfigSerialization(t *testing.T) {
 	assert.Equal(t, config.FromAddress, retrieved.FromAddress)
 }
 
-// TestMailService_SendInvite tests the invite email template
 func TestMailService_SendInvite_Template(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// We can't actually send email, but we can verify the method doesn't panic
-	// and returns appropriate error when SMTP is not configured
 	err := svc.SendInvite("test@example.com", "abc123token", "TestApp", "https://example.com")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
 }
 
-// Benchmark tests
 func BenchmarkMailService_IsConfigured(b *testing.B) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -432,33 +387,45 @@ func BenchmarkMailService_BuildEmail(b *testing.B) {
 	})
 	svc := NewMailService(db)
 
+	fromAddr, _ := mail.ParseAddress("sender@example.com")
+	toAddr, _ := mail.ParseAddress("recipient@example.com")
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		svc.buildEmail(
-			"sender@example.com",
-			"recipient@example.com",
-			"Test Subject",
-			"<html><body>Test Body</body></html>",
-		)
+		_, _ = svc.buildEmail(fromAddr, toAddr, nil, "Test Subject", "<html><body>Test Body</body></html>")
 	}
 }
 
-// Integration test placeholder - this would use a real SMTP server
+func TestMailService_SendInvite_InvalidBaseURL_CRLF(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	err := svc.SendInvite("test@example.com", "token123", "TestApp", "https://example.com\r\nBcc: attacker@example.com")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL")
+}
+
+func TestMailService_SendInvite_InvalidBaseURL_Path(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	err := svc.SendInvite("test@example.com", "token123", "TestApp", "https://example.com/sneaky")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "baseURL")
+}
+
 func TestMailService_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// This test would connect to a real SMTP server (like MailHog) for integration testing
 	t.Skip("Integration test requires SMTP server")
 }
 
-// Test for expired invite token handling in SendInvite
 func TestMailService_SendInvite_TokenFormat(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Save SMTP config so we can test template generation
 	config := &SMTPConfig{
 		Host:        "smtp.example.com",
 		Port:        587,
@@ -466,28 +433,21 @@ func TestMailService_SendInvite_TokenFormat(t *testing.T) {
 	}
 	svc.SaveSMTPConfig(config)
 
-	// The SendInvite will fail at SMTP connection, but we're testing that
-	// the function correctly constructs the invite URL
 	err := svc.SendInvite("test@example.com", "token123", "Charon", "https://charon.local/")
-	assert.Error(t, err) // Will error on SMTP connection
+	assert.Error(t, err)
 
-	// Test with trailing slash handling
 	err = svc.SendInvite("test@example.com", "token123", "Charon", "https://charon.local")
-	assert.Error(t, err) // Will error on SMTP connection
+	assert.Error(t, err)
 }
 
-// Add timeout handling test
-// Note: Skipped as in-memory SQLite doesn't support concurrent writes well
 func TestMailService_SaveSMTPConfig_Concurrent(t *testing.T) {
 	t.Skip("In-memory SQLite doesn't support concurrent writes - test real DB in integration")
 }
 
-// TestMailService_SendEmail_InvalidRecipient tests email sending with invalid recipient
 func TestMailService_SendEmail_InvalidRecipient(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Configure SMTP
 	config := &SMTPConfig{
 		Host:        "smtp.example.com",
 		Port:        587,
@@ -495,18 +455,15 @@ func TestMailService_SendEmail_InvalidRecipient(t *testing.T) {
 	}
 	require.NoError(t, svc.SaveSMTPConfig(config))
 
-	// Try sending with invalid recipient
 	err := svc.SendEmail("invalid\r\nemail", "Subject", "Body")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid recipient")
 }
 
-// TestMailService_SendEmail_InvalidFromAddress tests email sending with invalid from address
 func TestMailService_SendEmail_InvalidFromAddress(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
 
-	// Configure SMTP with invalid from address
 	config := &SMTPConfig{
 		Host:        "smtp.example.com",
 		Port:        587,
@@ -514,13 +471,11 @@ func TestMailService_SendEmail_InvalidFromAddress(t *testing.T) {
 	}
 	require.NoError(t, svc.SaveSMTPConfig(config))
 
-	// Try sending email - should fail on invalid from address
 	err := svc.SendEmail("test@example.com", "Subject", "Body")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid from address")
 }
 
-// TestMailService_SendEmail_EncryptionModes tests different encryption modes
 func TestMailService_SendEmail_EncryptionModes(t *testing.T) {
 	db := setupMailTestDB(t)
 	svc := NewMailService(db)
@@ -547,10 +502,144 @@ func TestMailService_SendEmail_EncryptionModes(t *testing.T) {
 			}
 			require.NoError(t, svc.SaveSMTPConfig(config))
 
-			// This will fail at connection/lookup time, but we're testing the path selection
 			err := svc.SendEmail("recipient@example.com", "Test", "Body")
 			assert.Error(t, err)
-			// Should fail on connection or lookup
+		})
+	}
+}
+
+// TestMailService_SendEmail_CRLFInjection_Comprehensive tests CRLF injection prevention
+// across all email header fields (CodeQL go/email-injection remediation)
+func TestMailService_SendEmail_CRLFInjection_Comprehensive(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	config := &SMTPConfig{
+		Host:        "smtp.example.com",
+		Port:        587,
+		FromAddress: "noreply@example.com",
+		Encryption:  "starttls",
+	}
+	require.NoError(t, svc.SaveSMTPConfig(config))
+
+	tests := []struct {
+		name        string
+		to          string
+		subject     string
+		fromAddress string
+		description string
+	}{
+		{
+			name:        "CRLF in recipient address",
+			to:          "victim@example.com\r\nBcc: attacker@evil.com",
+			subject:     "Normal Subject",
+			fromAddress: "noreply@example.com",
+			description: "Reject CRLF in To header",
+		},
+		{
+			name:        "CRLF in subject line",
+			to:          "victim@example.com",
+			subject:     "Test\r\nBcc: attacker@evil.com",
+			fromAddress: "noreply@example.com",
+			description: "Reject CRLF in Subject header",
+		},
+		{
+			name:        "LF only in recipient",
+			to:          "victim@example.com\nBcc: attacker@evil.com",
+			subject:     "Normal Subject",
+			fromAddress: "noreply@example.com",
+			description: "Reject LF in To header",
+		},
+		{
+			name:        "LF only in subject",
+			to:          "victim@example.com",
+			subject:     "Test\nBcc: attacker@evil.com",
+			fromAddress: "noreply@example.com",
+			description: "Reject LF in Subject header",
+		},
+		{
+			name:        "CR only in recipient",
+			to:          "victim@example.com\rBcc: attacker@evil.com",
+			subject:     "Normal Subject",
+			fromAddress: "noreply@example.com",
+			description: "Reject CR in To header",
+		},
+		{
+			name:        "multiple CRLF sequences",
+			to:          "victim@example.com",
+			subject:     "Test\r\nBcc: evil1@attacker.com\r\nCc: evil2@attacker.com",
+			fromAddress: "noreply@example.com",
+			description: "Reject multiple CRLF attempts",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Update config with potentially malicious from address if specified
+			if tc.fromAddress != config.FromAddress {
+				testConfig := *config
+				testConfig.FromAddress = tc.fromAddress
+				require.NoError(t, svc.SaveSMTPConfig(&testConfig))
+			}
+
+			err := svc.SendEmail(tc.to, tc.subject, "<p>Normal body</p>")
+			assert.Error(t, err, tc.description)
+			assert.Contains(t, err.Error(), "invalid", "Error should indicate invalid input")
+		})
+	}
+}
+
+// TestMailService_SendInvite_CRLFInjection tests CRLF injection prevention in invite emails
+func TestMailService_SendInvite_CRLFInjection(t *testing.T) {
+	db := setupMailTestDB(t)
+	svc := NewMailService(db)
+
+	config := &SMTPConfig{
+		Host:        "smtp.example.com",
+		Port:        587,
+		FromAddress: "noreply@example.com",
+		Encryption:  "starttls",
+	}
+	require.NoError(t, svc.SaveSMTPConfig(config))
+
+	tests := []struct {
+		name        string
+		email       string
+		token       string
+		appName     string
+		baseURL     string
+		description string
+	}{
+		{
+			name:        "CRLF in email address",
+			email:       "victim@example.com\r\nBcc: attacker@evil.com",
+			token:       "token123",
+			appName:     "TestApp",
+			baseURL:     "https://example.com",
+			description: "Reject CRLF in invite email address",
+		},
+		{
+			name:        "CRLF in baseURL",
+			email:       "user@example.com",
+			token:       "token123",
+			appName:     "TestApp",
+			baseURL:     "https://example.com\r\nBcc: attacker@evil.com",
+			description: "Reject CRLF in invite baseURL",
+		},
+		{
+			name:        "CRLF in app name (subject)",
+			email:       "user@example.com",
+			token:       "token123",
+			appName:     "TestApp\r\nBcc: attacker@evil.com",
+			baseURL:     "https://example.com",
+			description: "Reject CRLF in app name used in subject",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.SendInvite(tc.email, tc.token, tc.appName, tc.baseURL)
+			assert.Error(t, err, tc.description)
 		})
 	}
 }
