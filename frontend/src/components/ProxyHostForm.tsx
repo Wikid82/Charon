@@ -604,9 +604,21 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 ))}
               </select>
               {dockerError && connectionSource !== 'custom' && (
-                <p className="text-xs text-red-400 mt-1">
-                  Failed to connect: {(dockerError as Error).message}
-                </p>
+                <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-red-300">
+                      <p className="font-semibold mb-1">Docker Connection Failed</p>
+                      <p className="text-red-400/90 mb-2">
+                        {(dockerError as Error).message}
+                      </p>
+                      <p className="text-gray-400">
+                        <strong>Troubleshooting:</strong> Ensure Docker is running and the socket is accessible.
+                        If running in a container, mount <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">/var/run/docker.sock</code>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </div>
