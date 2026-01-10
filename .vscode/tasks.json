@@ -309,6 +309,48 @@
             "command": ".github/skills/scripts/skill-runner.sh utility-db-recovery",
             "group": "none",
             "problemMatcher": []
+        },
+        {
+            "label": "Security: Verify SBOM",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-verify-sbom ${input:dockerImage}",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Sign with Cosign",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Generate SLSA Provenance",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Full Supply Chain Audit",
+            "type": "shell",
+            "dependsOn": [
+                "Security: Verify SBOM",
+                "Security: Sign with Cosign",
+                "Security: Generate SLSA Provenance"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo '✅ Supply chain audit complete'",
+            "group": "test",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "dockerImage",
+            "type": "promptString",
+            "description": "Docker image name or tag to verify",
+            "default": "charon:local"
         }
     ]
 }
