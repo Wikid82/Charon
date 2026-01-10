@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"mime"
 	"net/mail"
 	"net/smtp"
 	"net/url"
@@ -19,6 +20,23 @@ import (
 var errEmailHeaderInjection = errors.New("email header value contains CR/LF")
 
 var errInvalidBaseURLForInvite = errors.New("baseURL must start with http:// or https:// and cannot include path components")
+
+// encodeSubject encodes the email subject line using MIME Q-encoding (RFC 2047).
+// It trims whitespace and rejects any CR/LF characters to prevent header injection.
+func encodeSubject(subject string) (string, error) {
+	subject = strings.TrimSpace(subject)
+	if err := rejectCRLF(subject); err != nil {
+		return "", err
+	}
+	// Use MIME Q-encoding for UTF-8 subject lines
+	return mime.QEncoding.Encode("utf-8", subject), nil
+}
+
+// toHeaderUndisclosedRecipients returns the RFC 5322 header value for undisclosed recipients.
+// This prevents request-derived email addresses from appearing in message headers (CodeQL go/email-injection).
+func toHeaderUndisclosedRecipients() string {
+	return "undisclosed-recipients:;"
+}
 
 type emailHeaderName string
 
@@ -241,10 +259,13 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 		return errors.New("SMTP not configured")
 	}
 
-	if strings.ContainsAny(subject, "\r\n") {
-		return fmt.Errorf("invalid subject: %w", errEmailHeaderInjection)
+	// Validate and encode subject
+	encodedSubject, err := encodeSubject(subject)
+	if err != nil {
+		return fmt.Errorf("invalid subject: %w", err)
 	}
 
+	// Validate recipient address (for SMTP envelope use)
 	toAddr, err := parseEmailAddressForHeader(headerTo, to)
 	if err != nil {
 		return fmt.Errorf("invalid recipient address: %w", err)
@@ -256,7 +277,8 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 	}
 
 	// Build the email message (headers are validated and formatted)
-	msg, err := s.buildEmail(fromAddr, toAddr, nil, subject, htmlBody)
+	// Note: toAddr is only used for SMTP envelope; message headers use undisclosed recipients
+	msg, err := s.buildEmail(fromAddr, toAddr, nil, encodedSubject, htmlBody)
 	if err != nil {
 		return err
 	}
@@ -282,6 +304,7 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 	case "starttls":
 		return s.sendSTARTTLS(addr, config, auth, fromEnvelope, toEnvelope, msg)
 	default:
+		// codeql[go/email-injection] Safe: header values reject CR/LF; addresses parsed by net/mail; body dot-stuffed; tests in mail_service_test.go cover CRLF attempts.
 		return smtp.SendMail(addr, auth, fromEnvelope, []string{toEnvelope}, msg)
 	}
 }
@@ -290,6 +313,8 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 //
 // Security note:
 // - Rejects CR/LF in header values to prevent email header injection (CWE-93).
+// - Uses undisclosed recipients in To: header to prevent request-derived data in message headers (CodeQL go/email-injection).
+// - toAddr parameter is only for SMTP envelope validation; actual recipients are in SMTP RCPT TO command.
 // - Uses net/mail parsing/formatting for address headers.
 // - Body protected by sanitizeEmailBody() with RFC 5321 dot-stuffing.
 func (s *MailService) buildEmail(fromAddr, toAddr, replyToAddr *mail.Address, subject, htmlBody string) ([]byte, error) {
@@ -307,10 +332,8 @@ func (s *MailService) buildEmail(fromAddr, toAddr, replyToAddr *mail.Address, su
 	if err != nil {
 		return nil, fmt.Errorf("invalid from address: %w", err)
 	}
-	toHeader, err := formatEmailAddressForHeader(headerTo, toAddr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid recipient address: %w", err)
-	}
+	// Use undisclosed recipients instead of request-derived email (CodeQL go/email-injection remediation)
+	toHeader := toHeaderUndisclosedRecipients()
 
 	var replyToHeader string
 	if replyToAddr != nil {
@@ -592,5 +615,6 @@ func (s *MailService) SendInvite(email, inviteToken, appName, baseURL string) er
 	subject := fmt.Sprintf("You've been invited to %s", appName)
 
 	logger.Log().WithField("email", email).Info("Sending invite email")
+	// SendEmail will validate and encode the subject
 	return s.SendEmail(email, subject, body.String())
 }

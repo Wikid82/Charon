@@ -482,10 +482,12 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	// Try to send invite email
 	emailSent := false
 	if h.MailService.IsConfigured() {
-		baseURL := utils.GetPublicURL(h.DB, c)
-		appName := getAppName(h.DB)
-		if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
-			emailSent = true
+		baseURL, ok := utils.GetConfiguredPublicURL(h.DB)
+		if ok {
+			appName := getAppName(h.DB)
+			if err := h.MailService.SendInvite(user.Email, inviteToken, appName, baseURL); err == nil {
+				emailSent = true
+			}
 		}
 	}
 
@@ -519,14 +521,13 @@ func (h *UserHandler) PreviewInviteURL(c *gin.Context) {
 		return
 	}
 
-	baseURL := utils.GetPublicURL(h.DB, c)
+	baseURL, isConfigured := utils.GetConfiguredPublicURL(h.DB)
 	// Generate a sample token for preview (not stored)
 	sampleToken := "SAMPLE_TOKEN_PREVIEW"
-	inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), sampleToken)
-
-	// Check if public URL is configured
-	var setting models.Setting
-	isConfigured := h.DB.Where("key = ?", "app.public_url").First(&setting).Error == nil && setting.Value != ""
+	inviteURL := ""
+	if isConfigured {
+		inviteURL = fmt.Sprintf("%s/accept-invite?token=%s", strings.TrimSuffix(baseURL, "/"), sampleToken)
+	}
 
 	warningMessage := ""
 	if !isConfigured {
