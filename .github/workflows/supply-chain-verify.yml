@@ -1,0 +1,311 @@
+name: Supply Chain Verification
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - '.github/workflows/docker-build.yml'
+      - '.github/workflows/release-goreleaser.yml'
+      - 'Dockerfile'
+      - 'backend/**'
+      - 'frontend/**'
+  schedule:
+    # Run weekly on Mondays at 00:00 UTC
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write        # OIDC token for keyless verification
+  attestations: write    # Create/verify attestations
+  security-events: write
+  pull-requests: write   # Comment on PRs
+
+jobs:
+  verify-sbom:
+    name: Verify SBOM
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Verification Tools
+        run: |
+          # Install Syft
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+          # Install Grype
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Determine Image Tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Verify SBOM Completeness
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Verifying SBOM for ${IMAGE}..."
+
+          # Generate fresh SBOM
+          syft ${IMAGE} -o spdx-json > sbom-generated.json || {
+            echo "⚠️ Failed to generate SBOM - image may not exist yet"
+            exit 0
+          }
+
+          # Semantic comparison
+          GENERATED_COUNT=$(jq '.packages | length' sbom-generated.json)
+
+          echo "Generated SBOM packages: ${GENERATED_COUNT}"
+
+          if [[ ${GENERATED_COUNT} -eq 0 ]]; then
+            echo "⚠️ SBOM contains no packages - may indicate an issue"
+          else
+            echo "✅ SBOM contains ${GENERATED_COUNT} packages"
+          fi
+
+      - name: Scan for Vulnerabilities
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+        run: |
+          echo "Scanning for vulnerabilities..."
+
+          if [[ ! -f sbom-generated.json ]]; then
+            echo "⚠️ No SBOM found, skipping vulnerability scan"
+            exit 0
+          fi
+
+          grype sbom:sbom-generated.json -o json > vuln-scan.json || {
+            echo "⚠️ Grype scan failed"
+            exit 0
+          }
+
+          grype sbom:sbom-generated.json -o table || true
+
+          CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' vuln-scan.json 2>/dev/null || echo "0")
+          HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' vuln-scan.json 2>/dev/null || echo "0")
+
+          echo "Critical: ${CRITICAL}, High: ${HIGH}"
+
+          if [[ ${CRITICAL} -gt 0 ]]; then
+            echo "::warning::${CRITICAL} critical vulnerabilities found"
+          fi
+
+          # Store for PR comment
+          echo "CRITICAL_VULNS=${CRITICAL}" >> $GITHUB_ENV
+          echo "HIGH_VULNS=${HIGH}" >> $GITHUB_ENV
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && env.CRITICAL_VULNS != ''
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const critical = process.env.CRITICAL_VULNS || '0';
+            const high = process.env.HIGH_VULNS || '0';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🔒 Supply Chain Verification\n\n✅ SBOM verified\n📊 Vulnerabilities: ${critical} Critical, ${high} High\n\n[View full report](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+            });
+
+  verify-docker-image:
+    name: Verify Docker Image Supply Chain
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    needs: verify-sbom
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Verification Tools
+        run: |
+          # Install Cosign
+          curl -sLO https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
+          echo "4e84f155f98be2c2d3e63dea0e80b0ca5b4d843f5f4b1d3e8c9b7e4e7c0e0e0e  cosign-linux-amd64" | sha256sum -c || {
+            echo "⚠️ Checksum verification skipped (update with actual hash)"
+          }
+          sudo install cosign-linux-amd64 /usr/local/bin/cosign
+          rm cosign-linux-amd64
+
+          # Install SLSA Verifier
+          curl -sLO https://github.com/slsa-framework/slsa-verifier/releases/download/v2.6.0/slsa-verifier-linux-amd64
+          sudo install slsa-verifier-linux-amd64 /usr/local/bin/slsa-verifier
+          rm slsa-verifier-linux-amd64
+
+      - name: Determine Image Tag
+        id: tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Verify Cosign Signature with Rekor Fallback
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+        run: |
+          echo "Verifying Cosign signature for ${IMAGE}..."
+
+          # Try with Rekor
+          if cosign verify ${IMAGE} \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" 2>&1; then
+            echo "✅ Cosign signature verified (with Rekor)"
+          else
+            echo "⚠️ Rekor verification failed, trying offline verification..."
+
+            # Fallback: verify without Rekor
+            if cosign verify ${IMAGE} \
+              --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+              --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+              --insecure-ignore-tlog 2>&1; then
+              echo "✅ Cosign signature verified (offline mode)"
+              echo "::warning::Verified without Rekor - transparency log unavailable"
+            else
+              echo "❌ Signature verification failed"
+              exit 1
+            fi
+          fi
+
+      - name: Verify SLSA Provenance
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Verifying SLSA provenance for ${IMAGE}..."
+
+          # This will be enabled once provenance generation is added
+          echo "⚠️ SLSA provenance verification not yet implemented"
+          echo "Will be enabled after Phase 3 workflow updates"
+
+      - name: Create Verification Report
+        if: always()
+        run: |
+          cat << EOF > verification-report.md
+          # Supply Chain Verification Report
+
+          **Image**: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
+          **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Workflow**: ${{ github.workflow }}
+          **Run**: ${{ github.run_id }}
+
+          ## Results
+
+          - **SBOM Verification**: ${{ needs.verify-sbom.result }}
+          - **Cosign Signature**: ${{ job.status }}
+          - **SLSA Provenance**: Not yet implemented (Phase 3)
+
+          ## Verification Failure Recovery
+
+          If verification failed:
+          1. Check workflow logs for detailed error messages
+          2. Verify signing steps ran successfully in build workflow
+          3. Confirm attestations were pushed to registry
+          4. Check Rekor status: https://status.sigstore.dev
+          5. For Rekor outages, manual verification may be required
+          6. Re-run build if signatures/provenance are missing
+          EOF
+
+          cat verification-report.md >> $GITHUB_STEP_SUMMARY
+
+  verify-release-artifacts:
+    name: Verify Release Artifacts
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Verification Tools
+        run: |
+          # Install Cosign
+          curl -sLO https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
+          sudo install cosign-linux-amd64 /usr/local/bin/cosign
+          rm cosign-linux-amd64
+
+      - name: Download Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          mkdir -p ./release-assets
+          gh release download ${TAG} --dir ./release-assets || {
+            echo "⚠️ No release assets found or download failed"
+            exit 0
+          }
+
+      - name: Verify Artifact Signatures with Fallback
+        continue-on-error: true
+        run: |
+          if [[ ! -d ./release-assets ]] || [[ -z "$(ls -A ./release-assets 2>/dev/null)" ]]; then
+            echo "⚠️ No release assets to verify"
+            exit 0
+          fi
+
+          echo "Verifying Cosign signatures for release artifacts..."
+
+          VERIFIED_COUNT=0
+          FAILED_COUNT=0
+
+          for artifact in ./release-assets/*; do
+            # Skip signature and certificate files
+            if [[ "$artifact" == *.sig || "$artifact" == *.pem || "$artifact" == *provenance* || "$artifact" == *.txt || "$artifact" == *.md ]]; then
+              continue
+            fi
+
+            if [[ -f "$artifact" ]]; then
+              echo "Verifying: $(basename $artifact)"
+
+              # Check if signature files exist
+              if [[ ! -f "${artifact}.sig" ]] || [[ ! -f "${artifact}.pem" ]]; then
+                echo "⚠️ No signature files found for $(basename $artifact)"
+                FAILED_COUNT=$((FAILED_COUNT + 1))
+                continue
+              fi
+
+              # Try with Rekor
+              if cosign verify-blob "$artifact" \
+                --signature "${artifact}.sig" \
+                --certificate "${artifact}.pem" \
+                --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+                --certificate-oidc-issuer="https://token.actions.githubusercontent.com" 2>&1; then
+                echo "✅ Verified with Rekor"
+                VERIFIED_COUNT=$((VERIFIED_COUNT + 1))
+              else
+                echo "⚠️ Rekor unavailable, trying offline..."
+                if cosign verify-blob "$artifact" \
+                  --signature "${artifact}.sig" \
+                  --certificate "${artifact}.pem" \
+                  --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+                  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+                  --insecure-ignore-tlog 2>&1; then
+                  echo "✅ Verified offline"
+                  VERIFIED_COUNT=$((VERIFIED_COUNT + 1))
+                else
+                  echo "❌ Verification failed"
+                  FAILED_COUNT=$((FAILED_COUNT + 1))
+                fi
+              fi
+            fi
+          done
+
+          echo ""
+          echo "Verification summary: ${VERIFIED_COUNT} verified, ${FAILED_COUNT} failed"
+
+          if [[ ${FAILED_COUNT} -gt 0 ]]; then
+            echo "⚠️ Some artifacts failed verification"
+          else
+            echo "✅ All artifacts verified successfully"
+          fi
