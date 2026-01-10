@@ -1579,7 +1579,9 @@ func TestUserHandler_PreviewInviteURL_Success_Unconfigured(t *testing.T) {
 	assert.Equal(t, false, resp["is_configured"].(bool))
 	assert.Equal(t, true, resp["warning"].(bool))
 	assert.Contains(t, resp["warning_message"].(string), "not configured")
-	assert.Contains(t, resp["preview_url"].(string), "SAMPLE_TOKEN_PREVIEW")
+	// When unconfigured, base_url and preview_url must be empty (CodeQL go/email-injection remediation)
+	assert.Equal(t, "", resp["base_url"].(string), "base_url must be empty when public_url is not configured")
+	assert.Equal(t, "", resp["preview_url"].(string), "preview_url must be empty when public_url is not configured")
 	assert.Equal(t, "test@example.com", resp["email"].(string))
 }
 
@@ -1916,6 +1918,41 @@ func TestUserHandler_InviteUser_DefaultRole(t *testing.T) {
 	var user models.User
 	db.Where("email = ?", "defaultroleinvite@example.com").First(&user)
 	assert.Equal(t, "user", user.Role)
+}
+
+// TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost verifies that
+// when app.public_url is not configured, the preview does NOT use request Host header.
+// This prevents host header injection attacks (CodeQL go/email-injection remediation).
+func TestUserHandler_PreviewInviteURL_Unconfigured_DoesNotUseRequestHost(t *testing.T) {
+	handler, _ := setupUserHandlerWithProxyHosts(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("role", "admin")
+		c.Next()
+	})
+	r.POST("/users/preview-invite-url", handler.PreviewInviteURL)
+
+	body := map[string]string{"email": "test@example.com"}
+	jsonBody, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/users/preview-invite-url", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	// Set malicious Host and X-Forwarded-Proto headers
+	req.Host = "evil.example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	// Response must NOT contain the malicious host
+	responseJSON := w.Body.String()
+	assert.NotContains(t, responseJSON, "evil.example.com", "Malicious Host header must not appear in response")
+	// Verify base_url and preview_url are empty
+	assert.Equal(t, "", resp["base_url"].(string))
+	assert.Equal(t, "", resp["preview_url"].(string))
 }
 
 // ============= Priority 4: Integration Edge Cases =============
