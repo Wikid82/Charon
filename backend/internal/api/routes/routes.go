@@ -317,14 +317,11 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
 		}
 
-		// Docker
-		dockerService, err := services.NewDockerService()
-		if err == nil { // Only register if Docker is available
-			dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
-			dockerHandler.RegisterRoutes(protected)
-		} else {
-			logger.Log().WithError(err).Warn("Docker service unavailable")
-		}
+		// Docker - Always register routes even if Docker is unavailable
+		// The service will return proper error messages when Docker is not accessible
+		dockerService := services.NewDockerService()
+		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
+		dockerHandler.RegisterRoutes(protected)
 
 		// Uptime Service
 		uptimeService := services.NewUptimeService(db, notificationService)
