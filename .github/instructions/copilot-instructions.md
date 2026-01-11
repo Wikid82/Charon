@@ -4,6 +4,7 @@
 
 Every session should improve the codebase, not just add to it. Actively refactor code you encounter, even outside of your immediate task scope. Think about long-term maintainability and consistency. Make a detailed plan before writing code. Always create unit tests for new code coverage.
 
+- **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **DRY**: Consolidate duplicate patterns into reusable functions, types, or components after the second occurrence.
 - **CLEAN**: Delete dead code immediately. Remove unused imports, variables, functions, types, commented code, and console logs.
 - **LEVERAGE**: Use battle-tested packages over custom implementations.
