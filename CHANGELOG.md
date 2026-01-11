@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI Workflow Documentation**: Resolved GitHub Advanced Security false positive warnings and clarified supply chain verification behavior (PR #461)
+  - Documented workflow migration from `docker-publish.yml` to `docker-build.yml` (Dec 21, 2025)
+  - Added explanatory comments to all security scanning workflows
+  - Fixed `supply-chain-verify.yml` to trigger on ALL branches (removed GitHub Actions branch filter limitation)
+  - Updated SECURITY.md with comprehensive scanning coverage documentation
+  - All security scanning verified as active with zero gaps
+  - See [CI Workflow Fixes Implementation Summary](docs/implementation/CI_WORKFLOW_FIXES_2026-01-11.md)
+
 ### Added
 
 - **Supply Chain Security**: Comprehensive supply chain security implementation with cryptographic verification (PR #XXX)

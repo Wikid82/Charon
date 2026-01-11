@@ -296,6 +296,88 @@ We use the following tools:
 - **golangci-lint**: Go code linting (including gosec)
 - **npm audit**: Frontend dependency vulnerability scanning
 
+### Security Scanning Workflows
+
+Charon implements multiple layers of automated security scanning:
+
+#### Docker Build & Scan (Per-Commit)
+
+**Workflow**: `.github/workflows/docker-build.yml`
+
+- Runs on every commit to `main`, `development`, and `feature/beta-release` branches
+- Runs on all pull requests targeting these branches
+- Performs Trivy vulnerability scanning on built images
+- Generates SBOM (Software Bill of Materials) for supply chain transparency
+- Creates SBOM attestations for verifiable build provenance
+- Verifies Caddy security patches (CVE-2025-68156)
+- Uploads SARIF results to GitHub Security tab
+
+**Note**: This workflow replaced the previous `docker-publish.yml` (deleted Dec 21, 2025) with enhanced security features.
+
+#### Supply Chain Verification
+
+**Workflow**: `.github/workflows/supply-chain-verify.yml`
+
+**Trigger Timing**: Runs automatically after `docker-build.yml` completes successfully via `workflow_run` trigger.
+
+**Branch Coverage**: Triggers on **ALL branches** where docker-build completes, including:
+- `main` (default branch)
+- `development`
+- `feature/*` branches (including `feature/beta-release`)
+- Pull request branches
+
+**Why No Branch Filter**: GitHub Actions has a platform limitation where `branches` filters in `workflow_run` triggers only match the default branch. To ensure comprehensive supply chain verification across all branches and PRs, we intentionally omit the branch filter. The workflow file must exist on the branch to execute, preventing untrusted code execution.
+
+**Verification Steps**:
+1. SBOM completeness verification
+2. Vulnerability scanning with Grype
+3. Results uploaded as workflow artifacts
+4. PR comments with vulnerability summary (when applicable)
+5. For releases: Cosign signature verification and SLSA provenance validation
+
+**Additional Triggers**:
+- Runs on all published releases
+- Scheduled weekly on Mondays at 00:00 UTC
+- Can be triggered manually via `workflow_dispatch`
+
+#### Weekly Security Rebuild
+
+**Workflow**: `.github/workflows/security-weekly-rebuild.yml`
+
+- Runs every Sunday at 02:00 UTC
+- Performs full rebuild with no cache to ensure latest base images
+- Scans with Trivy for CRITICAL, HIGH, MEDIUM, and LOW vulnerabilities
+- Uploads results to GitHub Security tab
+- Stores JSON artifacts for 90-day retention
+- Checks Alpine package versions for security updates
+
+#### PR-Specific Scanning
+
+**Workflow**: `.github/workflows/docker-build.yml` (trivy-pr-app-only job)
+
+- Runs on all pull requests
+- Extracts and scans only the Charon application binary
+- Fails PR if CRITICAL or HIGH vulnerabilities found in application code
+- Faster feedback loop for developers during code review
+
+### Workflow Orchestration
+
+The security scanning workflows use a coordinated orchestration pattern:
+
+1. **Build Phase**: `docker-build.yml` builds the image and performs initial Trivy scan
+2. **Verification Phase**: `supply-chain-verify.yml` triggers automatically via `workflow_run` after successful build
+3. **Verification Timing**:
+   - On feature branches: Runs after docker-build completes on push events
+   - On pull requests: Runs after docker-build completes on PR synchronize events
+   - No delay or gaps: verification starts immediately after build success
+4. **Weekly Maintenance**: `security-weekly-rebuild.yml` provides ongoing monitoring
+
+This pattern ensures:
+- Images are built before verification attempts to scan them
+- No race conditions between build and verification
+- Comprehensive coverage across all branches and PRs
+- Efficient resource usage (verification only runs after successful builds)
+
 ### Manual Reviews
 
 - Security code reviews for all major features
@@ -307,6 +389,7 @@ We use the following tools:
 - GitHub Dependabot alerts
 - Weekly security scans in CI/CD
 - Community vulnerability reports
+- Automated supply chain verification on every build
 
 ---
 

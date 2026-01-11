@@ -1,5 +1,9 @@
 name: Weekly Security Rebuild
 
+# Note: This workflow filename has remained consistent. The related docker-publish.yml
+# was replaced by docker-build.yml in commit f640524b (Dec 21, 2025).
+# GitHub Advanced Security may show warnings about the old filename until its tracking updates.
+
 on:
   schedule:
     - cron: '0 2 * * 0' # Sundays at 02:00 UTC
