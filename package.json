@@ -8,6 +8,8 @@
     "tldts": "^7.0.19"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^25.0.6",
     "markdownlint-cli2": "^0.20.0"
   }
 }

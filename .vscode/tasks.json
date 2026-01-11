@@ -98,6 +98,24 @@
             "problemMatcher": ["$go"]
         },
         {
+            "label": "Lint: Staticcheck (Fast)",
+            "type": "shell",
+            "command": "cd backend && golangci-lint run --config .golangci-fast.yml ./...",
+            "group": "test",
+            "problemMatcher": ["$go"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Lint: Staticcheck Only",
+            "type": "shell",
+            "command": "cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
             "label": "Lint: GolangCI-Lint (Docker)",
             "type": "shell",
             "command": "cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v",

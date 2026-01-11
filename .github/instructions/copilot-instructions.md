@@ -18,7 +18,7 @@ Every session should improve the codebase, not just add to it. Actively refactor
 
  ## 🛑 Root Cause Analysis Protocol (MANDATORY)
 **Constraint:** You must NEVER patch a symptom without tracing the root cause.
-If a bug is reported, do NOT stop at the first error message found.
+If a bug is reported, do NOT stop at the first error message found. Use Playwright MCP to trace the entire flow from frontend action to backend processing. Identify the true origin of the issue.
 
 **The "Context First" Rule:**
 Before proposing ANY code change or fix, you must build a mental map of the feature:
@@ -43,11 +43,44 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 - **Run**: `cd backend && go run ./cmd/api`.
 - **Test**: `go test ./...`.
+- **Static Analysis (BLOCKING)**: Fast linters run automatically on every commit via pre-commit hooks.
+  - **Staticcheck errors MUST be fixed** - commits are BLOCKED until resolved
+  - Manual run: `make lint-fast` or VS Code task "Lint: Staticcheck (Fast)"
+  - Staticcheck-only: `make lint-staticcheck-only`
+  - Runtime: ~11s (measured: 10.9s) (acceptable for commit gate)
+  - Full golangci-lint (all linters): Use `make lint-backend` before PR (manual stage)
 - **API Response**: Handlers return structured errors using `gin.H{"error": "message"}`.
 - **JSON Tags**: All struct fields exposed to the frontend MUST have explicit `json:"snake_case"` tags.
 - **IDs**: UUIDs (`github.com/google/uuid`) are generated server-side; clients never send numeric IDs.
 - **Security**: Sanitize all file paths using `filepath.Clean`. Use `fmt.Errorf("context: %w", err)` for error wrapping.
 - **Graceful Shutdown**: Long-running work must respect `server.Run(ctx)`.
+
+### Troubleshooting Pre-Commit Staticcheck Failures
+
+**Common Issues:**
+
+1. **"golangci-lint not found"**
+   - Install: See README.md Development Setup section
+   - Verify: `golangci-lint --version`
+   - Ensure `$GOPATH/bin` is in PATH
+
+2. **Staticcheck reports deprecated API usage (SA1019)**
+   - Fix: Replace deprecated function with recommended alternative
+   - Check Go docs for migration path
+   - Example: `filepath.HasPrefix` → use `strings.HasPrefix` with cleaned paths
+
+3. **"This value is never used" (SA4006)**
+   - Fix: Remove unused assignment or use the value
+   - Common in test setup code
+
+4. **"Should replace if statement with..." (S10xx)**
+   - Fix: Apply suggested simplification
+   - These improve readability and performance
+
+5. **Emergency bypass (use sparingly):**
+   - `git commit --no-verify -m "Emergency hotfix"`
+   - **MUST** create follow-up issue to fix staticcheck errors
+   - Only for production incidents
 
 ## Frontend Workflow
 
@@ -107,7 +140,15 @@ Before marking an implementation task as complete, perform the following in orde
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.
 
-3. **Coverage Testing** (MANDATORY - Non-negotiable):
+3. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
+    - **CRITICAL:** Staticcheck errors are BLOCKING - you MUST fix them before commit succeeds.
+    - Manual verification: Run VS Code task "Lint: Staticcheck (Fast)" or `make lint-fast`
+    - To check only staticcheck: `make lint-staticcheck-only`
+    - Test files (`_test.go`) are excluded from staticcheck (matches CI behavior)
+    - If pre-commit fails: Fix the reported issues, then retry commit
+    - **Do NOT** use `--no-verify` to bypass this check unless emergency hotfix
+
+4. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **MANDATORY**: Patch coverage must cover 100% of modified lines (Codecov Patch view must be green). If patch coverage fails, add targeted tests for the missing patch line ranges.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
@@ -128,6 +169,12 @@ Before marking an implementation task as complete, perform the following in orde
 5. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
     - Backend: `cd backend && go build ./...`
     - Frontend: `cd frontend && npm run build`
+
+6. **Fixed and New Code Testing**:
+    - Ensure all existing and new unit tests pass with zero failures using Playwright MCP.
+    - When fasilures and Errors are found, deep-dive into root causes. Using the correct `subAgent`, update the working plan, review the implementation, and fix the issues.
+    - No issue is out of scope for investigation and resolution. All issues must be addressed before task completion.
+
 
 6. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
     - Remove `console.log`, `fmt.Println`, and similar debugging statements.

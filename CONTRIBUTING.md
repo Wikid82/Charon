@@ -31,6 +31,34 @@ This project follows a Code of Conduct that all contributors are expected to adh
 - Git for version control
 - A GitHub account
 
+### Development Tools
+
+Install golangci-lint for pre-commit hooks (required for Go development):
+
+```bash
+# Option 1: Homebrew (macOS/Linux)
+brew install golangci-lint
+
+# Option 2: Go install (any platform)
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# Option 3: Binary installation (see https://golangci-lint.run/usage/install/)
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+```
+
+Ensure `$GOPATH/bin` is in your `PATH`:
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Verify installation:
+```bash
+golangci-lint --version
+# Should output: golangci-lint has version 1.xx.x ...
+```
+
+**Note:** Pre-commit hooks will **BLOCK commits** if golangci-lint finds issues. This is intentional - fix the issues before committing.
+
 ### Fork and Clone
 
 1. Fork the repository on GitHub
