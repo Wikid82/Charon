@@ -1,5 +1,12 @@
 name: Docker Build, Publish & Test
 
+# This workflow replaced .github/workflows/docker-publish.yml (deleted in commit f640524b on Dec 21, 2025)
+# Enhancements over the previous workflow:
+# - SBOM generation and attestation for supply chain security
+# - CVE-2025-68156 verification for Caddy security patches
+# - Enhanced PR handling with dedicated scanning
+# - Improved workflow orchestration with supply-chain-verify.yml
+
 on:
   push:
     branches:
