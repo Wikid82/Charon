@@ -3,16 +3,21 @@ name: Supply Chain Verification
 on:
   release:
     types: [published]
-  pull_request:
-    paths:
-      - '.github/workflows/docker-build.yml'
-      - '.github/workflows/release-goreleaser.yml'
-      - 'Dockerfile'
-      - 'backend/**'
-      - 'frontend/**'
+
+  # Triggered after docker-build workflow completes
+  # Note: workflow_run can only chain 3 levels deep; we're at level 2 (safe)
+  workflow_run:
+    workflows: ["Docker Build, Publish & Test"]
+    types: [completed]
+    branches:
+      - main
+      - development
+      - feature/beta-release
+
   schedule:
     # Run weekly on Mondays at 00:00 UTC
     - cron: '0 0 * * 1'
+
   workflow_dispatch:
 
 permissions:
@@ -27,10 +32,25 @@ jobs:
   verify-sbom:
     name: Verify SBOM
     runs-on: ubuntu-latest
-    if: github.event_name != 'schedule' || github.ref == 'refs/heads/main'
+    # Only run on scheduled scans for main branch, or if workflow_run completed successfully
+    if: |
+      (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      # Debug: Log workflow_run context for initial validation (can be removed after confidence)
+      - name: Debug Workflow Run Context
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "Workflow Run Event Details:"
+          echo "  Workflow: ${{ github.event.workflow_run.name }}"
+          echo "  Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "  Head Branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "  Head SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "  Event: ${{ github.event.workflow_run.event }}"
+          echo "  PR Count: ${{ toJson(github.event.workflow_run.pull_requests) }}"
 
       - name: Install Verification Tools
         run: |
@@ -45,12 +65,31 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "release" ]]; then
             TAG="${{ github.event.release.tag_name }}"
-          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            # Extract tag from the workflow that triggered us
+            if [[ "${{ github.event.workflow_run.head_branch }}" == "main" ]]; then
+              TAG="latest"
+            elif [[ "${{ github.event.workflow_run.head_branch }}" == "development" ]]; then
+              TAG="dev"
+            elif [[ "${{ github.event.workflow_run.head_branch }}" == "feature/beta-release" ]]; then
+              TAG="beta"
+            elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then
+              # Extract PR number from workflow_run context with null handling
+              PR_NUMBER=$(jq -r '.pull_requests[0].number // empty' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')
+              if [[ -n "${PR_NUMBER}" ]]; then
+                TAG="pr-${PR_NUMBER}"
+              else
+                # Fallback to SHA-based tag if PR number not available
+                TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+              fi
+            else
+              TAG="sha-$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)"
+            fi
           else
             TAG="latest"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Determined image tag: ${TAG}"
 
       - name: Check Image Availability
         id: image-check
@@ -259,10 +298,28 @@ jobs:
           echo "✅ Workflow completed successfully (scan skipped)" >> $GITHUB_STEP_SUMMARY
 
       - name: Comment on PR
-        if: github.event_name == 'pull_request'
+        if: |
+          github.event_name == 'pull_request' ||
+          (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
         with:
           script: |
+            // Determine PR number from context
+            let prNumber;
+            if (context.eventName === 'pull_request') {
+              prNumber = context.issue.number;
+            } else if (context.eventName === 'workflow_run') {
+              const pullRequests = context.payload.workflow_run.pull_requests;
+              if (pullRequests && pullRequests.length > 0) {
+                prNumber = pullRequests[0].number;
+              }
+            }
+
+            if (!prNumber) {
+              console.log('No PR number found, skipping comment');
+              return;
+            }
+
             const imageExists = '${{ steps.image-check.outputs.exists }}' === 'true';
             const sbomValid = '${{ steps.validate-sbom.outputs.valid }}';
             const critical = process.env.CRITICAL_VULNS || '0';
@@ -299,7 +356,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               body: body
             });
 
