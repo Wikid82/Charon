@@ -2,6 +2,12 @@ module github.com/Wikid82/charon/backend
 
 go 1.25.5
 
+// Security: Force vulnerable transitive dependency to use patched version
+// Addresses GHSA-j5w8-q4qc-rx2x and GHSA-f6x5-jh6r-wrfv in golang.org/x/crypto
+// Transitive dependency chain: go-playground/validator@v10.28.0 -> golang.org/x/crypto@v0.42.0
+// This can be removed when validator upgrades to crypto v0.45.0+
+replace golang.org/x/crypto v0.42.0 => golang.org/x/crypto v0.45.0
+
 require (
 	github.com/containrrr/shoutrrr v0.8.0
 	github.com/docker/docker v28.5.2+incompatible
