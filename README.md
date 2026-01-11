@@ -19,6 +19,7 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Audited-brightgreen.svg" alt="Security: Audited"></a>
 </p>
 
 ---

@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 2m
   tests: false  # Exclude test files (_test.go) to match main config

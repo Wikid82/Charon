@@ -481,9 +481,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
 			if f, err := os.Create(accessLogPath); err == nil {
-				f.Close()
-				logger.Log().WithField("path", accessLogPath).Info("Created empty log file for LogWatcher")
-			} else {
+				if err := f.Close(); err != nil {
+					logger.Log().WithError(err).Warn("Failed to close log file")
+				}
 				logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log file for LogWatcher")
 			}
 		}

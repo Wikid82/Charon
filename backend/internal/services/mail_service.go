@@ -368,10 +368,6 @@ func (s *MailService) buildEmail(fromAddr, toAddr, replyToAddr *mail.Address, su
 	return msg.Bytes(), nil
 }
 
-func rejectEmailHeaderValueCRLF(_ emailHeaderName, value string) error {
-	return rejectCRLF(value)
-}
-
 func parseEmailAddressForHeader(field emailHeaderName, raw string) (*mail.Address, error) {
 	if raw == "" {
 		return nil, errors.New("email address is empty")

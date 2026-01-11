@@ -220,7 +220,18 @@ RUN xx-apk add --no-cache gcc musl-dev
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
 
-# Build CrowdSec binaries for target architecture
+# Patch expr-lang/expr dependency to fix CVE-2025-68156
+# This follows the same pattern as Caddy's expr-lang patch (Dockerfile line 181)
+# renovate: datasource=go depName=github.com/expr-lang/expr
+RUN go get github.com/expr-lang/expr@v1.17.7 && \
+    go mod tidy
+
+# Fix compatibility issues with expr-lang v1.17.7
+# In v1.17.7, program.Source() returns file.Source struct instead of string
+# The upstream fix is in main branch but not yet released
+RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
+
+# Build CrowdSec binaries for target architecture with patched dependencies
 # hadolint ignore=DL3059
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \

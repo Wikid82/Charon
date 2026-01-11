@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -551,13 +552,6 @@ func safeJoin(baseDir, userPath string) (string, error) {
 	return target, nil
 }
 
-// isSafePathUnderBase reports whether userPath, when cleaned and joined
-// to baseDir, stays within baseDir. Used by tests.
-func isSafePathUnderBase(baseDir, userPath string) bool {
-	_, err := safeJoin(baseDir, userPath)
-	return err == nil
-}
-
 // Commit finalizes the import with user's conflict resolutions.
 func (h *ImportHandler) Commit(c *gin.Context) {
 	var req struct {
@@ -742,7 +736,9 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 	uploadsPath, err := safeJoin(h.importDir, filepath.Join("uploads", fmt.Sprintf("%s.caddyfile", sid)))
 	if err == nil {
 		if _, err := os.Stat(uploadsPath); err == nil {
-			os.Remove(uploadsPath)
+			if err := os.Remove(uploadsPath); err != nil {
+				logger.Log().WithError(err).Warn("Failed to remove upload file")
+			}
 			c.JSON(http.StatusOK, gin.H{"message": "transient upload cancelled"})
 			return
 		}

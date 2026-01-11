@@ -4,13 +4,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/util"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -425,12 +426,16 @@ func (s *CertificateService) DeleteCertificate(id uint) error {
 					// Try to delete key as well
 					keyPath := strings.TrimSuffix(path, ".crt") + ".key"
 					if _, err := os.Stat(keyPath); err == nil {
-						os.Remove(keyPath)
+						if err := os.Remove(keyPath); err != nil {
+							logger.Log().WithError(err).Warn("Failed to remove key file")
+						}
 					}
 					// Also try to delete the json meta file
 					jsonPath := strings.TrimSuffix(path, ".crt") + ".json"
 					if _, err := os.Stat(jsonPath); err == nil {
-						os.Remove(jsonPath)
+						if err := os.Remove(jsonPath); err != nil {
+							logger.Log().WithError(err).Warn("Failed to remove JSON file")
+						}
 					}
 				}
 			}
