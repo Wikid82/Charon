@@ -165,4 +165,4 @@ jobs:
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CPMP_TOKEN: ${{ secrets.CPMP_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}
