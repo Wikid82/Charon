@@ -1,406 +1,392 @@
 # Current Specification
 
-**Status**: ✅ COMPLETE - Docs-to-Issues Workflow Fix Validated
-**Last Updated**: 2026-01-11 04:15:00 UTC
-**Previous Work**: Resolved docs-to-issues workflow CI skip issue (PR #461)
+**Status**: 🔧 IN PROGRESS - Staticcheck Pre-Commit Integration
+**Last Updated**: 2026-01-11 (Auto-generated)
+**Previous Work**: Docs-to-Issues Workflow Fix Validated (PR #461 - Archived)
 
 ---
 
-## ✅ COMPLETED: Docs-to-Issues Workflow Fix & Validation
+## Active Project: Staticcheck Pre-Commit Integration
 
-**Completion Date:** 2026-01-11 04:15:00 UTC
-**QA Report:** [docs/reports/qa_docs_to_issues_workflow_fix.md](../reports/qa_docs_to_issues_workflow_fix.md)
-**Status:** ✅ **ALL TESTS PASSED** - Ready for merge
-
-### Summary
-
-Successfully resolved the docs-to-issues workflow CI skip issue and performed comprehensive validation:
-
-**Fix Applied:**
-- Removed `[skip ci]` from workflow commit message
-- Added documentation explaining loop protection mechanisms
-- Validated that path filters and bot guards provide sufficient protection
-
-**Validation Results:**
-- ✅ YAML syntax valid
-- ✅ All pre-commit hooks passed (12/12)
-- ✅ Security analysis: ZERO findings
-- ✅ Regression testing: All workflow behaviors verified
-- ✅ Loop protection: Path filters + bot guard confirmed working
-- ✅ Documentation: Inline comments added
-
-**Safety Mechanisms:**
-1. **Path Filter:** Workflow excludes `docs/issues/created/**` from triggers
-2. **Bot Guard:** `if: github.actor != 'github-actions[bot]'` prevents bot loops
-3. **File Movement:** Processed files moved OUT of trigger path
-
-**Benefits:**
-- ✅ CI checks now run on PRs created by workflow
-- ✅ Maintains robust loop protection
-- ✅ Aligns with CI/CD best practices
-- ✅ Zero security risks introduced
-
-**See QA Report for Full Details:** [qa_docs_to_issues_workflow_fix.md](../reports/qa_docs_to_issues_workflow_fix.md)
-
----
-
-## Original Investigation: Docs-to-Issues CI Skip Problem
-
-**Priority:** 🔴 HIGH - Blocking PR validation (NOW RESOLVED)
-**Reported:** PR #461
-**Reference:** https://github.com/Wikid82/Charon/pull/461/changes/8bd0f9433a8455a1e2adb62ea80095488b8746ad
+**Priority:** 🟡 MEDIUM - Code Quality Improvement
+**Reported:** User experiencing staticcheck errors in VS Code Problems tab
+**Objective:** Integrate staticcheck into pre-commit hooks to catch issues before commit
 
 ### Problem Statement
 
-The `docs-to-issues.yml` workflow is preventing CI checks from appearing on PRs when it runs, breaking the PR review and merge process.
+Staticcheck errors are appearing in VS Code's Problems tab but are not being caught by pre-commit hooks. This allows code with static analysis issues to be committed, reducing code quality and causing CI failures or technical debt accumulation.
 
-**Observed Behavior:**
-1. When docs-to-issues workflow triggers on a PR, it creates an automated commit
-2. The commit message contains `[skip ci]` flag
-3. GitHub interprets this as "skip ALL CI workflows for this commit"
-4. No required status checks run on the PR
-5. PR cannot be properly validated or merged
+**Current Gaps:**
+- ✅ Staticcheck IS enabled in golangci-lint (`.golangci.yml` line 14)
+- ✅ Staticcheck IS running in CI via golangci-lint-action (`quality-checks.yml` line 65-70)
+- ❌ Staticcheck is NOT running in local pre-commit hooks
+- ❌ golangci-lint pre-commit hook is in `manual` stage only (`.pre-commit-config.yaml` line 72)
+- ❌ No standalone staticcheck pre-commit hook exists
 
-**Impact:**
-- **Blocks PR merges** - Required status checks never run
-- **Breaks validation pipeline** - Tests, linting, security scans don't execute
-- **Defeats CI/CD purpose** - Changes go unverified
+**Why This Matters:**
+- Developers see staticcheck warnings/errors in VS Code editor
+- These issues are NOT blocked at commit time
+- Creates inconsistent developer experience
+- Delays feedback loop (errors found in CI instead of locally)
+- Increases cognitive load (developers must remember to check manually)
+
+---
+
+### Current State Assessment
+
+#### Pre-Commit Hooks Analysis
+
+**File:** `.pre-commit-config.yaml`
+
+**Existing Go Linting Hooks:**
+
+1. **go-vet** (Lines 39-44) - ✅ **ACTIVE** (runs on every commit)
+   - Runs on every commit for `.go` files
+   - Fast (< 5 seconds)
+   - Catches basic Go issues
+
+2. **golangci-lint** (Lines 72-78) - ❌ **MANUAL ONLY**
+   - **Includes staticcheck** (per `.golangci.yml`)
+   - Only runs with: `pre-commit run golangci-lint --all-files`
+   - Slow (30-60 seconds) - reason for manual stage
+   - Runs in Docker container
+
+#### GolangCI-Lint Configuration
+
+**File:** `backend/.golangci.yml`
+
+**Staticcheck Status:**
+- ✅ Line 14: `- staticcheck` (enabled in linters.enable)
+- ✅ Lines 68-70: Test file exclusions (staticcheck excluded from `_test.go`)
+
+**Other Enabled Linters:**
+- bodyclose, gocritic, gosec, govet, ineffassign, unused, errcheck
+
+#### VS Code Tasks
+
+**File:** `.vscode/tasks.json`
+
+**Existing Lint Tasks:**
+- Line 204: "Lint: Go Vet" → `cd backend && go vet ./...`
+- Line 216: "Lint: GolangCI-Lint (Docker)" → Runs golangci-lint in Docker
+
+**Missing:**
+- ❌ No standalone "Lint: Staticcheck" task
+- ❌ No quick lint task for just staticcheck
+
+#### Makefile Targets
+
+**File:** `Makefile`
+
+**Existing Quality Targets:**
+- Line 138: `lint-backend` → Runs golangci-lint in Docker
+- Line 144: `test-race` → Go tests with race detection
+
+**Missing:**
+- ❌ No `staticcheck` target
+- ❌ No quick `lint-quick` target
+
+#### CI/CD Integration
+
+**File:** `.github/workflows/quality-checks.yml`
+
+**Lines 65-70:**
+- Runs golangci-lint (includes staticcheck) in CI
+- ⚠️ `continue-on-error: true` means failures don't block merges
+- Uses golangci-lint-action (official GitHub Action)
+
+#### System Environment
+
+**Staticcheck Installation:**
+```bash
+$ which staticcheck
+# (empty - not installed)
+```
+
+**Conclusion:** Staticcheck is NOT installed as a standalone binary on the development system.
+
+---
 
 ### Root Cause Analysis
 
-**Workflow Location:** `.github/workflows/docs-to-issues.yml`
+**Primary Cause:**
+Staticcheck is integrated into the project via golangci-lint but:
+1. golangci-lint pre-commit hook is in `manual` stage due to performance (30-60s)
+2. No lightweight, fast-only-staticcheck pre-commit hook exists
+3. Developers see staticcheck errors in VS Code but can commit without fixing them
 
-**Problem Line:** Line 346
-```yaml
-git commit -m "chore: move processed issue files to created/ [skip ci]"
-```
+**Contributing Factors:**
+1. **Performance Trade-off:** golangci-lint is comprehensive but slow (runs 8+ linters)
+2. **Manual Stage Rationale:** Documented in `.pre-commit-config.yaml` line 67
+3. **Missing Standalone Tool:** Staticcheck binary not installed, only available via golangci-lint
+4. **Inconsistent Enforcement:** CI runs golangci-lint with `continue-on-error: true`
 
-**Why [skip ci] Exists:**
-The workflow uses `[skip ci]` to prevent an infinite loop:
-1. Workflow runs on `push` to `docs/issues/**/*.md`
-2. Creates GitHub issues from markdown files
-3. Moves processed files to `docs/issues/created/`
-4. Commits the file moves back to the same branch
-5. Without `[skip ci]`, this commit would trigger the workflow again → infinite loop
+---
 
-**GitHub's [skip ci] Behavior:**
-- **Scope:** `[skip ci]` skips ALL workflows triggered by `push` events for that commit
-- **Alternative Syntax:** `[ci skip]`, `[no ci]`, `[skip actions]`, `***NO_CI***`
-- **Documentation:** https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
-
-**Why This Breaks PRs:**
-- GitHub requires status checks to pass on the **latest commit** of a PR
-- When the latest commit has `[skip ci]`, the required workflows don't run
-- GitHub shows "Waiting for status to be reported" indefinitely
-- PR is blocked from merging
-
-### Current Workflow Behavior
-
-**Trigger Conditions:**
-```yaml
-on:
-  push:
-    branches:
-      - main
-      - development
-      - feature/**
-    paths:
-      - 'docs/issues/**/*.md'
-      - '!docs/issues/created/**'
-```
-
-**Process Flow:**
-1. Detects new/modified markdown files in `docs/issues/`
-2. Parses frontmatter (title, labels, assignees)
-3. Creates GitHub issues via API
-4. Moves processed files to `docs/issues/created/YYYYMMDD-filename.md`
-5. Commits file moves with `[skip ci]`
-6. Pushes commit to same branch
-
-**Protection Mechanism:**
-- `if: github.actor != 'github-actions[bot]'` - Prevents bot-triggered loops
-- `[skip ci]` - Prevents push-triggered loops
-
-### Investigation Results
-
-**Other Workflows That Commit:**
-
-1. **auto-versioning.yml** (Line 69):
-   - Creates and pushes tags: `git push origin "${TAG}"`
-   - **No [skip ci]** - but only pushes tags, not commits
-   - Tags don't trigger `on: push` workflows
-
-2. **propagate-changes.yml**:
-   - Creates PRs instead of committing directly
-   - **No [skip ci]** - uses PR mechanism instead
-   - Avoids the problem entirely
-
-3. **auto-changelog.yml**:
-   - Uses `release-drafter` action (no direct commits)
-   - **No [skip ci]** - doesn't create commits
-
-**Pattern Analysis:**
-- ✅ **Best Practice:** Create separate PRs for automated changes (propagate-changes)
-- ✅ **Alternative:** Use tags instead of commits (auto-versioning)
-- ❌ **Anti-pattern:** Direct commits with [skip ci] (docs-to-issues)
-
-### Solution Options
-
-#### Option 1: Remove [skip ci] + Add Path Filter (RECOMMENDED)
-
-**Changes:**
-1. Remove `[skip ci]` from commit message
-2. Add path exclusion to workflow trigger:
-   ```yaml
-   on:
-     push:
-       paths:
-         - 'docs/issues/**/*.md'
-         - '!docs/issues/created/**'  # Already present
-   ```
-3. Rely on existing `github.actor != 'github-actions[bot]'` guard
-
-**Pros:**
-- ✅ CI checks run normally on PRs
-- ✅ Still prevents infinite loops (path filter + actor guard)
-- ✅ Minimal code changes
-- ✅ No workflow complexity increase
-
-**Cons:**
-- ⚠️ Adds one extra workflow run per docs-to-issues execution (the file move commit)
-- ⚠️ Slight increase in Actions minutes usage (~30 seconds per run)
-
-**Risk Assessment:** LOW
-- Path filter already excludes `docs/issues/created/**`
-- Actor guard prevents bot loops
-- Double protection against infinite loops
-
-#### Option 2: Create Separate PR for File Moves
-
-**Changes:**
-1. Instead of committing directly, create a PR with file moves
-2. Use `actions/github-script` to create PR via API
-3. Auto-merge PR or leave for manual review
-
-**Pros:**
-- ✅ No [skip ci] needed
-- ✅ CI runs on all commits
-- ✅ Audit trail via PRs
-- ✅ Follows propagate-changes pattern
-
-**Cons:**
-- ❌ High complexity - requires significant refactoring
-- ❌ Creates many auto-PRs (noise)
-- ❌ Slower - PR review process adds delay
-- ❌ Requires CPMP_TOKEN or similar for auto-merge
-
-**Risk Assessment:** MEDIUM
-- More moving parts
-- Could create PR spam
-- Requires additional token management
-
-#### Option 3: Don't Commit File Moves
-
-**Changes:**
-1. Remove the "Move processed files" and "Commit moved files" steps
-2. Let files remain in `docs/issues/` after processing
-3. Add `.gitignore` for processed files or manual cleanup
-
-**Pros:**
-- ✅ No [skip ci] needed
-- ✅ Simplest solution
-- ✅ CI runs normally
-
-**Cons:**
-- ❌ Processed files accumulate in `docs/issues/`
-- ❌ No clear separation of pending vs. completed
-- ❌ Requires manual cleanup or gitignore maintenance
-- ❌ Loses historical record of when issues were created
-
-**Risk Assessment:** MEDIUM
-- Defeats organizational purpose of the workflow
-- Clutters the docs/issues directory
-
-#### Option 4: Use [skip ci] Only on Main/Development
-
-**Changes:**
-1. Add conditional to only skip CI on protected branches:
-   ```yaml
-   - name: Commit moved files
-     run: |
-       if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/development" ]]; then
-         git commit -m "chore: move processed issue files [skip ci]"
-       else
-         git commit -m "chore: move processed issue files"
-       fi
-   ```
-
-**Pros:**
-- ✅ CI runs on PRs (feature branches)
-- ✅ Skips CI on main/dev (reduces noise)
-- ✅ Balanced approach
-
-**Cons:**
-- ⚠️ Still causes double runs on feature branches
-- ⚠️ Adds branch-specific logic complexity
-
-**Risk Assessment:** LOW
-- Good compromise solution
-- Preserves optimization on main branches
-- Enables validation on PRs
-
-### Recommended Solution: Option 1 (Remove [skip ci])
+### Recommended Solution: Standalone Staticcheck Pre-Commit Hook
 
 **Justification:**
-1. **Solves the problem completely** - CI checks will run on PRs
-2. **Low risk** - Multiple safeguards prevent infinite loops
-3. **Minimal changes** - One-line modification
-4. **Performance impact is negligible** - ~30 seconds extra per run
-5. **Aligns with CI/CD principles** - All changes should be validated
+1. **Performance:** Fast enough for pre-commit (5-10s vs 30-60s for full golangci-lint)
+2. **Developer Experience:** Aligns with VS Code feedback loop
+3. **Low Risk:** Minimal changes, existing workflows unchanged
+4. **Standard Practice:** Many Go projects use standalone staticcheck pre-commit
 
-**Implementation Steps:**
+---
 
-1. **Modify `.github/workflows/docs-to-issues.yml` line 346:**
-   ```yaml
-   # BEFORE:
-   git commit -m "chore: move processed issue files to created/ [skip ci]"
+### Implementation Plan
 
-   # AFTER:
-   git commit -m "chore: move processed issue files to created/"
-   ```
+#### Phase 1: Staticcheck Installation & Pre-Commit Hook
 
-2. **Verify safeguards are in place:**
-   - ✅ Line 45: `if: github.actor != 'github-actions[bot]'`
-   - ✅ Lines 11-12: Path exclusions for `docs/issues/created/**`
+**Task 1.1: Add staticcheck installation to documentation**
 
-3. **Test on feature branch:**
-   - Create test markdown file in `docs/issues/test-issue.md`
-   - Push to feature branch
-   - Verify workflow runs and creates issue
-   - Verify file moves to `created/`
-   - Verify commit triggers ONE more workflow run
-   - Verify second run skips (no files in `docs/issues/`)
-   - Verify CI checks appear on PR
+**File:** `README.md`
+**Location:** Development Setup section
 
-4. **Monitor for infinite loops:**
-   - Check workflow run history
-   - Confirm only 2 runs per docs change (original + file move)
-   - No cascading triggers
+**Addition:**
+```markdown
+### Go Development Tools
+
+Install required Go development tools:
+
+\`\`\`bash
+# Required for pre-commit hooks
+go install honnef.co/go/tools/cmd/staticcheck@latest
+\`\`\`
+
+Ensure `$GOPATH/bin` is in your `PATH`:
+\`\`\`bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+\`\`\`
+```
+
+**Task 1.2: Add staticcheck pre-commit hook**
+
+**File:** `.pre-commit-config.yaml`
+**Location:** After `go-vet` hook (after line 44)
+
+```yaml
+      - id: staticcheck
+        name: Staticcheck (Go Static Analysis)
+        entry: bash -c 'cd backend && staticcheck ./...'
+        language: system
+        files: '\.go$'
+        pass_filenames: false
+```
+
+---
+
+#### Phase 2: Developer Tooling
+
+**Task 2.1: Add VS Code task**
+
+**File:** `.vscode/tasks.json`
+**Location:** After "Lint: Go Vet" task (after line 211)
+
+```json
+        {
+            "label": "Lint: Staticcheck",
+            "type": "shell",
+            "command": "cd backend && staticcheck ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+```
+
+**Task 2.2: Add Makefile targets**
+
+**File:** `Makefile`
+**Location:** After `lint-backend` target (after line 141)
+
+```makefile
+
+staticcheck:
+	@echo "Running staticcheck..."
+	cd backend && staticcheck ./...
+
+lint-quick: staticcheck
+	@echo "Quick lint complete"
+	cd backend && go vet ./...
+```
+
+---
+
+#### Phase 3: Definition of Done Updates
+
+**Task 3.1: Update checklist**
+
+**File:** `.github/instructions/copilot-instructions.md`
+**Location:** After line 91 (Pre-Commit Triage section)
+
+```markdown
+3. **Staticcheck Validation**: Run VS Code task "Lint: Staticcheck" or execute `cd backend && staticcheck ./...`.
+    - Fix all staticcheck errors immediately.
+    - Staticcheck warnings should be evaluated and triaged.
+    - This check runs automatically in pre-commit.
+    - Why: Staticcheck catches subtle bugs and style issues that go vet misses.
+```
+
+**Task 3.2: Document in Backend Workflow**
+
+**File:** `.github/instructions/copilot-instructions.md`
+**Location:** After line 36 (Backend Workflow section)
+
+```markdown
+- **Static Analysis**: Staticcheck runs automatically in pre-commit hooks.
+  - Run manually: `staticcheck ./...` or VS Code task "Lint: Staticcheck"
+  - Staticcheck errors MUST be fixed; warnings should be triaged.
+```
+
+---
+
+#### Phase 4: Testing & Validation
+
+**Task 4.1: Validate staticcheck installation**
+
+```bash
+go install honnef.co/go/tools/cmd/staticcheck@latest
+which staticcheck
+staticcheck --version
+```
+
+**Task 4.2: Test pre-commit hook**
+
+```bash
+pre-commit run staticcheck --all-files
+```
+
+**Task 4.3: Test VS Code task**
+
+1. Open Command Palette
+2. Run Task → "Lint: Staticcheck"
+3. Verify errors in Problems tab
+
+**Task 4.4: Test Makefile targets**
+
+```bash
+make staticcheck
+make lint-quick
+```
+
+---
+
+#### Phase 5: Documentation & Communication
+
+**Task 5.1: Update CHANGELOG.md**
+
+```markdown
+### Added
+- Pre-commit hook for staticcheck (Go static analysis)
+- VS Code task "Lint: Staticcheck"
+- Makefile targets: `staticcheck` and `lint-quick`
+
+### Changed
+- Dev setup now requires staticcheck installation
+```
+
+**Task 5.2: Create implementation summary**
+
+**File:** `docs/implementation/STATICCHECK_PRE_COMMIT_INTEGRATION.md`
+
+**Task 5.3: Archive this plan**
+
+Move to `docs/plans/archive/staticcheck_integration_2026-01-11.md`
+
+---
 
 ### Success Criteria
 
-- ✅ CI checks run and appear on PRs when docs-to-issues workflow executes
-- ✅ No infinite workflow loops occur
-- ✅ File moves still happen correctly
-- ✅ Issues are still created properly
-- ✅ PR #461 can be validated and merged
-- ✅ No increase in workflow failures
+1. ✅ **Pre-Commit Hook:**
+   - Staticcheck hook added to `.pre-commit-config.yaml`
+   - Runs automatically on `.go` file commits
+   - Fails on staticcheck errors
+   - Runtime < 15 seconds
+
+2. ✅ **Developer Tooling:**
+   - VS Code task "Lint: Staticcheck" created
+   - Makefile targets added
+
+3. ✅ **Documentation:**
+   - Installation instructions added
+   - Definition of Done updated
+   - CHANGELOG.md updated
+   - Implementation summary created
+
+4. ✅ **Validation:**
+   - All tools tested and verified
+   - Performance benchmarked
+
+5. ✅ **Quality Checks:**
+   - Pre-commit passes
+   - CodeQL scans pass
+   - Tests pass with coverage
+   - Build succeeds
+
+---
+
+### File Reference Summary
+
+**Files to Modify:**
+1. `.pre-commit-config.yaml` (line 44: add staticcheck hook)
+2. `.vscode/tasks.json` (line 211: add Staticcheck task)
+3. `Makefile` (line 141: add staticcheck targets)
+4. `.github/instructions/copilot-instructions.md` (lines 36, 91: add to DoD)
+5. `README.md` (add installation instructions)
+6. `CHANGELOG.md` (add unreleased changes)
+
+**Files to Create:**
+1. `docs/implementation/STATICCHECK_PRE_COMMIT_INTEGRATION.md`
+2. `docs/plans/archive/staticcheck_integration_2026-01-11.md`
+
+---
+
+### Performance Benchmarks
+
+**Target:**
+- Current pre-commit: ~5-10 seconds
+- After staticcheck: ~10-20 seconds
+- Maximum acceptable: 25 seconds
+
+---
 
 ### Rollback Plan
 
-If Option 1 causes problems:
-1. Revert commit (one-line change)
-2. Implement Option 4 (conditional [skip ci]) as fallback
-3. Re-test on feature branch
-
-### Documentation Updates
-
-After implementation:
-- [ ] Update `.github/workflows/docs-to-issues.yml` with inline comments
-- [ ] Document decision in implementation summary
-- [ ] Update CHANGELOG.md
-- [ ] Add note to workflow documentation (if exists)
+If problems occur:
+1. Delete staticcheck hook from `.pre-commit-config.yaml`
+2. Run `pre-commit clean`
+3. Revert documentation changes
+4. Rollback time: < 5 minutes
 
 ---
 
-## Completed Work
+### Risk Assessment
 
-### CI/CD Workflow Fixes (2026-01-11) ✅
+**Overall Risk Level:** 🟢 LOW
 
-**Status:** Complete - All documentation finalized
-
-The CI workflow investigation and documentation has been completed. Both issues were determined to be false positives or expected GitHub behavior with no security gaps.
-
-**Final Documentation:**
-- **Implementation Summary**: [docs/implementation/CI_WORKFLOW_FIXES_2026-01-11.md](../implementation/CI_WORKFLOW_FIXES_2026-01-11.md)
-- **QA Report**: [docs/reports/qa_report.md](../reports/qa_report.md)
-- **Archived Plan**: [docs/plans/archive/GITHUB_SECURITY_WARNING_RESOLUTION_PLAN_2026-01-11.md](archive/GITHUB_SECURITY_WARNING_RESOLUTION_PLAN_2026-01-11.md)
-
-**Changes Made:**
-- ✅ Workflow files documented with explanatory comments
-- ✅ SECURITY.md updated with comprehensive scanning coverage
-- ✅ CHANGELOG.md updated with workflow migration entry
-- ✅ Implementation summary created
-- ✅ All validation tests passed (CodeQL, Trivy, pre-commit)
-- ✅ Planning docs archived
-
-**Merge Status:** ✅ SAFE TO MERGE - Zero security gaps, fully documented
+1. **Performance Impact** (LOW) - Benchmark before/after
+2. **Installation Friction** (LOW) - Clear docs provided
+3. **False Positives** (MEDIUM) - Use lint:ignore comments if needed
+4. **CI Misalignment** (LOW) - Document version pinning
 
 ---
 
-## Active Projects
+## Phase Breakdown Timeline
 
-*Ready for next task*
+| Phase | Time | Dependencies |
+|-------|------|--------------|
+| Phase 1 | 30 min | None |
+| Phase 2 | 30 min | Phase 1 |
+| Phase 3 | 30 min | Phase 1 |
+| Phase 4 | 45 min | Phases 1-3 |
+| Phase 5 | 30 min | Phase 4 |
 
----
-
-## Recently Completed
-
-### Workflow Orchestration Fix (2026-01-11)
-
-Successfully fixed workflow orchestration issue where supply-chain-verify was running before docker-build completed, causing verification to skip on PRs.
-
-**Documentation**:
-
-- **Implementation Summary**: [docs/implementation/WORKFLOW_ORCHESTRATION_FIX.md](../implementation/WORKFLOW_ORCHESTRATION_FIX.md)
-- **QA Report**: [docs/reports/qa_report_workflow_orchestration.md](../reports/qa_report_workflow_orchestration.md)
-- **Archived Plan**: [docs/plans/archive/workflow_orchestration_fix_2026-01-11.md](archive/workflow_orchestration_fix_2026-01-11.md)
-
-**Status**: ✅ Complete - Deployed to production
-
----
-
-### Grype SBOM Remediation (2026-01-10)
-
-Successfully resolved CI/CD failures in the Supply Chain Verification workflow caused by Grype SBOM format mismatch.
-
-**Documentation**:
-- **Implementation Summary**: [docs/implementation/GRYPE_SBOM_REMEDIATION.md](../implementation/GRYPE_SBOM_REMEDIATION.md)
-- **QA Report**: [docs/reports/qa_report.md](../reports/qa_report.md)
-- **Archived Plan**: [docs/plans/archive/grype_sbom_remediation_2026-01-10.md](archive/grype_sbom_remediation_2026-01-10.md)
-
-**Status**: ✅ Complete - Deployed to production
-
----
-
-## Guidelines for Creating New Specs
-
-When starting a new project, create a detailed specification in this file following the [Spec-Driven Workflow v1](.github/instructions/spec-driven-workflow-v1.instructions.md) format.
-
-### Required Sections
-
-1. **Problem Statement** - What issue are we solving?
-2. **Root Cause Analysis** - Why does the problem exist?
-3. **Solution Design** - How will we solve it?
-4. **Implementation Plan** - Step-by-step tasks
-5. **Testing Strategy** - How will we validate success?
-6. **Success Criteria** - What defines "done"?
-
-### Archiving Completed Specs
-
-When a specification is complete:
-
-1. Create implementation summary in `docs/implementation/`
-2. Move spec to `docs/plans/archive/` with timestamp
-3. Update this file with completion notice
+**Total Estimated Time:** 2-3 hours
 
 ---
 
 ## Archive Location
 
-Completed and archived specifications can be found in:
-- [docs/plans/archive/](archive/)
+Previous specifications in: [docs/plans/archive/](archive/)
 
 ---
 
-**Note**: This file should only contain ONE active specification at a time. Archive completed work before starting new projects.
+**Note**: This specification follows [Spec-Driven Workflow v1](.github/instructions/spec-driven-workflow-v1.instructions.md) format.

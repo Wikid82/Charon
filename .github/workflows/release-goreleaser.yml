@@ -56,7 +56,7 @@ jobs:
         with:
           version: 0.13.0
 
-      # GITHUB_TOKEN is set from GITHUB_TOKEN or CPMP_TOKEN (fallback), defaulting to GITHUB_TOKEN
+      # GITHUB_TOKEN is set from GITHUB_TOKEN or CHARON_TOKEN (fallback), defaulting to GITHUB_TOKEN
 
 
       - name: Run GoReleaser
