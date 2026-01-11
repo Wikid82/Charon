@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -54,14 +55,16 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 	}
 
 	// Log rotation start
-	h.securityService.LogAudit(&models.SecurityAudit{
+	if err := h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_rotation_started",
 		EventCategory: "encryption",
 		Details:       "{}",
 		IPAddress:     c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	// Perform rotation
 	result, err := h.rotationService.RotateAllCredentials(c.Request.Context())
@@ -70,14 +73,16 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 		detailsJSON, _ := json.Marshal(map[string]interface{}{
 			"error": err.Error(),
 		})
-		h.securityService.LogAudit(&models.SecurityAudit{
+		if auditErr := h.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromGinContext(c),
 			Action:        "encryption_key_rotation_failed",
 			EventCategory: "encryption",
 			Details:       string(detailsJSON),
 			IPAddress:     c.ClientIP(),
 			UserAgent:     c.Request.UserAgent(),
-		})
+		}); auditErr != nil {
+			logger.Log().WithError(auditErr).Warn("Failed to log audit event")
+		}
 
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -92,14 +97,16 @@ func (h *EncryptionHandler) Rotate(c *gin.Context) {
 		"duration":         result.Duration,
 		"new_key_version":  result.NewKeyVersion,
 	})
-	h.securityService.LogAudit(&models.SecurityAudit{
+	if err := h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_rotation_completed",
 		EventCategory: "encryption",
 		Details:       string(detailsJSON),
 		IPAddress:     c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	c.JSON(http.StatusOK, result)
 }
@@ -160,14 +167,16 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 		detailsJSON, _ := json.Marshal(map[string]interface{}{
 			"error": err.Error(),
 		})
-		h.securityService.LogAudit(&models.SecurityAudit{
+		if auditErr := h.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromGinContext(c),
 			Action:        "encryption_key_validation_failed",
 			EventCategory: "encryption",
 			Details:       string(detailsJSON),
 			IPAddress:     c.ClientIP(),
 			UserAgent:     c.Request.UserAgent(),
-		})
+		}); auditErr != nil {
+			logger.Log().WithError(auditErr).Warn("Failed to log audit event")
+		}
 
 		c.JSON(http.StatusBadRequest, gin.H{
 			"valid": false,
@@ -177,14 +186,16 @@ func (h *EncryptionHandler) Validate(c *gin.Context) {
 	}
 
 	// Log validation success
-	h.securityService.LogAudit(&models.SecurityAudit{
+	if err := h.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromGinContext(c),
 		Action:        "encryption_key_validation_success",
 		EventCategory: "encryption",
 		Details:       "{}",
 		IPAddress:     c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"valid":   true,

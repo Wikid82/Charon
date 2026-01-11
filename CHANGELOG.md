@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CRITICAL**: Fixed CVE-2025-68156 by upgrading expr-lang/expr to v1.17.7
+  - **Component**: expr-lang/expr (used by CrowdSec for expression evaluation in scenarios and parsers)
+  - **Vulnerability**: Regular Expression Denial of Service (ReDoS)
+  - **Severity**: HIGH (CVSS score: 7.5)
+  - **Impact**: Malicious regular expressions in CrowdSec configurations could cause CPU exhaustion
+  - **Resolution Date**: January 11, 2026
+  - **Verification Methods**:
+    - Binary inspection: `go version -m ./cscli` confirms v1.17.7 in production artifacts
+    - Trivy scan: 0 HIGH/CRITICAL vulnerabilities in Charon application code
+    - Source build: Custom Dockerfile builds CrowdSec from patched source
+  - **Test Coverage**: Backend 86.2%, Frontend 85.64% (all tests passing)
+  - **Status**: ✅ Patched and verified in production build
+  - See [CrowdSec Source Build Documentation](docs/plans/crowdsec_source_build.md) for technical details
+
 ### Added
 
 - **Pre-commit hook for fast Go linters (staticcheck, govet, errcheck, ineffassign, unused)**

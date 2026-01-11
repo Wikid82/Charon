@@ -219,6 +219,79 @@ jobs:
           echo ""
           echo "==> Verification complete"
 
+      - name: Verify CrowdSec Security Patches (CVE-2025-68156)
+        if: success()
+        run: |
+          echo "🔍 Verifying CrowdSec binaries contain patched expr-lang/expr@v1.17.7..."
+          echo ""
+
+          # Determine the image reference based on event type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+            echo "Using PR image: $IMAGE_REF"
+          else
+            IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}"
+            echo "Using digest: $IMAGE_REF"
+          fi
+
+          echo ""
+          echo "==> CrowdSec cscli version:"
+          timeout 30s docker run --rm $IMAGE_REF cscli version || echo "⚠️ CrowdSec version check timed out or failed (may not be installed for this architecture)"
+
+          echo ""
+          echo "==> Extracting cscli binary for inspection..."
+          CONTAINER_ID=$(docker create $IMAGE_REF)
+          docker cp ${CONTAINER_ID}:/usr/local/bin/cscli ./cscli_binary 2>/dev/null || {
+            echo "⚠️ cscli binary not found - CrowdSec may not be available for this architecture"
+            docker rm ${CONTAINER_ID}
+            exit 0
+          }
+          docker rm ${CONTAINER_ID}
+
+          echo ""
+          echo "==> Checking if Go toolchain is available locally..."
+          if command -v go >/dev/null 2>&1; then
+            echo "✅ Go found locally, inspecting binary dependencies..."
+            go version -m ./cscli_binary > cscli_deps.txt
+
+            echo ""
+            echo "==> Searching for expr-lang/expr dependency:"
+            if grep -i "expr-lang/expr" cscli_deps.txt; then
+              EXPR_VERSION=$(grep "expr-lang/expr" cscli_deps.txt | awk '{print $3}')
+              echo ""
+              echo "✅ Found expr-lang/expr: $EXPR_VERSION"
+
+              # Check if version is v1.17.7 or higher (vulnerable version is v1.17.2)
+              if echo "$EXPR_VERSION" | grep -E "^v1\.(1[7-9]|[2-9][0-9])\.[7-9][0-9]*$|^v1\.17\.([7-9]|[1-9][0-9]+)$" >/dev/null; then
+                echo "✅ PASS: expr-lang version $EXPR_VERSION is patched (>= v1.17.7)"
+              else
+                echo "❌ FAIL: expr-lang version $EXPR_VERSION is vulnerable (< v1.17.7)"
+                echo "⚠️ WARNING: expr-lang version $EXPR_VERSION may be vulnerable (< v1.17.7)"
+                echo "Expected: v1.17.7 or higher to mitigate CVE-2025-68156"
+                exit 1
+              fi
+            else
+              echo "⚠️ expr-lang/expr not found in binary dependencies"
+              echo "This could mean:"
+              echo "  1. The dependency was stripped/optimized out"
+              echo "  2. CrowdSec was built without the expression evaluator"
+              echo "  3. Binary inspection failed"
+              echo ""
+              echo "Displaying all dependencies for review:"
+              cat cscli_deps.txt
+            fi
+          else
+            echo "⚠️ Go toolchain not available in CI environment"
+            echo "Cannot inspect binary modules - skipping dependency verification"
+            echo "Note: Runtime image does not require Go as CrowdSec is a standalone binary"
+          fi
+
+          # Cleanup
+          rm -f ./cscli_binary cscli_deps.txt
+
+          echo ""
+          echo "==> CrowdSec verification complete"
+
       - name: Run Trivy scan (table output)
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1

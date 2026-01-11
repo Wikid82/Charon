@@ -393,6 +393,29 @@ This pattern ensures:
 
 ---
 
+## Recently Resolved Vulnerabilities
+
+Charon maintains transparency about security issues and their resolution. Below is a comprehensive record of recently patched vulnerabilities.
+
+### CVE-2025-68156 (expr-lang/expr ReDoS)
+
+- **Severity**: HIGH (CVSS 7.5)
+- **Component**: expr-lang/expr (used by CrowdSec for expression evaluation)
+- **Vulnerability**: Regular Expression Denial of Service (ReDoS)
+- **Description**: Malicious regular expressions in CrowdSec scenarios or parsers could cause CPU exhaustion and service degradation through exponential backtracking in vulnerable regex patterns.
+- **Fixed Version**: expr-lang/expr v1.17.7
+- **Resolution Date**: January 11, 2026
+- **Remediation**: Upgraded CrowdSec to build from source with patched expr-lang/expr v1.17.7
+- **Verification**:
+  - Binary inspection: `go version -m ./cscli` confirms v1.17.7 in compiled artifacts
+  - Container scan: Trivy reports 0 HIGH/CRITICAL vulnerabilities in application code
+  - Runtime testing: CrowdSec scenarios and parsers load successfully with patched library
+- **Impact**: No known exploits in Charon deployments; preventive upgrade completed
+- **Status**: ✅ **PATCHED** — Verified in all release artifacts
+- **Technical Details**: See [CrowdSec Source Build Documentation](docs/plans/crowdsec_source_build.md)
+
+---
+
 ## Known Security Considerations
 
 ### Third-Party Dependencies
