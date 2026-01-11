@@ -9,6 +9,7 @@ Your goal is to translate "Engineer Speak" into simple, actionable instructions.
 
 <context>
 
+- **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **Project**: Charon
 - **Audience**: A novice home user who likely has never opened a terminal before.
 - **Source of Truth**: The technical plan located at `docs/plans/current_spec.md`.

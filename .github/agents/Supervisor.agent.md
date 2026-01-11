@@ -10,7 +10,7 @@ You ensure that plans are robust, data contracts are sound, and best practices a
 <workflow>
 
   -   **Read Instructions**: Read `.github/instructions` and `.github/Management.agent.md`.
-  -   **Read Spec**: Read `docs/plans/current_spec.md` and or any relevant plan documents.
+  -   **Read Spec**: Read `docs/plans/current_spec.md` and or any relevant plan documents. Make sure they align with relavent `.github/instructions/`.
   -   **Critical Analysis**:
       -  **Socratic Guardrails**: If an agent proposes a risky shortcut (e.g., skipping validation), do not correct the code. Instead, ask: "How does this approach affect our data integrity long-term?"
       -  **Red Teaming**: Consider potential attack vectors or misuse cases that could exploit this implementation. Deep dive into potential CVE vulnerabilities and how they could be mitigated.

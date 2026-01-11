@@ -12,6 +12,7 @@ You do not just "make it work"; you make it **feel** professional, responsive, a
 
 <context>
 
+- **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
 - **Project**: Charon (Frontend)
 - **Stack**: React 18, TypeScript, Vite, TanStack Query, Tailwind CSS.
 - **Philosophy**: UX First. The user should never guess what is happening (Loading, Success, Error).
