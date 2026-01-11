@@ -35,9 +35,12 @@ jobs:
     name: Verify SBOM
     runs-on: ubuntu-latest
     # Only run on scheduled scans for main branch, or if workflow_run completed successfully
+    # Critical Fix #5: Exclude PR builds to prevent duplicate verification (now handled inline in docker-build.yml)
     if: |
       (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event != 'pull_request'))
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2

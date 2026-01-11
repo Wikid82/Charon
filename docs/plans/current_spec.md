@@ -1,335 +1,635 @@
-# Current Specification
+# Implementation Plan: Inline Supply Chain Verification for PR Builds
 
-**Status**: 🔧 IN PROGRESS - Playwright MCP Server Initialization Fix
-**Last Updated**: 2026-01-11
-**Previous Work**: Staticcheck Pre-Commit Integration (COMPLETE - Archived)
+**Feature**: Add inline supply chain verification job to docker-build.yml for PR builds
+**Branch**: feature/beta-release
+**Date**: 2026-01-11
+**Status**: Ready for Implementation
+**Updated**: 2026-01-11 (Critical Fixes Applied)
 
 ---
 
-## Active Project: Playwright MCP Server Initialization Failure
-
-**Priority:** 🔴 HIGH
-**Reported:** VS Code MCP Server Error Logs (Exit Code 1)
-**Critical Requirement:** Configure VS Code MCP to properly start Playwright server without exit errors
-
-### Problem Statement
-
-The Playwright MCP server is failing to initialize with exit code 1. Error logs show:
-```
-2026-01-11 00:35:54.254 [info] Connection state: Error Process exited with code 1
-```
-
-The server outputs the Playwright help menu instead of starting properly, indicating it's not receiving proper configuration or arguments when launched by VS Code's MCP system.
-
-### Root Cause
-
-Investigation revealed the VS Code MCP configuration file is **empty** (0 bytes):
-- **Location**: `/root/.config/Code - Insiders/User/mcp.json`
-- **Size**: 0 bytes (created Dec 12 14:48)
-- **Impact**: Without valid JSON configuration, VS Code cannot properly invoke the Playwright MCP server
-- **Current Behavior**: Server receives invalid/missing arguments → shows help → exits with code 1
-
-### Solution Approach
-
-Create a properly formatted MCP configuration file that tells VS Code how to start the Playwright MCP server with correct arguments, working directory, and environment variables
-
-### Solution Approach
-
-Create a properly formatted MCP configuration file that tells VS Code how to start the Playwright MCP server with correct arguments, working directory, and environment variables.
-
-### Implementation Plan
-
-#### Phase 1: Create MCP Configuration File
-
-**File**: `/root/.config/Code - Insiders/User/mcp.json` (currently empty)
-
-**Task 1.1**: Write valid JSON configuration
-```json
-{
-  "mcpServers": {
-    "playwright-test": {
-      "command": "npx",
-      "args": [
-        "playwright",
-        "run-test-mcp-server",
-        "--config",
-        "playwright.config.js",
-        "--headless"
-      ],
-      "env": {
-        "NODE_ENV": "test",
-        "CI": "false"
-      }
-    },
-    "playwright-browser": {
-      "command": "npx",
-      "args": [
-        "playwright",
-        "run-mcp-server",
-        "--browser",
-        "chromium",
-        "--headless"
-      ],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    }
-  }
-}
-```
-
-**Task 1.2**: Validate JSON syntax
-- Command: `cat /root/.config/Code\ -\ Insiders/User/mcp.json | jq .`
-- Expected: Valid JSON parsing (no errors)
-
-**Task 1.3**: Verify file permissions
-- Command: `ls -lah /root/.config/Code\ -\ Insiders/User/mcp.json`
-- Expected: `-rw-r--r--` permissions, size > 0 bytes
-
-#### Phase 2: Verify Playwright Dependencies
-
-**Task 2.1**: Confirm Playwright installation
-- Command: `npx playwright --version`
-- Expected: `Version 1.57.0`
-- Current Status: ✅ VERIFIED
-
-**Task 2.2**: Install browser binaries (if needed)
-- Command: `cd /projects/Charon && npx playwright install chromium`
-- Expected: "chromium downloaded successfully" or "chromium is already installed"
-
-**Task 2.3**: Verify Playwright config exists
-- File: `/projects/Charon/playwright.config.js`
-- Current Status: ✅ EXISTS (valid configuration)
-
-#### Phase 3: Test MCP Server Startup (Manual)
-
-**Task 3.1**: Test server command directly
-- Command: `cd /projects/Charon && npx playwright run-test-mcp-server --config playwright.config.js --headless`
-- Expected: Server starts and waits (no immediate exit)
-- Expected: No help menu displayed
-- Terminate: Press Ctrl+C to stop
-
-**Task 3.2**: Verify process persistence
-- Command: `ps aux | grep playwright`
-- Expected: Process running while server is active
-- Expected: No immediate exit after startup
-
-#### Phase 4: Reload VS Code
-
-**Task 4.1**: Reload window
-- Action: Command Palette → "Developer: Reload Window"
-- Rationale: VS Code reads MCP configuration at startup
-
-**Alternative**: Restart VS Code completely
-
-#### Phase 5: Verify MCP Server Connection
-
-**Task 5.1**: Check VS Code Output panel
-- View → Output → Select "MCP Servers" or "Playwright"
-- Expected: Connection success message
-- Expected: No "exit code 1" errors
-
-**Task 5.2**: Verify server status
-- Check: MCP server connection state in VS Code status bar
-- Expected: "Connected" (not "Error")
-
-**Task 5.3**: Test Playwright MCP tools
-- Open: Copilot Chat
-- Try: Playwright-related commands or tools
-- Expected: Tools accessible and functional
-
-### Success Criteria (Definition of Done)
-
-1. [ ] `/root/.config/Code - Insiders/User/mcp.json` contains valid JSON (not empty)
-2. [ ] `mcp.json` has `mcpServers` key with at least one Playwright server definition
-3. [ ] File size > 0 bytes (verified with `ls -lah`)
-4. [ ] JSON is valid (verified with `jq`)
-5. [ ] Playwright version is 1.57.0 (verified with `npx playwright --version`)
-6. [ ] Chromium browser binary is installed
-7. [ ] Manual server start works: `npx playwright run-test-mcp-server --config playwright.config.js`
-8. [ ] Server persists when started (doesn't exit immediately)
-9. [ ] VS Code window has been reloaded after creating `mcp.json`
-10. [ ] No "exit code 1" errors in VS Code MCP server logs
-11. [ ] MCP server connection state is "Connected" (not "Error")
-12. [ ] Playwright MCP tools are accessible in Copilot Chat
-
-### Configuration Details
-
-#### MCP Server Types
-
-Two server configurations are recommended:
-
-1. **playwright-test** (Primary - For Testing)
-   - Command: `npx playwright run-test-mcp-server`
-   - Uses: Project's `playwright.config.js`
-   - Mode: Headless
-   - Purpose: Test runner interactions, E2E test execution
-
-2. **playwright-browser** (Secondary - For Browser Automation)
-   - Command: `npx playwright run-mcp-server`
-   - Browser: Chromium
-   - Mode: Headless
-   - Purpose: Direct browser automation tasks
-
-#### Environment Variables
-
-- **NODE_ENV**: Set to "test" for test server, "development" for browser server
-- **CI**: Set to "false" to ensure interactive features work
-
-#### Command Arguments
-
-- `--config playwright.config.js`: Points to project's Playwright configuration
-- `--headless`: Runs browser without GUI (required for server environments)
-- `--browser chromium`: Specifies browser type for browser MCP server
-
-### Verification Commands
-
-```bash
-# Check file exists and size
-ls -lah /root/.config/Code\ -\ Insiders/User/mcp.json
-
-# Validate JSON syntax
-cat /root/.config/Code\ -\ Insiders/User/mcp.json | jq .
-
-# Verify Playwright version
-npx playwright --version
-
-# Test manual server startup
-cd /projects/Charon && npx playwright run-test-mcp-server --config playwright.config.js --headless
-
-# Check running processes
-ps aux | grep playwright
-```
-
-### Common Pitfalls to Avoid
-
-1. **Invalid JSON**: No trailing commas, proper quote escaping
-2. **Wrong Command Path**: Use `npx` not absolute paths
-3. **Missing Config Reference**: Always specify `--config playwright.config.js`
-4. **Forget to Reload**: VS Code must reload after config changes
-5. **Browser Not Installed**: Run `npx playwright install chromium`
-
-### Troubleshooting Guide
-
-#### Issue: "Command not found"
-**Solution**: `cd /projects/Charon && npm install`
-
-#### Issue: "Browser not installed"
-**Solution**: `npx playwright install --with-deps chromium`
-
-#### Issue: Server still exits with code 1
-**Diagnosis**:
-```bash
-# Check JSON validity
-cat /root/.config/Code\ -\ Insiders/User/mcp.json | jq .
-# If error: Fix JSON syntax errors
-```
-
-#### Issue: VS Code doesn't recognize config
-**Solution**:
-1. Verify file location is exact: `/root/.config/Code - Insiders/User/mcp.json`
-2. Reload VS Code: Command Palette → "Developer: Reload Window"
-3. Check Output panel for MCP logs
-
-### Expected Outcomes
-
-After successful implementation:
-
-- ✅ Playwright MCP Server Status: **Running**
-- ✅ Connection State: **Connected** (not Error)
-- ✅ Exit Code: N/A (server persists)
-- ✅ Available Tools: Playwright test execution, browser automation
-- ✅ Copilot Integration: Playwright commands work in chat
-
-### Performance Benchmarks
-
-- **File Size**: ~400 bytes (minimal JSON config)
-- **Startup Time**: < 5 seconds for server to be ready
-- **Memory Usage**: ~50-100 MB per MCP server instance
-- **Configuration Reload**: < 2 seconds after VS Code reload
-
-### Risk Assessment
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Invalid JSON syntax | HIGH | Use `jq` to validate before reload |
-| Browser binaries missing | MEDIUM | Run `npx playwright install` first |
-| VS Code doesn't reload config | LOW | Explicitly reload window via Command Palette |
-| Wrong file path | HIGH | Double-check path matches VS Code Insiders location |
-| Playwright not installed | MEDIUM | Verify with `npx playwright --version` |
-
-### Implementation Timeline
-
-1. **Create mcp.json**: 2 minutes
-2. **Verify Playwright installation**: 2 minutes
-3. **Test server startup**: 3 minutes
-4. **Reload VS Code**: 1 minute
-5. **Verify connection**: 2 minutes
-
-**Total Estimated Time**: 10 minutes
-
-### References
-
-- **Playwright Documentation**: https://playwright.dev/docs/intro
-- **Playwright MCP Commands**: /projects/Charon/node_modules/playwright/lib/program.js (lines 149-159)
-- **VS Code MCP Configuration**: https://code.visualstudio.com/docs/copilot/customization
-- **Project Playwright Config**: /projects/Charon/playwright.config.js
-- **MCP Server Discovery**: Investigated node_modules/playwright/lib/mcp/ directory
-- **Agent Instructions Reference**: .github/instructions/agents.instructions.md (lines 544-624)
-
-### Next Steps
-
-1. **Immediate**: Create `mcp.json` with recommended configuration
-2. **Verify**: Test manual server startup to ensure it works
-3. **Reload**: Restart VS Code to apply changes
-4. **Validate**: Check MCP server connection status in Output panel
-5. **Test**: Use Playwright MCP tools in Copilot Chat to confirm integration
+## Critical Fixes Applied
+
+This specification has been updated to address 7 critical issues identified in the Supervisor's review:
+
+1. **✅ Missing Image Access**: Added artifact upload/download/load steps to share the PR image between jobs
+2. **✅ Incomplete Conditionals**: Enhanced job condition to check `needs.build-and-push.result == 'success'`
+3. **✅ SARIF Category Collision**: Added `github.sha` to SARIF category to prevent concurrent PR conflicts
+4. **✅ Missing Null Checks**: Added null checks and fallbacks in job summary and PR comment steps
+5. **✅ Workflow Conflict**: Documented required update to `supply-chain-verify.yml` to disable PR verification
+6. **✅ Job Dependencies**: Added clarifying comments explaining the dependency chain
+7. **✅ Skipped Build Feedback**: Added new job `verify-supply-chain-pr-skipped` to provide user feedback
+
+**Additional Improvements**:
+- Extracted tool versions to workflow-level environment variables
+- Added commit SHA to PR comment header for traceability
+- Documented expected ~50-60% increase in PR build time
 
 ---
 
-## Alternative Configurations
+## Executive Summary
 
-### Minimal Configuration (Single Server)
+Add a new job `verify-supply-chain-pr` to `.github/workflows/docker-build.yml` that performs immediate supply chain verification (SBOM generation, vulnerability scanning) for PR builds immediately after the Docker image is built. This fixes the current gap where Supply Chain Verification only runs on pushed images (main/tags), not PRs.
 
-If only one server is needed:
+**Key Constraint**: PR builds use `load: true` (local image only), not `push: true`. The verification job must work with locally built images that aren't pushed to the registry. The image will be shared between jobs using GitHub Actions artifacts.
 
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["playwright", "run-test-mcp-server"]
-    }
-  }
-}
+**Performance Impact**: This feature will increase PR build time by approximately 50-60% (from ~8 minutes to ~12-13 minutes) due to SBOM generation and vulnerability scanning.
+
+---
+
+## Research Findings
+
+### 1. Current docker-build.yml Structure Analysis
+
+**Key Observations**:
+- **Lines 94-101**: `build-and-push` job outputs `skip_build` and `digest`
+- **Lines 103-113**: Build step uses conditional `push` vs `load` based on event type
+  - PRs: `push: false, load: true` (local only, single platform: linux/amd64)
+  - Main/tags: `push: true, load: false` (registry push, multi-platform: linux/amd64,linux/arm64)
+- **Lines 150-151**: Tag extraction uses `pr-${{ github.event.pull_request.number }}` for PR builds
+- **Line 199**: Existing `trivy-pr-app-only` job runs for PRs but only scans the extracted binary, not the full image SBOM
+
+**Current PR Flow**:
+```
+PR Event → build-and-push (load=true) → trivy-pr-app-only (binary scan only)
 ```
 
-### Advanced Configuration (Custom Port)
+**Desired PR Flow**:
+```
+PR Event → build-and-push (load=true) → verify-supply-chain-pr (full SBOM + vuln scan)
+```
 
-For specific port binding:
+### 2. Existing Supply Chain Verification Logic
 
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": [
-        "playwright",
-        "run-test-mcp-server",
-        "--config",
-        "playwright.config.js",
-        "--port",
-        "9323",
-        "--host",
-        "localhost"
-      ]
-    }
-  }
-}
+From `.github/workflows/supply-chain-verify.yml`:
+
+**Tools Used**:
+- **Syft** v1.17.0+: SBOM generation (CycloneDX JSON format)
+- **Grype** v0.85.0+: Vulnerability scanning with severity categorization
+- **jq**: JSON processing for result parsing
+
+**Key Steps** (Lines 81-228 of supply-chain-verify.yml):
+1. Install Syft and Grype (Lines 81-90)
+2. Determine image tag (Lines 92-121)
+3. Check image availability (Lines 123-144)
+4. Generate SBOM with Syft (Lines 146-178)
+5. Validate SBOM structure (Lines 180-228)
+6. Scan with Grype (Lines 230-277)
+7. Comment on PR with results (Lines 330-387)
+
+**Critical Difference**: supply-chain-verify.yml expects a *pushed* image in the registry. For PRs, it checks `docker manifest inspect` and skips if unavailable (Lines 123-144).
+
+### 3. Solution: Image Artifact Sharing
+
+**Problem**: PR images are built with `load: true`, stored locally as `charon:pr-<number>`. They don't exist in the registry and are not accessible to subsequent jobs.
+
+**Solution**: Save the Docker image as a tar archive and share it between jobs using GitHub Actions artifacts.
+
+**Evidence from docker-build.yml**:
+- Line 150: `type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}`
+- Lines 111-113: `load: ${{ github.event_name == 'pull_request' }}`
+
+**Implementation Strategy**:
+1. In `build-and-push` job (after build): Save image to tar file using `docker save`
+2. Upload tar file as artifact with 1-day retention (ephemeral, PR-specific)
+3. In `verify-supply-chain-pr` job: Download artifact and load image using `docker load`
+4. Reference the loaded image directly for SBOM/vulnerability scanning
+
+This approach:
+- ✅ Avoids rebuild (uses exact same image artifact)
+- ✅ No registry dependency
+- ✅ Minimal storage impact (1-day retention, ~150-200MB per PR)
+- ✅ Works with GitHub Actions' job isolation model
+
+---
+
+## Technical Design
+
+### Workflow-Level Configuration
+
+**Tool Versions** (extracted as environment variables):
+- `SYFT_VERSION`: v1.17.0
+- `GRYPE_VERSION`: v0.85.0
+
+These will be defined at the workflow level to ensure consistency and easier updates.
+
+### Job Definitions
+
+**Job 1: Image Artifact Upload** (modification to existing `build-and-push` job)
+**Trigger**: Only for `pull_request` events
+**Purpose**: Save and upload the built Docker image as an artifact
+
+**Job 2: `verify-supply-chain-pr`**
+**Trigger**: Only for `pull_request` events
+**Dependency**: `needs: build-and-push`
+**Purpose**: Download image artifact, perform SBOM generation and vulnerability scanning
+**Skip Conditions**:
+- If `build-and-push` output `skip_build == 'true'`
+- If `build-and-push` did not succeed
+
+**Job 3: `verify-supply-chain-pr-skipped`**
+**Trigger**: Only for `pull_request` events
+**Dependency**: `needs: build-and-push`
+**Purpose**: Provide user feedback when build is skipped
+**Run Condition**: If `build-and-push` output `skip_build == 'true'`
+
+### Key Technical Decisions
+
+#### Decision 1: Image Sharing Strategy
+**Chosen Approach**: Save image as tar archive and share via GitHub Actions artifacts
+**Why**:
+- Jobs run in isolated environments; local Docker images are not shared by default
+- Artifacts provide reliable cross-job data sharing
+- Avoids registry push for PR builds (maintains current security model)
+- 1-day retention minimizes storage costs
+**Alternative Considered**: Push to registry with ephemeral tags (rejected: requires registry permissions, security concerns, cleanup complexity)
+
+#### Decision 2: Tool Versions
+**Syft**: v1.17.0 (matches existing security-verify-sbom skill)
+**Grype**: v0.85.0 (matches existing security-verify-sbom skill)
+**Why**: Consistent with existing workflows, tested versions
+
+#### Decision 3: Failure Behavior
+**Critical Vulnerabilities**: Fail the job (exit code 1)
+**High Vulnerabilities**: Warn but don't fail
+**Why**: Aligns with project standards (see security-verify-sbom.SKILL.md)
+
+#### Decision 4: SARIF Category Strategy
+**Category Format**: `supply-chain-pr-${{ github.event.pull_request.number }}-${{ github.sha }}`
+**Why**: Including SHA prevents conflicts when multiple commits are pushed to the same PR concurrently
+**Without SHA**: Concurrent uploads to the same category would overwrite each other
+
+#### Decision 5: Null Safety in Outputs
+**Approach**: Add explicit null checks and fallback values for all step outputs
+**Why**:
+- Step outputs may be undefined if steps are skipped or fail
+- Prevents workflow failures in reporting steps
+- Ensures graceful degradation of user feedback
+
+#### Decision 6: Workflow Conflict Resolution
+**Issue**: `supply-chain-verify.yml` currently handles PR workflow_run events, creating duplicate verification
+**Solution**: Update `supply-chain-verify.yml` to exclude PR builds from workflow_run triggers
+**Why**: Inline verification in docker-build.yml provides faster feedback; workflow_run is unnecessary for PRs
+
+---
+
+## Implementation Steps
+
+### Step 1: Update Workflow Environment Variables
+
+**File**: `.github/workflows/docker-build.yml`
+**Location**: After line 22 (after existing `env:` section start)
+**Action**: Add tool version variables
+
+```yaml
+env:
+  # ... existing variables ...
+  SYFT_VERSION: v1.17.0
+  GRYPE_VERSION: v0.85.0
+```
+
+### Step 2: Add Artifact Upload to build-and-push Job
+
+**File**: `.github/workflows/docker-build.yml`
+**Location**: After the "Build and push Docker image" step (after line 113)
+**Action**: Insert two new steps for image artifact handling
+
+```yaml
+    - name: Save Docker Image as Artifact
+      if: github.event_name == 'pull_request'
+      run: |
+        IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
+        docker save ghcr.io/${IMAGE_NAME}:pr-${{ github.event.pull_request.number }} -o /tmp/charon-pr-image.tar
+        ls -lh /tmp/charon-pr-image.tar
+
+    - name: Upload Image Artifact
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      with:
+        name: pr-image-${{ github.event.pull_request.number }}
+        path: /tmp/charon-pr-image.tar
+        retention-days: 1
+```
+
+**Rationale**: These steps execute only for PRs and share the built image with downstream jobs.
+
+### Step 3: Add verify-supply-chain-pr Job
+
+**File**: `.github/workflows/docker-build.yml`
+**Location**: After line 229 (end of `trivy-pr-app-only` job)
+**Action**: Insert complete job definition
+
+See complete YAML in Appendix A.
+
+### Step 4: Add verify-supply-chain-pr-skipped Job
+
+**File**: `.github/workflows/docker-build.yml`
+**Location**: After the `verify-supply-chain-pr` job
+**Action**: Insert complete job definition
+
+See complete YAML in Appendix B.
+
+### Step 5: Update supply-chain-verify.yml to Avoid PR Conflicts
+
+**File**: `.github/workflows/supply-chain-verify.yml`
+**Location**: Update the `verify-sbom` job condition (around line 68)
+**Current**:
+```yaml
+if: |
+  (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
+  (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+```
+
+**Updated**:
+```yaml
+if: |
+  (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
+  (github.event_name != 'workflow_run' ||
+    (github.event.workflow_run.conclusion == 'success' &&
+     github.event.workflow_run.event != 'pull_request'))
+```
+
+**Rationale**: Prevents duplicate supply chain verification for PRs. The inline job in docker-build.yml now handles PR verification.
+
+---
+**Generate**:
+- SBOM file (CycloneDX JSON)
+- Vulnerability scan results (JSON)
+- GitHub SARIF report (for Security tab integration)
+
+**Upload**: All as workflow artifacts with 30-day retention
+
+---
+
+## Detailed Implementation
+
+This implementation includes 3 main components:
+
+1. **Workflow-level environment variables** for tool versions
+2. **Modifications to `build-and-push` job** to upload image artifact
+3. **Two new jobs**: `verify-supply-chain-pr` (main verification) and `verify-supply-chain-pr-skipped` (feedback)
+4. **Update to `supply-chain-verify.yml`** to prevent duplicate verification
+
+See complete YAML job definitions in Appendix A and B.
+
+### Insertion Instructions
+
+**Location in docker-build.yml**:
+- Environment variables: After line 22
+- Image artifact upload: After line 113 (in build-and-push job)
+- New jobs: After line 229 (end of `trivy-pr-app-only` job)
+
+**No modifications needed to other existing jobs**. The `build-and-push` job already outputs everything we need.
+
+---
+
+## Testing Plan
+
+### Phase 1: Basic Validation
+1. Create test PR on `feature/beta-release`
+2. Verify artifact upload/download works correctly
+3. Verify image loads successfully in verification job
+4. Check image reference is correct (no "image not found")
+5. Validate SBOM generation (component count >0)
+6. Validate vulnerability scanning
+7. Check PR comment is posted with status/table (including commit SHA)
+8. Verify SARIF upload to Security tab with unique category
+9. Verify job summary is created with all null checks working
+
+### Phase 2: Critical Fixes Validation
+1. **Image Access**: Verify artifact contains image tar, verify download succeeds, verify docker load works
+2. **Conditionals**: Test that job skips when build-and-push fails or is skipped
+3. **SARIF Category**: Push multiple commits to same PR, verify no SARIF conflicts in Security tab
+4. **Null Checks**: Force step failure, verify job summary and PR comment still generate gracefully
+5. **Workflow Conflict**: Verify supply-chain-verify.yml does NOT trigger for PR builds
+6. **Skipped Feedback**: Create chore commit, verify skipped feedback job posts comment
+
+### Phase 3: Edge Cases
+1. Test with intentionally vulnerable dependency
+2. Test with build skip (chore commit)
+3. Test concurrent PRs (verify artifacts don't collide)
+4. Test rapid successive commits to same PR
+
+### Phase 4: Performance Validation
+1. Measure baseline PR build time (without feature)
+2. Measure new PR build time (with feature)
+3. Verify increase is within expected 50-60% range
+4. Monitor artifact storage usage
+
+### Phase 5: Rollback
+If issues arise, revert the commit. No impact on main/tag builds.
+
+---
+
+## Success Criteria
+
+### Functional
+- ✅ Artifacts are uploaded/downloaded correctly for all PR builds
+- ✅ Image loads successfully in verification job
+- ✅ Job runs for all PR builds (when not skipped)
+- ✅ Job correctly skips when build-and-push fails or is skipped
+- ✅ Generates valid SBOM
+- ✅ Performs vulnerability scan
+- ✅ Uploads artifacts with appropriate retention
+- ✅ Comments on PR with commit SHA and vulnerability table
+- ✅ Fails on critical vulnerabilities
+- ✅ Uploads SARIF with unique category (no conflicts)
+- ✅ Skipped build feedback is posted when build is skipped
+- ✅ No duplicate verification from supply-chain-verify.yml
+
+### Performance
+- ⏱️ Completes in <15 minutes
+- 📦 Artifact size <250MB
+- 📈 Total PR build time increase: 50-60% (acceptable)
+
+### Reliability
+- 🔒 All null checks in place (no undefined variable errors)
+- 🔄 Handles concurrent PR commits without conflicts
+- ✅ Graceful degradation if steps fail
+
+---
+
+## Appendix A: Complete verify-supply-chain-pr Job YAML
+
+```yaml
+  # ============================================================================
+  # Supply Chain Verification for PR Builds
+  # ============================================================================
+  # This job performs SBOM generation and vulnerability scanning for PR builds.
+  # It depends on the build-and-push job completing successfully and uses the
+  # Docker image artifact uploaded by that job.
+  #
+  # Dependency Chain: build-and-push (builds & uploads) → verify-supply-chain-pr (downloads & scans)
+  # ============================================================================
+  verify-supply-chain-pr:
+    name: Supply Chain Verification (PR)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Critical Fix #2: Enhanced conditional with result check
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.build-and-push.outputs.skip_build != 'true' &&
+      needs.build-and-push.result == 'success'
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      # Critical Fix #1: Download image artifact
+      - name: Download Image Artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: pr-image-${{ github.event.pull_request.number }}
+
+      # Critical Fix #1: Load Docker image
+      - name: Load Docker Image
+        run: |
+          docker load -i charon-pr-image.tar
+          docker images
+          echo "✅ Image loaded successfully"
+
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Set PR image reference
+        id: image
+        run: |
+          IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+          echo "ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
+          echo "📦 Will verify: ${IMAGE_REF}"
+
+      - name: Install Verification Tools
+        run: |
+          # Use workflow-level environment variables for versions
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin ${{ env.SYFT_VERSION }}
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin ${{ env.GRYPE_VERSION }}
+          syft version
+          grype version
+
+      - name: Generate SBOM
+        id: sbom
+        run: |
+          echo "🔍 Generating SBOM for ${{ steps.image.outputs.ref }}..."
+          if ! syft ${{ steps.image.outputs.ref }} -o cyclonedx-json > sbom-pr.cyclonedx.json; then
+            echo "❌ SBOM generation failed"
+            exit 1
+          fi
+          COMPONENT_COUNT=$(jq '.components | length' sbom-pr.cyclonedx.json 2>/dev/null || echo "0")
+          echo "📦 SBOM contains ${COMPONENT_COUNT} components"
+          if [[ ${COMPONENT_COUNT} -eq 0 ]]; then
+            echo "⚠️ WARNING: SBOM contains no components"
+            exit 1
+          fi
+          echo "component_count=${COMPONENT_COUNT}" >> $GITHUB_OUTPUT
+
+      - name: Scan for Vulnerabilities
+        id: scan
+        run: |
+          echo "🔍 Scanning for vulnerabilities..."
+          grype db update
+          if ! grype sbom:./sbom-pr.cyclonedx.json --output json --file vuln-scan.json; then
+            echo "❌ Vulnerability scan failed"
+            exit 1
+          fi
+          echo ""
+          echo "=== Vulnerability Summary ==="
+          grype sbom:./sbom-pr.cyclonedx.json --output table || true
+          CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' vuln-scan.json 2>/dev/null || echo "0")
+          HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' vuln-scan.json 2>/dev/null || echo "0")
+          MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' vuln-scan.json 2>/dev/null || echo "0")
+          LOW=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' vuln-scan.json 2>/dev/null || echo "0")
+          echo ""
+          echo "📊 Vulnerability Breakdown:"
+          echo "  🔴 Critical: ${CRITICAL}"
+          echo "  🟠 High: ${HIGH}"
+          echo "  🟡 Medium: ${MEDIUM}"
+          echo "  🟢 Low: ${LOW}"
+          echo "critical=${CRITICAL}" >> $GITHUB_OUTPUT
+          echo "high=${HIGH}" >> $GITHUB_OUTPUT
+          echo "medium=${MEDIUM}" >> $GITHUB_OUTPUT
+          echo "low=${LOW}" >> $GITHUB_OUTPUT
+          if [[ ${CRITICAL} -gt 0 ]]; then
+            echo "::error::${CRITICAL} CRITICAL vulnerabilities found - BLOCKING"
+          fi
+          if [[ ${HIGH} -gt 0 ]]; then
+            echo "::warning::${HIGH} HIGH vulnerabilities found"
+          fi
+
+      - name: Generate SARIF Report
+        if: always()
+        run: |
+          echo "📋 Generating SARIF report..."
+          grype sbom:./sbom-pr.cyclonedx.json --output sarif --file grype-results.sarif || true
+
+      # Critical Fix #3: SARIF category includes SHA to prevent conflicts
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+        with:
+          sarif_file: grype-results.sarif
+          category: supply-chain-pr-${{ github.event.pull_request.number }}-${{ github.sha }}
+        continue-on-error: true
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: supply-chain-pr-${{ github.event.pull_request.number }}
+          path: |
+            sbom-pr.cyclonedx.json
+            vuln-scan.json
+            grype-results.sarif
+          retention-days: 30
+
+      # Critical Fix #4: Null checks in PR comment
+      - name: Comment on PR
+        if: always()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const critical = '${{ steps.scan.outputs.critical }}' || '0';
+            const high = '${{ steps.scan.outputs.high }}' || '0';
+            const medium = '${{ steps.scan.outputs.medium }}' || '0';
+            const low = '${{ steps.scan.outputs.low }}' || '0';
+            const components = '${{ steps.sbom.outputs.component_count }}' || 'N/A';
+            const commitSha = '${{ github.sha }}'.substring(0, 7);
+
+            let status = '✅ **PASSED**';
+            let statusEmoji = '✅';
+
+            if (parseInt(critical) > 0) {
+              status = '❌ **BLOCKED** - Critical vulnerabilities found';
+              statusEmoji = '❌';
+            } else if (parseInt(high) > 0) {
+              status = '⚠️ **WARNING** - High vulnerabilities found';
+              statusEmoji = '⚠️';
+            }
+
+            const body = `## ${statusEmoji} Supply Chain Verification (PR Build)
+
+            **Status**: ${status}
+            **Commit**: \`${commitSha}\`
+            **Image**: \`${{ steps.image.outputs.ref }}\`
+            **Components Scanned**: ${components}
+
+            ### 📊 Vulnerability Summary
+
+            | Severity | Count |
+            |----------|-------|
+            | 🔴 Critical | ${critical} |
+            | 🟠 High | ${high} |
+            | 🟡 Medium | ${medium} |
+            | 🟢 Low | ${low} |
+
+            ${parseInt(critical) > 0 ? '### ❌ Critical Vulnerabilities Detected\n\n**Action Required**: This PR cannot be merged until critical vulnerabilities are resolved.\n\n' : ''}
+            ${parseInt(high) > 0 ? '### ⚠️ High Vulnerabilities Detected\n\n**Recommendation**: Review and address high-severity vulnerabilities before merging.\n\n' : ''}
+            📋 [View Full Report](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            📦 [Download Artifacts](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}#artifacts)
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      - name: Fail on Critical Vulnerabilities
+        if: steps.scan.outputs.critical != '0'
+        run: |
+          echo "❌ CRITICAL: ${{ steps.scan.outputs.critical }} critical vulnerabilities found"
+          echo "This PR is blocked from merging until critical vulnerabilities are resolved."
+          exit 1
+
+      # Critical Fix #4: Null checks in job summary
+      - name: Create Job Summary
+        if: always()
+        run: |
+          # Use default values if outputs are not set
+          COMPONENT_COUNT="${{ steps.sbom.outputs.component_count }}"
+          CRITICAL="${{ steps.scan.outputs.critical }}"
+          HIGH="${{ steps.scan.outputs.high }}"
+          MEDIUM="${{ steps.scan.outputs.medium }}"
+          LOW="${{ steps.scan.outputs.low }}"
+
+          # Apply defaults
+          COMPONENT_COUNT="${COMPONENT_COUNT:-N/A}"
+          CRITICAL="${CRITICAL:-0}"
+          HIGH="${HIGH:-0}"
+          MEDIUM="${MEDIUM:-0}"
+          LOW="${LOW:-0}"
+
+          echo "## 🔒 Supply Chain Verification - PR #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image**: \`${{ steps.image.outputs.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Components**: ${COMPONENT_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Vulnerability Breakdown" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 Critical: ${CRITICAL}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟠 High: ${HIGH}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟡 Medium: ${MEDIUM}" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟢 Low: ${LOW}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ ${CRITICAL} -gt 0 ]]; then
+            echo "❌ **BLOCKED**: Critical vulnerabilities must be resolved" >> $GITHUB_STEP_SUMMARY
+          elif [[ ${HIGH} -gt 0 ]]; then
+            echo "⚠️ **WARNING**: High vulnerabilities detected" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **PASSED**: No critical or high vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          fi
 ```
 
 ---
 
-**Plan Complete - Ready for Implementation**
+## Appendix B: verify-supply-chain-pr-skipped Job YAML
 
-**Note**: This specification follows [Spec-Driven Workflow v1](.github/instructions/spec-driven-workflow-v1.instructions.md) format.
+```yaml
+  # ============================================================================
+  # Supply Chain Verification - Skipped Feedback
+  # ============================================================================
+  # This job provides user feedback when the build is skipped (e.g., chore commits).
+  # Critical Fix #7: User feedback for skipped builds
+  # ============================================================================
+  verify-supply-chain-pr-skipped:
+    name: Supply Chain Verification (Skipped)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.build-and-push.outputs.skip_build == 'true'
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Comment on PR - Build Skipped
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const commitSha = '${{ github.sha }}'.substring(0, 7);
+            const body = `## ⏭️ Supply Chain Verification (Skipped)
+
+            **Commit**: \`${commitSha}\`
+            **Reason**: Build was skipped (likely a documentation-only or chore commit)
+
+            Supply chain verification is not performed for skipped builds. If this commit should trigger a build, ensure it includes changes to application code or dependencies.
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+```
+
+---
+
+**END OF IMPLEMENTATION PLAN**
