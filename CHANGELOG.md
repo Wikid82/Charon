@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docs-to-Issues Workflow**: Resolved issue where PR status checks didn't appear when workflow ran (PR #461)
+  - Removed `[skip ci]` flag from workflow commit message to enable CI validation on PRs
+  - Maintained infinite loop protection via path filters (`!docs/issues/created/**`) and bot guard
+  - All CI checks now run properly on PRs created by automated issue processing
+  - Zero security risks, comprehensive validation completed
+  - See [Docs-to-Issues Fix Implementation Summary](docs/implementation/DOCS_TO_ISSUES_FIX_2026-01-11.md)
 - **CI Workflow Documentation**: Resolved GitHub Advanced Security false positive warnings and clarified supply chain verification behavior (PR #461)
   - Documented workflow migration from `docker-publish.yml` to `docker-build.yml` (Dec 21, 2025)
   - Added explanatory comments to all security scanning workflows
