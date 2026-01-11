@@ -126,9 +126,8 @@ jobs:
           load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          no-cache: true  # Prevent false positive vulnerabilities from cached layers
           pull: true  # Always pull fresh base images to get latest security patches
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
@@ -459,7 +458,7 @@ jobs:
 
       - name: Build image locally for PR
         run: |
-          docker build -t charon:pr-${{ github.sha }} .
+          docker build --no-cache -t charon:pr-${{ github.sha }} .
 
       - name: Extract `charon` binary from image
         run: |
