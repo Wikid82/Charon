@@ -220,10 +220,12 @@ RUN xx-apk add --no-cache gcc musl-dev
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
 
-# Patch expr-lang/expr dependency to fix CVE-2025-68156
-# This follows the same pattern as Caddy's expr-lang patch (Dockerfile line 181)
+# Patch dependencies to fix CVEs in transitive dependencies
+# This follows the same pattern as Caddy's dependency patches
 # renovate: datasource=go depName=github.com/expr-lang/expr
+# renovate: datasource=go depName=golang.org/x/crypto
 RUN go get github.com/expr-lang/expr@v1.17.7 && \
+    go get golang.org/x/crypto@v0.46.0 && \
     go mod tidy
 
 # Fix compatibility issues with expr-lang v1.17.7
