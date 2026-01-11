@@ -33,10 +33,7 @@ repos:
         pass_filenames: false
       - id: golangci-lint-fast
         name: golangci-lint (Fast Linters - BLOCKING)
-        entry: >
-          bash -c 'command -v golangci-lint >/dev/null 2>&1 ||
-          { echo "ERROR: golangci-lint not found. Install: https://golangci-lint.run/usage/install/"; exit 1; };
-          cd backend && golangci-lint run --config .golangci-fast.yml ./...'
+        entry: bash -c 'command -v golangci-lint >/dev/null 2>&1 || (echo "ERROR golangci-lint not found. Install at https://golangci-lint.run/usage/install/" && exit 1); cd backend && golangci-lint run --config .golangci-fast.yml ./...'
         language: system
         files: '\.go$'
         exclude: '_test\.go$'
