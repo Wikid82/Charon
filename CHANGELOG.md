@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pre-commit hook for fast Go linters (staticcheck, govet, errcheck, ineffassign, unused)**
+  - New config file: `backend/.golangci-fast.yml` (lightweight for pre-commit)
+  - VS Code tasks: "Lint: Staticcheck (Fast)" and "Lint: Staticcheck Only"
+  - Makefile targets: `lint-fast` and `lint-staticcheck-only`
+  - Comprehensive troubleshooting guide for staticcheck failures in copilot-instructions.md
+- **golangci-lint installation instructions** in CONTRIBUTING.md
+- Implementation summary: docs/implementation/STATICCHECK_BLOCKING_INTEGRATION_COMPLETE.md
+
+### Changed
+
+- **BREAKING:** Commits are now BLOCKED if staticcheck or other fast linters find issues
+  - Pre-commit hooks now run golangci-lint with essential linters (~11s runtime)
+  - Test files (`_test.go`) excluded from staticcheck (matches CI behavior)
+  - Emergency bypass available with `git commit --no-verify` (use sparingly)
+
 ### Fixed
 
 - **Docs-to-Issues Workflow**: Resolved issue where PR status checks didn't appear when workflow ran (PR #461)

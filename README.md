@@ -183,6 +183,11 @@ docker run -d \
 
 > **Note:** If you encounter errors after upgrading, try a hard refresh (`Ctrl+Shift+R`) or clearing your browser cache. See [Troubleshooting Guide](docs/troubleshooting/react-production-errors.md) for details.
 
+### Development Setup
+
+**Install golangci-lint** (for contributors): `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setup.
+
 ### Upgrading? Run Migrations
 
 If you're upgrading from a previous version with persistent data:

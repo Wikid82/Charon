@@ -31,6 +31,17 @@ repos:
         language: system
         files: '\.go$'
         pass_filenames: false
+      - id: golangci-lint-fast
+        name: golangci-lint (Fast Linters - BLOCKING)
+        entry: >
+          bash -c 'command -v golangci-lint >/dev/null 2>&1 ||
+          { echo "ERROR: golangci-lint not found. Install: https://golangci-lint.run/usage/install/"; exit 1; };
+          cd backend && golangci-lint run --config .golangci-fast.yml ./...'
+        language: system
+        files: '\.go$'
+        exclude: '_test\.go$'
+        pass_filenames: false
+        description: "Runs fast, essential linters (staticcheck, govet, errcheck, ineffassign, unused) - BLOCKS commits on failure"
       - id: check-version-match
         name: Check .version matches latest Git tag
         entry: bash -c 'scripts/check-version-match-tag.sh'
