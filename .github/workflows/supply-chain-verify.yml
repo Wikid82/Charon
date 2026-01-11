@@ -282,6 +282,61 @@ jobs:
           echo "MEDIUM_VULNS=${MEDIUM}" >> $GITHUB_ENV
           echo "LOW_VULNS=${LOW}" >> $GITHUB_ENV
 
+      - name: Parse Vulnerability Details
+        if: steps.validate-sbom.outputs.valid == 'true'
+        run: |
+          echo "Parsing detailed vulnerability information..."
+
+          # Generate detailed vulnerability tables grouped by severity
+          # Limit to first 20 per severity to keep PR comment readable
+
+          # Critical vulnerabilities
+          jq -r '
+            [.matches[] | select(.vulnerability.severity == "Critical")] |
+            sort_by(.vulnerability.id) |
+            limit(20; .[]) |
+            "| \(.vulnerability.id) | \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "No fix available") | \(.vulnerability.description[0:80] // "N/A") |"
+          ' vuln-scan.json > critical-vulns.txt
+
+          # High severity vulnerabilities
+          jq -r '
+            [.matches[] | select(.vulnerability.severity == "High")] |
+            sort_by(.vulnerability.id) |
+            limit(20; .[]) |
+            "| \(.vulnerability.id) | \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "No fix available") | \(.vulnerability.description[0:80] // "N/A") |"
+          ' vuln-scan.json > high-vulns.txt
+
+          # Medium severity vulnerabilities
+          jq -r '
+            [.matches[] | select(.vulnerability.severity == "Medium")] |
+            sort_by(.vulnerability.id) |
+            limit(20; .[]) |
+            "| \(.vulnerability.id) | \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "No fix available") | \(.vulnerability.description[0:80] // "N/A") |"
+          ' vuln-scan.json > medium-vulns.txt
+
+          # Low severity vulnerabilities
+          jq -r '
+            [.matches[] | select(.vulnerability.severity == "Low")] |
+            sort_by(.vulnerability.id) |
+            limit(20; .[]) |
+            "| \(.vulnerability.id) | \(.artifact.name) | \(.artifact.version) | \(.vulnerability.fix.versions[0] // "No fix available") | \(.vulnerability.description[0:80] // "N/A") |"
+          ' vuln-scan.json > low-vulns.txt
+
+          echo "✅ Vulnerability details parsed and saved"
+
+      - name: Upload Vulnerability Scan Artifact
+        if: steps.validate-sbom.outputs.valid == 'true' && always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: vulnerability-scan-${{ steps.tag.outputs.tag }}
+          path: |
+            vuln-scan.json
+            critical-vulns.txt
+            high-vulns.txt
+            medium-vulns.txt
+            low-vulns.txt
+          retention-days: 30
+
       - name: Report Skipped Scan
         if: steps.image-check.outputs.exists != 'true' || steps.validate-sbom.outputs.valid != 'true'
         run: |
@@ -302,12 +357,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Workflow completed successfully (scan skipped)" >> $GITHUB_STEP_SUMMARY
 
-      - name: Comment on PR
+      - name: Determine PR Number
+        id: pr-number
         if: |
           github.event_name == 'pull_request' ||
           (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
         with:
+          result-encoding: string
           script: |
             // Determine PR number from context
             let prNumber;
@@ -321,49 +378,248 @@ jobs:
             }
 
             if (!prNumber) {
-              console.log('No PR number found, skipping comment');
-              return;
+              console.log('No PR number found');
+              return '';
             }
 
-            const imageExists = '${{ steps.image-check.outputs.exists }}' === 'true';
-            const sbomValid = '${{ steps.validate-sbom.outputs.valid }}';
-            const critical = process.env.CRITICAL_VULNS || '0';
-            const high = process.env.HIGH_VULNS || '0';
-            const medium = process.env.MEDIUM_VULNS || '0';
-            const low = process.env.LOW_VULNS || '0';
+            console.log(`Found PR number: ${prNumber}`);
+            return prNumber;
 
-            let body = '## 🔒 Supply Chain Verification\n\n';
+      - name: Build PR Comment Body
+        id: comment-body
+        if: steps.pr-number.outputs.result != ''
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          IMAGE_EXISTS="${{ steps.image-check.outputs.exists }}"
+          SBOM_VALID="${{ steps.validate-sbom.outputs.valid }}"
+          CRITICAL="${CRITICAL_VULNS:-0}"
+          HIGH="${HIGH_VULNS:-0}"
+          MEDIUM="${MEDIUM_VULNS:-0}"
+          LOW="${LOW_VULNS:-0}"
+          TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
 
-            if (!imageExists) {
-              body += '⏭️ **Status**: Image not yet available\n\n';
-              body += 'Verification will run automatically after the docker-build workflow completes.\n';
-              body += 'This is normal for PR workflows.\n';
-            } else if (sbomValid !== 'true') {
-              body += '⚠️ **Status**: SBOM validation failed\n\n';
-              body += `[Check workflow logs for details](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n`;
-            } else {
-              body += '✅ **Status**: SBOM verified and scanned\n\n';
-              body += '### Vulnerability Summary\n\n';
-              body += `| Severity | Count |\n`;
-              body += `|----------|-------|\n`;
-              body += `| Critical | ${critical} |\n`;
-              body += `| High | ${high} |\n`;
-              body += `| Medium | ${medium} |\n`;
-              body += `| Low | ${low} |\n\n`;
+          # Build comment body
+          COMMENT_BODY="## 🔒 Supply Chain Security Scan
 
-              if (parseInt(critical) > 0) {
-                body += `⚠️ **Action Required**: ${critical} critical vulnerabilities found\n\n`;
-              }
+          **Last Updated**: ${TIMESTAMP}
+          **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-              body += `[View full report](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n`;
-            }
+          ---
 
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: body
-            });
+          "
+
+          if [[ "${IMAGE_EXISTS}" != "true" ]]; then
+            COMMENT_BODY+="### ⏳ Status: Waiting for Image
+
+          The Docker image has not been built yet. This scan will run automatically once the docker-build workflow completes.
+
+          _This is normal for PR workflows._
+          "
+          elif [[ "${SBOM_VALID}" != "true" ]]; then
+            COMMENT_BODY+="### ⚠️ Status: SBOM Validation Failed
+
+          The Software Bill of Materials (SBOM) could not be validated. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+          **Action Required**: Review and resolve SBOM generation issues.
+          "
+          else
+            # Scan completed successfully
+            if [[ ${TOTAL} -eq 0 ]]; then
+              COMMENT_BODY+="### ✅ Status: No Vulnerabilities Detected
+
+          🎉 Great news! No security vulnerabilities were found in this image.
+
+          | Severity | Count |
+          |----------|-------|
+          | 🔴 Critical | 0 |
+          | 🟠 High | 0 |
+          | 🟡 Medium | 0 |
+          | 🔵 Low | 0 |
+          "
+            else
+              # Vulnerabilities found
+              if [[ ${CRITICAL} -gt 0 ]]; then
+                COMMENT_BODY+="### 🚨 Status: Critical Vulnerabilities Detected
+
+          ⚠️ **Action Required**: ${CRITICAL} critical vulnerabilities require immediate attention!
+          "
+              elif [[ ${HIGH} -gt 0 ]]; then
+                COMMENT_BODY+="### ⚠️ Status: High-Severity Vulnerabilities Detected
+
+          ${HIGH} high-severity vulnerabilities found. Please review and address.
+          "
+              else
+                COMMENT_BODY+="### 📊 Status: Vulnerabilities Detected
+
+          Security scan found ${TOTAL} vulnerabilities.
+          "
+              fi
+
+              COMMENT_BODY+="
+          | Severity | Count |
+          |----------|-------|
+          | 🔴 Critical | ${CRITICAL} |
+          | 🟠 High | ${HIGH} |
+          | 🟡 Medium | ${MEDIUM} |
+          | 🔵 Low | ${LOW} |
+          | **Total** | **${TOTAL}** |
+
+          ## 🔍 Detailed Findings
+
+          "
+
+              # Add detailed vulnerability tables by severity
+              # Critical Vulnerabilities
+              if [[ ${CRITICAL} -gt 0 ]]; then
+                COMMENT_BODY+="<details>
+          <summary>🔴 <b>Critical Vulnerabilities (${CRITICAL})</b></summary>
+
+          | CVE | Package | Current Version | Fixed Version | Description |
+          |-----|---------|----------------|---------------|-------------|
+          "
+
+                if [[ -f critical-vulns.txt && -s critical-vulns.txt ]]; then
+                  # Count lines in the file
+                  CRIT_COUNT=$(wc -l < critical-vulns.txt)
+                  COMMENT_BODY+="$(cat critical-vulns.txt)"
+
+                  # If more than 20, add truncation message
+                  if [[ ${CRITICAL} -gt 20 ]]; then
+                    REMAINING=$((CRITICAL - 20))
+                    COMMENT_BODY+="
+
+          _...and ${REMAINING} more. View the [full scan results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details._
+          "
+                  fi
+                else
+                  COMMENT_BODY+="| N/A | N/A | N/A | N/A | Details unavailable |
+          "
+                fi
+
+                COMMENT_BODY+="
+          </details>
+
+          "
+              fi
+
+              # High Severity Vulnerabilities
+              if [[ ${HIGH} -gt 0 ]]; then
+                COMMENT_BODY+="<details>
+          <summary>🟠 <b>High Severity Vulnerabilities (${HIGH})</b></summary>
+
+          | CVE | Package | Current Version | Fixed Version | Description |
+          |-----|---------|----------------|---------------|-------------|
+          "
+
+                if [[ -f high-vulns.txt && -s high-vulns.txt ]]; then
+                  COMMENT_BODY+="$(cat high-vulns.txt)"
+
+                  if [[ ${HIGH} -gt 20 ]]; then
+                    REMAINING=$((HIGH - 20))
+                    COMMENT_BODY+="
+
+          _...and ${REMAINING} more. View the [full scan results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details._
+          "
+                  fi
+                else
+                  COMMENT_BODY+="| N/A | N/A | N/A | N/A | Details unavailable |
+          "
+                fi
+
+                COMMENT_BODY+="
+          </details>
+
+          "
+              fi
+
+              # Medium Severity Vulnerabilities
+              if [[ ${MEDIUM} -gt 0 ]]; then
+                COMMENT_BODY+="<details>
+          <summary>🟡 <b>Medium Severity Vulnerabilities (${MEDIUM})</b></summary>
+
+          | CVE | Package | Current Version | Fixed Version | Description |
+          |-----|---------|----------------|---------------|-------------|
+          "
+
+                if [[ -f medium-vulns.txt && -s medium-vulns.txt ]]; then
+                  COMMENT_BODY+="$(cat medium-vulns.txt)"
+
+                  if [[ ${MEDIUM} -gt 20 ]]; then
+                    REMAINING=$((MEDIUM - 20))
+                    COMMENT_BODY+="
+
+          _...and ${REMAINING} more. View the [full scan results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details._
+          "
+                  fi
+                else
+                  COMMENT_BODY+="| N/A | N/A | N/A | N/A | Details unavailable |
+          "
+                fi
+
+                COMMENT_BODY+="
+          </details>
+
+          "
+              fi
+
+              # Low Severity Vulnerabilities
+              if [[ ${LOW} -gt 0 ]]; then
+                COMMENT_BODY+="<details>
+          <summary>🔵 <b>Low Severity Vulnerabilities (${LOW})</b></summary>
+
+          | CVE | Package | Current Version | Fixed Version | Description |
+          |-----|---------|----------------|---------------|-------------|
+          "
+
+                if [[ -f low-vulns.txt && -s low-vulns.txt ]]; then
+                  COMMENT_BODY+="$(cat low-vulns.txt)"
+
+                  if [[ ${LOW} -gt 20 ]]; then
+                    REMAINING=$((LOW - 20))
+                    COMMENT_BODY+="
+
+          _...and ${REMAINING} more. View the [full scan results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for complete details._
+          "
+                  fi
+                else
+                  COMMENT_BODY+="| N/A | N/A | N/A | N/A | Details unavailable |
+          "
+                fi
+
+                COMMENT_BODY+="
+          </details>
+
+          "
+              fi
+
+              COMMENT_BODY+="
+          📋 [View detailed vulnerability report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          "
+            fi
+          fi
+
+          COMMENT_BODY+="
+          ---
+
+          <sub><!-- supply-chain-security-comment --></sub>
+          "
+
+          # Save to file for the next step (handles multi-line)
+          echo "$COMMENT_BODY" > /tmp/comment-body.txt
+
+          # Also output for debugging
+          echo "Generated comment body:"
+          cat /tmp/comment-body.txt
+
+      - name: Update or Create PR Comment
+        if: steps.pr-number.outputs.result != ''
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043  # v4.0.0
+        with:
+          issue-number: ${{ steps.pr-number.outputs.result }}
+          body-path: /tmp/comment-body.txt
+          edit-mode: replace
+          comment-author: 'github-actions[bot]'
+          body-includes: '<!-- supply-chain-security-comment -->'
 
   verify-docker-image:
     name: Verify Docker Image Supply Chain
