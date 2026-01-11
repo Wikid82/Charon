@@ -2222,3 +2222,109 @@ func TestCrowdsecHandler_GetCachedPreset_EmptySlug(t *testing.T) {
 	// Empty slug should result in 404 (route not matched) or 400
 	require.True(t, w.Code == http.StatusNotFound || w.Code == http.StatusBadRequest)
 }
+
+// TestCrowdsecHandler_Start_StatusCode tests starting CrowdSec returns 200 status
+func TestCrowdsecHandler_Start_StatusCode(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+	fe := &fakeExec{}
+	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/start", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	require.Equal(t, "started", response["status"])
+}
+
+// TestCrowdsecHandler_Stop_UpdatesSecurityConfig tests stopping CrowdSec updates SecurityConfig
+func TestCrowdsecHandler_Stop_UpdatesSecurityConfig(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	db := setupCrowdDB(t)
+	tmpDir := t.TempDir()
+	fe := &fakeExec{started: true}
+	h := NewCrowdsecHandler(db, fe, "/bin/false", tmpDir)
+
+	// Create initial SecurityConfig
+	cfg := models.SecurityConfig{
+		UUID:         "default",
+		Name:         "Default",
+		Enabled:      true,
+		CrowdSecMode: "local",
+	}
+	require.NoError(t, db.Create(&cfg).Error)
+
+	r := gin.New()
+	g := r.Group("/api/v1")
+	h.RegisterRoutes(g)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/stop", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Verify SecurityConfig was updated
+	var updatedCfg models.SecurityConfig
+	require.NoError(t, db.First(&updatedCfg).Error)
+	require.Equal(t, "disabled", updatedCfg.CrowdSecMode)
+	require.False(t, updatedCfg.Enabled)
+}
+
+// TestCrowdsecHandler_ActorFromContext tests actor extraction from Gin context
+func TestCrowdsecHandler_ActorFromContext(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	// Test with userID present
+	c1, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c1.Set("userID", 123)
+	actor1 := actorFromContext(c1)
+	require.Equal(t, "user:123", actor1)
+
+	// Test without userID
+	c2, _ := gin.CreateTestContext(httptest.NewRecorder())
+	actor2 := actorFromContext(c2)
+	require.Equal(t, "unknown", actor2)
+}
+
+// TestCrowdsecHandler_IsCerberusEnabled_EnvVar tests Cerberus feature flag via environment variable
+func TestCrowdsecHandler_IsCerberusEnabled_EnvVar(t *testing.T) {
+	// Note: Cannot use t.Parallel() with t.Setenv in subtests
+	gin.SetMode(gin.TestMode)
+
+	testCases := []struct {
+		name     string
+		envKey   string
+		envValue string
+		expected bool
+	}{
+		{"FEATURE_CERBERUS_ENABLED=true", "FEATURE_CERBERUS_ENABLED", "true", true},
+		{"FEATURE_CERBERUS_ENABLED=false", "FEATURE_CERBERUS_ENABLED", "false", false},
+		{"CERBERUS_ENABLED=1", "CERBERUS_ENABLED", "1", true},
+		{"CERBERUS_ENABLED=0", "CERBERUS_ENABLED", "0", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(tc.envKey, tc.envValue)
+			db := setupCrowdDB(t)
+			tmpDir := t.TempDir()
+			h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", tmpDir)
+
+			result := h.isCerberusEnabled()
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
