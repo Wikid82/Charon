@@ -24,7 +24,7 @@ func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
 	return NewUserHandler(db), db
 }
 
@@ -229,7 +229,7 @@ func TestUserHandler_Errors(t *testing.T) {
 	// Update on non-existent record usually returns nil error in GORM unless configured otherwise.
 	// However, let's see if we can force an error by closing DB? No, shared DB.
 	// We can drop the table?
-	db.Migrator().DropTable(&models.User{})
+	_ = db.Migrator().DropTable(&models.User{})
 	req, _ = http.NewRequest("POST", "/api-key-not-found", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -247,7 +247,7 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 		Name:   "Test User",
 		APIKey: uuid.NewString(),
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
@@ -396,7 +396,7 @@ func setupUserHandlerWithProxyHosts(t *testing.T) (*UserHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
 	return NewUserHandler(db), db
 }
 

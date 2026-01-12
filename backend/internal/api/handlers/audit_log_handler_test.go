@@ -376,7 +376,7 @@ func TestAuditLogHandler_ServiceErrors(t *testing.T) {
 		// Close the database to trigger error
 		sqlDB, err := db.DB()
 		assert.NoError(t, err)
-		sqlDB.Close()
+		_ = sqlDB.Close()
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -621,14 +621,14 @@ func TestAuditLogHandler_Get_InternalError(t *testing.T) {
 	// Create a fresh DB and immediately close it to simulate internal error
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
-	db.AutoMigrate(&models.SecurityAudit{})
+	_ = db.AutoMigrate(&models.SecurityAudit{})
 
 	securityService := services.NewSecurityService(db)
 	handler := NewAuditLogHandler(securityService)
 
 	// Close the DB to force internal error (not "not found")
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

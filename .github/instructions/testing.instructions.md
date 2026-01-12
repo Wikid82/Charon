@@ -4,6 +4,16 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 ---
 # Testing Protocols
 
+## 0. E2E Verification First (Playwright)
+
+**MANDATORY**: Before running unit tests, verify the application functions correctly end-to-end.
+
+* **Run Playwright E2E Tests**: Execute `npx playwright test --project=chromium` from the project root.
+* **Why First**: If the application is broken at the E2E level, unit tests may need updates. Playwright catches integration issues early.
+* **Base URL**: Tests use `PLAYWRIGHT_BASE_URL` env var or default from `playwright.config.js` (Tailscale IP: `http://100.98.12.109:8080`).
+* **On Failure**: Analyze failures, trace root cause through frontend → backend flow, then fix before proceeding to unit tests.
+* **Scope**: Run relevant test files for the feature being modified (e.g., `tests/manual-dns-provider.spec.ts`).
+
 ## 1. Execution Environment
 * **No Truncation:** Never use pipe commands (e.g., `head`, `tail`) or flags that limit stdout/stderr. If a test hangs, it likely requires an interactive input or is caught in a loop; analyze the full output to identify the block.
 * **Task-Based Execution:** Do not manually construct test strings. Use existing project tasks (e.g., `npm test`, `go test ./...`). If a specific sub-module requires frequent testing, generate a new task definition in the project's configuration file (e.g., `.vscode/tasks.json`) before proceeding.

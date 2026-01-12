@@ -168,7 +168,7 @@ func TestGetCredentialForDomain_NoEncryptionKey(t *testing.T) {
 	origKeys := map[string]string{}
 	for _, key := range []string{"CHARON_ENCRYPTION_KEY", "ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
 		origKeys[key] = os.Getenv(key)
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 	defer func() {
 		for key, val := range origKeys {

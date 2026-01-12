@@ -19,7 +19,7 @@ func setupAuthService(t *testing.T) *services.AuthService {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{})
+	_ = db.AutoMigrate(&models.User{})
 	cfg := config.Config{JWTSecret: "test-secret"}
 	return services.NewAuthService(db, cfg)
 }

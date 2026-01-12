@@ -122,7 +122,7 @@ func setupSettingsTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{})
 	return db
 }
 
@@ -281,7 +281,7 @@ func setupSettingsHandlerWithMail(t *testing.T) (*handlers.SettingsHandler, *gor
 	if err != nil {
 		panic("failed to connect to test database")
 	}
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{})
 	return handlers.NewSettingsHandler(db), db
 }
 
@@ -307,7 +307,7 @@ func TestSettingsHandler_GetSMTPConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, "smtp.example.com", resp["host"])
 	assert.Equal(t, float64(587), resp["port"])
 	assert.Equal(t, "********", resp["password"]) // Password should be masked
@@ -328,7 +328,7 @@ func TestSettingsHandler_GetSMTPConfig_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["configured"])
 }
 
@@ -496,7 +496,7 @@ func TestSettingsHandler_TestSMTPConfig_NotConfigured(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
 }
 
@@ -589,7 +589,7 @@ func TestSettingsHandler_SendTestEmail_NotConfigured(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["success"])
 }
 
@@ -687,7 +687,7 @@ func TestSettingsHandler_ValidatePublicURL_InvalidFormat(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, false, resp["valid"])
 		})
 	}
@@ -726,7 +726,7 @@ func TestSettingsHandler_ValidatePublicURL_Success(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, true, resp["valid"])
 			assert.Equal(t, tc.expected, resp["normalized"])
 		})
@@ -811,7 +811,7 @@ func TestSettingsHandler_TestPublicURL_InvalidURL(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	// BadRequest responses only have 'error' field, not 'reachable'
 	assert.Contains(t, resp["error"].(string), "parse")
 }
@@ -850,7 +850,7 @@ func TestSettingsHandler_TestPublicURL_PrivateIPBlocked(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
 			var resp map[string]any
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, false, resp["reachable"])
 			// Verify error message contains relevant security text
 			errorMsg := resp["error"].(string)
@@ -892,7 +892,7 @@ func TestSettingsHandler_TestPublicURL_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 	// The test verifies the handler works with a real public URL
 	assert.Equal(t, true, resp["reachable"], "example.com should be reachable")
@@ -920,7 +920,7 @@ func TestSettingsHandler_TestPublicURL_DNSFailure(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code) // Returns 200 but with reachable=false
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["reachable"])
 	// DNS errors contain "dns" or "resolution" keywords (case-insensitive)
 	errorMsg := resp["error"].(string)
@@ -1078,7 +1078,7 @@ func TestSettingsHandler_TestPublicURL_EmbeddedCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.False(t, resp["reachable"].(bool))
 	assert.Contains(t, resp["error"].(string), "credentials")
 }

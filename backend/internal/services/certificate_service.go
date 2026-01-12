@@ -156,12 +156,13 @@ func (s *CertificateService) SyncFromDisk() error {
 					isNewStaging := strings.Contains(provider, "staging")
 					shouldUpdateCert := false
 
-					if isExistingStaging && !isNewStaging {
+					switch {
+					case isExistingStaging && !isNewStaging:
 						// Upgrade from staging to production - always update
 						shouldUpdateCert = true
-					} else if !isExistingStaging && isNewStaging {
+					case !isExistingStaging && isNewStaging:
 						// Don't downgrade from production to staging - skip
-					} else if existing.Certificate != string(certData) {
+					case existing.Certificate != string(certData):
 						// Same type but different content - update
 						shouldUpdateCert = true
 					}

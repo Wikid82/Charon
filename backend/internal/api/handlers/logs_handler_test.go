@@ -69,7 +69,7 @@ func setupLogsTest(t *testing.T) (*gin.Engine, *services.LogService, string) {
 
 func TestLogsLifecycle(t *testing.T) {
 	router, _, tmpDir := setupLogsTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. List logs
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
@@ -99,9 +99,9 @@ func TestLogsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var content struct {
-		Filename string        `json:"filename"`
-		Logs     []any `json:"logs"`
-		Total    int           `json:"total"`
+		Filename string `json:"filename"`
+		Logs     []any  `json:"logs"`
+		Total    int    `json:"total"`
 	}
 	err = json.Unmarshal(resp.Body.Bytes(), &content)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestLogsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, resp.Code)
 
 	// 6. List logs error (delete directory)
-	os.RemoveAll(filepath.Join(tmpDir, "data", "logs"))
+	_ = os.RemoveAll(filepath.Join(tmpDir, "data", "logs"))
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/logs", http.NoBody)
 	resp = httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -141,7 +141,7 @@ func TestLogsLifecycle(t *testing.T) {
 
 func TestLogsHandler_PathTraversal(t *testing.T) {
 	_, _, tmpDir := setupLogsTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Manually invoke handler to bypass Gin router cleaning
 	w := httptest.NewRecorder()

@@ -18,7 +18,7 @@ import (
 func setupDomainCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.Domain{})
+	_ = db.AutoMigrate(&models.Domain{})
 	return db
 }
 
@@ -28,7 +28,7 @@ func TestDomainHandler_List_Error(t *testing.T) {
 	h := NewDomainHandler(db, nil)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Domain{})
+	_ = db.Migrator().DropTable(&models.Domain{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -60,7 +60,7 @@ func TestDomainHandler_Create_DBError(t *testing.T) {
 	h := NewDomainHandler(db, nil)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Domain{})
+	_ = db.Migrator().DropTable(&models.Domain{})
 
 	body, _ := json.Marshal(map[string]string{"name": "example.com"})
 
@@ -81,7 +81,7 @@ func TestDomainHandler_Delete_Error(t *testing.T) {
 	h := NewDomainHandler(db, nil)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Domain{})
+	_ = db.Migrator().DropTable(&models.Domain{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -98,7 +98,7 @@ func TestDomainHandler_Delete_Error(t *testing.T) {
 func setupRemoteServerCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.RemoteServer{})
+	_ = db.AutoMigrate(&models.RemoteServer{})
 	return db
 }
 
@@ -109,7 +109,7 @@ func TestRemoteServerHandler_List_Error(t *testing.T) {
 	h := NewRemoteServerHandler(svc, nil)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.RemoteServer{})
+	_ = db.Migrator().DropTable(&models.RemoteServer{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -162,7 +162,7 @@ func TestRemoteServerHandler_Update_InvalidJSON(t *testing.T) {
 
 	// Create a server first
 	server := &models.RemoteServer{Name: "Test", Host: "localhost", Port: 22}
-	svc.Create(server)
+	_ = svc.Create(server)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -234,7 +234,7 @@ func TestRemoteServerHandler_TestConnectionCustom_Unreachable(t *testing.T) {
 func setupUptimeCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHeartbeat{})
+	_ = db.AutoMigrate(&models.UptimeMonitor{}, &models.UptimeHeartbeat{})
 	return db
 }
 
@@ -245,7 +245,7 @@ func TestUptimeHandler_List_Error(t *testing.T) {
 	h := NewUptimeHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.UptimeMonitor{})
+	_ = db.Migrator().DropTable(&models.UptimeMonitor{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -263,7 +263,7 @@ func TestUptimeHandler_GetHistory_Error(t *testing.T) {
 	h := NewUptimeHandler(svc)
 
 	// Drop history table
-	db.Migrator().DropTable(&models.UptimeHeartbeat{})
+	_ = db.Migrator().DropTable(&models.UptimeHeartbeat{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -299,7 +299,7 @@ func TestUptimeHandler_Sync_Error(t *testing.T) {
 	h := NewUptimeHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.UptimeMonitor{})
+	_ = db.Migrator().DropTable(&models.UptimeMonitor{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -317,7 +317,7 @@ func TestUptimeHandler_Delete_Error(t *testing.T) {
 	h := NewUptimeHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.UptimeMonitor{})
+	_ = db.Migrator().DropTable(&models.UptimeMonitor{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

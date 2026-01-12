@@ -16,7 +16,7 @@ import (
 func setupUserCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
 	return db
 }
 
@@ -26,7 +26,7 @@ func TestUserHandler_GetSetupStatus_Error(t *testing.T) {
 	h := NewUserHandler(db)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.User{})
+	_ = db.Migrator().DropTable(&models.User{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -43,7 +43,7 @@ func TestUserHandler_Setup_CheckStatusError(t *testing.T) {
 	h := NewUserHandler(db)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.User{})
+	_ = db.Migrator().DropTable(&models.User{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -61,7 +61,7 @@ func TestUserHandler_Setup_AlreadyCompleted(t *testing.T) {
 
 	// Create a user to mark setup as complete
 	user := &models.User{UUID: "uuid-a", Name: "Admin", Email: "admin@test.com", Role: "admin"}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	w := httptest.NewRecorder()
@@ -108,7 +108,7 @@ func TestUserHandler_RegenerateAPIKey_DBError(t *testing.T) {
 	h := NewUserHandler(db)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.User{})
+	_ = db.Migrator().DropTable(&models.User{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -207,11 +207,11 @@ func TestUserHandler_UpdateProfile_EmailConflict(t *testing.T) {
 
 	// Create two users
 	user1 := &models.User{UUID: "uuid-1", Name: "User1", Email: "user1@test.com", Role: "admin", APIKey: "key1"}
-	user1.SetPassword("password123")
+	_ = user1.SetPassword("password123")
 	db.Create(user1)
 
 	user2 := &models.User{UUID: "uuid-2", Name: "User2", Email: "user2@test.com", Role: "admin", APIKey: "key2"}
-	user2.SetPassword("password123")
+	_ = user2.SetPassword("password123")
 	db.Create(user2)
 
 	// Try to change user2's email to user1's email
@@ -239,7 +239,7 @@ func TestUserHandler_UpdateProfile_EmailChangeNoPassword(t *testing.T) {
 	h := NewUserHandler(db)
 
 	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: "admin"}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	// Try to change email without password
@@ -266,7 +266,7 @@ func TestUserHandler_UpdateProfile_WrongPassword(t *testing.T) {
 	h := NewUserHandler(db)
 
 	user := &models.User{UUID: "uuid-u", Name: "User", Email: "user@test.com", Role: "admin"}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	// Try to change email with wrong password

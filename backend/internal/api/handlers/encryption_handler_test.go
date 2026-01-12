@@ -23,7 +23,7 @@ func setupEncryptionTestDB(t *testing.T) *gorm.DB {
 	// Use a unique file-based database for each test to avoid sharing state
 	dbPath := fmt.Sprintf("/tmp/test_encryption_%d.db", time.Now().UnixNano())
 	t.Cleanup(func() {
-		os.Remove(dbPath)
+		_ = os.Remove(dbPath)
 	})
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
@@ -69,8 +69,8 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 	// Generate test keys
 	currentKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 	rotationService, err := crypto.NewRotationService(db)
 	require.NoError(t, err)
@@ -111,8 +111,8 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 	t.Run("status shows next key when configured", func(t *testing.T) {
 		nextKey, err := crypto.GenerateNewKey()
 		require.NoError(t, err)
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rotationService, err := crypto.NewRotationService(db)
 		require.NoError(t, err)
@@ -137,7 +137,7 @@ func TestEncryptionHandler_GetStatus(t *testing.T) {
 		// Close the database to trigger an error
 		sqlDB, err := db.DB()
 		require.NoError(t, err)
-		sqlDB.Close()
+		_ = sqlDB.Close()
 
 		rotationService, err := crypto.NewRotationService(db)
 		require.NoError(t, err)
@@ -163,11 +163,11 @@ func TestEncryptionHandler_Rotate(t *testing.T) {
 	nextKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
 
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
 	defer func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
 	}()
 
 	// Create test providers
@@ -233,8 +233,8 @@ func TestEncryptionHandler_Rotate(t *testing.T) {
 	})
 
 	t.Run("rotation fails without next key", func(t *testing.T) {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
-		defer os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		defer func() { _ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey) }()
 
 		rotationService, err := crypto.NewRotationService(db)
 		require.NoError(t, err)
@@ -256,8 +256,8 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 
 	currentKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 	rotationService, err := crypto.NewRotationService(db)
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 			EventCategory: "encryption",
 			Details:       "{}",
 		}
-		securityService.LogAudit(audit)
+		_ = securityService.LogAudit(audit)
 	}
 
 	// Flush async audit logging
@@ -330,7 +330,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 	t.Run("history error when service fails", func(t *testing.T) {
 		// Create a new DB that will be closed to trigger error
 		dbPath := fmt.Sprintf("/tmp/test_encryption_fail_%d.db", time.Now().UnixNano())
-		defer os.Remove(dbPath)
+		defer func() { _ = os.Remove(dbPath) }()
 
 		failDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{PrepareStmt: false})
 		require.NoError(t, err)
@@ -338,8 +338,8 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 
 		currentKey, err := crypto.GenerateNewKey()
 		require.NoError(t, err)
-		os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 		rotationService, err := crypto.NewRotationService(failDB)
 		require.NoError(t, err)
@@ -349,7 +349,7 @@ func TestEncryptionHandler_GetHistory(t *testing.T) {
 		// Close the database to trigger errors
 		sqlDB, err := failDB.DB()
 		require.NoError(t, err)
-		sqlDB.Close()
+		_ = sqlDB.Close()
 
 		handler := NewEncryptionHandler(rotationService, failSecurityService)
 		router := setupEncryptionTestRouter(handler, true)
@@ -370,8 +370,8 @@ func TestEncryptionHandler_Validate(t *testing.T) {
 
 	currentKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 	rotationService, err := crypto.NewRotationService(db)
 	require.NoError(t, err)
@@ -418,8 +418,8 @@ func TestEncryptionHandler_Validate(t *testing.T) {
 
 	t.Run("validation fails with invalid key configuration", func(t *testing.T) {
 		// Unset the encryption key to trigger validation failure
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		defer os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		defer func() { _ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey) }()
 
 		// Create rotation service with no key configured
 		rotationService, err := crypto.NewRotationService(db)
@@ -464,8 +464,8 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 	nextKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
 
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
 
 	// Create initial provider
 	currentService, err := crypto.NewEncryptionService(currentKey)
@@ -505,7 +505,7 @@ func TestEncryptionHandler_IntegrationFlow(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Step 3: Configure next key
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
 		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
 
 		// Reinitialize rotation service to pick up new key
@@ -643,8 +643,8 @@ func TestEncryptionHandler_RefreshKey_RotatesCredentials(t *testing.T) {
 	nextKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
 
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
 	defer func() {
 		os.Unsetenv("CHARON_ENCRYPTION_KEY")
 		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
@@ -699,7 +699,7 @@ func TestEncryptionHandler_RefreshKey_FailsWithoutProvider(t *testing.T) {
 	// Set only current key, no next key
 	currentKey, err := crypto.GenerateNewKey()
 	require.NoError(t, err)
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
 	defer os.Unsetenv("CHARON_ENCRYPTION_KEY")
 
 	rotationService, err := crypto.NewRotationService(db)
@@ -750,8 +750,8 @@ func TestEncryptionHandler_RefreshKey_InvalidOldKey(t *testing.T) {
 	require.NoError(t, db.Create(&provider).Error)
 
 	// Now set wrong key and try to rotate
-	os.Setenv("CHARON_ENCRYPTION_KEY", wrongKey)
-	os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", wrongKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
 	defer func() {
 		os.Unsetenv("CHARON_ENCRYPTION_KEY")
 		os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")

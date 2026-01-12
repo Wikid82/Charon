@@ -25,7 +25,7 @@ import (
 func setupNotificationTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
+	_ = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{})
 	return db
 }
 
@@ -44,8 +44,8 @@ func TestNotificationService_List(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	svc.Create(models.NotificationTypeInfo, "N1", "M1")
-	svc.Create(models.NotificationTypeInfo, "N2", "M2")
+	_, _ = svc.Create(models.NotificationTypeInfo, "N1", "M1")
+	_, _ = svc.Create(models.NotificationTypeInfo, "N2", "M2")
 
 	list, err := svc.List(false)
 	require.NoError(t, err)
@@ -78,8 +78,8 @@ func TestNotificationService_MarkAllAsRead(t *testing.T) {
 	db := setupNotificationTestDB(t)
 	svc := NewNotificationService(db)
 
-	svc.Create(models.NotificationTypeInfo, "N1", "M1")
-	svc.Create(models.NotificationTypeInfo, "N2", "M2")
+	_, _ = svc.Create(models.NotificationTypeInfo, "N1", "M1")
+	_, _ = svc.Create(models.NotificationTypeInfo, "N2", "M2")
 
 	err := svc.MarkAllAsRead()
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestNotificationService_TestProvider_Webhook(t *testing.T) {
 	// Start a test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		// Minimal template uses lowercase keys: title, message
 		assert.Equal(t, "Test Notification", body["title"])
 		w.WriteHeader(http.StatusOK)
@@ -168,7 +168,7 @@ func TestNotificationService_SendExternal(t *testing.T) {
 		Enabled:          true,
 		NotifyProxyHosts: true,
 	}
-	svc.CreateProvider(&provider)
+	_ = svc.CreateProvider(&provider)
 
 	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
 
@@ -188,7 +188,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	rcvMinimal := make(chan map[string]any, 1)
 	tsMin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		rcvMinimal <- body
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -202,7 +202,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 		NotifyUptime: true,
 		Template:     "minimal",
 	}
-	svc.CreateProvider(&providerMin)
+	_ = svc.CreateProvider(&providerMin)
 
 	data := map[string]any{"Title": "Min Title", "Message": "Min Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime"}
 	svc.SendExternal(context.Background(), "uptime", "Min Title", "Min Message", data)
@@ -223,7 +223,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 	rcvDetailed := make(chan map[string]any, 1)
 	tsDet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		rcvDetailed <- body
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -237,7 +237,7 @@ func TestNotificationService_SendExternal_MinimalVsDetailedTemplates(t *testing.
 		NotifyUptime: true,
 		Template:     "detailed",
 	}
-	svc.CreateProvider(&providerDet)
+	_ = svc.CreateProvider(&providerDet)
 
 	dataDet := map[string]any{"Title": "Det Title", "Message": "Det Message", "Time": time.Now().Format(time.RFC3339), "EventType": "uptime", "HostName": "example-host", "HostIP": "1.2.3.4", "ServiceCount": 1, "Services": []map[string]any{{"Name": "svc1"}}}
 	svc.SendExternal(context.Background(), "uptime", "Det Title", "Det Message", dataDet)
@@ -276,7 +276,7 @@ func TestNotificationService_SendExternal_Filtered(t *testing.T) {
 		Enabled:          true,
 		NotifyProxyHosts: false, // Disabled
 	}
-	svc.CreateProvider(&provider)
+	_ = svc.CreateProvider(&provider)
 	// Force update to false because GORM default tag might override zero value (false) on Create
 	db.Model(&provider).Update("notify_proxy_hosts", false)
 
@@ -301,7 +301,7 @@ func TestNotificationService_SendExternal_Shoutrrr(t *testing.T) {
 		Enabled:          true,
 		NotifyProxyHosts: true,
 	}
-	svc.CreateProvider(&provider)
+	_ = svc.CreateProvider(&provider)
 
 	// This will log an error but should cover the code path
 	svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
@@ -403,7 +403,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		received := make(chan struct{})
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if custom, ok := body["custom"]; ok {
 				receivedBody = custom.(string)
 			}
@@ -418,7 +418,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			Config: `{"custom": "Test: {{.Title}}"}`,
 		}
 		data := map[string]any{"Title": "My Title", "Message": "Test Message"}
-		svc.sendJSONPayload(context.Background(), provider, data)
+		_ = svc.sendJSONPayload(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -433,7 +433,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 		received := make(chan struct{})
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if title, ok := body["title"]; ok {
 				receivedContent = title.(string)
 			}
@@ -448,7 +448,7 @@ func TestNotificationService_SendCustomWebhook_Errors(t *testing.T) {
 			// Config is empty, so default template is used: minimal
 		}
 		data := map[string]any{"Title": "Default Title", "Message": "Test Message"}
-		svc.sendJSONPayload(context.Background(), provider, data)
+		_ = svc.sendJSONPayload(context.Background(), provider, data)
 
 		select {
 		case <-received:
@@ -660,7 +660,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 			URL:     "http://example.com",
 			Enabled: false,
 		}
-		svc.CreateProvider(&provider)
+		_ = svc.CreateProvider(&provider)
 
 		// Should complete without error
 		svc.SendExternal(context.Background(), "proxy_host", "Title", "Message", nil)
@@ -720,7 +720,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 		receivedCustom.Store("")
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if custom, ok := body["custom"]; ok {
 				receivedCustom.Store(custom.(string))
 			}
@@ -736,7 +736,7 @@ func TestNotificationService_SendExternal_EdgeCases(t *testing.T) {
 			NotifyProxyHosts: true,
 			Config:           `{"custom": "{{.CustomField}}"}`,
 		}
-		svc.CreateProvider(&provider)
+		_ = svc.CreateProvider(&provider)
 
 		customData := map[string]any{
 			"CustomField": "test-value",
@@ -1027,7 +1027,7 @@ func TestSendCustomWebhook_TemplateSelection(t *testing.T) {
 			var receivedBody map[string]any
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				json.Unmarshal(body, &receivedBody)
+				_ = json.Unmarshal(body, &receivedBody)
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer server.Close()
@@ -1071,7 +1071,7 @@ func TestSendCustomWebhook_EmptyCustomTemplateDefaultsToMinimal(t *testing.T) {
 	var receivedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		json.Unmarshal(body, &receivedBody)
+		_ = json.Unmarshal(body, &receivedBody)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -1943,13 +1943,13 @@ func TestRenderTemplate_CustomTemplateWithWhitespace(t *testing.T) {
 func TestListTemplates_DBError(t *testing.T) {
 	// Create a DB connection and close it to simulate error
 	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.NotificationTemplate{})
+	_ = db.AutoMigrate(&models.NotificationTemplate{})
 
 	svc := NewNotificationService(db)
 
 	// Close the underlying connection to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	_, err := svc.ListTemplates()
 	require.Error(t, err)
@@ -1958,13 +1958,13 @@ func TestListTemplates_DBError(t *testing.T) {
 func TestSendExternal_DBFetchError(t *testing.T) {
 	// Create a DB connection and close it to simulate error
 	db, _ := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.NotificationProvider{})
+	_ = db.AutoMigrate(&models.NotificationProvider{})
 
 	svc := NewNotificationService(db)
 
 	// Close the underlying connection to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Should not panic, just log error and return
 	svc.SendExternal(context.Background(), "test", "Title", "Message", nil)

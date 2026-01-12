@@ -191,7 +191,7 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 2)
 }
@@ -360,7 +360,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.True(t, resp["deleted"].(bool))
 
 	// Verify only one exclusion remains
@@ -368,7 +368,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	req, _ = http.NewRequest("GET", "/security/waf/exclusions", http.NoBody)
 	router.ServeHTTP(w, req)
 
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
 	first := exclusions[0].(map[string]any)
@@ -403,7 +403,7 @@ func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	exclusions := resp["exclusions"].([]any)
 	assert.Len(t, exclusions, 1)
 	first := exclusions[0].(map[string]any)
@@ -514,7 +514,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Len(t, resp["exclusions"].([]any), 0)
 
 	// Step 2: Add first exclusion (full rule removal)

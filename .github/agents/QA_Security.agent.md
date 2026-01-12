@@ -70,13 +70,21 @@ When Trivy or CodeQLreports CVEs in container dependencies (especially Caddy tra
 
 The task is not complete until ALL of the following pass with zero issues:
 
-1. **Security Scans**:
+1. **Playwright E2E Tests (MANDATORY - Run First)**:
+    - **Run**: `npx playwright test --project=chromium` from project root
+    - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
+    - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
+    - **On Failure**: Trace root cause through frontend → backend flow, report to Management or Dev subagent
+    - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default `http://100.98.12.109:8080`
+    - All E2E tests must pass before proceeding
+
+2. **Security Scans**:
     - CodeQL: Run VS Code task "Security: CodeQL All (CI-Aligned)" or individual Go/JS tasks
     - Trivy: Run VS Code task "Security: Trivy Scan"
     - Go Vulnerabilities: Run VS Code task "Security: Go Vulnerability Check"
     - Zero Critical/High issues allowed
 
-2. **Coverage Tests (MANDATORY - Run Explicitly)**:
+3. **Coverage Tests (MANDATORY - Run Explicitly)**:
     - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
     - **Backend**: Run VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`
     - **Frontend**: Run VS Code task "Test: Frontend with Coverage" or execute `scripts/frontend-test-coverage.sh`
@@ -84,14 +92,14 @@ The task is not complete until ALL of the following pass with zero issues:
     - Minimum coverage: 85% for both backend and frontend.
     - All tests must pass with zero failures.
 
-3. **Type Safety (Frontend)**:
+4. **Type Safety (Frontend)**:
     - Run VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`
     - **Why**: This check is in manual stage of pre-commit for performance. You MUST run it explicitly.
     - Fix all type errors immediately.
 
-4. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 1)
+5. **Pre-commit Hooks**: Run `pre-commit run --all-files` (this runs fast hooks only; coverage was verified in step 3)
 
-5. **Linting (MANDATORY - Run All Explicitly)**:
+6. **Linting (MANDATORY - Run All Explicitly)**:
     - **Backend GolangCI-Lint**: Run VS Code task "Lint: GolangCI-Lint (Docker)" - This is the FULL linter suite including gocritic, bodyclose, etc.
         - **Why**: "Lint: Go Vet" only runs `go vet`, NOT the full golangci-lint suite. CI runs golangci-lint, so you MUST run this task to match CI behavior.
         - **Command**: `cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v`

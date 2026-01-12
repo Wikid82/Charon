@@ -26,7 +26,7 @@ func setupCredentialTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	// Close database connection when test completes
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	err = db.AutoMigrate(

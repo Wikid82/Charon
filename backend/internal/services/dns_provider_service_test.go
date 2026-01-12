@@ -17,6 +17,15 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
+// testContextKey is a custom type for context keys to avoid staticcheck SA1029
+type testContextKey string
+
+const (
+	testUserIDKey    testContextKey = "user_id"
+	testClientIPKey  testContextKey = "client_ip"
+	testUserAgentKey testContextKey = "user_agent"
+)
+
 // setupTestDB creates an in-memory SQLite database for testing.
 func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	t.Helper()
@@ -60,26 +69,10 @@ func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) 
 
 	// Register cleanup
 	t.Cleanup(func() {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	return db, encryptor
-}
-
-// setupDNSServiceWithCleanup creates a DNS provider service and ensures cleanup
-func setupDNSServiceWithCleanup(t *testing.T, db *gorm.DB, encryptor *crypto.EncryptionService) *dnsProviderService {
-	t.Helper()
-
-	svc := NewDNSProviderService(db, encryptor).(*dnsProviderService)
-
-	// Register cleanup to close the security service
-	t.Cleanup(func() {
-		if svc.securityService != nil {
-			svc.securityService.Close()
-		}
-	})
-
-	return svc
 }
 
 func TestDNSProviderService_Create(t *testing.T) {
@@ -1410,7 +1403,7 @@ func TestDNSProviderService_List_DBError(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// List should fail
 	_, err = service.List(ctx)
@@ -1425,7 +1418,7 @@ func TestDNSProviderService_Get_DBError(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Get should fail with a DB error (not ErrDNSProviderNotFound)
 	_, err = service.Get(ctx, 1)
@@ -1450,7 +1443,7 @@ func TestDNSProviderService_Create_DBErrorOnDefaultUnset(t *testing.T) {
 	// Now close the DB
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Trying to create another default should fail when trying to unset the existing default
 	_, err = workingService.Create(ctx, CreateDNSProviderRequest{
@@ -1470,7 +1463,7 @@ func TestDNSProviderService_Create_DBErrorOnCreate(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Create should fail
 	_, err = service.Create(ctx, CreateDNSProviderRequest{
@@ -1497,7 +1490,7 @@ func TestDNSProviderService_Update_DBErrorOnSave(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Update should fail
 	newName := "Updated"
@@ -1535,7 +1528,7 @@ func TestDNSProviderService_Update_DBErrorOnDefaultUnset(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Update to make second provider default should fail
 	isDefault := true
@@ -1553,7 +1546,7 @@ func TestDNSProviderService_Delete_DBError(t *testing.T) {
 	// Close the DB connection to trigger error
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Delete should fail
 	err = service.Delete(ctx, 1)
@@ -1568,9 +1561,9 @@ func TestDNSProviderService_AuditLogging_Create(t *testing.T) {
 	require.NoError(t, err)
 
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), "user_id", "test-user")
-	ctx = context.WithValue(ctx, "client_ip", "192.168.1.1")
-	ctx = context.WithValue(ctx, "user_agent", "TestAgent/1.0")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "test-user")
+	ctx = context.WithValue(ctx, testClientIPKey, "192.168.1.1")
+	ctx = context.WithValue(ctx, testUserAgentKey, "TestAgent/1.0")
 
 	// Create a provider
 	req := CreateDNSProviderRequest{
@@ -1612,9 +1605,9 @@ func TestDNSProviderService_AuditLogging_Create(t *testing.T) {
 func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), "user_id", "test-user")
-	ctx = context.WithValue(ctx, "client_ip", "192.168.1.2")
-	ctx = context.WithValue(ctx, "user_agent", "TestAgent/1.0")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "test-user")
+	ctx = context.WithValue(ctx, testClientIPKey, "192.168.1.2")
+	ctx = context.WithValue(ctx, testUserAgentKey, "TestAgent/1.0")
 
 	// Create a provider first
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1666,11 +1659,20 @@ func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
 	assert.Equal(t, "Updated Name", newValues["name"])
 }
 
+// Context key types for audit logging tests
+type contextKey string
+
+const (
+	contextKeyUserID    contextKey = "user_id"
+	contextKeyClientIP  contextKey = "client_ip"
+	contextKeyUserAgent contextKey = "user_agent"
+)
+
 func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), "user_id", "admin-user")
-	ctx = context.WithValue(ctx, "client_ip", "10.0.0.1")
+	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin-user")
+	ctx = context.WithValue(ctx, contextKeyClientIP, "10.0.0.1")
 
 	// Create a provider first
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1714,7 +1716,7 @@ func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), "user_id", "test-user")
+	ctx := context.WithValue(context.Background(), contextKeyUserID, "test-user")
 
 	// Create a provider
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1749,7 +1751,7 @@ func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), "user_id", "admin")
+	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin")
 
 	// Create a provider
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1790,12 +1792,12 @@ func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 	// Test actor extraction
-	ctx := context.WithValue(context.Background(), "user_id", "user-123")
+	ctx := context.WithValue(context.Background(), contextKeyUserID, "user-123")
 	actor := getActorFromContext(ctx)
 	assert.Equal(t, "user-123", actor)
 
 	// Test with uint user ID
-	ctx = context.WithValue(context.Background(), "user_id", uint(456))
+	ctx = context.WithValue(context.Background(), contextKeyUserID, uint(456))
 	actor = getActorFromContext(ctx)
 	assert.Equal(t, "456", actor)
 
@@ -1805,12 +1807,12 @@ func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 	assert.Equal(t, "system", actor)
 
 	// Test IP extraction
-	ctx = context.WithValue(context.Background(), "client_ip", "10.0.0.1")
+	ctx = context.WithValue(context.Background(), contextKeyClientIP, "10.0.0.1")
 	ip := getIPFromContext(ctx)
 	assert.Equal(t, "10.0.0.1", ip)
 
 	// Test User-Agent extraction
-	ctx = context.WithValue(context.Background(), "user_agent", "TestAgent/2.0")
+	ctx = context.WithValue(context.Background(), contextKeyUserAgent, "TestAgent/2.0")
 	ua := getUserAgentFromContext(ctx)
 	assert.Equal(t, "TestAgent/2.0", ua)
 }

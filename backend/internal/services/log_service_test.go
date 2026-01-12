@@ -15,7 +15,7 @@ import (
 func TestLogService(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "cpm-log-service-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	dataDir := filepath.Join(tmpDir, "data")
 	logsDir := filepath.Join(dataDir, "logs")

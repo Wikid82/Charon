@@ -169,7 +169,7 @@ func TestNewDBHealthHandler(t *testing.T) {
 	// With backup service
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupSvc := services.NewBackupService(cfg)
@@ -196,7 +196,7 @@ func TestDBHealthHandler_Check_CorruptedDatabase(t *testing.T) {
 
 	// Close it
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Corrupt the database file
 	corruptDBFile(t, dbPath)
@@ -243,14 +243,14 @@ func TestDBHealthHandler_Check_BackupServiceError(t *testing.T) {
 	// Create backup service with unreadable directory
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupService := services.NewBackupService(cfg)
 
 	// Make backup directory unreadable to trigger error in GetLastBackupTime
-	os.Chmod(backupService.BackupDir, 0o000)
-	defer os.Chmod(backupService.BackupDir, 0o755) // Restore for cleanup
+	_ = os.Chmod(backupService.BackupDir, 0o000)
+	defer func() { _ = os.Chmod(backupService.BackupDir, 0o755) }() // Restore for cleanup
 
 	handler := NewDBHealthHandler(db, backupService)
 
@@ -284,7 +284,7 @@ func TestDBHealthHandler_Check_BackupTimeZero(t *testing.T) {
 	// Create backup service with empty backup directory (no backups yet)
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{DatabasePath: dbPath}
 	backupService := services.NewBackupService(cfg)
@@ -314,7 +314,7 @@ func corruptDBFile(t *testing.T, dbPath string) {
 	t.Helper()
 	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Get file size
 	stat, err := f.Stat()

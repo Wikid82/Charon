@@ -1,5 +1,4 @@
-version: "2"
-
+# golangci-lint configuration
 run:
   timeout: 5m
   tests: true
@@ -15,7 +14,7 @@ linters:
     - unused
     - errcheck
 
-linters-config:
+linters-settings:
   gocritic:
     enabled-tags:
       - diagnostic
@@ -52,19 +51,17 @@ linters-config:
       - os.WriteFile
       - os.Remove
       - (*gorm.io/gorm.DB).AutoMigrate
+      # Additional test cleanup functions
+      - (*database/sql.Rows).Close
+      - (gorm.io/gorm.Migrator).DropTable
+      - (*net/http.Response.Body).Close
+      - json.Unmarshal
+      - (*github.com/Wikid82/charon/backend/models.User).SetPassword
+      - (*github.com/Wikid82/charon/backend/internal/services.NotificationService).CreateProvider
+      - (*github.com/Wikid82/charon/backend/internal/services.ProxyHostService).Create
 
 issues:
-  exclude-generated-strict: true
-  exclude-dirs-use-default: false
-  exclude:
-    # Exclude some linters from running on tests
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
-        - govet
-        - ineffassign
-        - staticcheck
+  exclude-rules:
     # Exclude gosec file permission warnings - 0644/0755 are intentional for config/data dirs
     - linters:
         - gosec

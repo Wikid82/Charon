@@ -112,7 +112,7 @@ func TestTestURLConnectivity_RedirectValidation(t *testing.T) {
 	// Create test servers
 	privateServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Private server"))
+		_, _ = w.Write([]byte("Private server"))
 	}))
 	defer privateServer.Close()
 

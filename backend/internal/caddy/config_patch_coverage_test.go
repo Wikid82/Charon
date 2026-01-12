@@ -235,14 +235,14 @@ func TestGenerateConfig_HTTPChallenge_ExcludesIPDomains(t *testing.T) {
 }
 
 func TestGetCrowdSecAPIKey_EnvPriority(t *testing.T) {
-	os.Unsetenv("CROWDSEC_API_KEY")
-	os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
 
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer")
 	t.Setenv("CROWDSEC_API_KEY", "primary")
 	require.Equal(t, "primary", getCrowdSecAPIKey())
 
-	os.Unsetenv("CROWDSEC_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_API_KEY")
 	require.Equal(t, "bouncer", getCrowdSecAPIKey())
 }
 
