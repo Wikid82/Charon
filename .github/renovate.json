@@ -7,7 +7,7 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/**",
+    "feature/beta_release",
     "nightly"
   ],
   "timezone": "UTC",
