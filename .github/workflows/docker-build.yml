@@ -143,7 +143,7 @@ jobs:
 
       - name: Upload Image Artifact
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: pr-image-${{ github.event.pull_request.number }}
           path: /tmp/charon-pr-image.tar
@@ -500,7 +500,7 @@ jobs:
 
       # Critical Fix #1: Download image artifact
       - name: Download Image Artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: pr-image-${{ github.event.pull_request.number }}
 
@@ -597,7 +597,7 @@ jobs:
 
       - name: Upload Artifacts
         if: always()
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: supply-chain-pr-${{ github.event.pull_request.number }}
           path: |
