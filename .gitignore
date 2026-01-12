@@ -253,3 +253,4 @@ docs/plans/supply_chain_security_implementation.md.backup
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+docs/reports/performance_diagnostics.md
