@@ -134,11 +134,50 @@ jobs:
             VCS_REF=${{ github.sha }}
             CADDY_IMAGE=${{ steps.caddy.outputs.image }}
 
+      # Critical Fix: Use exact tag from metadata instead of manual reconstruction
+      # WHY: docker/build-push-action with load:true applies the exact tags from
+      # docker/metadata-action. Manual reconstruction can cause mismatches due to:
+      # - Case sensitivity variations (owner name normalization)
+      # - Tag format differences in Buildx internal behavior
+      # - Registry prefix inconsistencies
+      #
+      # SOLUTION: Extract the first tag from metadata output (which is the PR tag)
+      # and use it directly with docker save. This guarantees we reference the
+      # exact image that was loaded into the local Docker daemon.
+      #
+      # VALIDATION: Added defensive checks to fail fast with diagnostics if:
+      # 1. No tag found in metadata output
+      # 2. Image doesn't exist locally after build
+      # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
         if: github.event_name == 'pull_request'
         run: |
-          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
-          docker save ghcr.io/${IMAGE_NAME}:pr-${{ github.event.pull_request.number }} -o /tmp/charon-pr-image.tar
+          # Extract the first tag from metadata action (PR tag)
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+
+          if [[ -z "${IMAGE_TAG}" ]]; then
+            echo "❌ ERROR: No image tag found in metadata output"
+            echo "Metadata tags output:"
+            echo "${{ steps.meta.outputs.tags }}"
+            exit 1
+          fi
+
+          echo "🔍 Detected image tag: ${IMAGE_TAG}"
+
+          # Verify the image exists locally
+          if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Image ${IMAGE_TAG} not found locally"
+            echo "📋 Available images:"
+            docker images
+            exit 1
+          fi
+
+          # Save the image using the exact tag from metadata
+          echo "💾 Saving image: ${IMAGE_TAG}"
+          docker save "${IMAGE_TAG}" -o /tmp/charon-pr-image.tar
+
+          # Verify the artifact was created
+          echo "✅ Artifact created:"
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
@@ -147,7 +186,7 @@ jobs:
         with:
           name: pr-image-${{ github.event.pull_request.number }}
           path: /tmp/charon-pr-image.tar
-          retention-days: 1
+          retention-days: 1  # Only needed for workflow duration
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         if: steps.skip.outputs.skip_build != 'true'
@@ -507,14 +546,28 @@ jobs:
       # Critical Fix #1: Load Docker image
       - name: Load Docker Image
         run: |
+          echo "📦 Loading image from artifact..."
           docker load -i charon-pr-image.tar
-          docker images
           echo "✅ Image loaded successfully"
 
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Verify Loaded Image
+        run: |
+          IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+          echo "🔍 Verifying image: ${IMAGE_REF}"
+
+          if ! docker image inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Expected image ${IMAGE_REF} not found after load"
+            echo "📋 Available images:"
+            docker images
+            exit 1
+          fi
+
+          echo "✅ Image verified: ${IMAGE_REF}"
 
       - name: Set PR image reference
         id: image
