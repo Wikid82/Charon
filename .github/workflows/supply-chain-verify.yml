@@ -43,7 +43,7 @@ jobs:
          github.event.workflow_run.event != 'pull_request'))
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
 
       # Debug: Log workflow_run context for initial validation (can be removed after confidence)
       - name: Debug Workflow Run Context
@@ -628,7 +628,7 @@ jobs:
     needs: verify-sbom
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
 
       - name: Install Verification Tools
         run: |
@@ -725,7 +725,7 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
 
       - name: Install Verification Tools
         run: |
