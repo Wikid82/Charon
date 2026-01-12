@@ -22,7 +22,7 @@ import (
 func setupImportCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{}, &models.Domain{})
+	_ = db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{}, &models.Domain{})
 	return db
 }
 
@@ -90,7 +90,7 @@ func TestImportHandler_Commit_SessionNotFound(t *testing.T) {
 func setupRemoteServerCoverageDB2(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.RemoteServer{})
+	_ = db.AutoMigrate(&models.RemoteServer{})
 	return db
 }
 
@@ -106,7 +106,7 @@ func TestRemoteServerHandler_TestConnection_Unreachable(t *testing.T) {
 		Host: "192.0.2.1", // TEST-NET - not routable
 		Port: 65535,
 	}
-	svc.Create(server)
+	_ = svc.Create(server)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -124,7 +124,7 @@ func TestRemoteServerHandler_TestConnection_Unreachable(t *testing.T) {
 func setupSecurityCoverageDB3(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(
+	_ = db.AutoMigrate(
 		&models.SecurityConfig{},
 		&models.SecurityDecision{},
 		&models.SecurityRuleSet{},
@@ -140,7 +140,7 @@ func TestSecurityHandler_GetConfig_InternalError(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop table to cause internal error (not ErrSecurityConfigNotFound)
-	db.Migrator().DropTable(&models.SecurityConfig{})
+	_ = db.Migrator().DropTable(&models.SecurityConfig{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -183,7 +183,7 @@ func TestSecurityHandler_GenerateBreakGlass_Error(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop the config table so generate fails
-	db.Migrator().DropTable(&models.SecurityConfig{})
+	_ = db.Migrator().DropTable(&models.SecurityConfig{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -202,7 +202,7 @@ func TestSecurityHandler_ListDecisions_Error(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop decisions table
-	db.Migrator().DropTable(&models.SecurityDecision{})
+	_ = db.Migrator().DropTable(&models.SecurityDecision{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -221,7 +221,7 @@ func TestSecurityHandler_ListRuleSets_Error(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop rulesets table
-	db.Migrator().DropTable(&models.SecurityRuleSet{})
+	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -240,7 +240,7 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop table to cause upsert to fail
-	db.Migrator().DropTable(&models.SecurityRuleSet{})
+	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})
 
 	body, _ := json.Marshal(map[string]any{
 		"name":    "test-ruleset",
@@ -265,7 +265,7 @@ func TestSecurityHandler_CreateDecision_LogError(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop decisions table to cause log to fail
-	db.Migrator().DropTable(&models.SecurityDecision{})
+	_ = db.Migrator().DropTable(&models.SecurityDecision{})
 
 	body, _ := json.Marshal(map[string]any{
 		"ip":     "192.168.1.1",
@@ -290,7 +290,7 @@ func TestSecurityHandler_DeleteRuleSet_Error(t *testing.T) {
 	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 
 	// Drop table to cause delete to fail (not NotFound but table error)
-	db.Migrator().DropTable(&models.SecurityRuleSet{})
+	_ = db.Migrator().DropTable(&models.SecurityRuleSet{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -321,7 +321,7 @@ func TestCrowdsec_ImportConfig_EmptyUpload(t *testing.T) {
 	fw, _ := mw.CreateFormFile("file", "empty.tar.gz")
 	// Write nothing to make file empty
 	_ = fw
-	mw.Close()
+	_ = mw.Close()
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/v1/admin/crowdsec/import", buf)
@@ -451,10 +451,10 @@ func setupLogsDownloadTest(t *testing.T) (h *LogsHandler, logsDir string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
 
 	logsDir = filepath.Join(dataDir, "logs")
-	os.MkdirAll(logsDir, 0o755)
+	_ = os.MkdirAll(logsDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
 	cfg := &config.Config{DatabasePath: dbPath}
@@ -499,7 +499,7 @@ func TestLogsHandler_Download_Success(t *testing.T) {
 	h, logsDir := setupLogsDownloadTest(t)
 
 	// Create a log file to download
-	os.WriteFile(filepath.Join(logsDir, "test.log"), []byte("log content"), 0o644)
+	_ = os.WriteFile(filepath.Join(logsDir, "test.log"), []byte("log content"), 0o644)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -557,11 +557,11 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 	// Create a temp dir with invalid permission for backup dir
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
 
 	// Create database file so config is valid
 	dbPath := filepath.Join(dataDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{
 		DatabasePath: dbPath,
@@ -571,8 +571,8 @@ func TestBackupHandler_List_ServiceError(t *testing.T) {
 	h := NewBackupHandler(svc)
 
 	// Make backup dir a file to cause ReadDir error
-	os.RemoveAll(svc.BackupDir)
-	os.WriteFile(svc.BackupDir, []byte("not a dir"), 0o644)
+	_ = os.RemoveAll(svc.BackupDir)
+	_ = os.WriteFile(svc.BackupDir, []byte("not a dir"), 0o644)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -589,10 +589,10 @@ func TestBackupHandler_Delete_PathTraversal(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{
 		DatabasePath: dbPath,
@@ -619,10 +619,10 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
 
 	dbPath := filepath.Join(dataDir, "charon.db")
-	os.WriteFile(dbPath, []byte("test"), 0o644)
+	_ = os.WriteFile(dbPath, []byte("test"), 0o644)
 
 	cfg := &config.Config{
 		DatabasePath: dbPath,
@@ -634,13 +634,13 @@ func TestBackupHandler_Delete_InternalError2(t *testing.T) {
 
 	// Create a backup
 	backupsDir := filepath.Join(dataDir, "backups")
-	os.MkdirAll(backupsDir, 0o755)
+	_ = os.MkdirAll(backupsDir, 0o755)
 	backupFile := filepath.Join(backupsDir, "test.zip")
-	os.WriteFile(backupFile, []byte("backup"), 0o644)
+	_ = os.WriteFile(backupFile, []byte("backup"), 0o644)
 
 	// Remove write permissions to cause delete error
-	os.Chmod(backupsDir, 0o555)
-	defer os.Chmod(backupsDir, 0o755)
+	_ = os.Chmod(backupsDir, 0o555)
+	defer func() { _ = os.Chmod(backupsDir, 0o755) }()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -697,7 +697,7 @@ func TestRemoteServerHandler_TestConnectionCustom_Unreachable2(t *testing.T) {
 func setupAuthCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
 	return db
 }
 
@@ -743,7 +743,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 	// Use a path where database file doesn't exist
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
-	os.MkdirAll(dataDir, 0o755)
+	_ = os.MkdirAll(dataDir, 0o755)
 
 	// Don't create the database file - this will cause CreateBackup to fail
 	dbPath := filepath.Join(dataDir, "charon.db")
@@ -772,7 +772,7 @@ func TestBackupHandler_Create_Error(t *testing.T) {
 func setupSettingsCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{})
 	return db
 }
 
@@ -783,7 +783,7 @@ func TestSettingsHandler_GetSettings_Error(t *testing.T) {
 	h := NewSettingsHandler(db)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Setting{})
+	_ = db.Migrator().DropTable(&models.Setting{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -825,7 +825,7 @@ func TestRemoteServerHandler_TestConnection_Reachable(t *testing.T) {
 		Host: "127.0.0.1",
 		Port: 22, // SSH port typically listening on localhost
 	}
-	svc.Create(server)
+	_ = svc.Create(server)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

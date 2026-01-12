@@ -111,7 +111,7 @@ func TestSafeDialer_BlocksPrivateIPs(t *testing.T) {
 			conn, err := dialer(ctx, "tcp", tt.address)
 			if tt.shouldBlock {
 				if err == nil {
-					conn.Close()
+					_ = conn.Close()
 					t.Errorf("expected connection to %s to be blocked", tt.address)
 				}
 			}
@@ -144,7 +144,7 @@ func TestSafeDialer_AllowsLocalhost(t *testing.T) {
 		t.Errorf("expected connection to localhost to be allowed when allowLocalhost=true, got error: %v", err)
 		return
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestSafeDialer_AllowedDomains(t *testing.T) {
@@ -204,7 +204,7 @@ func TestNewSafeHTTPClient_WithAllowLocalhost(t *testing.T) {
 	// Create a local test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer server.Close()
 
@@ -217,7 +217,7 @@ func TestNewSafeHTTPClient_WithAllowLocalhost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected request to localhost to succeed with allowLocalhost, got: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -247,7 +247,7 @@ func TestNewSafeHTTPClient_BlocksSSRF(t *testing.T) {
 			t.Parallel()
 			resp, err := client.Get(url)
 			if err == nil {
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				t.Errorf("expected request to %s to be blocked", url)
 			}
 		})
@@ -278,7 +278,7 @@ func TestNewSafeHTTPClient_WithMaxRedirects(t *testing.T) {
 
 	resp, err := client.Get(server.URL)
 	if err == nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		t.Error("expected redirect limit to be enforced")
 	}
 }
@@ -494,7 +494,7 @@ func TestNewSafeHTTPClient_NoRedirectsByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should not follow redirect - should return 302
 	if resp.StatusCode != http.StatusFound {
@@ -661,7 +661,7 @@ func TestSafeDialer_AllIPsPrivate(t *testing.T) {
 			t.Parallel()
 			conn, err := dialer(ctx, "tcp", addr)
 			if err == nil {
-				conn.Close()
+				_ = conn.Close()
 				t.Errorf("expected connection to %s to be blocked (all IPs private)", addr)
 			}
 		})
@@ -694,7 +694,7 @@ func TestNewSafeHTTPClient_RedirectToPrivateIP(t *testing.T) {
 	// Make request - should fail when trying to follow redirect to private IP
 	resp, err := client.Get(server.URL)
 	if err == nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		t.Error("expected error when redirect targets private IP")
 	}
 }
@@ -761,7 +761,7 @@ func TestNewSafeHTTPClient_TooManyRedirects(t *testing.T) {
 
 	resp, err := client.Get(server.URL)
 	if resp != nil {
-		resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err == nil {
 		t.Error("expected error for too many redirects")
@@ -810,7 +810,7 @@ func TestNewSafeHTTPClient_MetadataEndpoint(t *testing.T) {
 	// AWS metadata endpoint
 	resp, err := client.Get("http://169.254.169.254/latest/meta-data/")
 	if resp != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 	if err == nil {
 		t.Error("expected cloud metadata endpoint to be blocked")
@@ -886,7 +886,7 @@ func TestNewSafeHTTPClient_RedirectValidation(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	}))
 	defer server.Close()
 
@@ -900,7 +900,7 @@ func TestNewSafeHTTPClient_RedirectValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)

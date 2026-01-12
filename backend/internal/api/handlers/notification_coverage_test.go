@@ -19,7 +19,7 @@ import (
 func setupNotificationCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}, &models.NotificationTemplate{})
+	_ = db.AutoMigrate(&models.Notification{}, &models.NotificationProvider{}, &models.NotificationTemplate{})
 	return db
 }
 
@@ -32,7 +32,7 @@ func TestNotificationHandler_List_Error(t *testing.T) {
 	h := NewNotificationHandler(svc)
 
 	// Drop the table to cause error
-	db.Migrator().DropTable(&models.Notification{})
+	_ = db.Migrator().DropTable(&models.Notification{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -51,8 +51,8 @@ func TestNotificationHandler_List_UnreadOnly(t *testing.T) {
 	h := NewNotificationHandler(svc)
 
 	// Create some notifications
-	svc.Create(models.NotificationTypeInfo, "Test 1", "Message 1")
-	svc.Create(models.NotificationTypeInfo, "Test 2", "Message 2")
+	_, _ = svc.Create(models.NotificationTypeInfo, "Test 1", "Message 1")
+	_, _ = svc.Create(models.NotificationTypeInfo, "Test 2", "Message 2")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -70,7 +70,7 @@ func TestNotificationHandler_MarkAsRead_Error(t *testing.T) {
 	h := NewNotificationHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Notification{})
+	_ = db.Migrator().DropTable(&models.Notification{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -89,7 +89,7 @@ func TestNotificationHandler_MarkAllAsRead_Error(t *testing.T) {
 	h := NewNotificationHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.Notification{})
+	_ = db.Migrator().DropTable(&models.Notification{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -109,7 +109,7 @@ func TestNotificationProviderHandler_List_Error(t *testing.T) {
 	h := NewNotificationProviderHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationProvider{})
+	_ = db.Migrator().DropTable(&models.NotificationProvider{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -143,7 +143,7 @@ func TestNotificationProviderHandler_Create_DBError(t *testing.T) {
 	h := NewNotificationProviderHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationProvider{})
+	_ = db.Migrator().DropTable(&models.NotificationProvider{})
 
 	provider := models.NotificationProvider{
 		Name:     "Test",
@@ -243,7 +243,7 @@ func TestNotificationProviderHandler_Update_DBError(t *testing.T) {
 	h := NewNotificationProviderHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationProvider{})
+	_ = db.Migrator().DropTable(&models.NotificationProvider{})
 
 	provider := models.NotificationProvider{
 		Name:     "Test",
@@ -271,7 +271,7 @@ func TestNotificationProviderHandler_Delete_Error(t *testing.T) {
 	h := NewNotificationProviderHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationProvider{})
+	_ = db.Migrator().DropTable(&models.NotificationProvider{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -388,7 +388,7 @@ func TestNotificationTemplateHandler_List_Error(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationTemplate{})
+	_ = db.Migrator().DropTable(&models.NotificationTemplate{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -422,7 +422,7 @@ func TestNotificationTemplateHandler_Create_DBError(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationTemplate{})
+	_ = db.Migrator().DropTable(&models.NotificationTemplate{})
 
 	tmpl := models.NotificationTemplate{
 		Name:   "Test",
@@ -464,7 +464,7 @@ func TestNotificationTemplateHandler_Update_DBError(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationTemplate{})
+	_ = db.Migrator().DropTable(&models.NotificationTemplate{})
 
 	tmpl := models.NotificationTemplate{
 		Name:   "Test",
@@ -490,7 +490,7 @@ func TestNotificationTemplateHandler_Delete_Error(t *testing.T) {
 	h := NewNotificationTemplateHandler(svc)
 
 	// Drop table to cause error
-	db.Migrator().DropTable(&models.NotificationTemplate{})
+	_ = db.Migrator().DropTable(&models.NotificationTemplate{})
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

@@ -5,7 +5,7 @@
 **Estimated Time:** 48-68 hours
 **Author:** Planning Agent
 **Date:** January 8, 2026
-**Last Revised:** January 8, 2026
+**Last Revised:** January 11, 2026
 **Related:** [Phase 5 Custom Plugins Spec](phase5_custom_plugins_spec.md)
 
 ---
@@ -274,6 +274,71 @@ If Charon is unavailable during a DNS challenge:
 3. **Health check**: Caddy pre-checks Charon availability via `/health` before initiating challenges
 4. **Circuit breaker**: After 5 consecutive failures, Caddy disables the custom provider for 5 minutes
 
+#### 3.3.5 Concurrent Challenge Handling
+
+To prevent race conditions when multiple certificate requests target the same FQDN simultaneously:
+
+**Database Locking Strategy:**
+```sql
+-- Acquire exclusive lock when creating challenge for FQDN
+BEGIN;
+SELECT * FROM dns_challenges
+  WHERE fqdn = '_acme-challenge.example.com'
+  AND status IN ('created', 'pending', 'verifying')
+  FOR UPDATE NOWAIT;
+-- If lock acquired and no active challenge exists, create new challenge
+-- Otherwise, return CHALLENGE_IN_PROGRESS error
+COMMIT;
+```
+
+**Queueing Behavior:**
+| Scenario | Behavior |
+|----------|----------|
+| No active challenge for FQDN | Create new challenge immediately |
+| Active challenge exists (same user) | Return existing challenge ID |
+| Active challenge exists (different user) | Return `CHALLENGE_IN_PROGRESS` (409) |
+| Active challenge expired/failed | Allow new challenge creation |
+
+**Implementation Requirements:**
+```go
+func (s *ChallengeService) CreateChallenge(ctx context.Context, fqdn string, userID uint) (*Challenge, error) {
+    tx := s.db.Begin()
+    defer tx.Rollback()
+
+    // Attempt to acquire lock on existing active challenges
+    var existing Challenge
+    err := tx.Set("gorm:query_option", "FOR UPDATE NOWAIT").
+        Where("fqdn = ? AND status IN (?)", fqdn, []string{"created", "pending", "verifying"}).
+        First(&existing).Error
+
+    if err == nil {
+        // Active challenge exists
+        if existing.UserID == userID {
+            return &existing, nil // Return existing challenge to same user
+        }
+        return nil, ErrChallengeInProgress // Different user, reject
+    }
+
+    if !errors.Is(err, gorm.ErrRecordNotFound) {
+        return nil, fmt.Errorf("lock acquisition failed: %w", err)
+    }
+
+    // No active challenge, create new one
+    challenge := &Challenge{FQDN: fqdn, UserID: userID, Status: "created"}
+    if err := tx.Create(challenge).Error; err != nil {
+        return nil, err
+    }
+
+    tx.Commit()
+    return challenge, nil
+}
+```
+
+**Timeout Handling:**
+- Challenges automatically transition to `expired` after 10 minutes
+- Expired challenges release the "lock" on the FQDN
+- Subsequent requests can then create new challenges
+
 ### 3.4 Database Model Impact
 
 Current `dns_providers` table schema:
@@ -343,6 +408,65 @@ User provides webhook URLs for create/delete TXT records. Charon POSTs JSON payl
 }
 ```
 
+#### Security Hardening
+
+**DNS Rebinding Protection:**
+Webhook URLs MUST be validated at both configuration time AND request execution time to prevent DNS rebinding attacks:
+
+```go
+// Configuration-time validation
+func (w *WebhookProvider) ValidateCredentials(creds map[string]string) error {
+    if err := security.ValidateExternalURL(creds["create_url"]); err != nil {
+        return fmt.Errorf("create_url validation failed: %w", err)
+    }
+    // ... validate delete_url
+}
+
+// Execution-time validation (re-validate before each request)
+func (w *WebhookProvider) executeWebhook(ctx context.Context, url string, payload []byte) error {
+    // Re-validate URL to prevent DNS rebinding
+    if err := security.ValidateExternalURL(url); err != nil {
+        return fmt.Errorf("webhook URL failed re-validation: %w", err)
+    }
+    // ... execute request
+}
+```
+
+**Response Size Limit:**
+```go
+const MaxWebhookResponseSize = 1 * 1024 * 1024 // 1MB
+
+// Enforce response size limit
+resp, err := client.Do(req)
+if err != nil {
+    return err
+}
+defer resp.Body.Close()
+
+limitedReader := io.LimitReader(resp.Body, MaxWebhookResponseSize+1)
+body, err := io.ReadAll(limitedReader)
+if len(body) > MaxWebhookResponseSize {
+    return ErrWebhookResponseTooLarge
+}
+```
+
+**TLS Validation:**
+```json
+{
+  "credentials": {
+    "insecure_skip_verify": false
+  }
+}
+```
+
+> ⚠️ **WARNING:** Setting `insecure_skip_verify: true` disables TLS certificate validation. This should ONLY be used in development/testing environments with self-signed certificates. NEVER enable in production.
+
+**Idempotency Requirement:**
+Webhook endpoints MUST support the `request_id` field for request deduplication. Charon will include a unique `request_id` (UUIDv4) in every webhook payload. Webhook implementations SHOULD:
+1. Store processed `request_id` values with a TTL of at least 24 hours
+2. Return cached response for duplicate `request_id` values
+3. Use `request_id` for audit logging correlation
+
 #### Rate Limiting and Circuit Breaker
 
 To prevent abuse and ensure reliability, webhook plugins enforce:
@@ -352,6 +476,7 @@ To prevent abuse and ensure reliability, webhook plugins enforce:
 | Max calls per minute | 10 | Requests beyond limit return 429 Too Many Requests |
 | Circuit breaker threshold | 5 consecutive failures | Provider disabled for 5 minutes |
 | Circuit breaker reset | Automatic after 5 minutes | First successful call fully resets counter |
+| Max response size | 1MB | Responses exceeding limit return 413 error |
 
 **Implementation Requirements:**
 ```go
@@ -462,6 +587,125 @@ esac
 3. Timeout prevents resource exhaustion
 4. All executions are audit-logged
 
+#### Security Requirements (Mandatory)
+
+**Argument Sanitization:**
+All script arguments MUST be validated against a strict allowlist pattern:
+
+```go
+var validArgumentPattern = regexp.MustCompile(`^[a-zA-Z0-9._=-]+$`)
+
+func sanitizeArgument(arg string) (string, error) {
+    if !validArgumentPattern.MatchString(arg) {
+        return "", ErrInvalidScriptArgument
+    }
+    if len(arg) > 1024 {
+        return "", ErrArgumentTooLong
+    }
+    return arg, nil
+}
+
+// Usage
+for i, arg := range args {
+    sanitized, err := sanitizeArgument(arg)
+    if err != nil {
+        return fmt.Errorf("argument %d contains invalid characters: %w", i, err)
+    }
+    args[i] = sanitized
+}
+```
+
+**Symlink Resolution:**
+Path validation MUST use `filepath.EvalSymlinks()` BEFORE checking the allowed directory prefix to prevent symlink escape attacks:
+
+```go
+func validateScriptPath(scriptPath string) error {
+    // CRITICAL: Resolve symlinks FIRST
+    resolvedPath, err := filepath.EvalSymlinks(scriptPath)
+    if err != nil {
+        return fmt.Errorf("failed to resolve script path: %w", err)
+    }
+
+    // Then validate resolved path is within allowed directory
+    absPath, err := filepath.Abs(resolvedPath)
+    if err != nil {
+        return fmt.Errorf("failed to resolve absolute path: %w", err)
+    }
+
+    allowedDir := "/scripts/"
+    if !strings.HasPrefix(absPath, allowedDir) {
+        return ErrScriptPathInvalid
+    }
+
+    return nil
+}
+```
+
+**Resource Limits (MANDATORY):**
+The following rlimits MUST be enforced for all script executions:
+
+| Resource | Limit | Purpose |
+|----------|-------|------|
+| `RLIMIT_NOFILE` | 256 | Prevent file descriptor exhaustion |
+| `RLIMIT_NPROC` | 64 | Prevent fork bombs |
+| `RLIMIT_AS` | 256MB | Prevent memory exhaustion |
+| `RLIMIT_CPU` | 60s | Prevent CPU exhaustion |
+| `RLIMIT_FSIZE` | 10MB | Prevent disk filling |
+
+```go
+// MANDATORY: Apply rlimits before script execution
+func setMandatoryResourceLimits() error {
+    limits := []struct {
+        resource int
+        limit    uint64
+    }{
+        {syscall.RLIMIT_NOFILE, 256},
+        {syscall.RLIMIT_NPROC, 64},
+        {syscall.RLIMIT_AS, 256 * 1024 * 1024},
+        {syscall.RLIMIT_CPU, 60},
+        {syscall.RLIMIT_FSIZE, 10 * 1024 * 1024},
+    }
+
+    for _, l := range limits {
+        if err := syscall.Setrlimit(l.resource, &syscall.Rlimit{Cur: l.limit, Max: l.limit}); err != nil {
+            return fmt.Errorf("failed to set rlimit %d: %w", l.resource, err)
+        }
+    }
+    return nil
+}
+```
+
+**Environment Variable Clearing:**
+Inherited environment variables MUST be explicitly cleared before setting script environment:
+
+```go
+func executeScript(scriptPath string, args []string, userEnv map[string]string) error {
+    cmd := exec.CommandContext(ctx, scriptPath, args...)
+
+    // CRITICAL: Start with empty environment (clear inherited vars)
+    cmd.Env = []string{}
+
+    // Add only essential system variables
+    cmd.Env = append(cmd.Env,
+        "PATH=/usr/local/bin:/usr/bin:/bin",
+        "HOME=/tmp",
+        "LANG=C.UTF-8",
+        "TZ=UTC",
+    )
+
+    // Add user-provided environment variables (after validation)
+    for key, value := range userEnv {
+        if err := validateEnvVar(key, value); err != nil {
+            return fmt.Errorf("invalid env var %s: %w", key, err)
+        }
+        cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+    }
+
+    // Execute with cleared environment
+    return cmd.Run()
+}
+```
+
 #### Implementation Complexity
 - Backend: ~250 lines (ScriptProvider + executor)
 - Frontend: ~80 lines (form fields)
@@ -491,11 +735,52 @@ RFC 2136 defines a standard protocol for dynamic DNS updates. Supported by BIND,
 ```
 
 #### TSIG Algorithms Supported
-- `hmac-md5` (legacy)
-- `hmac-sha1`
-- `hmac-sha256` (recommended)
-- `hmac-sha384`
-- `hmac-sha512`
+
+| Algorithm | Status | Notes |
+|-----------|--------|-------|
+| `hmac-md5` | ⚠️ **DEPRECATED** | Cryptographically weak; will be removed in v2.0 |
+| `hmac-sha1` | Legacy | Avoid for new deployments |
+| `hmac-sha256` | ✅ Recommended | Default for new configurations |
+| `hmac-sha384` | Supported | Higher security, slightly more overhead |
+| `hmac-sha512` | Supported | Highest security |
+
+> ⚠️ **DEPRECATION WARNING:** `hmac-md5` is cryptographically weak and should not be used for new deployments. Support for `hmac-md5` will be removed in Charon v2.0. Migrate to `hmac-sha256` or stronger.
+
+**Secure Memory Handling for TSIG Secrets:**
+
+TSIG secrets MUST be handled securely in memory:
+
+```go
+import "github.com/awnumar/memguard"
+
+type RFC2136Provider struct {
+    tsigSecret *memguard.Enclave // Encrypted in memory
+}
+
+func (r *RFC2136Provider) SetTSIGSecret(secret []byte) error {
+    // Store secret in encrypted memory enclave
+    enclave := memguard.NewEnclave(secret)
+
+    // Immediately wipe the source buffer
+    memguard.WipeBytes(secret)
+
+    r.tsigSecret = enclave
+    return nil
+}
+
+func (r *RFC2136Provider) Cleanup() error {
+    if r.tsigSecret != nil {
+        r.tsigSecret.Destroy()
+    }
+    return nil
+}
+```
+
+**Requirements:**
+1. TSIG secrets MUST be stored in encrypted memory enclaves when in use
+2. Source buffers containing secrets MUST be wiped immediately after copying
+3. Secrets MUST NOT appear in debug output, stack traces, or core dumps
+4. Provider `Cleanup()` MUST securely destroy all secret material
 
 #### DNS UPDATE Message Flow
 ```
@@ -599,6 +884,85 @@ No automation - UI shows required TXT record details, user creates manually, cli
 - Background job periodically queries DNS
 - Polling endpoint for UI updates (10-second interval)
 - Timeout after configurable period
+
+#### Session Security Requirements
+
+**Challenge-User Binding:**
+Manual challenges MUST be bound to the authenticated user's session:
+
+```go
+type Challenge struct {
+    ID        string    `json:"id"`         // UUIDv4 (cryptographically random)
+    UserID    uint      `json:"user_id"`    // Owner of this challenge
+    SessionID string    `json:"-"`          // Session that created challenge
+    // ... other fields
+}
+
+// Verify challenge ownership before any operation
+func (s *ManualChallengeService) VerifyOwnership(ctx context.Context, challengeID string, userID uint) error {
+    var challenge Challenge
+    if err := s.db.Where("id = ?", challengeID).First(&challenge).Error; err != nil {
+        return ErrChallengeNotFound
+    }
+
+    if challenge.UserID != userID {
+        // Log potential unauthorized access attempt
+        s.auditLog.Warn("unauthorized challenge access attempt",
+            "challenge_id", challengeID,
+            "owner_id", challenge.UserID,
+            "requester_id", userID,
+        )
+        return ErrUnauthorized
+    }
+
+    return nil
+}
+```
+
+**CSRF Protection:**
+All state-changing operations (POST, PUT, DELETE) on manual challenges MUST validate CSRF tokens:
+
+```go
+// Middleware for manual challenge endpoints
+func CSRFProtection(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
+            token := r.Header.Get("X-CSRF-Token")
+            sessionToken := getSessionCSRFToken(r)
+
+            if !secureCompare(token, sessionToken) {
+                http.Error(w, "CSRF token mismatch", http.StatusForbidden)
+                return
+            }
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+**Challenge ID Generation:**
+Challenge IDs MUST use cryptographically random UUIDs (UUIDv4):
+
+```go
+import "github.com/google/uuid"
+
+func generateChallengeID() string {
+    // UUIDv4 uses crypto/rand, providing 122 bits of randomness
+    return uuid.New().String()
+}
+
+// DO NOT use:
+// - Sequential IDs (predictable)
+// - UUIDv1 (contains timestamp/MAC address)
+// - Custom random without proper entropy
+```
+
+**Session Validation on Each Request:**
+| Endpoint | Required Validations |
+|----------|---------------------|
+| `GET /manual-challenge/:id` | Valid session, challenge.user_id == session.user_id |
+| `POST /manual-challenge/:id/verify` | Valid session, CSRF token, challenge ownership |
+| `DELETE /manual-challenge/:id` | Valid session, CSRF token, challenge ownership |
 
 **Note:** Although Charon has existing WebSocket infrastructure (`backend/internal/services/websocket_tracker.go`), polling is chosen for simplicity:
 - Avoids additional WebSocket connection management complexity
@@ -866,10 +1230,13 @@ All manual challenge and custom plugin endpoints use consistent error codes:
 |------------|-------------|-------------|
 | `CHALLENGE_NOT_FOUND` | 404 | Challenge ID does not exist |
 | `CHALLENGE_EXPIRED` | 410 | Challenge has timed out |
+| `CHALLENGE_IN_PROGRESS` | 409 | Another challenge is currently active for this FQDN |
 | `DNS_NOT_PROPAGATED` | 200 | DNS record not yet found (success: false) |
 | `INVALID_PROVIDER_TYPE` | 400 | Unknown provider type |
+| `INVALID_SCRIPT_ARGUMENT` | 400 | Script argument contains invalid characters (only `[a-zA-Z0-9._=-]` allowed) |
 | `WEBHOOK_TIMEOUT` | 504 | Webhook did not respond in time |
 | `WEBHOOK_RATE_LIMITED` | 429 | Too many webhook calls (>10/min) |
+| `WEBHOOK_RESPONSE_TOO_LARGE` | 413 | Webhook response exceeded 1MB limit |
 | `PROVIDER_CIRCUIT_OPEN` | 503 | Provider disabled due to consecutive failures |
 | `SCRIPT_TIMEOUT` | 504 | Script execution exceeded timeout |
 | `SCRIPT_PATH_INVALID` | 400 | Script path not in allowed directory |
@@ -1264,9 +1631,72 @@ services:
 **Note:** Full seccomp profile customization is out of scope for this feature. Users relying on script plugins in high-security environments should review container security configuration.
 ```
 
-### 9.4 Audit Logging
+### 9.4 Log Redaction Patterns
 
-All custom plugin operations MUST be logged:
+Sensitive data MUST be redacted from all logs, including debug logs, error messages, and audit trails.
+
+**Required Redaction Patterns:**
+
+| Field Pattern | Redaction | Example |
+|---------------|-----------|--------|
+| `api_token` | `[REDACTED:api_token]` | `Bearer abc123` → `Bearer [REDACTED:api_token]` |
+| `api_key` | `[REDACTED:api_key]` | `X-API-Key: secret` → `X-API-Key: [REDACTED:api_key]` |
+| `secret` | `[REDACTED:secret]` | `client_secret=xyz` → `client_secret=[REDACTED:secret]` |
+| `password` | `[REDACTED:password]` | `password=abc` → `password=[REDACTED:password]` |
+| `tsig_key_secret` | `[REDACTED:tsig_secret]` | TSIG key value → `[REDACTED:tsig_secret]` |
+| `authorization` | `[REDACTED:auth]` | `Authorization: Bearer ...` → `Authorization: [REDACTED:auth]` |
+| `bearer` | `[REDACTED:bearer]` | Bearer token values → `[REDACTED:bearer]` |
+
+**Implementation:**
+
+```go
+import "regexp"
+
+var sensitivePatterns = []struct {
+    pattern *regexp.Regexp
+    replace string
+}{
+    {regexp.MustCompile(`(?i)(api_token["']?\s*[:=]\s*["']?)[^"'\s,}]+`), `$1[REDACTED:api_token]`},
+    {regexp.MustCompile(`(?i)(api_key["']?\s*[:=]\s*["']?)[^"'\s,}]+`), `$1[REDACTED:api_key]`},
+    {regexp.MustCompile(`(?i)(secret["']?\s*[:=]\s*["']?)[^"'\s,}]+`), `$1[REDACTED:secret]`},
+    {regexp.MustCompile(`(?i)(password["']?\s*[:=]\s*["']?)[^"'\s,}]+`), `$1[REDACTED:password]`},
+    {regexp.MustCompile(`(?i)(tsig_key_secret["']?\s*[:=]\s*["']?)[^"'\s,}]+`), `$1[REDACTED:tsig_secret]`},
+    {regexp.MustCompile(`(?i)(authorization["']?\s*[:=]\s*["']?)(Bearer\s+)?[^"'\s,}]+`), `$1[REDACTED:auth]`},
+    {regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9\-_=]+\.?[A-Za-z0-9\-_=]*\.?[A-Za-z0-9\-_=]*`), `Bearer [REDACTED:bearer]`},
+}
+
+func RedactSensitiveData(input string) string {
+    result := input
+    for _, sp := range sensitivePatterns {
+        result = sp.pattern.ReplaceAllString(result, sp.replace)
+    }
+    return result
+}
+
+// Apply to all log output
+func (l *Logger) LogWithRedaction(level, msg string, fields map[string]any) {
+    // Redact message
+    msg = RedactSensitiveData(msg)
+
+    // Redact field values
+    for key, value := range fields {
+        if str, ok := value.(string); ok {
+            fields[key] = RedactSensitiveData(str)
+        }
+    }
+
+    l.underlying.Log(level, msg, fields)
+}
+```
+
+**Enforcement:**
+- All plugin code MUST use the redacting logger
+- Pre-commit hooks SHOULD scan for potential credential logging
+- Security tests MUST verify no secrets appear in logs
+
+### 9.5 Audit Logging
+
+All custom plugin operations MUST be logged (with redaction applied):
 
 ```go
 type PluginAuditEvent struct {
@@ -1277,8 +1707,8 @@ type PluginAuditEvent struct {
     Domain      string
     Success     bool
     Duration    time.Duration
-    ErrorMsg    string
-    Details     map[string]any // Redacted credentials
+    ErrorMsg    string           // Redacted before logging
+    Details     map[string]any   // Redacted credentials
 }
 ```
 
@@ -1458,7 +1888,55 @@ func TestWebhookProvider_ValidateCredentials(t *testing.T) {
 | Cancel challenge | User clicks "Cancel Challenge" | Challenge marked as cancelled, UI returns to provider list |
 | Refresh during challenge | User refreshes page during pending challenge | Challenge state persisted, countdown continues from correct time |
 
-### 11.3 Security Tests
+### 11.3 Additional Required Test Scenarios
+
+#### Webhook Tests
+
+| Scenario | Description | Expected Result |
+|----------|-------------|----------------|
+| Retry exhaustion | Webhook returns 500 for all 3 retry attempts | `WEBHOOK_TIMEOUT` error after final retry |
+| Response too large | Webhook returns >1MB response | `WEBHOOK_RESPONSE_TOO_LARGE` error (413) |
+| DNS rebinding | URL resolves to internal IP on second resolution | Request blocked, `SSRF_DETECTED` error |
+| Idempotency replay | Same `request_id` sent twice | Second request returns cached response |
+
+#### Circuit Breaker Tests
+
+| Scenario | Description | Expected Result |
+|----------|-------------|----------------|
+| Open state transition | 5 consecutive failures | Circuit opens, `PROVIDER_CIRCUIT_OPEN` (503) |
+| Half-open state | Wait 5 minutes after open | Next request allowed (test request) |
+| Reset on success | Successful request in half-open | Circuit fully closes, counter resets |
+| Stay open on failure | Failed request in half-open | Circuit remains open for another 5 minutes |
+
+#### Script Tests
+
+| Scenario | Description | Expected Result |
+|----------|-------------|----------------|
+| Timeout boundary (pass) | Script completes in 59 seconds | Success, output captured |
+| Timeout boundary (fail) | Script runs for 61 seconds | `SCRIPT_TIMEOUT` error (504) |
+| Invalid argument chars | Argument contains `; rm -rf /` | `INVALID_SCRIPT_ARGUMENT` error (400) |
+| Symlink escape | Script path is symlink to `/etc/passwd` | `SCRIPT_PATH_INVALID` error (400) |
+| Resource limit breach | Script tries to fork 100 processes | Script killed, resource limit error |
+
+#### Manual Challenge Tests
+
+| Scenario | Description | Expected Result |
+|----------|-------------|----------------|
+| Concurrent verify race | Two users verify same FQDN simultaneously | Only one succeeds, other gets `CHALLENGE_IN_PROGRESS` |
+| CSRF token mismatch | POST without valid CSRF token | 403 Forbidden |
+| Challenge ownership | User A tries to access User B's challenge | 403 Forbidden, audit log entry |
+| Predictable ID attack | Attempt to enumerate challenge IDs | No information leakage, 404 for non-existent |
+
+#### RFC 2136 Tests
+
+| Scenario | Description | Expected Result |
+|----------|-------------|----------------|
+| Network timeout | DNS server unreachable | Timeout error with retry logic |
+| Connection refused | DNS server port closed | `TSIG_AUTH_FAILED` or connection error |
+| TSIG key mismatch | Wrong TSIG secret configured | `TSIG_AUTH_FAILED` (401) |
+| Zone transfer denied | Server rejects update | Appropriate error message with zone info |
+
+### 11.4 Security Tests
 
 | Test | Tool | Target |
 |------|------|--------|
@@ -1467,7 +1945,7 @@ func TestWebhookProvider_ValidateCredentials(t *testing.T) {
 | Credential leakage in logs | Log analysis | All providers |
 | TSIG key handling | Memory dump analysis | RFC2136Provider |
 
-### 11.4 Coverage Requirements
+### 11.5 Coverage Requirements
 
 - Backend: ≥85% coverage
 - Frontend: ≥85% coverage
@@ -1502,6 +1980,39 @@ func TestWebhookProvider_ValidateCredentials(t *testing.T) {
 | BIND9 ACME Setup | Self-hosted users | `docs/guides/bind9-acme-setup.md` |
 | PowerDNS ACME Setup | Self-hosted users | `docs/guides/powerdns-acme-setup.md` |
 | Building Webhook Endpoints | Developers | `docs/guides/webhook-development.md` |
+
+### 12.4 Operations and Security Documentation (Required)
+
+The following documentation MUST be created as part of implementation:
+
+| Document | Audience | Location | Priority |
+|----------|----------|----------|----------|
+| Custom DNS Plugin Troubleshooting | Support, Users | `docs/troubleshooting/custom-dns-plugins.md` | High |
+| Custom DNS Security Hardening | Security, Admins | `docs/security/custom-dns-hardening.md` | High |
+| Custom DNS Monitoring Guide | Operations | `docs/operations/custom-dns-monitoring.md` | Medium |
+
+**Required Content for `docs/troubleshooting/custom-dns-plugins.md`:**
+- Common error codes and resolutions
+- Webhook debugging checklist
+- Script execution troubleshooting
+- RFC 2136 connection issues
+- Manual challenge timeout scenarios
+- Log analysis procedures
+
+**Required Content for `docs/security/custom-dns-hardening.md`:**
+- Webhook endpoint security best practices
+- Script plugin security checklist
+- TSIG key management procedures
+- Network segmentation recommendations
+- Audit logging configuration
+- Incident response procedures
+
+**Required Content for `docs/operations/custom-dns-monitoring.md`:**
+- Key metrics to monitor (success rate, latency, errors)
+- Alerting thresholds and recommendations
+- Dashboard examples (Grafana/Prometheus)
+- Capacity planning guidelines
+- Runbook templates for common issues
 
 ---
 
@@ -1647,6 +2158,7 @@ zone "example.com" {
 |---------|------|--------|---------|
 | 1.0 | 2026-01-08 | Planning Agent | Initial specification |
 | 1.1 | 2026-01-08 | Planning Agent | Supervisor review: addressed 13 issues (see below) |
+| 1.2 | 2026-01-11 | Planning Agent | Supervisor review: addressed 9 critical/high priority findings (see Section 18) |
 
 ---
 
@@ -1690,3 +2202,53 @@ This specification was revised to address all 13 issues identified during Superv
 ---
 
 *This document has completed Supervisor review and is ready for technical review and stakeholder approval.*
+
+---
+
+## 18. Supervisor Review Summary (v1.2)
+
+This specification was revised on January 11, 2026 to address 9 critical/high priority findings:
+
+### Security Enhancements
+
+| # | Finding | Resolution |
+|---|---------|------------|
+| 1 | Missing concurrent challenge handling | Section 3.3.5 added with database locking (`SELECT ... FOR UPDATE`), queueing behavior, and `CHALLENGE_IN_PROGRESS` error |
+| 2 | Webhook DNS rebinding vulnerability | Section 4.1 updated: URLs validated at both configuration AND execution time |
+| 3 | Missing webhook response size limit | Section 4.1 updated: `MaxWebhookResponseSize = 1MB`, new error code added |
+| 4 | Missing webhook TLS skip option | Section 4.1 updated: `insecure_skip_verify` config with prominent warning |
+| 5 | Webhook idempotency missing | Section 4.1 updated: `request_id` requirement for deduplication |
+| 6 | Script argument sanitization weak | Section 4.2 updated: strict `[a-zA-Z0-9._=-]` pattern, new error code |
+| 7 | Symlink escape vulnerability | Section 4.2 updated: `filepath.EvalSymlinks()` MUST be called before prefix check |
+| 8 | Resource limits optional | Section 4.2 updated: rlimits now MANDATORY with specific values |
+| 9 | Environment variable leakage | Section 4.2 updated: explicit environment clearing before script execution |
+| 10 | RFC 2136 hmac-md5 insecure | Section 4.3 updated: `hmac-md5` marked DEPRECATED with removal warning |
+| 11 | TSIG secret memory exposure | Section 4.3 updated: secure memory handling with memguard pattern |
+| 12 | Manual challenge session binding missing | Section 4.4 updated: challenge-user binding, CSRF validation, UUIDv4 IDs |
+| 13 | Log credential exposure | Section 9.4 added: comprehensive redaction patterns for 7 sensitive fields |
+
+### Error Codes Added (Section 7.3)
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `CHALLENGE_IN_PROGRESS` | 409 | Another challenge active for FQDN |
+| `WEBHOOK_RESPONSE_TOO_LARGE` | 413 | Response exceeded 1MB limit |
+| `INVALID_SCRIPT_ARGUMENT` | 400 | Invalid characters in script argument |
+
+### Testing Scenarios Added (Section 11.3)
+
+- Webhook retry exhaustion tests
+- Circuit breaker state transition tests
+- Script timeout boundary tests (59s pass, 61s fail)
+- Manual challenge concurrent verify race condition test
+- RFC 2136 network error tests
+
+### Documentation Requirements Added (Section 12.4)
+
+- `docs/troubleshooting/custom-dns-plugins.md`
+- `docs/security/custom-dns-hardening.md`
+- `docs/operations/custom-dns-monitoring.md`
+
+---
+
+*This document has been updated to address all supervisor review findings from January 11, 2026.*

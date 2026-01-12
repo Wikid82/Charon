@@ -12,6 +12,11 @@ export type DNSProviderType =
   | 'hetzner'
   | 'vultr'
   | 'dnsimple'
+  // Custom plugin types
+  | 'manual'
+  | 'webhook'
+  | 'rfc2136'
+  | 'script'
 
 /** Represents a configured DNS provider */
 export interface DNSProvider {

@@ -26,9 +26,9 @@ import (
 
 func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DNSProvider) {
 	// Set encryption key for test - must be done before any service initialization
-	os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 	t.Cleanup(func() {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
 	})
 
 	gin.SetMode(gin.TestMode)
@@ -42,7 +42,7 @@ func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DN
 	// Close database connection when test completes
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	err = db.AutoMigrate(

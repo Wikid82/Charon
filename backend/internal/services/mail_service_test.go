@@ -370,7 +370,7 @@ func BenchmarkMailService_IsConfigured(b *testing.B) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
-	db.AutoMigrate(&models.Setting{})
+	_ = db.AutoMigrate(&models.Setting{})
 	svc := NewMailService(db)
 
 	config := &SMTPConfig{
@@ -378,7 +378,7 @@ func BenchmarkMailService_IsConfigured(b *testing.B) {
 		Port:        587,
 		FromAddress: "noreply@example.com",
 	}
-	svc.SaveSMTPConfig(config)
+	_ = svc.SaveSMTPConfig(config)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -436,7 +436,7 @@ func TestMailService_SendInvite_TokenFormat(t *testing.T) {
 		Port:        587,
 		FromAddress: "noreply@example.com",
 	}
-	svc.SaveSMTPConfig(config)
+	_ = svc.SaveSMTPConfig(config)
 
 	err := svc.SendInvite("test@example.com", "token123", "Charon", "https://charon.local/")
 	assert.Error(t, err)

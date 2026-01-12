@@ -115,7 +115,7 @@ func TestCheckHost_FailureCountReset(t *testing.T) {
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
@@ -125,7 +125,7 @@ func TestCheckHost_FailureCountReset(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -207,7 +207,7 @@ func TestCheckHost_ConcurrentChecks(t *testing.T) {
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
@@ -217,7 +217,7 @@ func TestCheckHost_ConcurrentChecks(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -349,7 +349,7 @@ func TestCheckHost_HostMutexPreventsRaceCondition(t *testing.T) {
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
@@ -360,7 +360,7 @@ func TestCheckHost_HostMutexPreventsRaceCondition(t *testing.T) {
 				return
 			}
 			time.Sleep(10 * time.Millisecond) // Simulate slow response
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 

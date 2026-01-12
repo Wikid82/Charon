@@ -24,11 +24,4 @@ linters-settings:
       - (net/http.ResponseWriter).Write
 
 issues:
-  exclude-rules:
-    # Exclude test files to match main config behavior
-    - path: _test\.go
-      linters:
-        - staticcheck
-        - errcheck
-        - govet
-        - ineffassign
+  exclude-generated-strict: true

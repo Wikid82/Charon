@@ -107,11 +107,12 @@ func main() {
 
 	for _, server := range remoteServers {
 		result := db.Where("host = ? AND port = ?", server.Host, server.Port).FirstOrCreate(&server)
-		if result.Error != nil {
+		switch {
+		case result.Error != nil:
 			logger.Log().WithField("server", server.Name).WithError(result.Error).Error("Failed to seed remote server")
-		} else if result.RowsAffected > 0 {
+		case result.RowsAffected > 0:
 			logger.Log().WithField("server", server.Name).Infof("✓ Created remote server: %s (%s:%d)", server.Name, server.Host, server.Port)
-		} else {
+		default:
 			logger.Log().WithField("server", server.Name).Info("Remote server already exists")
 		}
 	}
@@ -161,11 +162,12 @@ func main() {
 
 	for _, host := range proxyHosts {
 		result := db.Where("domain_names = ?", host.DomainNames).FirstOrCreate(&host)
-		if result.Error != nil {
+		switch {
+		case result.Error != nil:
 			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).WithError(result.Error).Error("Failed to seed proxy host")
-		} else if result.RowsAffected > 0 {
+		case result.RowsAffected > 0:
 			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Infof("✓ Created proxy host: %s -> %s://%s:%d", host.DomainNames, host.ForwardScheme, host.ForwardHost, host.ForwardPort)
-		} else {
+		default:
 			logger.Log().WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Proxy host already exists")
 		}
 	}
@@ -194,11 +196,12 @@ func main() {
 
 	for _, setting := range settings {
 		result := db.Where("key = ?", setting.Key).FirstOrCreate(&setting)
-		if result.Error != nil {
+		switch {
+		case result.Error != nil:
 			logger.Log().WithField("setting", setting.Key).WithError(result.Error).Error("Failed to seed setting")
-		} else if result.RowsAffected > 0 {
+		case result.RowsAffected > 0:
 			logger.Log().WithField("setting", setting.Key).Infof("✓ Created setting: %s = %s", setting.Key, setting.Value)
-		} else {
+		default:
 			logger.Log().WithField("setting", setting.Key).Info("Setting already exists")
 		}
 	}

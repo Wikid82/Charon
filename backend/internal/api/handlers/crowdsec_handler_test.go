@@ -106,8 +106,8 @@ func TestImportConfig(t *testing.T) {
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	fw, _ := mw.CreateFormFile("file", "cfg.tar.gz")
-	fw.Write([]byte("dummy"))
-	mw.Close()
+	_, _ = fw.Write([]byte("dummy"))
+	_ = mw.Close()
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", buf)
@@ -143,8 +143,8 @@ func TestImportCreatesBackup(t *testing.T) {
 	buf := &bytes.Buffer{}
 	mw := multipart.NewWriter(buf)
 	fw, _ := mw.CreateFormFile("file", "cfg.tar.gz")
-	fw.Write([]byte("dummy2"))
-	mw.Close()
+	_, _ = fw.Write([]byte("dummy2"))
+	_ = mw.Close()
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/import", buf)
@@ -158,7 +158,7 @@ func TestImportCreatesBackup(t *testing.T) {
 	found := false
 	entries, _ := os.ReadDir(filepath.Dir(tmpDir))
 	for _, e := range entries {
-		if e.IsDir() && filepath.HasPrefix(e.Name(), filepath.Base(tmpDir)+".backup.") {
+		if e.IsDir() && strings.HasPrefix(e.Name(), filepath.Base(tmpDir)+".backup.") {
 			found = true
 			break
 		}
@@ -1308,7 +1308,7 @@ func TestCrowdsecHandler_ExportConfig_DirNotFound(t *testing.T) {
 	db := setupCrowdDB(t)
 	// Use a non-existent directory
 	nonExistentDir := "/tmp/crowdsec-nonexistent-test-" + t.Name()
-	os.RemoveAll(nonExistentDir)
+	_ = os.RemoveAll(nonExistentDir)
 
 	h := NewCrowdsecHandler(db, &fakeExec{}, "/bin/false", nonExistentDir)
 	// Remove any cache dir created during handler init so Export sees missing dir

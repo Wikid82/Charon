@@ -205,4 +205,62 @@ export const defaultProviderSchemas: Record<DNSProviderType, Partial<DNSProvider
     ],
     documentation_url: 'https://developer.dnsimple.com/',
   },
+  manual: {
+    type: 'manual',
+    name: 'Manual DNS',
+    fields: [],
+    documentation_url: 'https://letsencrypt.org/docs/challenge-types/',
+  },
+  script: {
+    type: 'script',
+    name: 'Custom Script',
+    fields: [
+      {
+        name: 'script_path',
+        label: 'Script Path',
+        type: 'text',
+        required: true,
+        hint: 'Path to custom DNS update script',
+      },
+    ],
+    documentation_url: '',
+  },
+  webhook: {
+    type: 'webhook',
+    name: 'Webhook',
+    fields: [
+      {
+        name: 'url',
+        label: 'Webhook URL',
+        type: 'text',
+        required: true,
+      },
+    ],
+    documentation_url: '',
+  },
+  rfc2136: {
+    type: 'rfc2136',
+    name: 'RFC2136 (Dynamic DNS)',
+    fields: [
+      {
+        name: 'server',
+        label: 'DNS Server',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'key_name',
+        label: 'TSIG Key Name',
+        type: 'text',
+        required: true,
+      },
+      {
+        name: 'key_secret',
+        label: 'TSIG Key Secret',
+        type: 'password',
+        required: true,
+      },
+    ],
+    documentation_url: 'https://tools.ietf.org/html/rfc2136',
+  },
 }

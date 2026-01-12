@@ -114,7 +114,15 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 Before marking an implementation task as complete, perform the following in order:
 
-1. **Security Scans** (MANDATORY - Zero Tolerance):
+1. **Playwright E2E Tests** (MANDATORY - Run First):
+    - **Run**: `npx playwright test --project=chromium` from project root
+    - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
+    - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
+    - **On Failure**: Trace root cause through frontend → backend flow before proceeding
+    - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default from `playwright.config.js`
+    - All E2E tests must pass before proceeding to unit tests
+
+2. **Security Scans** (MANDATORY - Zero Tolerance):
     - **CodeQL Go Scan**: Run VS Code task "Security: CodeQL Go Scan (CI-Aligned)" OR `pre-commit run codeql-go-scan --all-files`
         - Must use `security-and-quality` suite (CI-aligned)
         - **Zero high/critical (error-level) findings allowed**
@@ -136,12 +144,12 @@ Before marking an implementation task as complete, perform the following in orde
         - Database creation: `--threads=0 --overwrite`
         - Analysis: `--sarif-add-baseline-file-info`
 
-2. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
+3. **Pre-Commit Triage**: Run `pre-commit run --all-files`.
     - If errors occur, **fix them immediately**.
     - If logic errors occur, analyze and propose a fix.
     - Do not output code that violates pre-commit standards.
 
-3. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
+4. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
     - **CRITICAL:** Staticcheck errors are BLOCKING - you MUST fix them before commit succeeds.
     - Manual verification: Run VS Code task "Lint: Staticcheck (Fast)" or `make lint-fast`
     - To check only staticcheck: `make lint-staticcheck-only`
@@ -149,7 +157,7 @@ Before marking an implementation task as complete, perform the following in orde
     - If pre-commit fails: Fix the reported issues, then retry commit
     - **Do NOT** use `--no-verify` to bypass this check unless emergency hotfix
 
-4. **Coverage Testing** (MANDATORY - Non-negotiable):
+5. **Coverage Testing** (MANDATORY - Non-negotiable):
     - **MANDATORY**: Patch coverage must cover 100% of modified lines (Codecov Patch view must be green). If patch coverage fails, add targeted tests for the missing patch line ranges.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
@@ -162,22 +170,21 @@ Before marking an implementation task as complete, perform the following in orde
     - **Critical**: Coverage tests are NOT run by default pre-commit hooks (they are in manual stage for performance). You MUST run them explicitly via VS Code tasks or scripts before completing any task.
     - **Why**: CI enforces coverage in GitHub Actions. Local verification prevents CI failures and maintains code quality.
 
-4. **Type Safety** (Frontend only):
+6. **Type Safety** (Frontend only):
     - Run the VS Code task "Lint: TypeScript Check" or execute `cd frontend && npm run type-check`.
     - Fix all type errors immediately. This is non-negotiable.
     - This check is also in manual stage for performance but MUST be run before completion.
 
-5. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
+7. **Verify Build**: Ensure the backend compiles and the frontend builds without errors.
     - Backend: `cd backend && go build ./...`
     - Frontend: `cd frontend && npm run build`
 
-6. **Fixed and New Code Testing**:
-    - Ensure all existing and new unit tests pass with zero failures using Playwright MCP.
-    - When fasilures and Errors are found, deep-dive into root causes. Using the correct `subAgent`, update the working plan, review the implementation, and fix the issues.
+8. **Fixed and New Code Testing**:
+    - Ensure all existing and new unit tests pass with zero failures.
+    - When failures and errors are found, deep-dive into root causes. Using the correct `subAgent`, update the working plan, review the implementation, and fix the issues.
     - No issue is out of scope for investigation and resolution. All issues must be addressed before task completion.
 
-
-6. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
+9. **Clean Up**: Ensure no debug print statements or commented-out blocks remain.
     - Remove `console.log`, `fmt.Println`, and similar debugging statements.
     - Delete commented-out code blocks.
     - Remove unused imports.

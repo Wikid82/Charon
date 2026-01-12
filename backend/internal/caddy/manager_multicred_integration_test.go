@@ -226,9 +226,10 @@ func TestApplyConfig_MultiCredential_ExactMatch(t *testing.T) {
 	var comPolicy, orgPolicy *AutomationPolicy
 	for _, policy := range policies {
 		if len(policy.Subjects) > 0 {
-			if policy.Subjects[0] == "*.example.com" {
+			switch policy.Subjects[0] {
+			case "*.example.com":
 				comPolicy = policy
-			} else if policy.Subjects[0] == "*.example.org" {
+			case "*.example.org":
 				orgPolicy = policy
 			}
 		}

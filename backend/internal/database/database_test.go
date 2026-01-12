@@ -85,7 +85,7 @@ func TestConnect_IntegrityCheckCorrupted(t *testing.T) {
 
 	// Close the database
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Corrupt the database file by overwriting with invalid data
 	// We'll overwrite the middle of the file to corrupt it
@@ -151,7 +151,7 @@ func TestConnect_CorruptedDatabase_FullIntegrationScenario(t *testing.T) {
 
 	// Close database
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Corrupt the database
 	corruptDB(t, dbPath)
@@ -180,7 +180,7 @@ func corruptDB(t *testing.T, dbPath string) {
 	// Open and corrupt file
 	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Get file size
 	stat, err := f.Stat()

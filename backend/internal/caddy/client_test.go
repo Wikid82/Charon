@@ -41,7 +41,7 @@ func TestClient_Load_Success(t *testing.T) {
 func TestClient_Load_Failure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "invalid config"}`))
+		_, _ = w.Write([]byte(`{"error": "invalid config"}`))
 	}))
 	defer server.Close()
 
@@ -68,7 +68,7 @@ func TestClient_GetConfig_Success(t *testing.T) {
 		require.Equal(t, "/config/", r.URL.Path)
 		require.Equal(t, http.MethodGet, r.Method)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(testConfig)
+		_ = json.NewEncoder(w).Encode(testConfig)
 	}))
 	defer server.Close()
 
@@ -112,7 +112,7 @@ func TestClient_Ping_CreateRequestFailure(t *testing.T) {
 func TestClient_GetConfig_Failure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer server.Close()
 
@@ -125,7 +125,7 @@ func TestClient_GetConfig_Failure(t *testing.T) {
 func TestClient_GetConfig_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("invalid json"))
+		_, _ = w.Write([]byte("invalid json"))
 	}))
 	defer server.Close()
 
