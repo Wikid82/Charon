@@ -873,12 +873,12 @@ jobs:
       - name: Install Playwright dependencies
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps
 
       - name: Run Playwright E2E tests
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:8080
-        run: npx playwright test --project=chromium
+        run: npx playwright test
 
       - name: Stop application container
         if: always()
