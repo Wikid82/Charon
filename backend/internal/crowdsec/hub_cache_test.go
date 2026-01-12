@@ -9,6 +9,7 @@ import (
 )
 
 func TestHubCacheStoreLoadAndExpire(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Minute)
 	require.NoError(t, err)
@@ -29,6 +30,7 @@ func TestHubCacheStoreLoadAndExpire(t *testing.T) {
 }
 
 func TestHubCacheRejectsBadSlug(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
@@ -41,6 +43,7 @@ func TestHubCacheRejectsBadSlug(t *testing.T) {
 }
 
 func TestHubCacheListAndEvict(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
@@ -63,6 +66,7 @@ func TestHubCacheListAndEvict(t *testing.T) {
 }
 
 func TestHubCacheTouchUpdatesTTL(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Minute)
 	require.NoError(t, err)
@@ -80,6 +84,7 @@ func TestHubCacheTouchUpdatesTTL(t *testing.T) {
 }
 
 func TestHubCachePreviewExistsAndSize(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Hour)
 	require.NoError(t, err)
@@ -97,6 +102,7 @@ func TestHubCachePreviewExistsAndSize(t *testing.T) {
 }
 
 func TestHubCacheExistsHonorsTTL(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Second)
 	require.NoError(t, err)
@@ -110,6 +116,7 @@ func TestHubCacheExistsHonorsTTL(t *testing.T) {
 }
 
 func TestSanitizeSlugCases(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "demo/preset", sanitizeSlug(" demo/preset "))
 	require.Equal(t, "", sanitizeSlug("../traverse"))
 	require.Equal(t, "", sanitizeSlug("/abs/path"))
@@ -118,11 +125,13 @@ func TestSanitizeSlugCases(t *testing.T) {
 }
 
 func TestNewHubCacheRequiresBaseDir(t *testing.T) {
+	t.Parallel()
 	_, err := NewHubCache("", time.Hour)
 	require.Error(t, err)
 }
 
 func TestHubCacheTouchMissing(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -131,6 +140,7 @@ func TestHubCacheTouchMissing(t *testing.T) {
 }
 
 func TestHubCacheTouchInvalidSlug(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -139,6 +149,7 @@ func TestHubCacheTouchInvalidSlug(t *testing.T) {
 }
 
 func TestHubCacheStoreContextCanceled(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -149,6 +160,7 @@ func TestHubCacheStoreContextCanceled(t *testing.T) {
 }
 
 func TestHubCacheLoadInvalidSlug(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 
@@ -157,6 +169,7 @@ func TestHubCacheLoadInvalidSlug(t *testing.T) {
 }
 
 func TestHubCacheExistsContextCanceled(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,6 +179,7 @@ func TestHubCacheExistsContextCanceled(t *testing.T) {
 }
 
 func TestHubCacheListSkipsExpired(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	cache, err := NewHubCache(cacheDir, time.Second)
 	require.NoError(t, err)
@@ -182,6 +196,7 @@ func TestHubCacheListSkipsExpired(t *testing.T) {
 }
 
 func TestHubCacheEvictInvalidSlug(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	err = cache.Evict(context.Background(), "../bad")
@@ -189,6 +204,7 @@ func TestHubCacheEvictInvalidSlug(t *testing.T) {
 }
 
 func TestHubCacheListContextCanceled(t *testing.T) {
+	t.Parallel()
 	cache, err := NewHubCache(t.TempDir(), time.Hour)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -202,19 +218,23 @@ func TestHubCacheListContextCanceled(t *testing.T) {
 // ============================================
 
 func TestHubCacheTTL(t *testing.T) {
+	t.Parallel()
 	t.Run("returns configured TTL", func(t *testing.T) {
+		t.Parallel()
 		cache, err := NewHubCache(t.TempDir(), 2*time.Hour)
 		require.NoError(t, err)
 		require.Equal(t, 2*time.Hour, cache.TTL())
 	})
 
 	t.Run("returns minute TTL", func(t *testing.T) {
+		t.Parallel()
 		cache, err := NewHubCache(t.TempDir(), time.Minute)
 		require.NoError(t, err)
 		require.Equal(t, time.Minute, cache.TTL())
 	})
 
 	t.Run("returns zero TTL if configured", func(t *testing.T) {
+		t.Parallel()
 		cache, err := NewHubCache(t.TempDir(), 0)
 		require.NoError(t, err)
 		require.Equal(t, time.Duration(0), cache.TTL())

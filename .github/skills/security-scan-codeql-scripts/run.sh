@@ -17,6 +17,12 @@ source "${SKILLS_SCRIPTS_DIR}/_error_handling_helpers.sh"
 # shellcheck source=../scripts/_environment_helpers.sh
 source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
 
+# Some helper scripts may not define ANSI color variables; ensure they exist
+# before using them later in this script (set -u is enabled).
+RED="${RED:-\033[0;31m}"
+GREEN="${GREEN:-\033[0;32m}"
+NC="${NC:-\033[0m}"
+
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Set defaults
@@ -89,12 +95,18 @@ run_codeql_scan() {
     local source_root=$2
     local db_name="codeql-db-${lang}"
     local sarif_file="codeql-results-${lang}.sarif"
-    local query_suite=""
+    local build_mode_args=()
+    local codescanning_config="${PROJECT_ROOT}/.github/codeql/codeql-config.yml"
 
-    if [[ "${lang}" == "go" ]]; then
-        query_suite="codeql/go-queries:codeql-suites/go-security-and-quality.qls"
-    else
-        query_suite="codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls"
+    # Remove generated artifacts that can create noisy/false findings during CodeQL analysis
+    rm -rf "${PROJECT_ROOT}/frontend/coverage" \
+          "${PROJECT_ROOT}/frontend/dist" \
+          "${PROJECT_ROOT}/playwright-report" \
+          "${PROJECT_ROOT}/test-results" \
+          "${PROJECT_ROOT}/coverage"
+
+    if [[ "${lang}" == "javascript" ]]; then
+        build_mode_args=(--build-mode=none)
     fi
 
     log_step "CODEQL" "Scanning ${lang} code in ${source_root}/"
@@ -106,7 +118,9 @@ run_codeql_scan() {
     log_info "Creating CodeQL database..."
     if ! codeql database create "${db_name}" \
         --language="${lang}" \
+        "${build_mode_args[@]}" \
         --source-root="${source_root}" \
+        --codescanning-config="${codescanning_config}" \
         --threads="${CODEQL_THREADS}" \
         --overwrite 2>&1 | while read -r line; do
             # Filter verbose output, show important messages
@@ -121,9 +135,8 @@ run_codeql_scan() {
     fi
 
     # Run analysis
-    log_info "Analyzing with security-and-quality suite..."
+    log_info "Analyzing with Code Scanning config (CI-aligned query filters)..."
     if ! codeql database analyze "${db_name}" \
-        "${query_suite}" \
         --format=sarif-latest \
         --output="${sarif_file}" \
         --sarif-add-baseline-file-info \

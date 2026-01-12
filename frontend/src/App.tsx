@@ -12,9 +12,11 @@ import { AuthProvider } from './context/AuthContext'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const ProxyHosts = lazy(() => import('./pages/ProxyHosts'))
 const RemoteServers = lazy(() => import('./pages/RemoteServers'))
+const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
 const Certificates = lazy(() => import('./pages/Certificates'))
+const DNSProviders = lazy(() => import('./pages/DNSProviders'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
 const SMTPSettings = lazy(() => import('./pages/SMTPSettings'))
 const CrowdSecConfig = lazy(() => import('./pages/CrowdSecConfig'))
@@ -32,6 +34,9 @@ const Uptime = lazy(() => import('./pages/Uptime'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const UsersPage = lazy(() => import('./pages/UsersPage'))
 const SecurityHeaders = lazy(() => import('./pages/SecurityHeaders'))
+const AuditLogs = lazy(() => import('./pages/AuditLogs'))
+const EncryptionManagement = lazy(() => import('./pages/EncryptionManagement'))
+const Plugins = lazy(() => import('./pages/Plugins'))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 const AcceptInvite = lazy(() => import('./pages/AcceptInvite'))
@@ -59,15 +64,29 @@ export default function App() {
               <Route path="remote-servers" element={<RemoteServers />} />
               <Route path="domains" element={<Domains />} />
               <Route path="certificates" element={<Certificates />} />
+
+              {/* DNS Routes */}
+              <Route path="dns" element={<DNS />}>
+                <Route index element={<Navigate to="/dns/providers" replace />} />
+                <Route path="providers" element={<DNSProviders />} />
+                <Route path="plugins" element={<Plugins />} />
+              </Route>
+
+              {/* Legacy redirect for old bookmarks */}
+              <Route path="dns-providers" element={<Navigate to="/dns/providers" replace />} />
+
               <Route path="security" element={<Security />} />
+              <Route path="security/audit-logs" element={<AuditLogs />} />
               <Route path="security/access-lists" element={<AccessLists />} />
               <Route path="security/crowdsec" element={<CrowdSecConfig />} />
               <Route path="security/rate-limiting" element={<RateLimiting />} />
               <Route path="security/waf" element={<WafConfig />} />
               <Route path="security/headers" element={<SecurityHeaders />} />
+              <Route path="security/encryption" element={<EncryptionManagement />} />
               <Route path="access-lists" element={<AccessLists />} />
               <Route path="uptime" element={<Uptime />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="admin/plugins" element={<Navigate to="/dns/plugins" replace />} />
               <Route path="import" element={<Navigate to="/tasks/import/caddyfile" replace />} />
 
               {/* Settings Routes */}

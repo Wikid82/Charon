@@ -13,6 +13,9 @@ import (
 
 // TestWAFIntegration runs the scripts/waf_integration.sh and ensures it completes successfully.
 func TestWAFIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

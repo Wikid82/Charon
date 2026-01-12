@@ -243,3 +243,5 @@ docker-compose.test.yml
 .github/agents/prompt_template/
 my-codeql-db/**
 codeql-linux64.zip
+backend/main
+**.out

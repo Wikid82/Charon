@@ -11,6 +11,9 @@ NC='\033[0m'
 echo -e "${BLUE}🔍 Running CodeQL JavaScript/TypeScript scan (CI-aligned)...${NC}"
 echo ""
 
+# Remove generated artifacts that can create noisy/false findings during CodeQL analysis
+rm -rf frontend/coverage frontend/dist playwright-report test-results coverage
+
 # Clean previous database
 rm -rf codeql-db-js
 
@@ -18,6 +21,7 @@ rm -rf codeql-db-js
 echo "📦 Creating CodeQL database..."
 codeql database create codeql-db-js \
   --language=javascript \
+  --build-mode=none \
   --source-root=frontend \
   --threads=0 \
   --overwrite

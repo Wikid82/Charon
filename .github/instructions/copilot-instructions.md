@@ -67,7 +67,7 @@ Before proposing ANY code change or fix, you must build a mental map of the feat
 
 ## Documentation
 
-- **Features**: Update `docs/features.md` when adding capabilities.
+- **Features**: Update `docs/features.md` when adding capabilities. This is a short "marketing" style list. Keep details to their individual docs.
 - **Links**: Use GitHub Pages URLs (`https://wikid82.github.io/charon/`) for docs and GitHub blob links for repo files.
 
 ## CI/CD & Commit Conventions
@@ -108,6 +108,7 @@ Before marking an implementation task as complete, perform the following in orde
     - Do not output code that violates pre-commit standards.
 
 3. **Coverage Testing** (MANDATORY - Non-negotiable):
+    - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
     - **Backend Changes**: Run the VS Code task "Test: Backend with Coverage" or execute `scripts/go-test-coverage.sh`.
         - Minimum coverage: 85% (set via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`).
         - If coverage drops below threshold, write additional tests to restore coverage.

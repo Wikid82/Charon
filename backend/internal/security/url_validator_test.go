@@ -8,6 +8,7 @@ import (
 )
 
 func TestValidateExternalURL_BasicValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -111,7 +112,9 @@ func TestValidateExternalURL_BasicValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 
 			if tt.shouldFail {
@@ -136,6 +139,7 @@ func TestValidateExternalURL_BasicValidation(t *testing.T) {
 }
 
 func TestValidateExternalURL_LocalhostHandling(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -171,7 +175,9 @@ func TestValidateExternalURL_LocalhostHandling(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 
 			if tt.shouldFail {
@@ -188,6 +194,7 @@ func TestValidateExternalURL_LocalhostHandling(t *testing.T) {
 }
 
 func TestValidateExternalURL_PrivateIPBlocking(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -236,7 +243,9 @@ func TestValidateExternalURL_PrivateIPBlocking(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 
 			if tt.shouldFail {
@@ -253,7 +262,9 @@ func TestValidateExternalURL_PrivateIPBlocking(t *testing.T) {
 }
 
 func TestValidateExternalURL_Options(t *testing.T) {
+	t.Parallel()
 	t.Run("WithTimeout", func(t *testing.T) {
+		t.Parallel()
 		// Test with very short timeout - should fail for slow DNS
 		_, err := ValidateExternalURL(
 			"https://example.com",
@@ -265,6 +276,7 @@ func TestValidateExternalURL_Options(t *testing.T) {
 	})
 
 	t.Run("Multiple options", func(t *testing.T) {
+		t.Parallel()
 		_, err := ValidateExternalURL(
 			"http://localhost:8080/test",
 			WithAllowLocalhost(),
@@ -278,6 +290,7 @@ func TestValidateExternalURL_Options(t *testing.T) {
 }
 
 func TestIsPrivateIP(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		ip        string
@@ -316,7 +329,9 @@ func TestIsPrivateIP(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := parseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("Invalid test IP: %s", tt.ip)
@@ -337,6 +352,7 @@ func parseIP(s string) net.IP {
 }
 
 func TestValidateExternalURL_RealWorldURLs(t *testing.T) {
+	t.Parallel()
 	// These tests use real public domains
 	// They may fail if DNS is unavailable or domains change
 	tests := []struct {
@@ -372,7 +388,9 @@ func TestValidateExternalURL_RealWorldURLs(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 
 			if tt.shouldFail && err == nil {
@@ -390,6 +408,7 @@ func TestValidateExternalURL_RealWorldURLs(t *testing.T) {
 // Phase 4.2: Additional test cases for comprehensive coverage
 
 func TestValidateExternalURL_MultipleOptions(t *testing.T) {
+	t.Parallel()
 	// Test combining multiple validation options
 	tests := []struct {
 		name       string
@@ -424,7 +443,9 @@ func TestValidateExternalURL_MultipleOptions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 			if tt.shouldPass {
 				// In test environment, DNS may fail - that's acceptable
@@ -441,6 +462,7 @@ func TestValidateExternalURL_MultipleOptions(t *testing.T) {
 }
 
 func TestValidateExternalURL_CustomTimeout(t *testing.T) {
+	t.Parallel()
 	// Test custom timeout configuration
 	tests := []struct {
 		name    string
@@ -465,7 +487,9 @@ func TestValidateExternalURL_CustomTimeout(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			start := time.Now()
 			_, err := ValidateExternalURL(tt.url, WithTimeout(tt.timeout))
 			elapsed := time.Since(start)
@@ -483,6 +507,7 @@ func TestValidateExternalURL_CustomTimeout(t *testing.T) {
 }
 
 func TestValidateExternalURL_DNSTimeout(t *testing.T) {
+	t.Parallel()
 	// Test DNS resolution timeout behavior
 	// Use a non-routable IP address to force timeout
 	_, err := ValidateExternalURL(
@@ -504,6 +529,7 @@ func TestValidateExternalURL_DNSTimeout(t *testing.T) {
 }
 
 func TestValidateExternalURL_MultipleIPsAllPrivate(t *testing.T) {
+	t.Parallel()
 	// Test scenario where DNS returns multiple IPs, all private
 	// Note: In real environment, we can't control DNS responses
 	// This test documents expected behavior
@@ -517,6 +543,7 @@ func TestValidateExternalURL_MultipleIPsAllPrivate(t *testing.T) {
 
 	for _, ip := range privateIPs {
 		t.Run("IP_"+ip, func(t *testing.T) {
+			t.Parallel()
 			// Use IP directly as hostname
 			url := "http://" + ip
 			_, err := ValidateExternalURL(url, WithAllowHTTP())
@@ -531,6 +558,7 @@ func TestValidateExternalURL_MultipleIPsAllPrivate(t *testing.T) {
 }
 
 func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
+	t.Parallel()
 	// Test detection and blocking of cloud metadata endpoints
 	tests := []struct {
 		name        string
@@ -560,7 +588,9 @@ func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, WithAllowHTTP())
 
 			// All metadata endpoints should be blocked one way or another
@@ -574,6 +604,7 @@ func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
 }
 
 func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
+	t.Parallel()
 	// Comprehensive IPv6 private/reserved range testing
 	tests := []struct {
 		name      string
@@ -611,7 +642,9 @@ func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("Failed to parse IP: %s", tt.ip)
@@ -628,6 +661,7 @@ func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
 // TestIPv4MappedIPv6Detection tests detection of IPv4-mapped IPv6 addresses.
 // ENHANCEMENT: Required by Supervisor review for SSRF bypass prevention
 func TestIPv4MappedIPv6Detection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		ip       string
@@ -647,7 +681,9 @@ func TestIPv4MappedIPv6Detection(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("Failed to parse IP: %s", tt.ip)
@@ -664,6 +700,7 @@ func TestIPv4MappedIPv6Detection(t *testing.T) {
 // TestValidateExternalURL_IPv4MappedIPv6Blocking tests blocking of private IPs via IPv6 mapping.
 // ENHANCEMENT: Critical security test per Supervisor review
 func TestValidateExternalURL_IPv4MappedIPv6Blocking(t *testing.T) {
+	t.Parallel()
 	// NOTE: These tests will fail DNS resolution since we can't actually
 	// set up DNS records to return IPv4-mapped IPv6 addresses
 	// The isIPv4MappedIPv6 function itself is tested above
@@ -673,6 +710,7 @@ func TestValidateExternalURL_IPv4MappedIPv6Blocking(t *testing.T) {
 // TestValidateExternalURL_HostnameValidation tests enhanced hostname validation.
 // ENHANCEMENT: Tests RFC 1035 compliance and suspicious pattern detection
 func TestValidateExternalURL_HostnameValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -700,7 +738,9 @@ func TestValidateExternalURL_HostnameValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, WithAllowHTTP())
 			if tt.shouldFail {
 				if err == nil {
@@ -720,6 +760,7 @@ func TestValidateExternalURL_HostnameValidation(t *testing.T) {
 // TestValidateExternalURL_PortValidation tests enhanced port validation logic.
 // ENHANCEMENT: Critical test - must allow 80/443, block other privileged ports
 func TestValidateExternalURL_PortValidation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -788,7 +829,9 @@ func TestValidateExternalURL_PortValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 			if tt.shouldFail {
 				if err == nil {
@@ -808,6 +851,7 @@ func TestValidateExternalURL_PortValidation(t *testing.T) {
 // TestSanitizeIPForError tests that internal IPs are sanitized in error messages.
 // ENHANCEMENT: Prevents information leakage per Supervisor review
 func TestSanitizeIPForError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		ip       string
@@ -824,7 +868,9 @@ func TestSanitizeIPForError(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := sanitizeIPForError(tt.ip)
 			if result != tt.expected {
 				t.Errorf("sanitizeIPForError(%s) = %s, want %s", tt.ip, result, tt.expected)
@@ -836,6 +882,7 @@ func TestSanitizeIPForError(t *testing.T) {
 // TestParsePort tests port parsing edge cases.
 // ENHANCEMENT: Additional test coverage per Supervisor review
 func TestParsePort(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		port      string
@@ -855,7 +902,9 @@ func TestParsePort(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result, err := parsePort(tt.port)
 			if tt.shouldErr {
 				if err == nil {
@@ -876,6 +925,7 @@ func TestParsePort(t *testing.T) {
 // TestValidateExternalURL_EdgeCases tests additional edge cases.
 // ENHANCEMENT: Comprehensive coverage for Phase 2 validation
 func TestValidateExternalURL_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		url         string
@@ -944,7 +994,9 @@ func TestValidateExternalURL_EdgeCases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ValidateExternalURL(tt.url, tt.options...)
 			if tt.shouldFail {
 				if err == nil {
@@ -965,6 +1017,7 @@ func TestValidateExternalURL_EdgeCases(t *testing.T) {
 // TestIsIPv4MappedIPv6_EdgeCases tests IPv4-mapped IPv6 detection edge cases.
 // ENHANCEMENT: Additional edge cases for SSRF bypass prevention
 func TestIsIPv4MappedIPv6_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		ip       string
@@ -985,7 +1038,9 @@ func TestIsIPv4MappedIPv6_EdgeCases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ip := net.ParseIP(tt.ip)
 			if ip == nil {
 				t.Fatalf("Failed to parse IP: %s", tt.ip)

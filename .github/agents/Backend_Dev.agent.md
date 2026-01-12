@@ -45,6 +45,7 @@ Your priority is writing code that is clean, tested, and secure by default.
     - Run `go fmt ./...`.
     - Run `go test ./...` to ensure no regressions.
     - **Coverage (MANDATORY)**: Run the coverage script explicitly. This is NOT run by pre-commit automatically.
+        - **MANDATORY**: Patch coverage must cover 100% of new/modified code. This prevents CodeCov Report failing CI.
         - **VS Code Task**: Use "Test: Backend with Coverage" (recommended)
         - **Manual Script**: Execute `/projects/Charon/scripts/go-test-coverage.sh` from the root directory
         - **Minimum**: 85% coverage (configured via `CHARON_MIN_COVERAGE` or `CPM_MIN_COVERAGE`)

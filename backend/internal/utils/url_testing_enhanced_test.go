@@ -138,8 +138,8 @@ func TestTestURLConnectivity_RedirectValidation(t *testing.T) {
 		defer redirectServer.Close()
 		redirectServerURL = redirectServer.URL
 
-		transport := &http.Transport{}
-		reachable, _, err := TestURLConnectivity(redirectServerURL, transport)
+		transport := redirectServer.Client().Transport
+		reachable, _, err := testURLConnectivity(redirectServerURL, withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 		// Should fail due to too many redirects (max 2)
 		if err == nil {
@@ -211,8 +211,8 @@ func TestTestURLConnectivity_RequestTracingHeaders(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	transport := &http.Transport{}
-	_, _, err := TestURLConnectivity(testServer.URL, transport)
+	transport := testServer.Client().Transport
+	_, _, err := testURLConnectivity(testServer.URL, withAllowLocalhostForTesting(), withTransportForTesting(transport))
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -244,8 +244,8 @@ func TestTestURLConnectivity_MetricsIntegration(t *testing.T) {
 		}))
 		defer testServer.Close()
 
-		transport := &http.Transport{}
-		reachable, latency, err := TestURLConnectivity(testServer.URL, transport)
+		transport := testServer.Client().Transport
+		reachable, latency, err := testURLConnectivity(testServer.URL, withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 		if err != nil {
 			t.Errorf("Unexpected error: %s", err)
@@ -293,24 +293,29 @@ func TestValidateRedirectTarget(t *testing.T) {
 		viaCount    int
 		shouldErr   bool
 		errContains string
+		viaURL      string
+		allowLocal  bool
 	}{
 		{
-			name:      "Localhost redirect allowed",
-			url:       "http://localhost/path",
-			viaCount:  0,
-			shouldErr: false,
+			name:       "Localhost redirect allowed",
+			url:        "http://localhost/path",
+			viaCount:   0,
+			shouldErr:  false,
+			allowLocal: true,
 		},
 		{
-			name:      "127.0.0.1 redirect allowed",
-			url:       "http://127.0.0.1:8080/path",
-			viaCount:  0,
-			shouldErr: false,
+			name:       "127.0.0.1 redirect allowed",
+			url:        "http://127.0.0.1:8080/path",
+			viaCount:   0,
+			shouldErr:  false,
+			allowLocal: true,
 		},
 		{
-			name:      "IPv6 loopback allowed",
-			url:       "http://[::1]:8080/path",
-			viaCount:  0,
-			shouldErr: false,
+			name:       "IPv6 loopback allowed",
+			url:        "http://[::1]:8080/path",
+			viaCount:   0,
+			shouldErr:  false,
+			allowLocal: true,
 		},
 		{
 			name:        "Too many redirects",
@@ -318,6 +323,7 @@ func TestValidateRedirectTarget(t *testing.T) {
 			viaCount:    2,
 			shouldErr:   true,
 			errContains: "too many redirects",
+			allowLocal:  true,
 		},
 		{
 			name:        "Three redirects",
@@ -325,6 +331,16 @@ func TestValidateRedirectTarget(t *testing.T) {
 			viaCount:    3,
 			shouldErr:   true,
 			errContains: "too many redirects",
+			allowLocal:  true,
+		},
+		{
+			name:        "Scheme downgrade blocked (https -> http)",
+			url:         "http://localhost/next",
+			viaURL:      "https://localhost/start",
+			viaCount:    1,
+			shouldErr:   true,
+			errContains: "scheme change blocked",
+			allowLocal:  true,
 		},
 	}
 
@@ -337,12 +353,23 @@ func TestValidateRedirectTarget(t *testing.T) {
 			}
 
 			// Create via slice (previous requests)
-			via := make([]*http.Request, tt.viaCount)
-			for i := 0; i < tt.viaCount; i++ {
-				via[i] = &http.Request{}
+			via := make([]*http.Request, 0, tt.viaCount)
+			if tt.viaCount > 0 {
+				viaURL := tt.viaURL
+				if viaURL == "" {
+					viaURL = "http://localhost/prev"
+				}
+				prevReq, prevErr := http.NewRequest("GET", viaURL, http.NoBody)
+				if prevErr != nil {
+					t.Fatalf("Failed to create via request: %v", prevErr)
+				}
+				via = append(via, prevReq)
+				for i := 1; i < tt.viaCount; i++ {
+					via = append(via, prevReq)
+				}
 			}
 
-			err = validateRedirectTarget(req, via)
+			err = validateRedirectTargetStrict(req, via, 2, true, tt.allowLocal)
 
 			if tt.shouldErr {
 				if err == nil {
@@ -422,8 +449,8 @@ func TestTestURLConnectivity_AuditLogging(t *testing.T) {
 
 		// Note: With mock transport, audit logging is skipped (isTestMode=true)
 		// This test verifies the code path doesn't panic
-		transport := &http.Transport{}
-		reachable, _, err := TestURLConnectivity(testServer.URL, transport)
+		transport := testServer.Client().Transport
+		reachable, _, err := testURLConnectivity(testServer.URL, withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 		if err != nil {
 			t.Errorf("Unexpected error: %s", err)
@@ -445,8 +472,8 @@ func TestTestURLConnectivity_RequestIDConsistency(t *testing.T) {
 	}))
 	defer testServer.Close()
 
-	transport := &http.Transport{}
-	_, _, err := TestURLConnectivity(testServer.URL, transport)
+	transport := testServer.Client().Transport
+	_, _, err := testURLConnectivity(testServer.URL, withAllowLocalhostForTesting(), withTransportForTesting(transport))
 
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)

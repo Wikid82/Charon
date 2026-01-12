@@ -4,24 +4,16 @@
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local . && docker compose -f docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build -t charon:local . && docker compose -f /projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            }
+            "problemMatcher": []
         },
         {
             "label": "Build & Run: Local Docker Image No-Cache",
             "type": "shell",
-            "command": "docker build --no-cache -t charon:local . && docker compose -f docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build --no-cache -t charon:local . && docker compose -f /projects/Charon/.docker/compose//projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            }
+            "problemMatcher": []
         },
         {
             "label": "Build: Backend",
@@ -41,6 +33,8 @@
             "label": "Build: All",
             "type": "shell",
             "dependsOn": ["Build: Backend", "Build: Frontend"],
+            "dependsOrder": "sequence",
+            "command": "echo 'Build complete'",
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -51,6 +45,20 @@
             "label": "Test: Backend Unit Tests",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh test-backend-unit",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: Backend Unit (Verbose)",
+            "type": "shell",
+            "command": "cd backend && if command -v gotestsum &> /dev/null; then gotestsum --format testdox ./...; else go test -v ./...; fi",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Test: Backend Unit (Quick)",
+            "type": "shell",
+            "command": "cd backend && go test -short ./...",
             "group": "test",
             "problemMatcher": ["$go"]
         },
@@ -80,11 +88,7 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",
             "group": "test",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
+            "problemMatcher": []
         },
         {
             "label": "Lint: Go Vet",
@@ -166,38 +170,23 @@
         {
             "label": "Security: CodeQL Go Scan (CI-Aligned) [~60s]",
             "type": "shell",
-            "command": "bash -c 'set -e && \\\n        echo \"🔍 Creating CodeQL database for Go...\" && \\\n        rm -rf codeql-db-go && \\\n        codeql database create codeql-db-go \\\n          --language=go \\\n          --source-root=backend \\\n          --overwrite \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"📊 Running CodeQL analysis (security-and-quality suite)...\" && \\\n        codeql database analyze codeql-db-go \\\n          codeql/go-queries:codeql-suites/go-security-and-quality.qls \\\n          --format=sarif-latest \\\n          --output=codeql-results-go.sarif \\\n          --sarif-add-baseline-file-info \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"✅ CodeQL scan complete. Results: codeql-results-go.sarif\" && \\\n        echo \"\" && \\\n        echo \"📋 Summary of findings:\" && \\\n        codeql database interpret-results codeql-db-go \\\n          --format=text \\\n          --output=/dev/stdout \\\n          codeql/go-queries:codeql-suites/go-security-and-quality.qls 2>/dev/null || \\\n          (echo \"⚠️  Use SARIF Viewer extension to view detailed results\" && jq -r \".runs[].results[] | \\\"\\(.level): \\(.message.text) (\\(.locations[0].physicalLocation.artifactLocation.uri):\\(.locations[0].physicalLocation.region.startLine))\\\"\" codeql-results-go.sarif 2>/dev/null | head -20 || echo \"No findings or jq not available\")'",
+            "command": "rm -rf codeql-db-go && codeql database create codeql-db-go --language=go --source-root=backend --codescanning-config=.github/codeql/codeql-config.yml --overwrite --threads=0 && codeql database analyze codeql-db-go --additional-packs=codeql-custom-queries-go --format=sarif-latest --output=codeql-results-go.sarif --sarif-add-baseline-file-info --threads=0",
             "group": "test",
-            "problemMatcher": [],
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": false,
-                "clear": false
-            }
+            "problemMatcher": []
         },
         {
             "label": "Security: CodeQL JS Scan (CI-Aligned) [~90s]",
             "type": "shell",
-            "command": "bash -c 'set -e && \\\n        echo \"🔍 Creating CodeQL database for JavaScript/TypeScript...\" && \\\n        rm -rf codeql-db-js && \\\n        codeql database create codeql-db-js \\\n          --language=javascript \\\n          --source-root=frontend \\\n          --overwrite \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"📊 Running CodeQL analysis (security-and-quality suite)...\" && \\\n        codeql database analyze codeql-db-js \\\n          codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls \\\n          --format=sarif-latest \\\n          --output=codeql-results-js.sarif \\\n          --sarif-add-baseline-file-info \\\n          --threads=0 && \\\n        echo \"\" && \\\n        echo \"✅ CodeQL scan complete. Results: codeql-results-js.sarif\" && \\\n        echo \"\" && \\\n        echo \"📋 Summary of findings:\" && \\\n        codeql database interpret-results codeql-db-js \\\n          --format=text \\\n          --output=/dev/stdout \\\n          codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls 2>/dev/null || \\\n          (echo \"⚠️  Use SARIF Viewer extension to view detailed results\" && jq -r \".runs[].results[] | \\\"\\(.level): \\(.message.text) (\\(.locations[0].physicalLocation.artifactLocation.uri):\\(.locations[0].physicalLocation.region.startLine))\\\"\" codeql-results-js.sarif 2>/dev/null | head -20 || echo \"No findings or jq not available\")'",
+            "command": "rm -rf codeql-db-js && codeql database create codeql-db-js --language=javascript --build-mode=none --source-root=frontend --codescanning-config=.github/codeql/codeql-config.yml --overwrite --threads=0 && codeql database analyze codeql-db-js --format=sarif-latest --output=codeql-results-js.sarif --sarif-add-baseline-file-info --threads=0",
             "group": "test",
-            "problemMatcher": [],
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared",
-                "showReuseMessage": false,
-                "clear": false
-            }
+            "problemMatcher": []
         },
         {
             "label": "Security: CodeQL All (CI-Aligned)",
             "type": "shell",
             "dependsOn": ["Security: CodeQL Go Scan (CI-Aligned) [~60s]", "Security: CodeQL JS Scan (CI-Aligned) [~90s]"],
             "dependsOrder": "sequence",
+            "command": "echo 'CodeQL complete'",
             "group": "test",
             "problemMatcher": []
         },
@@ -206,11 +195,7 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh security-scan-codeql",
             "group": "test",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
+            "problemMatcher": []
         },
         {
             "label": "Security: Go Vulnerability Check",
@@ -267,11 +252,7 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh integration-test-all",
             "group": "test",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            }
+            "problemMatcher": []
         },
         {
             "label": "Integration: Coraza WAF",
@@ -327,11 +308,7 @@
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh utility-db-recovery",
             "group": "none",
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            }
+            "problemMatcher": []
         }
     ]
 }

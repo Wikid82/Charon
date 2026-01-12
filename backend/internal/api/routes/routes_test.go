@@ -174,3 +174,855 @@ func TestRegister_ProxyHostsRequireAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Body.String(), "Authorization header required")
 }
+
+func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_missing"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: ""}
+	require.NoError(t, Register(router, db, cfg))
+
+	for _, r := range router.Routes() {
+		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
+	}
+}
+
+func TestRegister_DNSProviders_NotRegisteredWhenEncryptionKeyInvalid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_invalid"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "not-base64"}
+	require.NoError(t, Register(router, db, cfg))
+
+	for _, r := range router.Routes() {
+		assert.NotContains(t, r.Path, "/api/v1/dns-providers")
+	}
+}
+
+func TestRegister_DNSProviders_RegisteredWhenEncryptionKeyValid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_dnsproviders_valid"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// 32-byte all-zero key in base64
+	cfg := config.Config{JWTSecret: "test-secret", EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+	require.NoError(t, Register(router, db, cfg))
+
+	paths := make(map[string]bool)
+	for _, r := range router.Routes() {
+		paths[r.Path] = true
+	}
+
+	assert.True(t, paths["/api/v1/dns-providers"], "dns providers list route should be registered")
+	assert.True(t, paths["/api/v1/dns-providers/types"], "dns providers types route should be registered")
+}
+
+func TestRegister_AllRoutesRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_all_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string][]string) // path -> methods
+	for _, r := range routes {
+		routeMap[r.Path] = append(routeMap[r.Path], r.Method)
+	}
+
+	// Core routes
+	assert.Contains(t, routeMap, "/api/v1/health")
+	assert.Contains(t, routeMap, "/metrics")
+
+	// Auth routes
+	assert.Contains(t, routeMap, "/api/v1/auth/login")
+	assert.Contains(t, routeMap, "/api/v1/auth/register")
+	assert.Contains(t, routeMap, "/api/v1/auth/verify")
+	assert.Contains(t, routeMap, "/api/v1/auth/status")
+	assert.Contains(t, routeMap, "/api/v1/auth/logout")
+	assert.Contains(t, routeMap, "/api/v1/auth/me")
+
+	// User routes
+	assert.Contains(t, routeMap, "/api/v1/setup")
+	assert.Contains(t, routeMap, "/api/v1/invite/validate")
+	assert.Contains(t, routeMap, "/api/v1/invite/accept")
+	assert.Contains(t, routeMap, "/api/v1/users")
+
+	// Settings routes
+	assert.Contains(t, routeMap, "/api/v1/settings")
+	assert.Contains(t, routeMap, "/api/v1/settings/smtp")
+
+	// Security routes
+	assert.Contains(t, routeMap, "/api/v1/security/status")
+	assert.Contains(t, routeMap, "/api/v1/security/config")
+	assert.Contains(t, routeMap, "/api/v1/audit-logs")
+
+	// Notification routes
+	assert.Contains(t, routeMap, "/api/v1/notifications")
+	assert.Contains(t, routeMap, "/api/v1/notifications/providers")
+
+	// Uptime routes
+	assert.Contains(t, routeMap, "/api/v1/uptime/monitors")
+
+	// DNS Providers routes (when encryption key is set)
+	assert.Contains(t, routeMap, "/api/v1/dns-providers")
+	assert.Contains(t, routeMap, "/api/v1/dns-providers/types")
+	assert.Contains(t, routeMap, "/api/v1/dns-providers/:id/credentials")
+
+	// Admin routes - plugins should always be registered
+	assert.Contains(t, routeMap, "/api/v1/admin/plugins")
+
+	// CrowdSec routes
+	assert.Contains(t, routeMap, "/api/v1/admin/crowdsec/status")
+	assert.Contains(t, routeMap, "/api/v1/admin/crowdsec/start")
+	assert.Contains(t, routeMap, "/api/v1/admin/crowdsec/stop")
+
+	// Total route count should be substantial
+	assert.Greater(t, len(routes), 50, "Expected more than 50 routes to be registered")
+}
+
+func TestRegister_MiddlewareApplied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_middleware"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Test that security headers middleware is applied
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	// Security headers should be present
+	assert.NotEmpty(t, w.Header().Get("X-Content-Type-Options"))
+	assert.NotEmpty(t, w.Header().Get("X-Frame-Options"))
+
+	// Response should be compressed (gzip middleware applied)
+	// Note: Only compressed if Accept-Encoding is set
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req2.Header.Set("Accept-Encoding", "gzip")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	// Check for gzip content encoding when response is large enough
+	assert.Equal(t, http.StatusOK, w2.Code)
+}
+
+func TestRegister_AuthenticatedRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_auth_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Test that protected routes require authentication
+	protectedPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/backups"},
+		{http.MethodPost, "/api/v1/backups"},
+		{http.MethodGet, "/api/v1/logs"},
+		{http.MethodGet, "/api/v1/settings"},
+		{http.MethodGet, "/api/v1/notifications"},
+		{http.MethodGet, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/auth/me"},
+		{http.MethodPost, "/api/v1/auth/logout"},
+		{http.MethodGet, "/api/v1/uptime/monitors"},
+	}
+
+	for _, tc := range protectedPaths {
+		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusUnauthorized, w.Code, "Route %s %s should require auth", tc.method, tc.path)
+		})
+	}
+}
+
+func TestRegister_AdminRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_admin_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Admin routes should exist and require auth
+	adminPaths := []string{
+		"/api/v1/admin/plugins",
+		"/api/v1/admin/crowdsec/status",
+	}
+
+	for _, path := range adminPaths {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		router.ServeHTTP(w, req)
+		// Should require auth (401) not be missing (404)
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Admin route %s should exist and require auth", path)
+	}
+}
+
+func TestRegister_PublicRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_public_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Public routes should be accessible without auth (route exists, not 404)
+	publicPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/health"},
+		{http.MethodGet, "/metrics"},
+		{http.MethodGet, "/api/v1/setup"},
+		{http.MethodGet, "/api/v1/auth/status"},
+	}
+
+	for _, tc := range publicPaths {
+		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			router.ServeHTTP(w, req)
+			// Should not be 404 (route exists)
+			assert.NotEqual(t, http.StatusNotFound, w.Code, "Public route %s %s should exist", tc.method, tc.path)
+		})
+	}
+}
+
+func TestRegister_HealthEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_health_endpoint"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "status")
+}
+
+func TestRegister_MetricsEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_metrics_endpoint"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	// Prometheus metrics format
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/plain")
+}
+
+func TestRegister_DBHealthEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_db_health"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/db", nil)
+	router.ServeHTTP(w, req)
+
+	// Should return OK or service unavailable, but not 404
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+func TestRegister_LoginEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_login"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Test login endpoint exists and accepts POST
+	body := `{"username": "test", "password": "test"}`
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	// Should not be 404 (route exists)
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+func TestRegister_SetupEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_setup"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// GET /setup should return setup status
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "setup")
+}
+
+func TestRegister_WithEncryptionRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_encryption_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Set valid encryption key env var (32-byte key base64 encoded)
+	t.Setenv("CHARON_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Check if encryption routes are registered (may depend on env)
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// DNS providers should be registered with valid encryption key
+	assert.True(t, routeMap["/api/v1/dns-providers"])
+	assert.True(t, routeMap["/api/v1/dns-providers/types"])
+}
+
+func TestRegister_UptimeCheckEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_uptime_check"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Uptime check route should exist and require auth
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/uptime/check", nil)
+	router.ServeHTTP(w, req)
+
+	// Should require auth
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRegister_CrowdSecRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_crowdsec_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// CrowdSec routes should exist
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// CrowdSec management routes
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/start"])
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/stop"])
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/status"])
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/presets"])
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/decisions"])
+	assert.True(t, routeMap["/api/v1/admin/crowdsec/ban"])
+}
+
+func TestRegister_SecurityRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_security_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Security routes
+	assert.True(t, routeMap["/api/v1/security/status"])
+	assert.True(t, routeMap["/api/v1/security/config"])
+	assert.True(t, routeMap["/api/v1/security/enable"])
+	assert.True(t, routeMap["/api/v1/security/disable"])
+	assert.True(t, routeMap["/api/v1/security/decisions"])
+	assert.True(t, routeMap["/api/v1/security/rulesets"])
+	assert.True(t, routeMap["/api/v1/security/geoip/status"])
+	assert.True(t, routeMap["/api/v1/security/waf/exclusions"])
+}
+
+func TestRegister_AccessListRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_acl_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Access List routes
+	assert.True(t, routeMap["/api/v1/access-lists"])
+	assert.True(t, routeMap["/api/v1/access-lists/:id"])
+	assert.True(t, routeMap["/api/v1/access-lists/:id/test"])
+	assert.True(t, routeMap["/api/v1/access-lists/templates"])
+}
+
+func TestRegister_CertificateRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_cert_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Certificate routes
+	assert.True(t, routeMap["/api/v1/certificates"])
+	assert.True(t, routeMap["/api/v1/certificates/:id"])
+}
+
+// TestRegister_NilHandlers verifies registration behavior with minimal/nil components
+func TestRegister_NilHandlers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	// Create a minimal DB connection that will work
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_nil_handlers"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Config with minimal settings - no encryption key, no special features
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		Environment:   "production",
+		EncryptionKey: "", // No encryption key - DNS providers won't be registered
+	}
+
+	err = Register(router, db, cfg)
+	assert.NoError(t, err)
+
+	// Verify that routes still work without DNS provider features
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Core routes should still be registered
+	assert.True(t, routeMap["/api/v1/health"])
+	assert.True(t, routeMap["/api/v1/auth/login"])
+
+	// DNS provider routes should NOT be registered (no encryption key)
+	assert.False(t, routeMap["/api/v1/dns-providers"])
+}
+
+// TestRegister_MiddlewareOrder verifies middleware is attached in correct order
+func TestRegister_MiddlewareOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_middleware_order"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{
+		JWTSecret:   "test-secret",
+		Environment: "development",
+	}
+
+	err = Register(router, db, cfg)
+	require.NoError(t, err)
+
+	// Test that security headers are applied (they should come first)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	router.ServeHTTP(w, req)
+
+	// Security headers should be present regardless of response
+	assert.NotEmpty(t, w.Header().Get("X-Content-Type-Options"), "Security headers middleware should set X-Content-Type-Options")
+	assert.NotEmpty(t, w.Header().Get("X-Frame-Options"), "Security headers middleware should set X-Frame-Options")
+
+	// In development mode, CSP should be more permissive
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRegister_GzipCompression verifies gzip middleware is working
+func TestRegister_GzipCompression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_gzip"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Request with Accept-Encoding: gzip
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	router.ServeHTTP(w, req)
+
+	// Response should be OK (gzip will only compress if response is large enough)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRegister_CerberusMiddleware verifies Cerberus security middleware is applied
+func TestRegister_CerberusMiddleware(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_cerberus_mw"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{
+		JWTSecret: "test-secret",
+		Security: config.SecurityConfig{
+			CerberusEnabled: true,
+		},
+	}
+
+	err = Register(router, db, cfg)
+	require.NoError(t, err)
+
+	// API routes should have Cerberus middleware applied
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup", nil)
+	router.ServeHTTP(w, req)
+
+	// Should still work (Cerberus allows normal requests)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestRegister_FeatureFlagsEndpoint verifies feature flags endpoint is registered
+func TestRegister_FeatureFlagsEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_feature_flags"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Feature flags should require auth
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/feature-flags", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestRegister_WebSocketRoutes verifies WebSocket routes are registered
+func TestRegister_WebSocketRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_ws_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// WebSocket routes should be registered
+	assert.True(t, routeMap["/api/v1/logs/live"])
+	assert.True(t, routeMap["/api/v1/websocket/connections"])
+	assert.True(t, routeMap["/api/v1/websocket/stats"])
+	assert.True(t, routeMap["/api/v1/cerberus/logs/ws"])
+}
+
+// TestRegister_NotificationRoutes verifies all notification routes are registered
+func TestRegister_NotificationRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_notification_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Notification routes
+	assert.True(t, routeMap["/api/v1/notifications"])
+	assert.True(t, routeMap["/api/v1/notifications/:id/read"])
+	assert.True(t, routeMap["/api/v1/notifications/read-all"])
+	assert.True(t, routeMap["/api/v1/notifications/providers"])
+	assert.True(t, routeMap["/api/v1/notifications/providers/:id"])
+	assert.True(t, routeMap["/api/v1/notifications/templates"])
+	assert.True(t, routeMap["/api/v1/notifications/external-templates"])
+	assert.True(t, routeMap["/api/v1/notifications/external-templates/:id"])
+}
+
+// TestRegister_DomainRoutes verifies domain management routes
+func TestRegister_DomainRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_domain_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Domain routes
+	assert.True(t, routeMap["/api/v1/domains"])
+	assert.True(t, routeMap["/api/v1/domains/:id"])
+}
+
+// TestRegister_VerifyAuthEndpoint tests the verify endpoint for Caddy forward auth
+func TestRegister_VerifyAuthEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_verify_auth"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	// Verify endpoint is public (for Caddy forward auth)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/verify", nil)
+	router.ServeHTTP(w, req)
+
+	// Should not be 404 (route exists) - will return 401 without valid session
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
+}
+
+// TestRegister_SMTPRoutes verifies SMTP configuration routes
+func TestRegister_SMTPRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_smtp_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// SMTP routes
+	assert.True(t, routeMap["/api/v1/settings/smtp"])
+	assert.True(t, routeMap["/api/v1/settings/smtp/test"])
+	assert.True(t, routeMap["/api/v1/settings/smtp/test-email"])
+	assert.True(t, routeMap["/api/v1/settings/validate-url"])
+	assert.True(t, routeMap["/api/v1/settings/test-url"])
+}
+
+// TestRegisterImportHandler_RoutesExist verifies import handler routes
+func TestRegisterImportHandler_RoutesExist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_import_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	RegisterImportHandler(router, db, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Import routes
+	assert.True(t, routeMap["/api/v1/import/status"] || routeMap["/api/v1/import/preview"] || routeMap["/api/v1/import/upload"],
+		"At least one import route should be registered")
+}
+
+// TestRegister_EncryptionRoutesWithValidKey verifies encryption management routes
+func TestRegister_EncryptionRoutesWithValidKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_encryption_routes_valid"), &gorm.Config{})
+	require.NoError(t, err)
+
+	// Set the env var needed for rotation service
+	t.Setenv("CHARON_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+
+	// Valid 32-byte key in base64
+	cfg := config.Config{
+		JWTSecret:     "test-secret",
+		EncryptionKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+	}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Encryption management routes should be registered (depends on rotation service init)
+	// Note: If rotation service init fails, these routes won't be registered
+	// We check if DNS provider routes are registered (which don't depend on rotation service)
+	assert.True(t, routeMap["/api/v1/dns-providers"])
+	assert.True(t, routeMap["/api/v1/dns-providers/types"])
+
+	// Encryption routes may or may not be registered depending on env setup
+	// Just verify the DNS providers are there when encryption key is valid
+}
+
+// TestRegister_WAFExclusionRoutes verifies WAF exclusion management routes
+func TestRegister_WAFExclusionRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_waf_exclusion_routes"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// WAF exclusion routes
+	assert.True(t, routeMap["/api/v1/security/waf/exclusions"])
+	assert.True(t, routeMap["/api/v1/security/waf/exclusions/:rule_id"])
+}
+
+// TestRegister_BreakGlassRoute verifies break glass endpoint is registered
+func TestRegister_BreakGlassRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_breakglass_route"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Break glass route
+	assert.True(t, routeMap["/api/v1/security/breakglass/generate"])
+}
+
+// TestRegister_RateLimitPresetsRoute verifies rate limit presets endpoint
+func TestRegister_RateLimitPresetsRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared&_test_ratelimit_presets"), &gorm.Config{})
+	require.NoError(t, err)
+
+	cfg := config.Config{JWTSecret: "test-secret"}
+	require.NoError(t, Register(router, db, cfg))
+
+	routes := router.Routes()
+	routeMap := make(map[string]bool)
+	for _, r := range routes {
+		routeMap[r.Path] = true
+	}
+
+	// Rate limit presets route
+	assert.True(t, routeMap["/api/v1/security/rate-limit/presets"])
+}

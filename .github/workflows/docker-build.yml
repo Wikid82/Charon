@@ -235,7 +235,7 @@ jobs:
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
       - name: Generate SBOM
-        uses: anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a # v0.17.2
+        uses: anchore/sbom-action@0b82b0b1a22399a1c542d4d656f70cd903571b5c # v0.21.1
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -244,7 +244,7 @@ jobs:
 
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
-        uses: actions/attest-sbom@115c3be05ff3974bcbd596578934b3f9ce39bf68 # v2.2.0
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
