@@ -13,20 +13,37 @@ export default defineConfig({
       }
     }
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.ts',
+    testTimeout: 10000, // 10 seconds max per test
+    hookTimeout: 10000, // 10 seconds for beforeEach/afterEach
+    coverage: {
+      provider: 'istanbul',
+      reporter: ['text', 'json-summary', 'lcov'],
+      reportsDirectory: './coverage',
+      exclude: [
+        'node_modules/',
+        'src/setupTests.ts',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/mockData',
+        'dist/'
+      ]
+    }
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Code splitting for better caching and parallel loading
+    // TEMPORARY: Disable code splitting to diagnose React initialization issue
+    // If this works, the problem is module loading order in async chunks
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // React ecosystem - changes rarely
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          // TanStack Query - changes rarely
-          'query': ['@tanstack/react-query'],
-          // Icons - large but cacheable
-          'icons': ['lucide-react'],
-        }
+        // Disable code splitting - bundle everything into one file
+        manualChunks: undefined,
+        inlineDynamicImports: true
       }
     }
   }

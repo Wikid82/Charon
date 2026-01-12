@@ -63,6 +63,10 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('navigation.remoteServers'), path: '/remote-servers', icon: '🖥️' },
     { name: t('navigation.domains'), path: '/domains', icon: '🌍' },
     { name: t('navigation.certificates'), path: '/certificates', icon: '🔒' },
+    { name: t('navigation.dns'), path: '/dns', icon: '☁️', children: [
+      { name: t('navigation.dnsProviders'), path: '/dns/providers', icon: '🧭' },
+      { name: t('navigation.plugins'), path: '/dns/plugins', icon: '🔌' },
+    ] },
     { name: t('navigation.uptime'), path: '/uptime', icon: '📈' },
     { name: t('navigation.security'), path: '/security', icon: '🛡️', children: [
       { name: t('navigation.dashboard'), path: '/security', icon: '🛡️' },
@@ -71,6 +75,7 @@ export default function Layout({ children }: LayoutProps) {
       { name: t('navigation.rateLimiting'), path: '/security/rate-limiting', icon: '⚡' },
       { name: t('navigation.waf'), path: '/security/waf', icon: '🛡️' },
       { name: t('navigation.securityHeaders'), path: '/security/headers', icon: '🔐' },
+      { name: t('navigation.encryption'), path: '/security/encryption', icon: '🔑' },
     ]},
     {
       name: t('navigation.settings'),

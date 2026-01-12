@@ -17,8 +17,8 @@ import (
 )
 
 // mockGenerateConfigFunc creates a mock config generator that captures parameters
-func mockGenerateConfigFunc(capturedProvider *string, capturedStaging *bool) func([]models.ProxyHost, string, string, string, string, bool, bool, bool, bool, bool, string, []models.SecurityRuleSet, map[string]string, []models.SecurityDecision, *models.SecurityConfig) (*Config, error) {
-	return func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig) (*Config, error) {
+func mockGenerateConfigFunc(capturedProvider *string, capturedStaging *bool) func([]models.ProxyHost, string, string, string, string, bool, bool, bool, bool, bool, string, []models.SecurityRuleSet, map[string]string, []models.SecurityDecision, *models.SecurityConfig, []DNSProviderConfig) (*Config, error) {
+	return func(hosts []models.ProxyHost, storageDir string, acmeEmail string, frontendDir string, sslProvider string, acmeStaging bool, crowdsecEnabled bool, wafEnabled bool, rateLimitEnabled bool, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig) (*Config, error) {
 		*capturedProvider = sslProvider
 		*capturedStaging = acmeStaging
 		return &Config{Apps: Apps{HTTP: &HTTPApp{Servers: map[string]*Server{}}}}, nil
@@ -63,7 +63,7 @@ func TestManager_ApplyConfig_SSLProvider_Auto(t *testing.T) {
 
 	// Setup Manager
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a host
@@ -109,7 +109,7 @@ func TestManager_ApplyConfig_SSLProvider_LetsEncryptStaging(t *testing.T) {
 	db.Create(&models.Setting{Key: "caddy.ssl_provider", Value: "letsencrypt-staging"})
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	host := models.ProxyHost{
@@ -152,7 +152,7 @@ func TestManager_ApplyConfig_SSLProvider_LetsEncryptProd(t *testing.T) {
 	db.Create(&models.Setting{Key: "caddy.ssl_provider", Value: "letsencrypt-prod"})
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	host := models.ProxyHost{
@@ -195,7 +195,7 @@ func TestManager_ApplyConfig_SSLProvider_ZeroSSL(t *testing.T) {
 	db.Create(&models.Setting{Key: "caddy.ssl_provider", Value: "zerossl"})
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	host := models.ProxyHost{
@@ -238,7 +238,7 @@ func TestManager_ApplyConfig_SSLProvider_Empty(t *testing.T) {
 	// No SSL provider setting created - should use env var for staging
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	// Set acmeStaging to true via env var simulation
 	manager := NewManager(client, db, tmpDir, "", true, config.SecurityConfig{})
 
@@ -280,7 +280,7 @@ func TestManager_ApplyConfig_SSLProvider_EmptyWithNoStaging(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	host := models.ProxyHost{
@@ -323,7 +323,7 @@ func TestManager_ApplyConfig_SSLProvider_Unknown(t *testing.T) {
 	db.Create(&models.Setting{Key: "caddy.ssl_provider", Value: "unknown-provider"})
 
 	tmpDir := t.TempDir()
-	client := NewClient(caddyServer.URL)
+	client := newTestClient(t, caddyServer.URL)
 	manager := NewManager(client, db, tmpDir, "", true, config.SecurityConfig{})
 
 	host := models.ProxyHost{

@@ -11,6 +11,7 @@ import (
 )
 
 func TestIsCorruptionError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -97,6 +98,7 @@ func TestIsCorruptionError(t *testing.T) {
 }
 
 func TestLogCorruptionError(t *testing.T) {
+	t.Parallel()
 	t.Run("nil error does not panic", func(t *testing.T) {
 		// Should not panic
 		LogCorruptionError(nil, nil)
@@ -120,6 +122,7 @@ func TestLogCorruptionError(t *testing.T) {
 }
 
 func TestCheckIntegrity(t *testing.T) {
+	t.Parallel()
 	t.Run("healthy database returns ok", func(t *testing.T) {
 		db, err := Connect("file::memory:?cache=shared")
 		require.NoError(t, err)
@@ -151,6 +154,7 @@ func TestCheckIntegrity(t *testing.T) {
 // Phase 4 & 5: Deep coverage tests
 
 func TestLogCorruptionError_EmptyContext(t *testing.T) {
+	t.Parallel()
 	// Test with empty context map
 	err := errors.New("database disk image is malformed")
 	emptyCtx := map[string]any{}
@@ -160,6 +164,7 @@ func TestLogCorruptionError_EmptyContext(t *testing.T) {
 }
 
 func TestCheckIntegrity_ActualCorruption(t *testing.T) {
+	t.Parallel()
 	// Create a SQLite database and corrupt it
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "corrupt_test.db")
@@ -211,6 +216,7 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T) {
 }
 
 func TestCheckIntegrity_PRAGMAError(t *testing.T) {
+	t.Parallel()
 	// Create database and close connection to cause PRAGMA to fail
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")

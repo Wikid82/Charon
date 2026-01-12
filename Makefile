@@ -31,6 +31,12 @@ install:
 	@echo "Installing frontend dependencies..."
 	cd frontend && npm install
 
+# Install Go development tools
+install-tools:
+	@echo "Installing Go development tools..."
+	go install gotest.tools/gotestsum@latest
+	@echo "Tools installed successfully"
+
 # Install Go 1.25.5 system-wide and setup GOPATH/bin
 install-go:
 	@echo "Installing Go 1.25.5 and gopls (requires sudo)"

@@ -19,6 +19,7 @@ type Config struct {
 	ImportCaddyfile string
 	ImportDir       string
 	JWTSecret       string
+	EncryptionKey   string
 	ACMEStaging     bool
 	Debug           bool
 	Security        SecurityConfig
@@ -49,6 +50,7 @@ func Load() (Config, error) {
 		ImportCaddyfile: getEnvAny("/import/Caddyfile", "CHARON_IMPORT_CADDYFILE", "CPM_IMPORT_CADDYFILE"),
 		ImportDir:       getEnvAny(filepath.Join("data", "imports"), "CHARON_IMPORT_DIR", "CPM_IMPORT_DIR"),
 		JWTSecret:       getEnvAny("change-me-in-production", "CHARON_JWT_SECRET", "CPM_JWT_SECRET"),
+		EncryptionKey:   getEnvAny("", "CHARON_ENCRYPTION_KEY"),
 		ACMEStaging:     getEnvAny("", "CHARON_ACME_STAGING", "CPM_ACME_STAGING") == "true",
 		Security: SecurityConfig{
 			CrowdSecMode:      getEnvAny("disabled", "CERBERUS_SECURITY_CROWDSEC_MODE", "CHARON_SECURITY_CROWDSEC_MODE", "CPM_SECURITY_CROWDSEC_MODE"),

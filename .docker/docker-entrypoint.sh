@@ -6,6 +6,18 @@ set -e
 
 echo "Starting Charon with integrated Caddy..."
 
+is_root() {
+    [ "$(id -u)" -eq 0 ]
+}
+
+run_as_charon() {
+    if is_root; then
+        su-exec charon "$@"
+    else
+        "$@"
+    fi
+}
+
 # ============================================================================
 # Volume Permission Handling for Non-Root User
 # ============================================================================
@@ -34,10 +46,11 @@ mkdir -p /app/data/geoip 2>/dev/null || true
 # Docker Socket Permission Handling
 # ============================================================================
 # The Docker integration feature requires access to the Docker socket.
-# This section runs as root to configure group membership, then privileges
-# are dropped to the charon user at the end of this script.
+# If the container runs as root, we can auto-align group membership with the
+# socket GID. If running non-root (default), we cannot modify groups; users
+# can enable Docker integration by using a compatible GID / --group-add.
 
-if [ -S "/var/run/docker.sock" ]; then
+if [ -S "/var/run/docker.sock" ] && is_root; then
     DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
     if [ -n "$DOCKER_SOCK_GID" ] && [ "$DOCKER_SOCK_GID" != "0" ]; then
         # Check if a group with this GID exists
@@ -56,6 +69,9 @@ if [ -S "/var/run/docker.sock" ]; then
             echo "Docker integration enabled for charon user"
         fi
     fi
+elif [ -S "/var/run/docker.sock" ]; then
+    echo "Note: Docker socket mounted but container is running non-root; skipping docker.sock group setup."
+    echo "      If Docker discovery is needed, run with matching group permissions (e.g., --group-add)"
 else
     echo "Note: Docker socket not found. Docker container discovery will be unavailable."
 fi
@@ -194,9 +210,11 @@ ACQUIS_EOF
 
     # Fix ownership AFTER cscli commands (they run as root and create root-owned files)
     echo "Fixing CrowdSec file ownership..."
-    chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
-    chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
-    chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
+    if is_root; then
+        chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
+        chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
+        chown -R charon:charon /var/log/crowdsec 2>/dev/null || true
+    fi
 fi
 
 # CrowdSec Lifecycle Management:
@@ -215,10 +233,10 @@ fi
 echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
-# Run Caddy as charon user for security (preserves supplementary groups)
+# Run Caddy as charon user for security
 echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
-su-exec charon caddy run --config /config/caddy.json &
+run_as_charon caddy run --config /config/caddy.json &
 CADDY_PID=$!
 echo "Caddy started (PID: $CADDY_PID)"
 
@@ -237,7 +255,7 @@ done
 # Start Charon management application
 # Drop privileges to charon user before starting the application
 # This maintains security while allowing Docker socket access via group membership
-# Note: Using 'su-exec charon' without explicit group to preserve supplementary groups (docker)
+# Note: When running as root, we use su-exec; otherwise we run directly.
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
@@ -247,13 +265,13 @@ if [ "$DEBUG_FLAG" = "1" ]; then
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    su-exec charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
+    run_as_charon /usr/local/bin/dlv exec "$bin_path" --headless --listen=":$DEBUG_PORT" --api-version=2 --accept-multiclient --continue --log -- &
 else
     bin_path=/app/charon
     if [ ! -f "$bin_path" ]; then
         bin_path=/app/cpmp
     fi
-    su-exec charon "$bin_path" &
+    run_as_charon "$bin_path" &
 fi
 APP_PID=$!
 echo "Charon started (PID: $APP_PID)"

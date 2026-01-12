@@ -14,6 +14,8 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
@@ -687,8 +689,38 @@ func (s *UptimeService) checkMonitor(monitor models.UptimeMonitor) {
 
 	switch monitor.Type {
 	case "http", "https":
-		client := http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(monitor.URL)
+		validatedURL, err := security.ValidateExternalURL(
+			monitor.URL,
+			// Uptime monitors are an explicit admin-configured feature and commonly
+			// target loopback in local/dev setups (and in unit tests).
+			security.WithAllowLocalhost(),
+			security.WithAllowHTTP(),
+			security.WithTimeout(3*time.Second),
+		)
+		if err != nil {
+			msg = fmt.Sprintf("security validation failed: %s", err.Error())
+			break
+		}
+
+		client := network.NewSafeHTTPClient(
+			network.WithTimeout(10*time.Second),
+			network.WithDialTimeout(5*time.Second),
+			// Explicit redirect policy per call site: disable.
+			network.WithMaxRedirects(0),
+			// Uptime monitors are an explicit admin-configured feature and commonly
+			// target loopback in local/dev setups (and in unit tests).
+			network.WithAllowLocalhost(),
+		)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, validatedURL, http.NoBody)
+		if err != nil {
+			msg = err.Error()
+			break
+		}
+
+		resp, err := client.Do(req)
 		if err == nil {
 			defer func() {
 				if err := resp.Body.Close(); err != nil {

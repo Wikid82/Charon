@@ -13,6 +13,9 @@ import (
 
 // TestCrowdsecIntegration runs scripts/crowdsec_integration.sh and ensures it completes successfully.
 func TestCrowdsecIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 	t.Parallel()
 
 	cmd := exec.CommandContext(context.Background(), "bash", "./scripts/crowdsec_integration.sh")

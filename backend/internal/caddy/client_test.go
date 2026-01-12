@@ -22,7 +22,7 @@ func TestClient_Load_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	config, _ := GenerateConfig([]models.ProxyHost{
 		{
 			UUID:        "test",
@@ -31,7 +31,7 @@ func TestClient_Load_Success(t *testing.T) {
 			ForwardPort: 8080,
 			Enabled:     true,
 		},
-	}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil, nil)
+	}, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 
 	err := client.Load(context.Background(), config)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestClient_Load_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	config := &Config{}
 
 	err := client.Load(context.Background(), config)
@@ -71,7 +71,7 @@ func TestClient_GetConfig_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	config, err := client.GetConfig(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, config)
@@ -84,13 +84,13 @@ func TestClient_Ping_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	err := client.Ping(context.Background())
 	require.NoError(t, err)
 }
 
 func TestClient_Ping_Unreachable(t *testing.T) {
-	client := NewClient("http://localhost:9999")
+	client := NewClientWithExpectedPort("http://localhost:9999", 9999)
 	err := client.Ping(context.Background())
 	require.Error(t, err)
 }
@@ -115,7 +115,7 @@ func TestClient_GetConfig_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	_, err := client.GetConfig(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "500")
@@ -128,7 +128,7 @@ func TestClient_GetConfig_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	_, err := client.GetConfig(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "decode response")
@@ -140,32 +140,24 @@ func TestClient_Ping_Failure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
 	err := client.Ping(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "503")
 }
 
 func TestClient_RequestCreationErrors(t *testing.T) {
-	// Use a control character in URL to force NewRequest error
+	// Unsafe base URLs are rejected up-front.
 	client := NewClient("http://example.com" + string(byte(0x7f)))
 
 	err := client.Load(context.Background(), &Config{})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "create request")
-
-	_, err = client.GetConfig(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "create request")
-
-	err = client.Ping(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "create request")
+	require.Contains(t, err.Error(), "caddy client init failed")
 }
 
 func TestClient_NetworkErrors(t *testing.T) {
 	// Use a closed port to force connection error
-	client := NewClient("http://127.0.0.1:0")
+	client := NewClientWithExpectedPort("http://127.0.0.1:1", 1)
 
 	err := client.Load(context.Background(), &Config{})
 	require.Error(t, err)
@@ -182,7 +174,7 @@ func TestClient_Load_MarshalFailure(t *testing.T) {
 	jsonMarshalClient = func(v any) ([]byte, error) { return nil, fmt.Errorf("marshal error") }
 	defer func() { jsonMarshalClient = orig }()
 
-	client := NewClient("http://localhost")
+	client := NewClientWithExpectedPort("http://localhost:2019", 2019)
 	err := client.Load(context.Background(), &Config{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "marshal config")
@@ -195,7 +187,7 @@ func (f *failingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 func TestClient_Ping_TransportError(t *testing.T) {
-	client := NewClient("http://example.com")
+	client := NewClientWithExpectedPort("http://localhost:2019", 2019)
 	client.httpClient = &http.Client{Transport: &failingTransport{}}
 	err := client.Ping(context.Background())
 	require.Error(t, err)

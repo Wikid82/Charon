@@ -10,6 +10,7 @@ import (
 )
 
 func TestConnect(t *testing.T) {
+	t.Parallel()
 	// Test with memory DB
 	db, err := Connect("file::memory:?cache=shared")
 	assert.NoError(t, err)
@@ -24,6 +25,7 @@ func TestConnect(t *testing.T) {
 }
 
 func TestConnect_Error(t *testing.T) {
+	t.Parallel()
 	// Test with invalid path (directory)
 	tempDir := t.TempDir()
 	_, err := Connect(tempDir)
@@ -31,6 +33,7 @@ func TestConnect_Error(t *testing.T) {
 }
 
 func TestConnect_WALMode(t *testing.T) {
+	t.Parallel()
 	// Create a file-based database to test WAL mode
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "wal_test.db")
@@ -60,6 +63,7 @@ func TestConnect_WALMode(t *testing.T) {
 // Phase 2: database.go coverage tests
 
 func TestConnect_InvalidDSN(t *testing.T) {
+	t.Parallel()
 	// Test with a directory path instead of a file path
 	// SQLite cannot open a directory as a database file
 	tmpDir := t.TempDir()
@@ -68,6 +72,7 @@ func TestConnect_InvalidDSN(t *testing.T) {
 }
 
 func TestConnect_IntegrityCheckCorrupted(t *testing.T) {
+	t.Parallel()
 	// Create a valid SQLite database
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "corrupt.db")
@@ -101,6 +106,7 @@ func TestConnect_IntegrityCheckCorrupted(t *testing.T) {
 }
 
 func TestConnect_PRAGMAVerification(t *testing.T) {
+	t.Parallel()
 	// Verify all PRAGMA settings are correctly applied
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "pragma_test.db")
@@ -129,6 +135,7 @@ func TestConnect_PRAGMAVerification(t *testing.T) {
 }
 
 func TestConnect_CorruptedDatabase_FullIntegrationScenario(t *testing.T) {
+	t.Parallel()
 	// Create a valid database with data
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "integration.db")
