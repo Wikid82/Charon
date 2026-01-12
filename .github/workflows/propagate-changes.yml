@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - development
+      - nightly
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -145,9 +146,11 @@ jobs:
 
             if (currentBranch === 'main') {
               // Main -> Development
-              await createPR('main', 'development');
+              await createPR('main', 'development', 'nightly');
             } else if (currentBranch === 'development') {
-              // Development -> Feature branches
+              // Development -> Nightly
+            } else if (currentBranch === 'nightly') {
+              // Nightly -> Feature branches
               const branches = await github.paginate(github.rest.repos.listBranches, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
