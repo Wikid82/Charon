@@ -17,13 +17,11 @@ import (
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Auto-register DNS providers
 )
 
-// testContextKey is a custom type for context keys to avoid staticcheck SA1029
-type testContextKey string
-
+// Context keys for test setup (using plain strings to match service expectations)
 const (
-	testUserIDKey    testContextKey = "user_id"
-	testClientIPKey  testContextKey = "client_ip"
-	testUserAgentKey testContextKey = "user_agent"
+	testUserIDKey    = "user_id"
+	testClientIPKey  = "client_ip"
+	testUserAgentKey = "user_agent"
 )
 
 // setupTestDB creates an in-memory SQLite database for testing.
@@ -1659,20 +1657,12 @@ func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
 	assert.Equal(t, "Updated Name", newValues["name"])
 }
 
-// Context key types for audit logging tests
-type contextKey string
-
-const (
-	contextKeyUserID    contextKey = "user_id"
-	contextKeyClientIP  contextKey = "client_ip"
-	contextKeyUserAgent contextKey = "user_agent"
-)
-
 func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin-user")
-	ctx = context.WithValue(ctx, contextKeyClientIP, "10.0.0.1")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "admin-user")
+	ctx = context.WithValue(ctx, testClientIPKey, "10.0.0.1")
+	ctx = context.WithValue(ctx, testUserAgentKey, "TestAgent/1.0")
 
 	// Create a provider first
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1716,7 +1706,9 @@ func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), contextKeyUserID, "test-user")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "test-user")
+	ctx = context.WithValue(ctx, testClientIPKey, "192.168.1.1")
+	ctx = context.WithValue(ctx, testUserAgentKey, "TestAgent/1.0")
 
 	// Create a provider
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1751,7 +1743,9 @@ func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
 	service := NewDNSProviderService(db, encryptor)
-	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "admin")
+	ctx = context.WithValue(ctx, testClientIPKey, "192.168.1.1")
+	ctx = context.WithValue(ctx, testUserAgentKey, "TestAgent/1.0")
 
 	// Create a provider
 	provider, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1792,12 +1786,12 @@ func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 	// Test actor extraction
-	ctx := context.WithValue(context.Background(), contextKeyUserID, "user-123")
+	ctx := context.WithValue(context.Background(), testUserIDKey, "user-123")
 	actor := getActorFromContext(ctx)
 	assert.Equal(t, "user-123", actor)
 
 	// Test with uint user ID
-	ctx = context.WithValue(context.Background(), contextKeyUserID, uint(456))
+	ctx = context.WithValue(context.Background(), testUserIDKey, uint(456))
 	actor = getActorFromContext(ctx)
 	assert.Equal(t, "456", actor)
 
@@ -1807,12 +1801,12 @@ func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 	assert.Equal(t, "system", actor)
 
 	// Test IP extraction
-	ctx = context.WithValue(context.Background(), contextKeyClientIP, "10.0.0.1")
+	ctx = context.WithValue(context.Background(), testClientIPKey, "10.0.0.1")
 	ip := getIPFromContext(ctx)
 	assert.Equal(t, "10.0.0.1", ip)
 
 	// Test User-Agent extraction
-	ctx = context.WithValue(context.Background(), contextKeyUserAgent, "TestAgent/2.0")
+	ctx = context.WithValue(context.Background(), testUserAgentKey, "TestAgent/2.0")
 	ua := getUserAgentFromContext(ctx)
 	assert.Equal(t, "TestAgent/2.0", ua)
 }
