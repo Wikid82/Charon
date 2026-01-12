@@ -7,7 +7,8 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "development"
+    "feature/**",
+    "nightly"
   ],
   "timezone": "UTC",
   "dependencyDashboard": true,
