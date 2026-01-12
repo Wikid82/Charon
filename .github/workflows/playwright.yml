@@ -16,10 +16,18 @@ jobs:
     - name: Install dependencies
       run: npm ci
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
+      run: npx playwright install --with-deps chromium
     - name: Build Frontend
       working-directory: frontend
-      run: npm run build
+      run: |
+        echo "Installing frontend dependencies..."
+        npm ci
+        echo "Building frontend..."
+        npm run build
+    - name: Build Docker Image
+      run: |
+        echo "Building charon:local Docker image..."
+        docker build -t charon:local .
     - name: Start Application Stack
       run: docker compose -f .docker/compose/docker-compose.local.yml up -d
     - name: Wait for Application Health
