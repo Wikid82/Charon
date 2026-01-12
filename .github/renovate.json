@@ -10,7 +10,7 @@
     "feature/beta-release",
     "nightly"
   ],
-  "timezone": "UTC",
+  "timezone": "EST",
   "dependencyDashboard": true,
   "prConcurrentLimit": 10,
   "prHourlyLimit": 5,
@@ -22,7 +22,7 @@
     "enabled": true
   },
   "schedule": [
-    "before 4am on Monday"
+    "before 8am"
   ],
   "rangeStrategy": "bump",
   "automerge": true,
