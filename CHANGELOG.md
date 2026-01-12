@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CI**: Fixed Docker image artifact save failing with "reference does not exist" error in PR builds
+  - Root cause: Manual image tag reconstruction did not match actual tag applied by docker/build-push-action
+  - Solution: Use exact tag from docker/metadata-action output instead of reconstructing
+  - Impact: PR builds now successfully save image artifacts for supply chain verification
+  - Downstream fix: Enables verify-supply-chain-pr job to run correctly on all PRs
 - **Docs-to-Issues Workflow**: Resolved issue where PR status checks didn't appear when workflow ran (PR #461)
   - Removed `[skip ci]` flag from workflow commit message to enable CI validation on PRs
   - Maintained infinite loop protection via path filters (`!docs/issues/created/**`) and bot guard
