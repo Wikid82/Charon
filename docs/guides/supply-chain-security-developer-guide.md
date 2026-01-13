@@ -53,6 +53,7 @@ Task: "Security: Full Supply Chain Audit"
 **Purpose:** Verify SBOM contents and scan for vulnerabilities
 
 **Usage:**
+
 ```bash
 # Verify container image SBOM
 .github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
@@ -65,18 +66,21 @@ Task: "Security: Full Supply Chain Audit"
 ```
 
 **What it does:**
+
 1. Generates SBOM using Syft (if not exists)
 2. Validates SBOM format (SPDX JSON)
 3. Scans for vulnerabilities using Grype
 4. Reports findings with severity levels
 
 **When to use:**
+
 - Before committing dependency updates
 - After building new images
 - Before releases
 - During security audits
 
 **Output:**
+
 - SBOM file (SPDX JSON format)
 - Vulnerability report
 - Summary of critical/high findings
@@ -86,6 +90,7 @@ Task: "Security: Full Supply Chain Audit"
 **Purpose:** Sign container images or binaries with Cosign
 
 **Usage:**
+
 ```bash
 # Sign Docker image
 .github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local
@@ -98,18 +103,21 @@ Task: "Security: Full Supply Chain Audit"
 ```
 
 **What it does:**
+
 1. Verifies target exists
 2. Signs with Cosign (keyless or with key)
 3. Records signature in Rekor transparency log
 4. Generates verification commands
 
 **When to use:**
+
 - After building local test images
 - Before pushing to registry
 - During release preparation
 - For artifact attestation
 
 **Requirements:**
+
 - Cosign installed (`make install-cosign`)
 - Docker running (for image signing)
 - Network access (for Rekor)
@@ -119,6 +127,7 @@ Task: "Security: Full Supply Chain Audit"
 **Purpose:** Generate and verify SLSA provenance attestation
 
 **Usage:**
+
 ```bash
 # Generate provenance for binary
 .github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main
@@ -131,18 +140,21 @@ Task: "Security: Full Supply Chain Audit"
 ```
 
 **What it does:**
+
 1. Collects build metadata (commit, branch, timestamp)
 2. Generates SLSA provenance document
 3. Signs provenance with Cosign
 4. Verifies provenance integrity
 
 **When to use:**
+
 - After building release binaries
 - Before publishing releases
 - For compliance requirements
 - To prove build reproducibility
 
 **Output:**
+
 - `provenance.json` - SLSA provenance attestation
 - Verification status
 - Build metadata
@@ -171,6 +183,7 @@ make test-all
 ```
 
 **Review output:**
+
 - ✅ No critical/high vulnerabilities → Proceed
 - ⚠️ Vulnerabilities found → Review, patch, or document
 
@@ -256,6 +269,7 @@ make build-all
 ```
 
 **Review checklist:**
+
 - [ ] SBOM includes all new dependencies
 - [ ] No new critical/high vulnerabilities
 - [ ] Dependency licenses compatible
@@ -426,6 +440,7 @@ grype sbom:sbom-v1.0.0.spdx.json
 #### 6. Create GitHub Release
 
 Upload these files as release assets:
+
 - `charon-linux-amd64` - Binary
 - `charon-linux-amd64.sig` - Binary signature
 - `sbom-v1.0.0.spdx.json` - Image SBOM
@@ -433,6 +448,7 @@ Upload these files as release assets:
 - `provenance-v1.0.0.json` - SLSA provenance
 
 Release notes should include:
+
 - Verification commands
 - Link to user guide
 - Known vulnerabilities (if any)
@@ -459,6 +475,7 @@ See `.github/workflows/release.yml` for implementation.
 #### "syft: command not found"
 
 **Solution:**
+
 ```bash
 make install-syft
 # Or manually:
@@ -468,6 +485,7 @@ curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -
 #### "cosign: command not found"
 
 **Solution:**
+
 ```bash
 make install-cosign
 # Or manually:
@@ -479,6 +497,7 @@ sudo chmod +x /usr/local/bin/cosign
 #### "grype: command not found"
 
 **Solution:**
+
 ```bash
 make install-grype
 # Or manually:
@@ -488,11 +507,13 @@ curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh 
 #### SBOM Generation Fails
 
 **Possible causes:**
+
 - Docker image doesn't exist
 - Directory/file path incorrect
 - Syft version incompatible
 
 **Debug:**
+
 ```bash
 # Check image exists
 docker images | grep charon
@@ -509,13 +530,16 @@ syft version
 **Cause:** Cosign keyless signing requires OIDC authentication (GitHub Actions, Google Cloud, etc.)
 
 **Solutions:**
+
 1. Use key-based signing for local development:
+
    ```bash
    cosign generate-key-pair
    cosign sign --key cosign.key charon:local
    ```
 
 2. Set up OIDC provider (GitHub Actions example):
+
    ```yaml
    permissions:
      id-token: write
@@ -523,6 +547,7 @@ syft version
    ```
 
 3. Use environment variables:
+
    ```bash
    export COSIGN_EXPERIMENTAL=1
    ```
@@ -530,11 +555,13 @@ syft version
 #### Provenance Verification Fails
 
 **Possible causes:**
+
 - Provenance file doesn't match binary
 - Binary was modified after provenance generation
 - Wrong source URI
 
 **Debug:**
+
 ```bash
 # Check binary hash
 sha256sum ./backend/charon-linux-amd64
@@ -550,6 +577,7 @@ cat provenance.json | jq -r '.subject[0].digest.sha256'
 #### SBOM Generation is Slow
 
 **Optimization:**
+
 ```bash
 # Cache SBOM between runs
 SBOM_FILE="sbom-$(git rev-parse --short HEAD).spdx.json"
@@ -561,6 +589,7 @@ fi
 #### Large Image Scans Timeout
 
 **Solution:**
+
 ```bash
 # Increase timeout
 export GRYPE_CHECK_FOR_APP_UPDATE=false

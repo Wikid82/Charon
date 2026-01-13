@@ -93,6 +93,7 @@ Store private keys in a password manager:
    - Tag as "cosign-key"
 
 2. **Retrieve when needed**:
+
    ```bash
    # Example with op (1Password CLI)
    op read "op://Private/cosign-dev-key/private key" > /tmp/cosign.key
@@ -201,12 +202,14 @@ done
 ### Rotation Procedure
 
 1. **Generate new key pair**:
+
    ```bash
    cd ~/.cosign
    cosign generate-key-pair --output-key-prefix=cosign-prod-v2
    ```
 
 2. **Test new key**:
+
    ```bash
    # Sign test artifact
    cosign sign-blob --yes \
@@ -239,6 +242,7 @@ done
    - Delete from active use
 
 6. **Archive old key**:
+
    ```bash
    mkdir -p ~/.cosign/archive/$(date +%Y-%m)
    mv cosign-prod.key ~/.cosign/archive/$(date +%Y-%m)/
@@ -314,6 +318,7 @@ For environments without internet access:
 ### Setup
 
 1. **On internet-connected machine**:
+
    ```bash
    # Download Cosign binary
    curl -O -L https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64
@@ -323,6 +328,7 @@ For environments without internet access:
    ```
 
 2. **On air-gapped machine**:
+
    ```bash
    # Install Cosign
    sudo install cosign-linux-amd64 /usr/local/bin/cosign
@@ -361,6 +367,7 @@ cosign verify charon:local --key ~/.cosign/cosign-airgap.pub --insecure-ignore-t
 
 **Cause**: Missing COSIGN_PASSWORD environment variable
 **Solution**:
+
 ```bash
 export COSIGN_PASSWORD="your-password"
 cosign sign --key cosign.key charon:local
@@ -371,16 +378,17 @@ cosign sign --key cosign.key charon:local
 **Cause**: Incorrect password
 **Solution**: Verify you're using the correct password for the key
 
-### "Error: signing charon:local: uploading signature: PUT https://registry/v2/.../manifests/sha256-...: UNAUTHORIZED"
+### "Error: signing charon:local: uploading signature: PUT <https://registry/v2/.../manifests/sha256->...: UNAUTHORIZED"
 
 **Cause**: Not authenticated with Docker registry
 **Solution**:
+
 ```bash
 docker login ghcr.io
 # Enter credentials, then retry signing
 ```
 
-### "Error: verifying charon:local: fetching signatures: getting signature manifest: GET https://registry/...: NOT_FOUND"
+### "Error: verifying charon:local: fetching signatures: getting signature manifest: GET <https://registry/>...: NOT_FOUND"
 
 **Cause**: Image not signed yet, or signature not pushed to registry
 **Solution**: Sign the image first with `cosign sign`
@@ -389,6 +397,7 @@ docker login ghcr.io
 
 **Symptoms**: Decryption errors, unusual characters in key file
 **Solution**:
+
 1. Restore from encrypted backup (see Backup and Recovery)
 2. If no backup: Generate new key pair and re-sign artifacts
 3. Update documentation and notify stakeholders
@@ -396,6 +405,7 @@ docker login ghcr.io
 ### Lost Password
 
 **Solution**:
+
 1. **Cannot recover** - private key is permanently inaccessible
 2. Generate new key pair
 3. Revoke old public key from documentation
@@ -437,7 +447,7 @@ docker login ghcr.io
 If you suspect key compromise:
 
 1. **Immediately**: Stop using the compromised key
-2. **Notify**: Security team at security@example.com
+2. **Notify**: Security team at <security@example.com>
 3. **Rotate**: Generate new key pair
 4. **Audit**: Review all signatures made with compromised key
 5. **Document**: Create incident report

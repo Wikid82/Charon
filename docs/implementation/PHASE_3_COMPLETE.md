@@ -20,6 +20,7 @@ Phase 3 successfully implements all security scanning and QA validation skills. 
 **Purpose**: Run Trivy security scanner for vulnerabilities, secrets, and misconfigurations
 
 **Features**:
+
 - Scans for vulnerabilities (CVEs in dependencies)
 - Detects exposed secrets (API keys, tokens)
 - Checks for misconfigurations (Docker, K8s, etc.)
@@ -38,6 +39,7 @@ Phase 3 successfully implements all security scanning and QA validation skills. 
 **Purpose**: Run Go vulnerability checker (govulncheck) to detect known vulnerabilities
 
 **Features**:
+
 - Official Go vulnerability database
 - Reachability analysis (only reports used vulnerabilities)
 - Zero false positives
@@ -56,6 +58,7 @@ Phase 3 successfully implements all security scanning and QA validation skills. 
 **Purpose**: Run all pre-commit hooks for comprehensive code quality validation
 
 **Features**:
+
 - Multi-language support (Python, Go, JavaScript/TypeScript, Markdown)
 - Auto-fixing hooks (formatting, whitespace)
 - Security checks (detect secrets, private keys)

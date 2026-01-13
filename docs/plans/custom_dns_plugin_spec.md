@@ -15,9 +15,11 @@
 ### Problem Statement
 
 Charon currently supports 10 built-in DNS providers for ACME DNS-01 challenges:
+
 - Cloudflare, Route53, DigitalOcean, Hetzner, DNSimple, Vultr, GoDaddy, Namecheap, Google Cloud DNS, Azure
 
 Users with DNS services not on this list cannot obtain wildcard certificates or use DNS-01 challenges. This limitation affects:
+
 - Organizations using self-hosted DNS (BIND, PowerDNS, Knot DNS)
 - Users of regional/niche DNS providers
 - Enterprise environments with custom DNS APIs
@@ -50,6 +52,7 @@ Implement multiple extensibility mechanisms that balance ease-of-use with flexib
 > **As a DevOps engineer** with a custom DNS API, I want to provide webhook endpoints so Charon can automate DNS challenges without building a custom integration.
 
 **Acceptance Criteria:**
+
 - I can configure URLs for create/delete TXT record operations
 - Charon sends JSON payloads with record details
 - I can set custom headers for authentication
@@ -60,6 +63,7 @@ Implement multiple extensibility mechanisms that balance ease-of-use with flexib
 > **As a system administrator**, I want to run a shell script when Charon needs to create/delete TXT records so I can use my existing DNS automation tools.
 
 **Acceptance Criteria:**
+
 - I can specify a script path inside the container
 - Script receives ACTION, DOMAIN, TOKEN, VALUE as arguments
 - Script exit code determines success/failure
@@ -70,6 +74,7 @@ Implement multiple extensibility mechanisms that balance ease-of-use with flexib
 > **As a network engineer** running BIND or PowerDNS, I want to use RFC 2136 Dynamic DNS Updates so Charon integrates with my existing infrastructure.
 
 **Acceptance Criteria:**
+
 - I can configure DNS server address and TSIG key
 - Charon sends standards-compliant UPDATE messages
 - Zone detection works automatically
@@ -80,6 +85,7 @@ Implement multiple extensibility mechanisms that balance ease-of-use with flexib
 > **As a user** with an unsupported provider, I want Charon to show me the required TXT record details so I can create it manually.
 
 **Acceptance Criteria:**
+
 - UI clearly displays the record name and value
 - I can copy values with one click
 - "Verify" button checks if record exists
@@ -112,6 +118,7 @@ backend/pkg/dnsprovider/
 ```
 
 **Key Interface Methods:**
+
 ```go
 type ProviderPlugin interface {
     Type() string
@@ -240,6 +247,7 @@ For Webhook and Script plugins, Charon acts as a DNS challenge proxy between Cad
 ```
 
 **State Definitions:**
+
 | State | Description | Next States | TTL |
 |-------|-------------|-------------|-----|
 | `CREATED` | Challenge record created, plugin not yet executed | PENDING, FAILED | - |
@@ -269,6 +277,7 @@ Response: {"status": "deleted"}
 #### 3.3.4 Error Handling When Charon is Unavailable
 
 If Charon is unavailable during a DNS challenge:
+
 1. **Caddy retry**: Caddy's built-in retry mechanism (3 attempts, exponential backoff)
 2. **Graceful degradation**: If Charon remains unavailable, Caddy logs error and fails certificate issuance
 3. **Health check**: Caddy pre-checks Charon availability via `/health` before initiating challenges
@@ -279,6 +288,7 @@ If Charon is unavailable during a DNS challenge:
 To prevent race conditions when multiple certificate requests target the same FQDN simultaneously:
 
 **Database Locking Strategy:**
+
 ```sql
 -- Acquire exclusive lock when creating challenge for FQDN
 BEGIN;
@@ -292,6 +302,7 @@ COMMIT;
 ```
 
 **Queueing Behavior:**
+
 | Scenario | Behavior |
 |----------|----------|
 | No active challenge for FQDN | Create new challenge immediately |
@@ -300,6 +311,7 @@ COMMIT;
 | Active challenge expired/failed | Allow new challenge creation |
 
 **Implementation Requirements:**
+
 ```go
 func (s *ChallengeService) CreateChallenge(ctx context.Context, fqdn string, userID uint) (*Challenge, error) {
     tx := s.db.Begin()
@@ -335,6 +347,7 @@ func (s *ChallengeService) CreateChallenge(ctx context.Context, fqdn string, use
 ```
 
 **Timeout Handling:**
+
 - Challenges automatically transition to `expired` after 10 minutes
 - Expired challenges release the "lock" on the FQDN
 - Subsequent requests can then create new challenges
@@ -342,6 +355,7 @@ func (s *ChallengeService) CreateChallenge(ctx context.Context, fqdn string, use
 ### 3.4 Database Model Impact
 
 Current `dns_providers` table schema:
+
 ```sql
 CREATE TABLE dns_providers (
     id INTEGER PRIMARY KEY,
@@ -367,9 +381,11 @@ Custom plugins will use the same table with different `provider_type` values and
 ### 4.1 Option A: Generic Webhook Plugin
 
 #### Overview
+
 User provides webhook URLs for create/delete TXT records. Charon POSTs JSON payloads with record details.
 
 #### Configuration
+
 ```json
 {
   "name": "My Webhook DNS",
@@ -386,6 +402,7 @@ User provides webhook URLs for create/delete TXT records. Charon POSTs JSON payl
 ```
 
 #### Request Payload (Sent to Webhook)
+
 ```json
 {
   "action": "create",
@@ -400,6 +417,7 @@ User provides webhook URLs for create/delete TXT records. Charon POSTs JSON payl
 ```
 
 #### Expected Response
+
 ```json
 {
   "success": true,
@@ -433,6 +451,7 @@ func (w *WebhookProvider) executeWebhook(ctx context.Context, url string, payloa
 ```
 
 **Response Size Limit:**
+
 ```go
 const MaxWebhookResponseSize = 1 * 1024 * 1024 // 1MB
 
@@ -451,6 +470,7 @@ if len(body) > MaxWebhookResponseSize {
 ```
 
 **TLS Validation:**
+
 ```json
 {
   "credentials": {
@@ -463,6 +483,7 @@ if len(body) > MaxWebhookResponseSize {
 
 **Idempotency Requirement:**
 Webhook endpoints MUST support the `request_id` field for request deduplication. Charon will include a unique `request_id` (UUIDv4) in every webhook payload. Webhook implementations SHOULD:
+
 1. Store processed `request_id` values with a TTL of at least 24 hours
 2. Return cached response for duplicate `request_id` values
 3. Use `request_id` for audit logging correlation
@@ -479,6 +500,7 @@ To prevent abuse and ensure reliability, webhook plugins enforce:
 | Max response size | 1MB | Responses exceeding limit return 413 error |
 
 **Implementation Requirements:**
+
 ```go
 type WebhookRateLimiter struct {
     callsPerMinute    int           // Max 10
@@ -495,18 +517,21 @@ func (w *WebhookProvider) executeWithRateLimit(ctx context.Context, req *Webhook
 ```
 
 #### Pros
+
 - Works with any HTTP-capable system
 - No code changes required on user side (just API endpoint)
 - Supports complex authentication (headers, query params)
 - Can integrate with existing automation (Terraform, Ansible AWX, etc.)
 
 #### Cons
+
 - User must implement and host webhook endpoint
 - Network latency adds to propagation time
 - Debugging requires access to both Charon and webhook logs
 - Security: webhook credentials stored in Charon
 
 #### Implementation Complexity
+
 - Backend: ~200 lines (WebhookProvider implementation)
 - Frontend: ~100 lines (form fields)
 - Tests: ~150 lines
@@ -516,9 +541,11 @@ func (w *WebhookProvider) executeWithRateLimit(ctx context.Context, req *Webhook
 ### 4.2 Option B: Custom Script Plugin
 
 #### Overview
+
 User provides path to shell script inside container. Script receives ACTION, DOMAIN, TOKEN, VALUE as arguments.
 
 #### Configuration
+
 ```json
 {
   "name": "My Script DNS",
@@ -532,6 +559,7 @@ User provides path to shell script inside container. Script receives ACTION, DOM
 ```
 
 #### Script Interface
+
 ```bash
 #!/bin/bash
 # Called by Charon for DNS-01 challenge
@@ -569,12 +597,14 @@ esac
 ```
 
 #### Pros
+
 - Maximum flexibility - any tool/language can be used
 - Direct access to host system (if volume-mounted)
 - Familiar paradigm for sysadmins
 - Can leverage existing scripts/tooling
 
 #### Cons
+
 - **Security Risk:** Script execution in container context
 - Harder to debug than API calls
 - Script must be mounted into container
@@ -582,6 +612,7 @@ esac
 - Sandboxing limits capability
 
 #### Security Mitigations
+
 1. Script must be in allowlisted directory (`/scripts/`)
 2. Scripts run with restricted permissions (no network by default)
 3. Timeout prevents resource exhaustion
@@ -707,6 +738,7 @@ func executeScript(scriptPath string, args []string, userEnv map[string]string) 
 ```
 
 #### Implementation Complexity
+
 - Backend: ~250 lines (ScriptProvider + executor)
 - Frontend: ~80 lines (form fields)
 - Tests: ~200 lines (including security tests)
@@ -716,9 +748,11 @@ func executeScript(scriptPath string, args []string, userEnv map[string]string) 
 ### 4.3 Option C: RFC 2136 (Dynamic DNS Update) Plugin
 
 #### Overview
+
 RFC 2136 defines a standard protocol for dynamic DNS updates. Supported by BIND, PowerDNS, Knot DNS, and many self-hosted DNS servers.
 
 #### Configuration
+
 ```json
 {
   "name": "My BIND Server",
@@ -777,12 +811,14 @@ func (r *RFC2136Provider) Cleanup() error {
 ```
 
 **Requirements:**
+
 1. TSIG secrets MUST be stored in encrypted memory enclaves when in use
 2. Source buffers containing secrets MUST be wiped immediately after copying
 3. Secrets MUST NOT appear in debug output, stack traces, or core dumps
 4. Provider `Cleanup()` MUST securely destroy all secret material
 
 #### DNS UPDATE Message Flow
+
 ```
 ┌──────────┐                    ┌──────────────┐
 │  Charon  │                    │  DNS Server  │
@@ -797,16 +833,19 @@ func (r *RFC2136Provider) Cleanup() error {
 ```
 
 #### Caddy Integration
+
 Caddy has a native RFC 2136 module: [caddy-dns/rfc2136](https://github.com/caddy-dns/rfc2136)
 
 **DECISION:** Charon WILL ship with the RFC 2136 Caddy module pre-built in the Docker image. Users do NOT need to rebuild Caddy.
 
 The Charon plugin would:
+
 1. Store TSIG credentials encrypted
 2. Generate Caddy config with proper RFC 2136 settings
 3. Validate credentials by attempting a test query
 
 **Dockerfile Addition (Phase 2):**
+
 ```dockerfile
 # Build Caddy with RFC 2136 module
 FROM caddy:builder AS caddy-builder
@@ -815,6 +854,7 @@ RUN xcaddy build \
 ```
 
 #### Pros
+
 - Industry-standard protocol
 - No custom server-side code needed
 - Works with popular DNS servers (BIND9, PowerDNS, Knot)
@@ -822,12 +862,14 @@ RUN xcaddy build \
 - Native Caddy module available
 
 #### Cons
+
 - Requires DNS server configuration for TSIG keys
 - More complex setup than webhook
 - Zone configuration required
 - Firewall rules may need updating (TCP/UDP 53)
 
 #### Implementation Complexity
+
 - Backend: ~180 lines (RFC2136Provider)
 - Frontend: ~120 lines (TSIG configuration form)
 - Tests: ~150 lines
@@ -838,9 +880,11 @@ RUN xcaddy build \
 ### 4.4 Option D: Manual/External Plugin
 
 #### Overview
+
 No automation - UI shows required TXT record details, user creates manually, clicks "Verify" when done.
 
 #### UI Flow
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    Manual DNS Challenge                              │
@@ -868,6 +912,7 @@ No automation - UI shows required TXT record details, user creates manually, cli
 ```
 
 #### Configuration
+
 ```json
 {
   "name": "Manual DNS",
@@ -880,6 +925,7 @@ No automation - UI shows required TXT record details, user creates manually, cli
 ```
 
 #### Technical Implementation
+
 - Store challenge details in session/database
 - Background job periodically queries DNS
 - Polling endpoint for UI updates (10-second interval)
@@ -958,6 +1004,7 @@ func generateChallengeID() string {
 ```
 
 **Session Validation on Each Request:**
+
 | Endpoint | Required Validations |
 |----------|---------------------|
 | `GET /manual-challenge/:id` | Valid session, challenge.user_id == session.user_id |
@@ -965,11 +1012,13 @@ func generateChallengeID() string {
 | `DELETE /manual-challenge/:id` | Valid session, CSRF token, challenge ownership |
 
 **Note:** Although Charon has existing WebSocket infrastructure (`backend/internal/services/websocket_tracker.go`), polling is chosen for simplicity:
+
 - Avoids additional WebSocket connection management complexity
 - 10-second polling interval provides acceptable UX for manual workflows
 - Reduces frontend state management burden
 
 **Polling Endpoint:**
+
 ```
 GET /api/v1/dns-providers/:id/manual-challenge/:challengeId/poll
 Response (every 10s):
@@ -982,18 +1031,21 @@ Response (every 10s):
 ```
 
 #### Pros
+
 - Works with ANY DNS provider
 - No integration required
 - Good for testing/development
 - One-off certificate issuance
 
 #### Cons
+
 - User must manually intervene
 - Time-sensitive (ACME challenge timeout)
 - Not suitable for automated renewals
 - Doesn't scale for multiple certificates
 
 #### Implementation Complexity
+
 - Backend: ~150 lines (ManualProvider + verification endpoint)
 - Frontend: ~300 lines (interactive UI with copy/verify)
 - Tests: ~100 lines
@@ -1003,27 +1055,33 @@ Response (every 10s):
 ## 5. Recommended Approach
 
 ### Phase 1: Manual Plugin (1 week)
+
 **Rationale:** Unblocks all users immediately. Lowest risk, highest immediate value.
 
 Deliverables:
+
 - ManualProvider implementation
 - Interactive challenge UI
 - DNS verification endpoint
 - User documentation
 
 ### Phase 2: RFC 2136 Plugin (1 week)
+
 **Rationale:** Standards-based, serves self-hosted DNS users. Caddy module already exists.
 
 Deliverables:
+
 - RFC2136Provider implementation
 - TSIG credential storage
 - Caddy module integration documentation
 - BIND9/PowerDNS setup guides
 
 ### Phase 3: Webhook Plugin (1 week)
+
 **Rationale:** Most flexible option for custom integrations. Medium complexity.
 
 Deliverables:
+
 - WebhookProvider implementation
 - Configurable retry logic
 - Request/response logging
@@ -1040,6 +1098,7 @@ Deliverables:
 **Rationale:** Power-user feature with significant security implications. Implement only if demand warrants the additional security review and maintenance burden.
 
 Deliverables:
+
 - ScriptProvider implementation
 - Security sandbox
 - Example scripts for common scenarios
@@ -1099,6 +1158,7 @@ const (
 ### 6.3 Credential Schemas Per Plugin Type
 
 #### Webhook Credentials
+
 ```json
 {
   "create_url": "string (required)",
@@ -1113,6 +1173,7 @@ const (
 ```
 
 #### Script Credentials
+
 ```json
 {
   "script_path": "string (required)",
@@ -1123,6 +1184,7 @@ const (
 ```
 
 #### RFC 2136 Credentials
+
 ```json
 {
   "nameserver": "string (required)",
@@ -1135,6 +1197,7 @@ const (
 ```
 
 #### Manual Credentials
+
 ```json
 {
   "timeout_minutes": "integer (default: 10)",
@@ -1168,6 +1231,7 @@ func (s *ManualChallengeService) cleanupExpiredChallenges() {
 ```
 
 **Cleanup Schedule:**
+
 | Condition | Action | Frequency |
 |-----------|--------|-----------|
 | `pending` status > 24 hours | Mark as `expired` | Hourly |
@@ -1192,10 +1256,13 @@ func (s *ManualChallengeService) cleanupExpiredChallenges() {
 ### 7.2 New Endpoints
 
 #### Manual Challenge Status
+
 ```
 GET /api/v1/dns-providers/:id/manual-challenge/:challengeId
 ```
+
 Response:
+
 ```json
 {
   "id": "challenge-uuid",
@@ -1210,10 +1277,13 @@ Response:
 ```
 
 #### Manual Challenge Verification Trigger
+
 ```
 POST /api/v1/dns-providers/:id/manual-challenge/:challengeId/verify
 ```
+
 Response:
+
 ```json
 {
   "success": true,
@@ -1243,6 +1313,7 @@ All manual challenge and custom plugin endpoints use consistent error codes:
 | `TSIG_AUTH_FAILED` | 401 | RFC 2136 TSIG authentication failed |
 
 **Error Response Format:**
+
 ```json
 {
   "success": false,
@@ -1512,6 +1583,7 @@ func (w *WebhookProvider) validateWebhookURL(urlStr string) error {
 ```
 
 **Existing `security.ValidateExternalURL()` provides:**
+
 - RFC 1918 private network blocking (10.x, 172.16.x, 192.168.x)
 - Loopback blocking (127.x.x.x, ::1) unless `WithAllowLocalhost()` option
 - Link-local blocking (169.254.x.x, fe80::) including cloud metadata
@@ -1523,6 +1595,7 @@ func (w *WebhookProvider) validateWebhookURL(urlStr string) error {
 - Port range validation with privileged port blocking
 
 **DO NOT** duplicate SSRF validation logic. Reference the existing implementation.
+
 ```
 
 ### 9.3 Script Execution Security
@@ -1629,6 +1702,7 @@ services:
 ```
 
 **Note:** Full seccomp profile customization is out of scope for this feature. Users relying on script plugins in high-security environments should review container security configuration.
+
 ```
 
 ### 9.4 Log Redaction Patterns
@@ -1690,6 +1764,7 @@ func (l *Logger) LogWithRedaction(level, msg string, fields map[string]any) {
 ```
 
 **Enforcement:**
+
 - All plugin code MUST use the redacting logger
 - Pre-commit hooks SHOULD scan for potential credential logging
 - Security tests MUST verify no secrets appear in logs
@@ -1734,6 +1809,7 @@ type PluginAuditEvent struct {
 | **With 20% buffer** | **32** | |
 
 **Deliverables:**
+
 - [ ] `backend/pkg/dnsprovider/custom/manual.go`
 - [ ] `backend/internal/services/manual_challenge_service.go`
 - [ ] `frontend/src/components/ManualDNSChallenge.tsx`
@@ -1771,9 +1847,11 @@ type PluginAuditEvent struct {
 | **With 20% buffer** | **28** | |
 
 **Deliverables:**
+
 - [ ] `backend/pkg/dnsprovider/custom/rfc2136.go`
 - [ ] Caddy config generation for RFC 2136
 - [ ] **Dockerfile modification:**
+
   ```dockerfile
   # Multi-stage build: Caddy with RFC 2136 module
   FROM caddy:2-builder AS caddy-builder
@@ -1783,6 +1861,7 @@ type PluginAuditEvent struct {
   # Copy custom Caddy binary to final image
   COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
   ```
+
 - [ ] `frontend/src/components/RFC2136Form.tsx`
 - [ ] Translation keys for RFC 2136 provider
 - [ ] User guide: `docs/features/rfc2136-dns.md`
@@ -1807,6 +1886,7 @@ type PluginAuditEvent struct {
 | **With 20% buffer** | **30** | |
 
 **Deliverables:**
+
 - [ ] `backend/pkg/dnsprovider/custom/webhook.go`
 - [ ] `backend/internal/services/webhook_client.go`
 - [ ] `frontend/src/components/WebhookForm.tsx`
@@ -1830,6 +1910,7 @@ type PluginAuditEvent struct {
 | **Total** | **25** | |
 
 **Deliverables:**
+
 - [ ] `backend/pkg/dnsprovider/custom/script.go`
 - [ ] `backend/internal/services/script_executor.go`
 - [ ] `frontend/src/components/ScriptForm.tsx`
@@ -1845,6 +1926,7 @@ type PluginAuditEvent struct {
 ### 11.1 Unit Tests
 
 Each provider requires tests for:
+
 - Credential validation
 - Config generation
 - Error handling
@@ -1992,6 +2074,7 @@ The following documentation MUST be created as part of implementation:
 | Custom DNS Monitoring Guide | Operations | `docs/operations/custom-dns-monitoring.md` | Medium |
 
 **Required Content for `docs/troubleshooting/custom-dns-plugins.md`:**
+
 - Common error codes and resolutions
 - Webhook debugging checklist
 - Script execution troubleshooting
@@ -2000,6 +2083,7 @@ The following documentation MUST be created as part of implementation:
 - Log analysis procedures
 
 **Required Content for `docs/security/custom-dns-hardening.md`:**
+
 - Webhook endpoint security best practices
 - Script plugin security checklist
 - TSIG key management procedures
@@ -2008,6 +2092,7 @@ The following documentation MUST be created as part of implementation:
 - Incident response procedures
 
 **Required Content for `docs/operations/custom-dns-monitoring.md`:**
+
 - Key metrics to monitor (success rate, latency, errors)
 - Alerting thresholds and recommendations
 - Dashboard examples (Grafana/Prometheus)
@@ -2047,6 +2132,7 @@ The following documentation MUST be created as part of implementation:
 ### MVP (Minimum Viable Product)
 
 **MVP = Phase 1 (Manual Plugin)**
+
 - Time: 32 hours / 1 week (with buffer)
 - Unblocks: All users with unsupported DNS providers
 - Risk: Low
@@ -2065,35 +2151,35 @@ The following documentation MUST be created as part of implementation:
 
 ### Must Decide Before Implementation
 
-2. **Script Plugin Security Model**
+1. **Script Plugin Security Model**
    - Should scripts run in a separate container/sandbox?
    - What environment variables should be available?
    - Should we allow network access from scripts?
    - **Recommendation:** No network by default, minimal env, document risks
 
-3. **Manual Challenge Persistence**
+2. **Manual Challenge Persistence**
    - Store challenge details in database or session?
    - How long to retain completed challenges?
    - **Recommendation:** Database with 24-hour TTL cleanup (see Section 6.4)
 
-4. **Webhook Retry Strategy**
+3. **Webhook Retry Strategy**
    - Exponential backoff vs. fixed interval?
    - Max retries before failure?
    - **Recommendation:** Exponential backoff (1s, 2s, 4s), max 3 retries
 
 ### Nice to Decide
 
-5. **UI Location for Custom Plugins**
+1. **UI Location for Custom Plugins**
    - Same page as built-in providers?
    - Separate "Custom Integrations" section?
    - **Recommendation:** Same page, grouped by category
 
-6. **Telemetry for Custom Plugins**
+2. **Telemetry for Custom Plugins**
    - Should we track usage of custom plugin types?
    - Privacy considerations?
    - **Recommendation:** Opt-in anonymous usage stats
 
-7. **Plugin Marketplace (Future)**
+3. **Plugin Marketplace (Future)**
    - Community-contributed webhook templates?
    - Pre-configured RFC 2136 profiles?
    - **Recommendation:** Defer to Phase 5+

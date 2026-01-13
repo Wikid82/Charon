@@ -12,6 +12,7 @@ Restore **Codecov patch coverage** to green by ensuring **100% of modified lines
 - **Reported missing patch lines:** ~99
 
 Hard constraints:
+
 - Do **not** lower Codecov thresholds.
 - Fix with **targeted tests** (only add micro “test hooks” if absolutely unavoidable).
 
@@ -45,6 +46,7 @@ This workstream updates the following files to ensure future production-code cha
 - .github/agents/Frontend_Dev.agent.md (only if frontend changes are involved; otherwise leave untouched)
 
 Non-goals:
+
 - No unrelated refactors.
 - No new integration tests requiring external services.
 
@@ -82,11 +84,13 @@ Patch coverage misses are usually caused by newly-changed lines being in branche
 Partial patch lines (yellow) usually mean the line executed, but **not all branches associated with that line** did.
 
 Common causes:
+
 - Short-circuit boolean logic (e.g., `a && b`, `a || b`) where tests only exercise one side.
 - Multi-branch conditionals (`if/else if/else`, `switch`) where only one case is hit.
 - Error wrapping/logging paths that run only when an upstream returns an error.
 
 Guidance:
+
 - Treat yellow lines like “missing branch coverage”, not “missing statement coverage”.
 - Write the smallest additional test that triggers the unhit branch (invalid input, not-found, service error, upstream non-200, etc.).
 - Prefer deterministic seams: `httptest.Server` for upstream failures; fake services/mocks for DB/service errors; explicit `t.Setenv` for env-driven branches.
@@ -101,6 +105,7 @@ Guidance:
 6. Map each range to a minimal test that executes the branch.
 
 Local assist (for understanding branches; Codecov still authoritative):
+
 - Run VS Code task: **Test: Backend with Coverage**.
 - View coverage HTML: `go tool cover -html=backend/coverage.txt`.
 
@@ -187,27 +192,37 @@ Only add tests that hit the lines Codecov marks missing.
 If Codecov patch view includes this file:
 
 What’s happening:
+
 - `.codecov.yml` currently ignores `backend/internal/api/handlers/testdb.go`, but Go coverprofiles can report paths as module-import paths (example from `backend/coverage.txt`): `github.com/Wikid82/charon/backend/internal/.../testdb.go`.
 - If Codecov is matching against the coverprofile path form, the repo-relative ignore may not apply.
 
 Make it actionable:
+
 1. Confirm what path form the coverprofile is using:
-  - `grep -n "testdb.go" backend/coverage.txt`
-2. If the result is a module/import-path form (example: `github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go`), add one additional ignore entry to `.codecov.yml` so it matches what Codecov is actually seeing.
-  - Minimal, explicit (exact repo/module path): `"**/github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go"`
-  - More resilient (still narrow): `"**/github.com/**/backend/internal/api/handlers/testdb.go"`
+
+- `grep -n "testdb.go" backend/coverage.txt`
+
+1. If the result is a module/import-path form (example: `github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go`), add one additional ignore entry to `.codecov.yml` so it matches what Codecov is actually seeing.
+
+- Minimal, explicit (exact repo/module path): `"**/github.com/Wikid82/charon/backend/internal/api/handlers/testdb.go"`
+- More resilient (still narrow): `"**/github.com/**/backend/internal/api/handlers/testdb.go"`
 
 Note:
+
 - Do not add `"**/backend/internal/api/handlers/testdb.go"` unless it’s missing; the repo-relative ignore is already present.
 
 Why this is minimal:
+
 - `.codecov.yml` already ignores the repo-relative path, but ignore matching can fail if Codecov consumes coverprofile paths that include the module/import prefix.
 - Only add the extra ignore if the grep confirms the import-path form is present.
 
 Preferred approach (in order):
+
 1. Move test-only helpers into a `_test.go` file.
-  - Caution: this is only safe if **no other packages’ tests import those helpers**. Anything in `*_test.go` cannot be imported by other packages.
-2. Otherwise, keep the helper in non-test code but rely on `.codecov.yml` ignores that match the coverprofile path form.
+
+- Caution: this is only safe if **no other packages’ tests import those helpers**. Anything in `*_test.go` cannot be imported by other packages.
+
+1. Otherwise, keep the helper in non-test code but rely on `.codecov.yml` ignores that match the coverprofile path form.
 
 ## Prevention: required instruction/agent updates (diff-style)
 
@@ -285,6 +300,7 @@ These are the minimal guardrails to prevent future patch-coverage regressions.
 ## Validation Checklist (patch-coverage scope)
 
 Required vs optional alignment:
+
 - Required for this plan to be considered complete: Workstream A + Workstream B changes landed.
 - This validation checklist is intentionally focused on Workstream A (patch coverage remediation). For additional repo-wide Definition of Done items, follow `.github/instructions/copilot-instructions.md`.
 - Workstream B validation is “diff applied + reviewer confirmation” (it doesn’t impact Go patch coverage directly).
@@ -292,8 +308,10 @@ Required vs optional alignment:
 Run these tasks in order:
 
 1. **Test: Backend with Coverage**
-  - Pass criteria: task succeeds; `backend/coverage.txt` generated; zero failing tests.
-  - Outcome criteria: Codecov patch status becomes green (100% patch coverage).
 
-2. **Lint: Pre-commit (All Files)** (optional; general DoD)
-  - Pass criteria: all hooks pass.
+- Pass criteria: task succeeds; `backend/coverage.txt` generated; zero failing tests.
+- Outcome criteria: Codecov patch status becomes green (100% patch coverage).
+
+1. **Lint: Pre-commit (All Files)** (optional; general DoD)
+
+- Pass criteria: all hooks pass.

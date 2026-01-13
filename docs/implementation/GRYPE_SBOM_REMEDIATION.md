@@ -101,6 +101,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json
 **Location**: After SBOM generation, before Grype scan
 
 **What it validates**:
+
 - File exists and is non-empty
 - Valid JSON structure
 - Correct CycloneDX format
@@ -138,6 +139,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json
 #### 5. Enhanced Grype Scanning
 
 **Changes**:
+
 - Explicit path specification: `grype sbom:./sbom-generated.json`
 - Explicit database update before scanning
 - Better error handling with debug information
@@ -214,6 +216,7 @@ if (!imageExists) {
 ### Pre-Deployment Testing
 
 **Test Case 1: Existing Image (Success Path)**
+
 - Pulled `ghcr.io/wikid82/charon:latest`
 - Generated CycloneDX SBOM locally
 - Validated JSON structure with `jq`
@@ -221,16 +224,19 @@ if (!imageExists) {
 - ✅ Result: All steps passed, vulnerabilities reported correctly
 
 **Test Case 2: Empty SBOM File**
+
 - Created empty file: `touch empty.json`
 - Tested Grype scan: `grype sbom:./empty.json`
 - ✅ Result: Error detected and reported properly
 
 **Test Case 3: Invalid JSON**
+
 - Created malformed file: `echo "{invalid json" > invalid.json`
 - Tested validation with `jq empty invalid.json`
 - ✅ Result: Validation failed as expected
 
 **Test Case 4: Missing CycloneDX Fields**
+
 - Created incomplete SBOM: `echo '{"bomFormat":"test"}' > incomplete.json`
 - Tested Grype scan
 - ✅ Result: Format validation caught the issue
@@ -238,17 +244,20 @@ if (!imageExists) {
 ### Post-Deployment Validation
 
 **Scenario 1: PR Without Image (Expected Skip)**
+
 - Created test PR
 - Workflow ran, image check failed
 - ✅ Result: Clear skip message, no false errors
 
 **Scenario 2: Release with Image (Full Scan)**
+
 - Tagged release on test branch
 - Image built and pushed
 - SBOM generated, validated, and scanned
 - ✅ Result: Complete scan with vulnerability report
 
 **Scenario 3: Manual Trigger**
+
 - Manually triggered workflow
 - Image existed, full scan executed
 - ✅ Result: All steps completed successfully
@@ -303,12 +312,14 @@ From [qa_report.md](../reports/qa_report.md):
 **Chosen**: CycloneDX-JSON
 
 **Rationale**:
+
 - More widely adopted in cloud-native ecosystem
 - Native support in Docker SBOM action
 - Better tooling support (Grype, Trivy, etc.)
 - Aligns with docker-build.yml (single source of truth)
 
 **Trade-offs**:
+
 - SPDX is ISO/IEC standard (more "official")
 - But CycloneDX has better tooling and community support
 - Can convert between formats if needed
@@ -318,12 +329,14 @@ From [qa_report.md](../reports/qa_report.md):
 **Chosen**: Fail-fast with detailed errors
 
 **Rationale**:
+
 - Original `exit 0` masked real problems
 - CI/CD should fail loudly on real errors
 - Silent failures are security vulnerabilities
 - Clear errors accelerate troubleshooting
 
 **Trade-offs**:
+
 - May cause more visible failures initially
 - But failures are now actionable and fixable
 
@@ -332,12 +345,14 @@ From [qa_report.md](../reports/qa_report.md):
 **Chosen**: Multi-step validation gate
 
 **Rationale**:
+
 - Prevent garbage-in-garbage-out scenarios
 - Catch issues at earliest possible stage
 - Provide specific error messages per validation type
 - Separate file issues from Grype issues
 
 **Trade-offs**:
+
 - Adds ~5 seconds to workflow
 - But eliminates hours of debugging cryptic errors
 
@@ -346,11 +361,13 @@ From [qa_report.md](../reports/qa_report.md):
 **Chosen**: Conditional execution with explicit checks
 
 **Rationale**:
+
 - GitHub Actions conditionals are clearer than bash error handling
 - Separate success paths from skip paths from error paths
 - Better step-by-step visibility in workflow UI
 
 **Trade-offs**:
+
 - More verbose YAML
 - But much clearer intent and behavior
 
@@ -363,6 +380,7 @@ From [qa_report.md](../reports/qa_report.md):
 **Goal**: Reuse SBOM from docker-build instead of regenerating
 
 **Approach**:
+
 ```yaml
 - name: Retrieve Attested SBOM
   run: |
@@ -376,12 +394,14 @@ From [qa_report.md](../reports/qa_report.md):
 ```
 
 **Benefits**:
+
 - Single source of truth (no duplication)
 - Uses verified, signed SBOM
 - Eliminates SBOM regeneration time
 - Aligns with supply chain best practices
 
 **Requirements**:
+
 - GitHub CLI with attestation support
 - Attestation must be published to registry
 - Additional testing for attestation retrieval
@@ -391,6 +411,7 @@ From [qa_report.md](../reports/qa_report.md):
 **Goal**: Alert on critical vulnerabilities immediately
 
 **Features**:
+
 - Webhook notifications on HIGH/CRITICAL CVEs
 - Integration with existing notification system
 - Threshold-based alerting
@@ -400,6 +421,7 @@ From [qa_report.md](../reports/qa_report.md):
 **Goal**: Track vulnerability counts over time
 
 **Features**:
+
 - Store scan results in database
 - Trend analysis and reporting
 - Compliance reporting (zero-day tracking)

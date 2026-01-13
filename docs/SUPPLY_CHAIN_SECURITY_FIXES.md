@@ -11,16 +11,19 @@ All critical and high-priority security issues in the supply chain security impl
 ## Critical Fixes (4/4 Complete)
 
 ### 1. ✅ Fixed Semantic SBOM Diff
+
 **File:** `.github/skills/security-verify-sbom-scripts/run.sh`
 **Lines:** 132-180
 **Issue:** SBOM comparison only checked package names, missing version changes
 **Fix:**
+
 - Changed from comparing package names to `name@version` tuples
 - Added structured comparison using `jq -r '.packages[] | "\(.name)@\(.versionInfo // .version // \"unknown\")"`
 - Implemented version change detection for existing packages
 - Shows version transitions: `pkg1: 1.0.0 → 1.1.0`
 
 **Testing:**
+
 ```bash
 ✅ PASS: Correctly detects added packages
 ✅ PASS: Correctly detects removed packages
@@ -29,25 +32,30 @@ All critical and high-priority security issues in the supply chain security impl
 ```
 
 ### 2. ✅ Fixed Docker Validation in Cosign Script
+
 **File:** `.github/skills/security-sign-cosign-scripts/run.sh`
 **Line:** 95
 **Issue:** Called undefined `validate_docker_environment` function
 **Fix:**
+
 - Replaced with direct Docker check using `command -v docker`
 - Added Docker daemon running check with `docker info`
 - Provides clear error messages for missing Docker or stopped daemon
 
 **Testing:**
+
 ```bash
 ✅ Syntax validation passed
 ✅ Error handling logic verified
 ```
 
 ### 3. ✅ Fixed Cosign Checksum Verification
+
 **File:** `.github/skills/security-sign-cosign-scripts/run.sh`
 **Line:** 101
 **Issue:** Placeholder checksum instead of actual Cosign v2.4.1 binary hash
 **Fix:**
+
 - Added actual SHA256 checksum for Cosign v2.4.1 Linux binary
 - Included verification command in error message: `echo 'CHECKSUM...' | sha256sum -c`
 - Enhanced installation instructions with checksum verification step
@@ -55,16 +63,19 @@ All critical and high-priority security issues in the supply chain security impl
 **Security Impact:** Binary integrity verification now functional
 
 ### 4. ✅ Fixed Docker Image Detection Regex
+
 **File:** `.github/skills/security-slsa-provenance-scripts/run.sh`
 **Line:** 169
 **Issue:** Regex caused false positives with file paths containing colons
 **Fix:**
+
 - Simplified detection logic with multiple negative checks
 - Excludes: `./file`, `/path/to/file`, `http://url`
 - Includes: `ghcr.io/user/repo:tag`, `charon:local`, `registry.io:5000/app:v1`
 - Added file existence check first: `[[ ! -f "${TARGET}" ]]`
 
 **Testing:**
+
 ```bash
 Testing Docker image detection regex (v3 - simplified)...
 
@@ -87,16 +98,19 @@ Results: 11 passed, 0 failed
 ## High Priority Fixes (4/4 Complete)
 
 ### 5. ✅ Added SBOM Schema Validation
+
 **File:** `.github/skills/security-verify-sbom-scripts/run.sh`
 **Lines:** 94-116
 **Issue:** No validation of SBOM structure before processing
 **Fix:**
+
 - Validates SPDX format with `jq -e '.spdxVersion'`
 - Checks for required fields: `packages`, `name`, `documentNamespace`
 - Logs SPDX version on success
 - Fails fast with clear error messages if schema is invalid
 
 **Testing:**
+
 ```bash
 ✅ spdxVersion field present
 ✅ packages array present
@@ -105,10 +119,12 @@ Results: 11 passed, 0 failed
 ```
 
 ### 6. ✅ Fixed Workflow Continue-on-Error
+
 **File:** `.github/workflows/supply-chain-verify.yml`
 **Lines:** 56, 75, 117, 147
 **Issue:** Critical steps marked with `continue-on-error: true`
 **Fix:**
+
 - Removed `continue-on-error` from "Verify SBOM Completeness"
 - Removed `continue-on-error` from "Scan for Vulnerabilities"
 - Removed `continue-on-error` from "Verify SLSA Provenance"
@@ -118,32 +134,38 @@ Results: 11 passed, 0 failed
 **Impact:** Critical failures now properly block the workflow
 
 ### 7. ✅ Made VS Code Task Dynamic
+
 **File:** `.vscode/tasks.json`
 **Lines:** 376-377
 **Issue:** Hardcoded `charon:local` image name
 **Fix:**
+
 - Replaced hardcoded image with input variable: `${input:dockerImage}`
 - Added `inputs` section with `dockerImage` prompt
 - Default value: `charon:local`
 - Allows users to specify any image at runtime
 
 **Usage:**
+
 ```bash
 # Task now prompts: "Docker image name or tag to verify"
 # User can input: charon:local, ghcr.io/user/charon:v1.0.0, etc.
 ```
 
 ### 8. ✅ Fixed Variance Calculation
+
 **File:** `.github/skills/security-verify-sbom-scripts/run.sh`
 **Line:** 119
 **Issue:** Integer-only bash arithmetic caused overflow and inaccurate percentages
 **Fix:**
+
 - Replaced bash integer math with `awk` for float arithmetic
 - Formula: `awk -v delta="${DELTA}" -v baseline="${BASELINE_COUNT}" 'BEGIN {printf "%.2f", (delta / baseline) * 100}'`
 - Updated threshold comparison to handle float values with `awk`
 - Results now show accurate percentages like `0.00%`, `5.25%`, etc.
 
 **Testing:**
+
 ```bash
 Test 5: Testing variance calculation
 Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
@@ -153,6 +175,7 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 ## Validation Results
 
 ### Script Syntax Validation
+
 ```bash
 ✅ SBOM script syntax valid
 ✅ Cosign script syntax valid
@@ -160,6 +183,7 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 ```
 
 ### Functional Testing
+
 - ✅ SBOM semantic diff correctly detects version changes
 - ✅ Docker validation works with proper error messages
 - ✅ Image detection regex avoids all false positives
@@ -168,6 +192,7 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 - ✅ VS Code task accepts dynamic input
 
 ### Workflow Integration
+
 - ✅ Critical steps no longer marked as continue-on-error
 - ✅ Optional steps (artifact signature verification) still have continue-on-error
 - ✅ All syntax checks passed
@@ -195,6 +220,7 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 ## Security Impact
 
 ### Before Fixes
+
 - ❌ Version changes in packages went undetected
 - ❌ Invalid SBOMs could be processed silently
 - ❌ Docker validation failures were unclear
@@ -203,6 +229,7 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 - ❌ Cosign binary integrity couldn't be verified
 
 ### After Fixes
+
 - ✅ All package changes (add/remove/version) are detected
 - ✅ Invalid SBOMs fail fast with clear messages
 - ✅ Docker validation provides actionable error messages
@@ -213,12 +240,14 @@ Baseline: 3, Current: 3, Delta: 0, Variance: 0.00%
 ## Next Steps
 
 ### Recommended
+
 1. Test the fixes in a full CI/CD pipeline run
 2. Update documentation to reflect new SBOM diff capabilities
 3. Consider adding version change threshold alerts
 4. Monitor Rekor availability for keyless signing
 
 ### Optional Enhancements
+
 1. Add JSON schema validation for SBOM (beyond basic field checks)
 2. Implement SBOM diff HTML report generation
 3. Add metrics collection for variance trends

@@ -7,6 +7,7 @@
 ## Problem
 
 Trivy scan identified that the CrowdSec binaries (`crowdsec` and `cscli`) embedded in the container image were built with Go 1.25.1, which has 4 HIGH severity CVEs:
+
 - CVE-2025-58183
 - CVE-2025-58186
 - CVE-2025-58187
@@ -32,6 +33,7 @@ FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS crowdsec-builder
 ### File: `Dockerfile`
 
 **Line ~275-279:** Updated the CrowdSec builder stage base image
+
 - Changed from: `golang:1.25-alpine` (resolves to 1.25.1)
 - Changed to: `golang:1.25.5-alpine` (fixed version)
 - Added Renovate annotation to track future Go version updates
@@ -48,11 +50,13 @@ FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS crowdsec-builder
 After this change, the following validations should be performed:
 
 1. **Rebuild the image** (no-cache recommended):
+
    ```bash
    # Use task: Build & Run: Local Docker Image No-Cache
    ```
 
 2. **Run Trivy scan** on the rebuilt image:
+
    ```bash
    # Use task: Security: Trivy Scan
    ```

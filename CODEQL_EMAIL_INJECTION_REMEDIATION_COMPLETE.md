@@ -12,12 +12,14 @@ Successfully remediated the CodeQL `go/email-injection` finding by implementing 
 ### 1. Helper Functions Added to `backend/internal/services/mail_service.go`
 
 #### `encodeSubject(subject string) (string, error)`
+
 - Trims whitespace from subject lines
 - Rejects any CR/LF characters to prevent header injection
 - Uses MIME Q-encoding (RFC 2047) for UTF-8 subject lines
 - Returns encoded subject suitable for email headers
 
 #### `toHeaderUndisclosedRecipients() string`
+
 - Returns constant `"undisclosed-recipients:;"` for RFC 5322 To: header
 - Prevents request-derived email addresses from appearing in message headers
 - Eliminates the CodeQL-detected taint flow from user input to SMTP message
@@ -25,19 +27,21 @@ Successfully remediated the CodeQL `go/email-injection` finding by implementing 
 ### 2. Modified `buildEmail()` Function
 
 **Key Security Changes:**
+
 - Changed `To:` header to use `toHeaderUndisclosedRecipients()` instead of request-derived recipient address
 - Recipient validation still performed for SMTP envelope (RCPT TO command)
 - Subject encoding enforced through `encodeSubject()` helper
 - Updated security documentation comments
 
 **Critical Implementation Detail:**
+
 - SMTP envelope recipients (`toEnvelope` in `smtp.SendMail`) remain correct for delivery
 - Only RFC 5322 message headers changed
 - Separation of envelope routing from message headers eliminates injection risk
 
 ### 3. Enhanced Test Coverage
 
-#### New Tests in `backend/internal/services/mail_service_test.go`:
+#### New Tests in `backend/internal/services/mail_service_test.go`
 
 1. **`TestMailService_BuildEmail_UndisclosedRecipients`**
    - Verifies `To:` header contains `undisclosed-recipients:;`
@@ -48,7 +52,7 @@ Successfully remediated the CodeQL `go/email-injection` finding by implementing 
    - Tests HTML template auto-escaping for special characters in `appName`
    - Verifies XSS protection in invite emails
 
-#### Updated Tests in `backend/internal/api/handlers/user_handler_test.go`:
+#### Updated Tests in `backend/internal/api/handlers/user_handler_test.go`
 
 1. **`TestUserHandler_PreviewInviteURL_Success_Unconfigured`**
    - Updated to verify `base_url` and `preview_url` are empty when `app.public_url` not configured
@@ -62,18 +66,21 @@ Successfully remediated the CodeQL `go/email-injection` finding by implementing 
 ## Verification Results
 
 ### Test Results ✅
+
 ```bash
 cd /projects/Charon/backend/internal/services
 go test -v -run "TestMail" .
 ```
 
 **Result**: All mail service tests PASS
+
 - Total mail service tests: 28 tests
 - New security tests: 2 added
 - Updated tests: 1 modified
 - Coverage: 81.1% of statements (services package)
 
 ### CodeQL Scan Results ✅
+
 ```bash
 codeql database analyze codeql-db-go \
   --format=sarif-latest \
@@ -81,6 +88,7 @@ codeql database analyze codeql-db-go \
 ```
 
 **Result**:
+
 - Total findings: 0
 - `go/email-injection` findings: 0 (RESOLVED)
 - Previous finding location: `backend/internal/services/mail_service.go:285`
@@ -89,12 +97,14 @@ codeql database analyze codeql-db-go \
 ## Security Impact
 
 ### Before Remediation
+
 - Request-derived email addresses flowed into RFC 5322 message headers
 - CodeQL identified potential for content spoofing (CWE-640)
 - Malicious recipient addresses could theoretically manipulate headers
 - Risk: Low (existing CRLF rejection mitigated most attacks, but CodeQL flagged it)
 
 ### After Remediation
+
 - **Zero request-derived data** in message headers
 - `To:` header uses RFC-compliant constant: `undisclosed-recipients:;`
 - SMTP envelope routing unchanged (still uses validated recipient)
@@ -106,6 +116,7 @@ codeql database analyze codeql-db-go \
   4. Dot-stuffing (existing)
 
 ### Additional Protections
+
 - Host header injection prevented in invite URL generation
 - HTML template auto-escaping verified
 - Comprehensive test coverage for injection scenarios

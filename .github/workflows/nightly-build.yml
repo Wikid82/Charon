@@ -1,0 +1,221 @@
+name: Nightly Build & Package
+on:
+  push:
+    branches:
+      - nightly
+  schedule:
+    # Daily at 09:00 UTC (4am EST / 5am EDT)
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-nightly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf  # v3.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349  # v3.7.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81  # v5.5.1
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=nightly
+            type=raw,value=nightly-{{date 'YYYY-MM-DD'}}
+            type=sha,prefix=nightly-,format=short
+          labels: |
+            org.opencontainers.image.title=Charon Nightly
+            org.opencontainers.image.description=Nightly build of Charon
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75  # v6.9.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=nightly-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@99c98a8d93295c87a56f582070a01cd96fc2db1d  # v0.21.1
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+          format: cyclonedx-json
+          output-file: sbom-nightly.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: sbom-nightly
+          path: sbom-nightly.json
+          retention-days: 30
+
+  test-nightly-image:
+    needs: build-and-push-nightly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull nightly image
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+
+      - name: Run container smoke test
+        run: |
+          docker run --name charon-nightly -d \
+            -p 8080:8080 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+
+          # Wait for container to start
+          sleep 10
+
+          # Check container is running
+          docker ps | grep charon-nightly
+
+          # Basic health check
+          curl -f http://localhost:8080/health || exit 1
+
+          # Cleanup
+          docker stop charon-nightly
+          docker rm charon-nightly
+
+  build-nightly-release:
+    needs: test-nightly-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
+        with:
+          go-version: '1.23'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
+        with:
+          node-version: '20'
+
+      - name: Set up Zig (for cross-compilation)
+        uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406  # v2.2.1
+        with:
+          version: 0.11.0
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run GoReleaser (snapshot mode)
+        uses: goreleaser/goreleaser-action@9ed2f89a662bf1735a48bc8557fd212fa902bebf  # v6.1.0
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --skip=publish --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload nightly binaries
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: nightly-binaries
+          path: dist/*
+          retention-days: 30
+
+  verify-nightly-supply-chain:
+    needs: build-and-push-nightly
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Download SBOM
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: sbom-nightly
+
+      - name: Scan with Grype
+        uses: anchore/scan-action@64a33b277ea7a1215a3c142735a1091341939ff5  # v4.1.2
+        with:
+          sbom: sbom-nightly.json
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Scan with Trivy
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2  # 0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
+          format: 'sarif'
+          output: 'trivy-nightly.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@1f1223ea5cb211a8eeff76efc05e03f79c7fc6b1  # v3.28.2
+        with:
+          sarif_file: 'trivy-nightly.sarif'
+          category: 'trivy-nightly'
+
+      - name: Check for critical CVEs
+        run: |
+          if grep -q "CRITICAL" trivy-nightly.sarif; then
+            echo "❌ Critical vulnerabilities found in nightly build"
+            exit 1
+          fi
+          echo "✅ No critical vulnerabilities found"

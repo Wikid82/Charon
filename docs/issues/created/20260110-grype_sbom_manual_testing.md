@@ -11,6 +11,7 @@
 ## Objective
 
 Manually validate the Grype SBOM remediation implementation in real-world CI/CD scenarios to ensure:
+
 - Workflow operates correctly in all expected conditions
 - Error handling is robust and user-friendly
 - No regressions in existing functionality
@@ -32,15 +33,18 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 **Objective**: Verify workflow gracefully skips when image doesn't exist (common in PR workflows before docker-build completes).
 
 **Prerequisites**:
+
 - Create a test PR with code changes
 - Ensure docker-build workflow has NOT completed yet
 
 **Steps**:
+
 1. Create/update PR on feature branch
 2. Navigate to Actions → Supply Chain Verification workflow
 3. Wait for workflow to complete
 
 **Expected Results**:
+
 - ✅ Workflow completes successfully (green check)
 - ✅ "Check Image Availability" step shows "Image not found" message
 - ✅ "Report Skipped Scan" step shows clear skip reason
@@ -49,6 +53,7 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 - ✅ No false failures or error messages
 
 **Pass Criteria**:
+
 - [ ] Workflow status: Success (not failed or warning)
 - [ ] PR comment is clear and helpful
 - [ ] GitHub Step Summary shows skip reason
@@ -61,15 +66,18 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 **Objective**: Verify full SBOM generation, validation, and vulnerability scanning when image exists.
 
 **Prerequisites**:
+
 - Use a branch where docker-build has completed (e.g., `main` or merged PR)
 - Image exists in GHCR: `ghcr.io/wikid82/charon:latest` or `ghcr.io/wikid82/charon:pr-XXX`
 
 **Steps**:
+
 1. Trigger workflow manually via `workflow_dispatch` on main branch
 2. OR merge a PR and wait for automatic workflow trigger
 3. Monitor workflow execution
 
 **Expected Results**:
+
 - ✅ "Check Image Availability" step finds image
 - ✅ "Verify SBOM Completeness" step generates CycloneDX SBOM
 - ✅ Syft version is logged
@@ -90,6 +98,7 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 - ✅ No "sbom format not recognized" errors
 
 **Pass Criteria**:
+
 - [ ] Workflow status: Success
 - [ ] SBOM artifact uploaded and downloadable
 - [ ] Grype scan completes without format errors
@@ -104,6 +113,7 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 **Objective**: Verify SBOM validation catches malformed files before passing to Grype.
 
 **Prerequisites**:
+
 - Requires temporarily modifying workflow to introduce error (NOT for production testing)
 - OR wait for natural occurrence (unlikely)
 
@@ -111,6 +121,7 @@ Manually validate the Grype SBOM remediation implementation in real-world CI/CD 
 This scenario is validated through code review and unit testing of validation logic. Manual testing in production environment is not recommended as it requires intentionally breaking the workflow.
 
 **Code Review Validation** (Already Completed):
+
 - ✅ jq availability check (lines 125-130)
 - ✅ File existence check (lines 133-138)
 - ✅ Non-empty check (lines 141-146)
@@ -118,6 +129,7 @@ This scenario is validated through code review and unit testing of validation lo
 - ✅ CycloneDX format check (lines 159-173)
 
 **Pass Criteria**:
+
 - [ ] Code review confirms all validation checks present
 - [ ] Error handling paths use `exit 1` for real errors
 - [ ] Clear error messages at each validation point
@@ -129,15 +141,18 @@ This scenario is validated through code review and unit testing of validation lo
 **Objective**: Verify workflow correctly identifies and reports critical vulnerabilities.
 
 **Prerequisites**:
+
 - Use an older image tag with known vulnerabilities (if available)
 - OR wait for vulnerability to be discovered in current image
 
 **Steps**:
+
 1. Trigger workflow on image with vulnerabilities
 2. Monitor vulnerability scan step
 3. Check PR comment and workflow logs
 
 **Expected Results**:
+
 - ✅ Grype scan completes successfully
 - ✅ Vulnerabilities categorized by severity
 - ✅ Critical vulnerabilities trigger GitHub annotation/warning
@@ -146,6 +161,7 @@ This scenario is validated through code review and unit testing of validation lo
 - ✅ Link to full report is provided
 
 **Pass Criteria**:
+
 - [ ] Vulnerability counts are accurate
 - [ ] Critical vulnerabilities highlighted
 - [ ] Clear action guidance provided
@@ -158,10 +174,12 @@ This scenario is validated through code review and unit testing of validation lo
 **Objective**: Verify workflow executes within acceptable time limits.
 
 **Steps**:
+
 1. Monitor workflow execution time across multiple runs
 2. Check individual step durations
 
 **Expected Results**:
+
 - ✅ Total workflow time: < 10 minutes
 - ✅ Image check: < 30 seconds
 - ✅ SBOM generation: < 2 minutes
@@ -170,6 +188,7 @@ This scenario is validated through code review and unit testing of validation lo
 - ✅ Artifact upload: < 1 minute
 
 **Pass Criteria**:
+
 - [ ] Average workflow time within limits
 - [ ] No significant performance degradation vs. previous implementation
 - [ ] No timeout failures
@@ -181,15 +200,18 @@ This scenario is validated through code review and unit testing of validation lo
 **Objective**: Verify workflow handles concurrent executions without conflicts.
 
 **Prerequisites**:
+
 - Create multiple PRs simultaneously
 - Trigger workflows on multiple branches
 
 **Steps**:
+
 1. Create 3-5 PRs from different feature branches
 2. Wait for workflows to run concurrently
 3. Monitor all workflow executions
 
 **Expected Results**:
+
 - ✅ All workflows complete successfully
 - ✅ No resource conflicts or race conditions
 - ✅ Correct image checked for each PR (`pr-XXX` tags)
@@ -197,6 +219,7 @@ This scenario is validated through code review and unit testing of validation lo
 - ✅ Artifact names are unique (include tag)
 
 **Pass Criteria**:
+
 - [ ] All workflows succeed independently
 - [ ] No cross-contamination of results
 - [ ] Artifact names unique and correct
@@ -208,11 +231,13 @@ This scenario is validated through code review and unit testing of validation lo
 ### Verify No Breaking Changes
 
 **Test Areas**:
+
 1. **Other Workflows**: Ensure docker-build.yml, codeql-analysis.yml, etc. still work
 2. **Existing Releases**: Verify workflow runs successfully on existing release tags
 3. **Backward Compatibility**: Old PRs can be re-run without issues
 
 **Pass Criteria**:
+
 - [ ] No regressions in other workflows
 - [ ] Existing functionality preserved
 - [ ] No unexpected failures

@@ -10,6 +10,7 @@
 ## Phase 0: BLOCKING - CodeQL CWE-918 SSRF Remediation ⚠️
 
 **Issue**: CodeQL static analysis flags line 152 of `backend/internal/utils/url_testing.go` with CWE-918 (SSRF) vulnerability:
+
 ```go
 // Line 152 in TestURLConnectivity()
 resp, err := client.Do(req)  // ← Flagged: "The URL of this request depends on a user-provided value"
@@ -29,6 +30,7 @@ CodeQL's taint analysis **cannot see through the conditional code path split** i
    - Preserves original tainted `rawURL` variable
 
 **The Problem**: CodeQL performs **inter-procedural taint analysis** but sees:
+
 - Original `rawURL` parameter is user-controlled (source of taint)
 - Variable `rawURL` is reused for both production and test paths
 - The assignment `rawURL = validatedURL` on line 103 **does not break taint tracking** because:
@@ -90,6 +92,7 @@ req, err := http.NewRequestWithContext(ctx, http.MethodHead, requestURL, nil)
 ### Defense-in-Depth Preserved
 
 This change is **purely for static analysis satisfaction**. The actual security posture remains unchanged:
+
 - ✅ `security.ValidateExternalURL()` performs DNS resolution and IP validation (production)
 - ✅ `ssrfSafeDialer()` validates IPs at connection time (defense-in-depth)
 - ✅ Test path correctly bypasses validation (test transport mocks network entirely)
@@ -98,6 +101,7 @@ This change is **purely for static analysis satisfaction**. The actual security 
 ### Why NOT a CodeQL Suppression
 
 A suppression comment like `// lgtm[go/ssrf]` would be **inappropriate** because:
+
 - ❌ This is NOT a false positive - CodeQL correctly identifies that taint tracking fails
 - ❌ Suppressions should only be used when the analyzer is provably wrong
 - ✅ Variable renaming is a **zero-cost refactoring** that improves clarity
@@ -112,6 +116,7 @@ A suppression comment like `// lgtm[go/ssrf]` would be **inappropriate** because
 4. **Replace `rawURL` with `requestURL`** in `http.NewRequestWithContext()` call (line 143)
 5. **Run CodeQL analysis** to verify CWE-918 is resolved
 6. **Run existing tests** to ensure no behavioral changes:
+
    ```bash
    go test -v ./backend/internal/utils -run TestURLConnectivity
    ```
@@ -152,6 +157,7 @@ A suppression comment like `// lgtm[go/ssrf]` would be **inappropriate** because
 **Test File:** `backend/internal/api/handlers/security_notifications_test.go` (NEW)
 
 **Uncovered Functions/Lines:**
+
 - `NewSecurityNotificationHandler()` - Constructor (line ~19)
 - `GetSettings()` - Error path when service.GetSettings() fails (line ~25)
 - `UpdateSettings()` - Multiple validation and error paths:
@@ -214,8 +220,9 @@ func (m *mockSecurityNotificationService) UpdateSettings(c *models.NotificationC
 ```
 
 **Edge Cases:**
+
 - min_log_level values: "", "trace", "critical", "unknown", "debug", "info", "warn", "error"
-- Webhook URLs: empty, localhost, 10.0.0.1, 172.16.0.1, 192.168.1.1, 169.254.169.254, https://example.com
+- Webhook URLs: empty, localhost, 10.0.0.1, 172.16.0.1, 192.168.1.1, 169.254.169.254, <https://example.com>
 - JSON payloads: malformed, missing fields, extra fields
 
 ---
@@ -226,6 +233,7 @@ func (m *mockSecurityNotificationService) UpdateSettings(c *models.NotificationC
 **Test File:** `backend/internal/services/security_notification_service_test.go` (EXISTS - expand)
 
 **Uncovered Functions/Lines:**
+
 - `Send()` - Event filtering and dispatch logic (lines ~58-94):
   - Event type filtering (waf_block, acl_deny)
   - Severity threshold via `shouldNotify()`
@@ -274,11 +282,13 @@ func TestShouldNotify_AllSeverityCombinations(t *testing.T)
 ```
 
 **Mocking:**
+
 - Mock HTTP server: `httptest.NewServer()` with custom status codes
 - Mock context: `context.WithTimeout()`, `context.WithCancel()`
 - Database: In-memory SQLite (existing pattern)
 
 **Edge Cases:**
+
 - Event types: waf_block, acl_deny, unknown
 - Severity levels: debug, info, warn, error
 - Webhook responses: 200, 201, 204, 400, 404, 500, 502, timeout
@@ -294,6 +304,7 @@ func TestShouldNotify_AllSeverityCombinations(t *testing.T)
 **Test File:** `backend/internal/crowdsec/hub_sync_test.go` (EXISTS - expand)
 
 **Uncovered Functions/Lines:**
+
 - `validateHubURL()` - SSRF protection (lines ~73-109)
 - `buildResourceURLs()` - URL construction (line ~177)
 - `parseRawIndex()` - Raw index format parsing (line ~248)
@@ -345,11 +356,13 @@ func TestCopyDirAndCopyFile(t *testing.T)
 ```
 
 **Mocking:**
+
 - HTTP client with custom `RoundTripper` (existing pattern)
 - File system operations using `t.TempDir()`
 - Mock tar.gz archives with `makeTarGz()` helper
 
 **Edge Cases:**
+
 - URL schemes: http, https, ftp, file, gopher, data
 - Domains: official hub, localhost, test domains, unknown
 - Content types: application/json, text/html, text/plain
@@ -364,6 +377,7 @@ func TestCopyDirAndCopyFile(t *testing.T)
 **Test File:** `backend/internal/services/notification_service_test.go` (NEW)
 
 **Uncovered Functions/Lines:**
+
 - `SendExternal()` - Event filtering and dispatch (lines ~66-113)
 - `sendCustomWebhook()` - Template rendering and SSRF protection (lines ~116-222)
 - `isPrivateIP()` - IP range checking (lines ~225-247)
@@ -426,12 +440,14 @@ func TestUpdateProvider_CustomTemplateValidation(t *testing.T)
 ```
 
 **Mocking:**
+
 - Mock DNS resolver (may need custom resolver wrapper)
 - Mock HTTP server with status codes
 - Mock shoutrrr (may need interface wrapper)
 - In-memory SQLite database
 
 **Edge Cases:**
+
 - Event types: all defined types + unknown
 - Provider types: webhook, discord, slack, email
 - Templates: minimal, detailed, custom, empty, invalid
@@ -652,6 +668,7 @@ go tool cover -html=coverage.out
 ## Execution Checklist
 
 ### Phase 0: CodeQL Remediation (BLOCKING)
+
 - [ ] Declare `requestURL` variable in `TestURLConnectivity()` (before line 86 conditional)
 - [ ] Assign `validatedURL` to `requestURL` in production path (line 103)
 - [ ] Add else block to assign `rawURL` to `requestURL` in test path (after line 105)
@@ -661,18 +678,21 @@ go tool cover -html=coverage.out
 - [ ] Verify CWE-918 no longer flagged in `url_testing.go:152`
 
 ### Phase 1: Security Components
+
 - [ ] Create `security_notifications_test.go` (10 tests)
 - [ ] Expand `security_notification_service_test.go` (10 tests)
 - [ ] Verify security_notifications.go >= 85%
 - [ ] Verify security_notification_service.go >= 85%
 
 ### Phase 2: Hub & Notifications
+
 - [ ] Expand `hub_sync_test.go` (13 tests)
 - [ ] Create `notification_service_test.go` (17 tests)
 - [ ] Verify hub_sync.go >= 85%
 - [ ] Verify notification_service.go >= 85%
 
 ### Phase 3: Infrastructure
+
 - [ ] Expand `docker_service_test.go` (9 tests)
 - [ ] Create `url_testing_test.go` (14 tests)
 - [ ] Expand `ip_helpers_test.go` (4 tests)
@@ -680,11 +700,13 @@ go tool cover -html=coverage.out
 - [ ] Verify all >= 85%
 
 ### Phase 4: Completions
+
 - [ ] Create `docker_handler_test.go` (6 tests)
 - [ ] Expand `url_validator_test.go` (6 tests)
 - [ ] Verify all >= 90%
 
 ### Final Validation
+
 - [ ] Run `make test-backend`
 - [ ] Run `make test-backend-coverage`
 - [ ] Verify overall patch coverage >= 85%
@@ -705,5 +727,6 @@ go tool cover -html=coverage.out
 **Critical Path**: Phase 0 must be completed and validated with CodeQL scan before starting Phase 1.
 
 This plan provides a complete roadmap to:
+
 1. Resolve CodeQL CWE-918 SSRF vulnerability (Phase 0 - BLOCKING)
 2. Achieve >85% patch coverage through systematic, well-structured unit tests following established project patterns (Phases 1-4)

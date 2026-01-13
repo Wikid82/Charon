@@ -25,11 +25,13 @@ Starting in version 0.9.0, CrowdSec now **automatically starts** when the contai
 ### 1. Reconciliation Moved to Startup Phase
 
 **Before (v0.8.x):**
+
 ```
 Container Start → HTTP Server → Routes Registered → Reconciliation (too late)
 ```
 
 **After (v0.9.0+):**
+
 ```
 Container Start → Database Migrations → Reconciliation → HTTP Server
 ```
@@ -69,6 +71,7 @@ Container Start → Database Migrations → Reconciliation → HTTP Server
 **No action required.** CrowdSec is disabled by default. Enable via Security dashboard when ready.
 
 **Steps:**
+
 1. Deploy Charon v0.9.0+
 2. Navigate to Security dashboard
 3. Toggle CrowdSec ON
@@ -84,12 +87,14 @@ Container Start → Database Migrations → Reconciliation → HTTP Server
 **No action required.** Your current state (disabled) will be preserved.
 
 **What Happens:**
+
 1. Container starts with new reconciliation logic
 2. Reconciliation checks SecurityConfig and Settings tables
 3. Both indicate CrowdSec disabled
 4. CrowdSec stays offline (as expected)
 
 **Verification:**
+
 ```bash
 # After upgrade, verify CrowdSec is still disabled
 docker exec charon cscli lapi status
@@ -99,6 +104,7 @@ docker exec charon cscli lapi status
 ```
 
 **Enable When Ready:**
+
 - Navigate to Security dashboard
 - Toggle CrowdSec ON
 - Auto-start will work on future restarts
@@ -112,12 +118,14 @@ docker exec charon cscli lapi status
 **Migration Steps:**
 
 1. **Before Upgrade:** Note CrowdSec status
+
    ```bash
    docker exec charon cscli lapi status
    # Expected: ✓ You can successfully interact with Local API (LAPI)
    ```
 
 2. **Upgrade to v0.9.0+:**
+
    ```bash
    docker compose pull
    docker compose up -d
@@ -126,19 +134,25 @@ docker exec charon cscli lapi status
 3. **Wait 15 seconds** for reconciliation to complete
 
 4. **Verify CrowdSec auto-started:**
+
    ```bash
    docker exec charon cscli lapi status
    ```
+
    Expected output:
+
    ```
    ✓ You can successfully interact with Local API (LAPI)
    ```
 
 5. **Check reconciliation logs:**
+
    ```bash
    docker logs charon 2>&1 | grep "CrowdSec reconciliation"
    ```
+
    Expected output:
+
    ```json
    {"level":"info","msg":"CrowdSec reconciliation: starting startup check"}
    {"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'"}
@@ -156,6 +170,7 @@ See [Troubleshooting](#troubleshooting) section below.
 **⚠️ Action Required:** Remove environment variables and use GUI toggle instead.
 
 **Old Configuration (v0.8.x):**
+
 ```yaml
 services:
   charon:
@@ -165,6 +180,7 @@ services:
 ```
 
 **New Configuration (v0.9.0+):**
+
 ```yaml
 services:
   charon:
@@ -176,6 +192,7 @@ services:
 **Migration Steps:**
 
 1. **Note current CrowdSec state:**
+
    ```bash
    docker exec charon cscli lapi status
    ```
@@ -185,6 +202,7 @@ services:
    - Remove `CHARON_SECURITY_CROWDSEC_MODE` lines
 
 3. **Restart container:**
+
    ```bash
    docker compose down
    docker compose up -d
@@ -194,6 +212,7 @@ services:
    - Navigate to Security dashboard
    - Toggle CrowdSec ON
    - Verify auto-start on next restart:
+
      ```bash
      docker restart charon
      sleep 15
@@ -201,6 +220,7 @@ services:
      ```
 
 **Why Remove Environment Variables:**
+
 - Consistent behavior with other security features (WAF, ACL, Rate Limiting)
 - Single source of truth (database, not environment)
 - Easier to manage via GUI
@@ -218,6 +238,7 @@ CrowdSec auto-starts on container boot if **ANY** of these conditions are true:
 2. **Settings table:** `security.crowdsec.enabled = "true"`
 
 **Pseudocode:**
+
 ```
 IF SecurityConfig.crowdsec_mode == "local" THEN
     LOG "Starting based on SecurityConfig mode='local'"
@@ -314,11 +335,13 @@ docker exec charon cscli lapi status
 ```
 
 **Expected Output (Success):**
+
 ```
 ✓ You can successfully interact with Local API (LAPI)
 ```
 
 **Expected Output (Failure):**
+
 ```
 Error: can't init client: no credentials or machine found
 ```
@@ -330,6 +353,7 @@ docker logs charon 2>&1 | grep "CrowdSec reconciliation"
 ```
 
 **Expected Output (Auto-Started):**
+
 ```json
 {"level":"info","msg":"CrowdSec reconciliation: starting startup check","bin_path":"/usr/local/bin/crowdsec","data_dir":"/app/data/crowdsec"}
 {"level":"info","msg":"CrowdSec reconciliation: starting based on SecurityConfig mode='local'","mode":"local"}
@@ -337,6 +361,7 @@ docker logs charon 2>&1 | grep "CrowdSec reconciliation"
 ```
 
 **Expected Output (Skipped - Disabled):**
+
 ```json
 {"level":"info","msg":"CrowdSec reconciliation: starting startup check","bin_path":"/usr/local/bin/crowdsec","data_dir":"/app/data/crowdsec"}
 {"level":"info","msg":"CrowdSec reconciliation skipped: both SecurityConfig and Settings indicate disabled","db_mode":"disabled","setting_enabled":false}
@@ -351,11 +376,13 @@ docker exec charon sqlite3 /app/data/charon.db \
 ```
 
 **Expected Output (Enabled):**
+
 ```
 default|local|1
 ```
 
 **Expected Output (Disabled):**
+
 ```
 default|disabled|0
 ```
@@ -368,6 +395,7 @@ docker exec charon ps aux | grep crowdsec | grep -v grep
 ```
 
 **Expected Output:**
+
 ```
 charon     123  0.5  1.2  50000 12000 ?        Sl   10:30   0:01 /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 ```
@@ -380,6 +408,7 @@ docker exec charon netstat -tuln | grep 8085
 ```
 
 **Expected Output:**
+
 ```
 tcp        0      0 127.0.0.1:8085          0.0.0.0:*               LISTEN
 ```
@@ -391,6 +420,7 @@ tcp        0      0 127.0.0.1:8085          0.0.0.0:*               LISTEN
 ### Issue: CrowdSec Not Auto-Starting
 
 **Symptoms:**
+
 - Container restarts successfully
 - CrowdSec status shows "Offline"
 - `cscli lapi status` returns error
@@ -398,29 +428,35 @@ tcp        0      0 127.0.0.1:8085          0.0.0.0:*               LISTEN
 **Diagnosis:**
 
 1. **Check reconciliation logs:**
+
    ```bash
    docker logs charon 2>&1 | grep "CrowdSec reconciliation"
    ```
 
 2. **Check SecurityConfig mode:**
+
    ```bash
    docker exec charon sqlite3 /app/data/charon.db \
      "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
    ```
+
    Expected: `local`
    Actual: `disabled` → **Root Cause: User disabled CrowdSec**
 
 3. **Check Settings table:**
+
    ```bash
    docker exec charon sqlite3 /app/data/charon.db \
      "SELECT value FROM settings WHERE key='security.crowdsec.enabled';"
    ```
+
    Expected: `true`
    Actual: `false` or empty → **Root Cause: Setting not configured**
 
 **Resolution:**
 
 **If mode is disabled:**
+
 ```bash
 # Enable via GUI (recommended)
 # OR manually update database:
@@ -430,6 +466,7 @@ docker restart charon
 ```
 
 **If table missing:**
+
 ```bash
 # Run migrations
 docker exec charon /app/charon migrate
@@ -439,10 +476,12 @@ docker restart charon
 ### Issue: Permission Denied Errors
 
 **Symptoms:**
+
 - CrowdSec process starts but immediately exits
 - Logs show: "permission denied: /var/lib/crowdsec/data/crowdsec.db"
 
 **Diagnosis:**
+
 ```bash
 # Check directory ownership
 docker exec charon ls -la /var/lib/crowdsec/data/
@@ -452,6 +491,7 @@ Expected: `charon:charon`
 Actual: `root:root` → **Root Cause: Old Dockerfile (pre-v0.9.0)**
 
 **Resolution:**
+
 ```bash
 # Rebuild container with new Dockerfile
 docker compose down
@@ -462,10 +502,12 @@ docker compose up -d
 ### Issue: LAPI Timeout
 
 **Symptoms:**
+
 - CrowdSec starts but LAPI never becomes ready
 - Timeout after 60 seconds
 
 **Diagnosis:**
+
 ```bash
 # Check LAPI logs
 docker exec charon tail -50 /var/log/crowdsec/crowdsec.log
@@ -475,11 +517,13 @@ docker stats charon
 ```
 
 **Common Causes:**
+
 - Low memory (< 512MB)
 - Slow disk I/O
 - Network timeout (hub update)
 
 **Resolution:**
+
 ```bash
 # Increase memory allocation in docker-compose.yml
 services:
@@ -496,10 +540,12 @@ docker compose restart
 ### Issue: Multiple CrowdSec Processes
 
 **Symptoms:**
+
 - Multiple `crowdsec` processes running
 - Error: "address already in use: 127.0.0.1:8085"
 
 **Diagnosis:**
+
 ```bash
 docker exec charon ps aux | grep crowdsec | grep -v grep
 ```
@@ -508,6 +554,7 @@ Expected: 1 process
 Actual: 2+ processes → **Root Cause: Race condition (should not happen in v0.9.0+ due to mutex)**
 
 **Resolution:**
+
 ```bash
 # Kill all CrowdSec processes
 docker exec charon pkill crowdsec
@@ -553,6 +600,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ### Step 5: Report Issue
 
 Please report rollback necessity on [GitHub Issues](https://github.com/Wikid82/charon/issues) with:
+
 - Container logs: `docker logs charon`
 - System info: `docker info`
 - CrowdSec logs: `docker exec charon tail -50 /var/log/crowdsec/crowdsec.log`

@@ -30,12 +30,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify Go CodeQL scan runs successfully with CI-aligned parameters
 
 **Steps:**
+
 1. Open VS Code Command Palette (`Ctrl+Shift+P`)
 2. Type "Tasks: Run Task"
 3. Select `Security: CodeQL Go Scan (CI-Aligned) [~60s]`
 4. Wait for completion (~60 seconds)
 
 **Expected Results:**
+
 - [ ] Task completes successfully (no errors)
 - [ ] Output shows database creation progress
 - [ ] Output shows query execution progress
@@ -53,12 +55,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify JavaScript/TypeScript CodeQL scan runs with CI-aligned parameters
 
 **Steps:**
+
 1. Open VS Code Command Palette
 2. Type "Tasks: Run Task"
 3. Select `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
 4. Wait for completion (~90 seconds)
 
 **Expected Results:**
+
 - [ ] Task completes successfully
 - [ ] Output shows database creation for frontend source
 - [ ] Output shows query execution progress (202 queries)
@@ -76,12 +80,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify sequential execution of both scans
 
 **Steps:**
+
 1. Open VS Code Command Palette
 2. Type "Tasks: Run Task"
 3. Select `Security: CodeQL All (CI-Aligned)`
 4. Wait for completion (~3 minutes)
 
 **Expected Results:**
+
 - [ ] Go scan executes first
 - [ ] JavaScript scan executes second (after Go completes)
 - [ ] Both SARIF files generated
@@ -98,6 +104,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify govulncheck runs on commit
 
 **Steps:**
+
 1. Open terminal in project root
 2. Make a trivial change to any `.go` file (add comment)
 3. Stage file: `git add <file>`
@@ -105,6 +112,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 5. Observe pre-commit execution
 
 **Expected Results:**
+
 - [ ] Pre-commit hook triggers automatically
 - [ ] `security-scan` stage executes
 - [ ] `govulncheck` runs on backend code
@@ -123,6 +131,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify manual-stage CodeQL scans work via pre-commit
 
 **Steps:**
+
 1. Open terminal in project root
 2. Run manual stage: `pre-commit run --hook-stage manual codeql-go-scan --all-files`
 3. Wait for completion (~60s)
@@ -130,6 +139,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 5. Run: `pre-commit run --hook-stage manual codeql-check-findings --all-files`
 
 **Expected Results:**
+
 - [ ] `codeql-go-scan` executes successfully
 - [ ] `codeql-js-scan` executes successfully
 - [ ] `codeql-check-findings` checks SARIF files
@@ -146,16 +156,20 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify that ERROR-level findings block the hook
 
 **Steps:**
+
 1. Temporarily introduce a known security issue (e.g., SQL injection)
+
    ```go
    // In any handler file, add:
    query := "SELECT * FROM users WHERE id = " + userInput
    ```
+
 2. Run: `pre-commit run --hook-stage manual codeql-go-scan --all-files`
 3. Run: `pre-commit run --hook-stage manual codeql-check-findings --all-files`
 4. Observe output
 
 **Expected Results:**
+
 - [ ] CodeQL scan completes
 - [ ] `codeql-check-findings` hook **FAILS**
 - [ ] Error message shows high-severity finding
@@ -173,12 +187,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify SARIF files are GitHub-compatible
 
 **Steps:**
+
 1. Run any CodeQL scan (TC1 or TC2)
 2. Open generated SARIF file in text editor
 3. Validate JSON structure
 4. Check for required fields
 
 **Expected Results:**
+
 - [ ] File is valid JSON
 - [ ] Contains `$schema` property
 - [ ] Contains `runs` array with results
@@ -198,6 +214,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify CI behavior matches local execution
 
 **Steps:**
+
 1. Create test branch: `git checkout -b test/codeql-alignment`
 2. Make trivial change and commit
 3. Push to GitHub: `git push origin test/codeql-alignment`
@@ -206,6 +223,7 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 6. Review security findings in PR
 
 **Expected Results:**
+
 - [ ] CodeQL workflow triggers on PR
 - [ ] Go and JavaScript scans execute
 - [ ] Workflow uses `security-and-quality` suite
@@ -223,12 +241,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Validate user-facing documentation
 
 **Steps:**
+
 1. Review: `docs/security/codeql-scanning.md`
 2. Follow quick start instructions
 3. Review: `.github/instructions/copilot-instructions.md`
 4. Verify Definition of Done section
 
 **Expected Results:**
+
 - [ ] Quick start instructions work as documented
 - [ ] Command examples are accurate
 - [ ] Task names match VS Code tasks
@@ -245,12 +265,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify scan execution times are reasonable
 
 **Steps:**
+
 1. Run Go scan via VS Code task
 2. Measure execution time
 3. Run JS scan via VS Code task
 4. Measure execution time
 
 **Expected Results:**
+
 - [ ] Go scan completes in **50-70 seconds**
 - [ ] JS scan completes in **80-100 seconds**
 - [ ] Combined scan completes in **2.5-3.5 minutes**
@@ -268,10 +290,12 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Ensure other CI workflows still pass
 
 **Steps:**
+
 1. Run full CI suite on test branch
 2. Check all workflow statuses
 
 **Expected Results:**
+
 - [ ] Build workflows pass
 - [ ] Test workflows pass
 - [ ] Lint workflows pass
@@ -287,12 +311,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 **Objective:** Verify normal development isn't disrupted
 
 **Steps:**
+
 1. Make code changes (normal development)
 2. Run existing VS Code tasks (Build, Test, Lint)
 3. Commit changes with pre-commit hooks
 4. Push to branch
 
 **Expected Results:**
+
 - [ ] Existing tasks work normally
 - [ ] Fast pre-commit hooks run automatically
 - [ ] Manual CodeQL scans are opt-in
@@ -310,12 +336,14 @@ Validate that local CodeQL scans match CI execution and that developers can catc
 Based on QA report, these findings are expected:
 
 **Go (79 findings):**
+
 - Email injection (CWE-640): 3 findings
 - SSRF (CWE-918): 2 findings
 - Log injection (CWE-117): 10 findings
 - Quality issues: 64 findings (redundant code, missing checks)
 
 **JavaScript (105 findings):**
+
 - DOM-based XSS (CWE-079): 1 finding
 - Incomplete validation (CWE-020): 4 findings
 - Quality issues: 100 findings (mostly in minified dist/ bundles)
@@ -349,12 +377,15 @@ Based on QA report, these findings are expected:
 **Overall Result:** ☐ **PASS** ☐ **FAIL**
 
 **Blockers Found:**
+
 - None / List blockers here
 
 **Recommendations:**
+
 - None / List improvements here
 
 **Sign-Off:**
+
 - [ ] All critical tests passed
 - [ ] Documentation is accurate
 - [ ] No major issues found
@@ -370,6 +401,7 @@ Based on QA report, these findings are expected:
 ### Issue: CodeQL not found
 
 **Solution:**
+
 ```bash
 # Install/upgrade CodeQL
 gh codeql set-version latest
@@ -381,6 +413,7 @@ codeql version  # Verify installation
 **Symptom:** Error about missing predicates or incompatible query packs
 
 **Solution:**
+
 ```bash
 # Upgrade CodeQL to v2.17.0 or newer
 gh codeql set-version latest
@@ -394,6 +427,7 @@ rm -rf ~/.codeql/
 ### Issue: Pre-commit hooks not running
 
 **Solution:**
+
 ```bash
 # Reinstall hooks
 pre-commit uninstall
@@ -406,6 +440,7 @@ pre-commit run --all-files
 ### Issue: SARIF file not generated
 
 **Solution:**
+
 ```bash
 # Check permissions
 ls -la codeql-*.sarif

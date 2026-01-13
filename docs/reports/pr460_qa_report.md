@@ -126,6 +126,7 @@ $ cd frontend && ./node_modules/.bin/tsc --noEmit
 **Files Scanned:** 277 out of 277 files
 **Total Findings:** 103
 **Severity Breakdown:**
+
 - 🔴 **HIGH/CRITICAL:** 0
 - 🟡 **MEDIUM/WARNING:** 0
 - 🔵 **LOW/NOTE:** 103 (informational only)
@@ -160,6 +161,7 @@ $ cd frontend && ./node_modules/.bin/tsc --noEmit
 
 **Total Findings:** 65
 **Severity Breakdown:**
+
 - 🔴 **HIGH/CRITICAL:** 0
 - 🟡 **MEDIUM/WARNING:** 0
 - 🔵 **LOW/NOTE:** 65 (informational only)
@@ -232,6 +234,7 @@ All checks aligned with OWASP Top 10 (2021) security standards:
 **Description:** Four unused variables/imports detected by TypeScript compiler.
 
 **Remediation:**
+
 - Removed unused imports (`waitFor`, `userEvent`)
 - Removed unused helper function (`createWrapper`)
 - Removed unused variable destructuring (`container`)

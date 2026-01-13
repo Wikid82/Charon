@@ -9,12 +9,14 @@ Multi-Credential per Provider is an advanced feature that allows you to configur
 ### Why Use Multi-Credentials?
 
 **Security Benefits:**
+
 - **Zone-level Isolation**: Compromise of one credential doesn't expose all your domains
 - **Least Privilege Principle**: Each credential can have minimal permissions for only the zones it manages
 - **Independent Rotation**: Rotate credentials for specific zones without affecting others
 - **Audit Trail**: Track which credentials were used for certificate operations
 
 **Business Use Cases:**
+
 - **Managed Service Providers (MSPs)**: Use separate customer-specific credentials for each client's domains
 - **Large Enterprises**: Isolate credentials by department, environment, or geographic region
 - **Multi-Tenant Platforms**: Provide credential isolation between tenants
@@ -63,6 +65,7 @@ Multi-Credential Mode:
 ### Decision Criteria
 
 **Use Multi-Credentials When:**
+
 - You manage domains for multiple customers or tenants
 - You need credential isolation for security or compliance
 - Different teams or departments manage different zones
@@ -71,6 +74,7 @@ Multi-Credential Mode:
 - You need independent credential rotation schedules
 
 **Use Single Credential When:**
+
 - You manage a small number of domains under one organization
 - All domains have the same security requirements
 - Simpler management is preferred over isolation
@@ -108,6 +112,7 @@ Multi-Credential Mode:
    - A confirmation dialog will appear
 
 3. **Review Migration Impact**
+
    ```
    ⚠️ IMPORTANT: This action will:
    - Convert your existing provider credential into a "catch-all" credential
@@ -181,6 +186,7 @@ Click the **Add Credential** button in the credential management interface.
 The zone filter determines which domains this credential will be used for:
 
 **Option 1: Exact Domain Match**
+
 ```
 Zone Filter: example.com
 Matches: example.com, www.example.com, api.example.com
@@ -188,6 +194,7 @@ Does NOT Match: subdomain.example.com.au, example.org
 ```
 
 **Option 2: Wildcard Match**
+
 ```
 Zone Filter: *.customer-a.com
 Matches: shop.customer-a.com, api.customer-a.com, *.customer-a.com
@@ -195,6 +202,7 @@ Does NOT Match: customer-a.com (root), customer-b.com
 ```
 
 **Option 3: Multiple Zones (Comma-Separated)**
+
 ```
 Zone Filter: example.com,api.example.org,*.dev.example.net
 Matches:
@@ -204,6 +212,7 @@ Matches:
 ```
 
 **Option 4: Catch-All (Empty Filter)**
+
 ```
 Zone Filter: (leave empty)
 Matches: Any domain not matched by other credentials
@@ -245,6 +254,7 @@ Use Case: Fallback credential for miscellaneous domains
 #### Validation Rules
 
 When saving a credential, Charon validates:
+
 - ✅ Zone filter syntax is correct
 - ✅ No duplicate exact matches across credentials
 - ⚠️ Warning if multiple wildcard patterns could overlap
@@ -258,6 +268,7 @@ When saving a credential, Charon validates:
 4. Click **Save Changes**
 
 **⚠️ Important Notes:**
+
 - Changing zone filters may affect which credential is used for existing proxy hosts
 - Charon will re-evaluate credential matching for all proxy hosts after the change
 - Consider testing in a non-production environment first if making significant changes
@@ -309,18 +320,21 @@ When Charon needs to issue or renew a certificate for a domain, it selects a cre
 Credentials are evaluated in this order:
 
 **1. Exact Match (Highest Priority)**
+
 ```
 Zone Filter: example.com
 Domain: www.example.com → Zone: example.com → ✅ MATCH
 ```
 
 **2. Wildcard Match**
+
 ```
 Zone Filter: *.customer-a.com
 Domain: shop.customer-a.com → Zone: customer-a.com → ✅ MATCH (after exact check fails)
 ```
 
 **3. Catch-All (Lowest Priority)**
+
 ```
 Zone Filter: (empty)
 Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildcard matches)
@@ -331,6 +345,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 #### Example 1: MSP with Multiple Customers
 
 **Configured Credentials:**
+
 ```
 1. Name: "Customer A Production"
    Zone Filter: *.customer-a.com
@@ -346,6 +361,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 ```
 
 **Domain Matching:**
+
 - `shop.customer-a.com` → Credential 1 ("Customer A Production")
 - `api.customer-b.com` → Credential 2 ("Customer B Production")
 - `example.com` → Credential 3 ("Catch-all")
@@ -354,6 +370,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 #### Example 2: Environment Separation
 
 **Configured Credentials:**
+
 ```
 1. Name: "Production"
    Zone Filter: example.com
@@ -369,6 +386,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 ```
 
 **Domain Matching:**
+
 - `www.example.com` → Credential 1 ("Production")
 - `api.example.com` → Credential 1 ("Production")
 - `app.staging.example.com` → Credential 2 ("Staging")
@@ -378,6 +396,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 #### Example 3: Geographic Separation
 
 **Configured Credentials:**
+
 ```
 1. Name: "US Zones"
    Zone Filter: *.us.example.com
@@ -393,6 +412,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 ```
 
 **Domain Matching:**
+
 - `shop.us.example.com` → Credential 1 ("US Zones")
 - `api.eu.example.com` → Credential 2 ("EU Zones")
 - `portal.apac.example.com` → Credential 3 ("APAC Zones")
@@ -405,6 +425,7 @@ Domain: anything.com → Zone: anything.com → ✅ MATCH (if no exact or wildca
 If multiple credentials could match the same zone, Charon uses **first match** based on priority order:
 
 **Example:**
+
 ```
 Credential A: Zone Filter: example.com (Exact)
 Credential B: Zone Filter: *.example.com (Wildcard)
@@ -424,10 +445,12 @@ Match Process:
 #### Issue: Domain doesn't match any credential
 
 **Symptoms:**
+
 - Certificate issuance fails with "No matching credential for zone"
 - Error message: `No credential found for provider 'cloudflare' and zone 'example.com'`
 
 **Solutions:**
+
 1. **Add a catch-all credential**: Create a credential with an empty zone filter
 2. **Add specific credential**: Create a credential with zone filter matching your domain
 3. **Check zone extraction**: Ensure Charon is correctly extracting the zone from your domain
@@ -435,10 +458,12 @@ Match Process:
 #### Issue: Wrong credential is being used
 
 **Symptoms:**
+
 - Expected credential "Production" but "Catch-all" is being used
 - Certificate issued but not with the intended credential
 
 **Solutions:**
+
 1. **Check zone filter syntax**: Verify your zone filters are correctly configured
 2. **Check priority order**: Exact matches override wildcards; ensure your exact match is configured
 3. **Review audit logs**: Check which credential was actually selected and why
@@ -446,10 +471,12 @@ Match Process:
 #### Issue: Zone filter validation error
 
 **Symptoms:**
+
 - Error: "Invalid zone filter format"
 - Error: "Zone filter 'example.com' conflicts with existing credential"
 
 **Solutions:**
+
 1. **Check syntax**: Ensure no spaces, only commas separating patterns
 2. **Check for duplicates**: Ensure no two credentials have the exact same zone filter pattern
 3. **Review wildcard syntax**: Wildcards must be `*.domain.com`, not `*domain.com`
@@ -492,8 +519,10 @@ When you create a proxy host with multi-credential mode enabled:
 ### Viewing Which Credential Was Used
 
 **Method 1: Proxy Host Details**
+
 1. Open the proxy host from the dashboard
 2. In the **SSL/TLS** section, look for:
+
    ```
    Certificate: Active (Expires: 2026-04-01)
    Credential Used: Customer A Production (Cloudflare)
@@ -501,9 +530,11 @@ When you create a proxy host with multi-credential mode enabled:
    ```
 
 **Method 2: Audit Logs**
+
 1. Go to **Settings** → **Audit Logs**
 2. Filter by: `Action: certificate_issued` or `Action: certificate_renewed`
 3. View log entry:
+
    ```json
    {
      "timestamp": "2026-01-02T14:30:00Z",
@@ -518,6 +549,7 @@ When you create a proxy host with multi-credential mode enabled:
    ```
 
 **Method 3: Credential Statistics**
+
 1. Go to **Settings** → **DNS Providers** → **Manage Credentials**
 2. Each credential shows:
    - **Usage Count**: Number of domains using this credential
@@ -529,12 +561,14 @@ When you create a proxy host with multi-credential mode enabled:
 #### Issue: Certificate issuance fails with "No matching credential"
 
 **Error Message:**
+
 ```
 Failed to issue certificate for shop.customer-a.com:
 No credential found for provider 'cloudflare' and zone 'customer-a.com'
 ```
 
 **Solution:**
+
 1. Check DNS provider has multi-credential enabled
 2. Verify a credential exists with zone filter matching `customer-a.com`
 3. Add a credential with zone filter: `*.customer-a.com` or use catch-all
@@ -542,12 +576,14 @@ No credential found for provider 'cloudflare' and zone 'customer-a.com'
 #### Issue: Certificate issuance fails with "API authentication failed"
 
 **Error Message:**
+
 ```
 Failed to issue certificate for shop.customer-a.com:
 Cloudflare API returned 403: Invalid credentials
 ```
 
 **Solution:**
+
 1. Test the credential being used: **Manage Credentials** → **Test**
 2. Verify API token/key is still valid in your DNS provider dashboard
 3. Check API token has correct permissions (`Zone:DNS:Edit`)
@@ -556,10 +592,12 @@ Cloudflare API returned 403: Invalid credentials
 #### Issue: Wrong credential is being used
 
 **Symptoms:**
+
 - Certificate issued successfully but with unexpected credential
 - Audit logs show different credential than expected
 
 **Solution:**
+
 1. Review zone filter configuration for all credentials
 2. Check priority order (exact > wildcard > catch-all)
 3. Ensure your expected credential has the most specific zone filter
@@ -572,6 +610,7 @@ Cloudflare API returned 403: Invalid credentials
 **Recommended Naming Patterns:**
 
 **By Customer/Tenant:**
+
 ```
 - "Customer A - Production"
 - "Customer B - Staging"
@@ -579,6 +618,7 @@ Cloudflare API returned 403: Invalid credentials
 ```
 
 **By Environment:**
+
 ```
 - "Production Zones"
 - "Staging Zones"
@@ -586,6 +626,7 @@ Cloudflare API returned 403: Invalid credentials
 ```
 
 **By Department:**
+
 ```
 - "Marketing - example.com"
 - "Engineering - api.example.com"
@@ -593,6 +634,7 @@ Cloudflare API returned 403: Invalid credentials
 ```
 
 **By Geography:**
+
 ```
 - "US East Zones"
 - "EU West Zones"
@@ -606,6 +648,7 @@ Cloudflare API returned 403: Invalid credentials
 **Use Case:** Small number of high-value domains
 
 **Example:**
+
 ```
 Credential: "example.com Primary"
 Zone Filter: example.com
@@ -615,11 +658,13 @@ Zone Filter: api.example.org
 ```
 
 **Pros:**
+
 - Maximum specificity
 - Easy to understand
 - Clear audit trail
 
 **Cons:**
+
 - Requires one credential per domain
 - Not scalable for many domains
 
@@ -628,6 +673,7 @@ Zone Filter: api.example.org
 **Use Case:** Logical grouping of subdomains
 
 **Example:**
+
 ```
 Credential: "Customer Zones"
 Zone Filter: *.customers.example.com
@@ -637,11 +683,13 @@ Zone Filter: *.internal.example.com
 ```
 
 **Pros:**
+
 - Scalable for many subdomains
 - Clear organizational boundaries
 - Reduces credential count
 
 **Cons:**
+
 - Broader scope than exact match
 - Requires careful namespace planning
 
@@ -650,6 +698,7 @@ Zone Filter: *.internal.example.com
 **Use Case:** Most common for production deployments
 
 **Example:**
+
 ```
 1. Exact matches for critical domains:
    - "Production Root" → example.com
@@ -664,11 +713,13 @@ Zone Filter: *.internal.example.com
 ```
 
 **Pros:**
+
 - Balance of specificity and scalability
 - Flexible and maintainable
 - Handles edge cases
 
 **Cons:**
+
 - More credentials to manage
 - Requires understanding of priority order
 
@@ -718,6 +769,7 @@ Zone Filter: *.internal.example.com
 ### Viewing Credential Usage Statistics
 
 **Dashboard View:**
+
 1. Navigate to **Settings** → **DNS Providers**
 2. For each provider with multi-credential enabled, click **View Statistics**
 3. Dashboard shows:
@@ -727,6 +779,7 @@ Zone Filter: *.internal.example.com
    - Top credentials by usage
 
 **Per-Credential View:**
+
 1. Go to **Settings** → **DNS Providers** → **Manage Credentials**
 2. Each credential displays:
 
@@ -756,6 +809,7 @@ Zone Filter: *.internal.example.com
 **Success Rate**: Percentage of successful operations (Success / (Success + Failure) × 100%)
 
 **⚠️ Low Success Rate Alert:**
+
 - If success rate drops below 90%, investigate immediately
 - Common causes: expired API token, insufficient permissions, DNS provider API issues
 - Click **Test Credential** to diagnose
@@ -769,6 +823,7 @@ Zone Filter: *.internal.example.com
 **Last Failure**: Timestamp of the most recent failed operation
 
 **Use Cases:**
+
 - **Identify Unused Credentials**: If "Last Used" is > 90 days ago, consider removing
 - **Credential Rotation**: Track when credentials were last active
 - **Incident Response**: Correlate failures with outages or credential changes
@@ -776,6 +831,7 @@ Zone Filter: *.internal.example.com
 ### Audit Trail for Credential Operations
 
 **Viewing Audit Logs:**
+
 1. Go to **Settings** → **Audit Logs**
 2. Filter by:
    - **Action Type**: `credential_created`, `credential_updated`, `credential_deleted`, `certificate_issued`, `certificate_renewed`
@@ -783,6 +839,7 @@ Zone Filter: *.internal.example.com
    - **User**: Filter by who performed the action
 
 **Log Entry Example:**
+
 ```json
 {
   "timestamp": "2026-01-04T15:30:00Z",
@@ -802,6 +859,7 @@ Zone Filter: *.internal.example.com
 ```
 
 **Exported Logs:**
+
 - Export to CSV or JSON for external analysis
 - Integrate with SIEM (Security Information and Event Management) systems
 - Use for compliance reporting and security audits
@@ -813,11 +871,13 @@ Zone Filter: *.internal.example.com
 #### Issue 1: No matching credential for domain
 
 **Symptoms:**
+
 - Certificate issuance fails
 - Error: `No credential found for provider 'cloudflare' and zone 'example.com'`
 - Proxy host shows certificate status: "Failed"
 
 **Root Causes:**
+
 1. No credential configured for the DNS zone
 2. Zone filter doesn't match the domain's zone
 3. Multi-credential mode not enabled
@@ -825,11 +885,13 @@ Zone Filter: *.internal.example.com
 **Solutions:**
 
 **Step 1: Verify Multi-Credential Mode is Enabled**
+
 ```
 Settings → DNS Providers → Check "Multi-Credential Mode: Enabled"
 ```
 
 **Step 2: Check Existing Credentials**
+
 ```
 Settings → DNS Providers → Manage Credentials
 Review zone filters for all credentials
@@ -838,18 +900,21 @@ Review zone filters for all credentials
 **Step 3: Add Missing Credential or Catch-All**
 
 **Option A: Add Specific Credential**
+
 ```
 Credential Name: example.com Production
 Zone Filter: example.com
 ```
 
 **Option B: Add Catch-All**
+
 ```
 Credential Name: Catch-All
 Zone Filter: (leave empty)
 ```
 
 **Step 4: Retry Certificate Issuance**
+
 ```
 Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
@@ -857,11 +922,13 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 #### Issue 2: Certificate issuance fails with API error
 
 **Symptoms:**
+
 - Certificate issuance fails
 - Error: `Cloudflare API returned 403: Invalid credentials` or similar
 - Credential test fails
 
 **Root Causes:**
+
 1. API token/key expired or revoked
 2. Insufficient API permissions
 3. DNS provider account suspended
@@ -870,30 +937,36 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 **Solutions:**
 
 **Step 1: Test the Credential**
+
 ```
 Settings → DNS Providers → Manage Credentials → Click "Test" next to credential
 ```
 
 **Step 2: Check API Token Validity**
+
 - Log in to your DNS provider dashboard (e.g., Cloudflare)
 - Navigate to API Tokens
 - Verify token is active and not expired
 - Check token permissions: `Zone:DNS:Edit` permission required
 
 **Step 3: Regenerate API Token**
+
 - Generate new API token at DNS provider
 - Update credential in Charon:
+
   ```
   Settings → DNS Providers → Manage Credentials → Edit → Update API credentials → Test → Save
   ```
 
 **Step 4: Check API Rate Limits**
+
 - Review DNS provider's rate limit documentation
 - Check if you've exceeded API quotas
 - Wait for rate limit to reset (typically hourly)
 - Consider spreading certificate operations over time
 
 **Step 5: Retry Certificate Issuance**
+
 ```
 Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
@@ -901,11 +974,13 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 #### Issue 3: Zone filter validation error
 
 **Symptoms:**
+
 - Cannot save credential
 - Error: `Invalid zone filter format: 'example..com'`
 - Error: `Zone filter 'example.com' conflicts with existing credential`
 
 **Root Causes:**
+
 1. Syntax error in zone filter (typo, invalid characters)
 2. Duplicate zone filter across multiple credentials
 3. Conflicting exact and wildcard patterns
@@ -915,6 +990,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 **Step 1: Check Syntax**
 
 **Valid Formats:**
+
 ```
 ✅ example.com
 ✅ *.customer-a.com
@@ -924,6 +1000,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
 
 **Invalid Formats:**
+
 ```
 ❌ example..com (double dot)
 ❌ example.com. (trailing dot)
@@ -933,25 +1010,30 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 ```
 
 **Step 2: Check for Duplicates**
+
 - Review all credentials for the provider
 - Ensure no two credentials have the exact same zone filter pattern
 - If duplicate found, edit one credential to have a different zone filter
 
 **Step 3: Resolve Conflicts**
+
 - If you have both `example.com` and `*.example.com`, this is allowed but may cause confusion
 - Ensure you understand priority order: exact match takes precedence
 
 **Step 4: Save Again**
+
 - After fixing syntax/duplicates, click **Save Credential**
 
 #### Issue 4: Wrong credential is being used
 
 **Symptoms:**
+
 - Certificate issued successfully but audit logs show unexpected credential
 - Credential statistics don't match expectations
 - Security/compliance concern about which credential was used
 
 **Root Causes:**
+
 1. Zone filter misconfiguration (too broad or too narrow)
 2. Misunderstanding of zone matching priority
 3. Overlapping patterns causing unexpected matches
@@ -959,6 +1041,7 @@ Proxy Hosts → Select proxy host → SSL/TLS → Renew Certificate
 **Solutions:**
 
 **Step 1: Review Zone Matching Logic**
+
 ```
 Priority Order:
 1. Exact match: example.com
@@ -967,11 +1050,13 @@ Priority Order:
 ```
 
 **Step 2: Check Zone Extraction**
+
 - For domain `shop.customer-a.com`, zone is `customer-a.com`
 - For domain `www.example.com`, zone is `example.com`
 - For domain `api.sub.example.com`, zone is `example.com` (not `sub.example.com`)
 
 **Step 3: Review All Credential Zone Filters**
+
 ```
 Settings → DNS Providers → Manage Credentials
 List all zone filters and check for overlaps:
@@ -986,11 +1071,13 @@ For www.example.com:
 ```
 
 **Step 4: Adjust Zone Filters**
+
 - Make zone filters more specific to avoid unwanted matches
 - Remove or narrow catch-all if it's too broad
 - Use exact matches for critical domains
 
 **Step 5: Test Zone Matching**
+
 - Some Charon versions may include a zone matching test utility
 - Go to **Settings** → **DNS Providers** → **Test Zone Matching**
 - Enter a domain and see which credential would be selected
@@ -998,11 +1085,13 @@ For www.example.com:
 #### Issue 5: Credential test succeeds but certificate issuance fails
 
 **Symptoms:**
+
 - Credential test passes: ✅ "Credential validated successfully"
 - Certificate issuance fails with DNS-related error
 - Error: `DNS propagation timeout` or `TXT record not found`
 
 **Root Causes:**
+
 1. API permissions sufficient for test but not for DNS-01 challenge
 2. DNS propagation delay
 3. Credential has access to different zones than expected
@@ -1013,40 +1102,51 @@ For www.example.com:
 **Step 1: Check API Permissions**
 
 **Cloudflare:**
+
 - Required: `Zone:DNS:Edit` permission
 - Test permission alone may only check `Zone:DNS:Read`
 
 **Route53:**
+
 - Required: `route53:ChangeResourceRecordSets`, `route53:GetChange`
 - Test permission alone may only check `route53:ListHostedZones`
 
 **Step 2: Verify Zone Access**
+
 - Ensure credential has access to the specific zone
 - Check DNS provider dashboard for zone visibility
 - For Route53, ensure IAM policy includes the correct hosted zone ID
 
 **Step 3: Check DNS Propagation**
+
 - DNS-01 challenge requires TXT record to propagate
 - Default timeout: 60 seconds
 - Increase timeout in Charon settings if DNS provider is slow:
+
   ```
   Settings → Advanced → DNS Propagation Timeout: 120 seconds
   ```
 
 **Step 4: Manual DNS Test**
+
 - After certificate issuance fails, check if TXT record was created:
+
   ```bash
   dig TXT _acme-challenge.shop.customer-a.com
   nslookup -type=TXT _acme-challenge.shop.customer-a.com
   ```
+
 - If record exists, issue is with propagation delay
 - If record doesn't exist, issue is with API permissions or credential
 
 **Step 5: Review Let's Encrypt Logs**
+
 - View detailed certificate issuance logs:
+
   ```
   Settings → Logs → Filter by: "certificate_issuance"
   ```
+
 - Look for specific error messages from Let's Encrypt or DNS provider
 
 ### Getting Help
@@ -1072,6 +1172,7 @@ curl -H "Authorization: Bearer YOUR_API_TOKEN" \
 ```
 
 **Getting an API Token:**
+
 1. Go to **Settings** → **API Tokens**
 2. Click **Generate Token**
 3. Copy token (shown only once)
@@ -1085,6 +1186,7 @@ curl -H "Authorization: Bearer YOUR_API_TOKEN" \
 **Description:** List all credentials for a DNS provider
 
 **Request:**
+
 ```bash
 curl -X GET \
   https://your-charon-instance/api/v1/dns-providers/1/credentials \
@@ -1092,6 +1194,7 @@ curl -X GET \
 ```
 
 **Response:**
+
 ```json
 {
   "credentials": [
@@ -1133,6 +1236,7 @@ curl -X GET \
 **Description:** Get details of a specific credential
 
 **Request:**
+
 ```bash
 curl -X GET \
   https://your-charon-instance/api/v1/dns-providers/1/credentials/42 \
@@ -1140,6 +1244,7 @@ curl -X GET \
 ```
 
 **Response:**
+
 ```json
 {
   "id": 42,
@@ -1168,6 +1273,7 @@ curl -X GET \
 **Description:** Create a new credential for a DNS provider
 
 **Request:**
+
 ```bash
 curl -X POST \
   https://your-charon-instance/api/v1/dns-providers/1/credentials \
@@ -1186,6 +1292,7 @@ curl -X POST \
 **Provider-Specific Credential Fields:**
 
 **Cloudflare:**
+
 ```json
 "credentials": {
   "api_token": "your-cloudflare-api-token"
@@ -1198,6 +1305,7 @@ curl -X POST \
 ```
 
 **Route53:**
+
 ```json
 "credentials": {
   "access_key_id": "AKIAIOSFODNN7EXAMPLE",
@@ -1206,6 +1314,7 @@ curl -X POST \
 ```
 
 **DigitalOcean:**
+
 ```json
 "credentials": {
   "api_token": "your-digitalocean-api-token"
@@ -1213,6 +1322,7 @@ curl -X POST \
 ```
 
 **Response:**
+
 ```json
 {
   "id": 44,
@@ -1236,6 +1346,7 @@ curl -X POST \
 **Description:** Update an existing credential
 
 **Request:**
+
 ```bash
 curl -X PATCH \
   https://your-charon-instance/api/v1/dns-providers/1/credentials/44 \
@@ -1248,6 +1359,7 @@ curl -X PATCH \
 ```
 
 **Response:**
+
 ```json
 {
   "id": 44,
@@ -1271,6 +1383,7 @@ curl -X PATCH \
 **Description:** Delete a credential (fails if credential is in use)
 
 **Request:**
+
 ```bash
 curl -X DELETE \
   https://your-charon-instance/api/v1/dns-providers/1/credentials/44 \
@@ -1278,6 +1391,7 @@ curl -X DELETE \
 ```
 
 **Response (Success):**
+
 ```json
 {
   "message": "Credential deleted successfully",
@@ -1286,6 +1400,7 @@ curl -X DELETE \
 ```
 
 **Response (Error - In Use):**
+
 ```json
 {
   "error": "Cannot delete credential: 3 proxy hosts are using this credential",
@@ -1304,6 +1419,7 @@ curl -X DELETE \
 **Description:** Test if a credential is valid and has correct permissions
 
 **Request:**
+
 ```bash
 curl -X POST \
   https://your-charon-instance/api/v1/dns-providers/1/credentials/42/test \
@@ -1311,6 +1427,7 @@ curl -X POST \
 ```
 
 **Response (Success):**
+
 ```json
 {
   "status": "success",
@@ -1326,6 +1443,7 @@ curl -X POST \
 ```
 
 **Response (Failure):**
+
 ```json
 {
   "status": "failed",
@@ -1345,6 +1463,7 @@ curl -X POST \
 **Description:** Enable multi-credential mode for a DNS provider
 
 **Request:**
+
 ```bash
 curl -X POST \
   https://your-charon-instance/api/v1/dns-providers/1/enable-multi-credential \
@@ -1352,6 +1471,7 @@ curl -X POST \
 ```
 
 **Response:**
+
 ```json
 {
   "message": "Multi-credential mode enabled",
@@ -1372,6 +1492,7 @@ curl -X POST \
 **Description:** Disable multi-credential mode (reverts to first credential as primary)
 
 **Request:**
+
 ```bash
 curl -X POST \
   https://your-charon-instance/api/v1/dns-providers/1/disable-multi-credential \
@@ -1379,6 +1500,7 @@ curl -X POST \
 ```
 
 **Response:**
+
 ```json
 {
   "message": "Multi-credential mode disabled",
@@ -1396,6 +1518,7 @@ curl -X POST \
 All API endpoints may return the following error responses:
 
 **400 Bad Request:**
+
 ```json
 {
   "error": "Invalid zone filter format",
@@ -1404,6 +1527,7 @@ All API endpoints may return the following error responses:
 ```
 
 **401 Unauthorized:**
+
 ```json
 {
   "error": "Unauthorized",
@@ -1412,6 +1536,7 @@ All API endpoints may return the following error responses:
 ```
 
 **403 Forbidden:**
+
 ```json
 {
   "error": "Forbidden",
@@ -1420,6 +1545,7 @@ All API endpoints may return the following error responses:
 ```
 
 **404 Not Found:**
+
 ```json
 {
   "error": "Not found",
@@ -1428,6 +1554,7 @@ All API endpoints may return the following error responses:
 ```
 
 **409 Conflict:**
+
 ```json
 {
   "error": "Conflict",
@@ -1437,6 +1564,7 @@ All API endpoints may return the following error responses:
 ```
 
 **500 Internal Server Error:**
+
 ```json
 {
   "error": "Internal server error",
@@ -1484,5 +1612,5 @@ All API endpoints may return the following error responses:
 
 ---
 
-*Last Updated: January 4, 2026*
-*Version: 1.3.0*
+_Last Updated: January 4, 2026_
+_Version: 1.3.0_

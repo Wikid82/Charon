@@ -12,16 +12,19 @@
 This document provides a detailed remediation plan for all 15 security vulnerabilities identified by CodeQL during CI alignment testing. These findings must be addressed before the CodeQL alignment PR can be merged to main.
 
 **Finding Breakdown:**
+
 - **Email Injection (CWE-640):** 3 findings - CRITICAL
 - **SSRF (CWE-918):** 2 findings - HIGH (partially mitigated)
 - **Log Injection (CWE-117):** 10 findings - MEDIUM
 
 **Security Impact:**
+
 - Email injection could allow attackers to spoof emails or inject malicious content
 - SSRF could allow attackers to probe internal networks (partially mitigated by existing validation)
 - Log injection could pollute logs or inject false entries for log analysis evasion
 
 **Remediation Strategy:**
+
 - Use existing sanitization functions where available
 - Follow OWASP guidelines from `.github/instructions/security-and-owasp.instructions.md`
 - Maintain backward compatibility and test coverage
@@ -36,6 +39,7 @@ This document provides a detailed remediation plan for all 15 security vulnerabi
 The `mail_service.go` file already contains comprehensive email injection protection:
 
 **Existing Functions:**
+
 ```go
 // emailHeaderSanitizer removes CR, LF, and control characters
 var emailHeaderSanitizer = regexp.MustCompile(`[\x00-\x1f\x7f]`)
@@ -67,6 +71,7 @@ func sanitizeEmailBody(body string) string {
 **Vulnerability:** `appName` parameter is partially sanitized (uses `sanitizeEmailHeader`) but the sanitization occurs AFTER template data is prepared, potentially allowing injection before sanitization.
 
 **Current Code (Lines 218-224):**
+
 ```go
 // Sanitize appName to prevent injection in email content
 appName = sanitizeEmailHeader(strings.TrimSpace(appName))
@@ -99,6 +104,7 @@ if strings.ContainsAny(appName, "\r\n\x00") {
 ```
 
 **Rationale:**
+
 - Explicit validation order (trim → default → sanitize → verify) makes flow obvious to static analysis
 - Additional `ContainsAny` check provides defense-in-depth
 - Clear comments explain security intent
@@ -113,6 +119,7 @@ if strings.ContainsAny(appName, "\r\n\x00") {
 **Vulnerability:** Template execution using `appName` that originates from user input
 
 **Current Code (Lines 327-334):**
+
 ```go
 var body bytes.Buffer
 data := map[string]string{
@@ -143,6 +150,7 @@ data := map[string]string{
 ```
 
 **Rationale:**
+
 - Explicit security comment documents the protection
 - No code change needed - existing sanitization is sufficient
 - May require CodeQL suppression if tool doesn't recognize flow
@@ -156,6 +164,7 @@ data := map[string]string{
 **Vulnerability:** `htmlBody` parameter passed to `SendEmail` is used without sanitization
 
 **Current Code (Lines 379-386):**
+
 ```go
 subject := fmt.Sprintf("You've been invited to %s", appName)
 
@@ -165,11 +174,13 @@ return s.SendEmail(email, subject, body.String())
 
 **Root Cause Analysis:**
 `SendEmail` is called with `body.String()` which contains user-controlled data (the rendered template with `appName`). However, tracing backwards:
+
 1. `body` is a template execution result
 2. Template data includes `appName` which IS sanitized (Fix 1)
 3. `SendEmail` calls `buildEmail` which applies `sanitizeEmailBody` to the HTML body
 
 **Current Protection in buildEmail (Lines 246-250):**
+
 ```go
 msg.WriteString("\r\n")
 // Sanitize body to prevent SMTP injection (CWE-93)
@@ -212,6 +223,7 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 ```
 
 **Rationale:**
+
 - Existing sanitization is comprehensive and tested
 - Documentation makes protection explicit
 - No functional changes needed
@@ -224,6 +236,7 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 ### Context: Existing Protections
 
 **EXCELLENT NEWS:** The codebase already has comprehensive SSRF protection via `security.ValidateExternalURL()` which:
+
 - Validates URL format and scheme (HTTP/HTTPS only)
 - Performs DNS resolution
 - Blocks private IPs (RFC 1918, loopback, link-local, reserved ranges)
@@ -241,6 +254,7 @@ func (s *MailService) SendEmail(to, subject, htmlBody string) error {
 **Vulnerability:** Webhook request uses URL that depends on user-provided value
 
 **Current Code (Lines 176-186):**
+
 ```go
 // Validate webhook URL using the security package's SSRF-safe validator.
 // ValidateExternalURL performs comprehensive validation including:
@@ -256,6 +270,7 @@ validatedURLStr, err := security.ValidateExternalURL(p.URL,
 
 **Root Cause Analysis:**
 The code CORRECTLY validates the URL at line 180, but CodeQL flags the DOWNSTREAM use of this URL at line 305 where the HTTP request is made. The issue is that between validation and use, the code:
+
 1. Re-parses the validated URL
 2. Performs DNS resolution AGAIN
 3. Constructs a new URL using resolved IP
@@ -263,6 +278,7 @@ The code CORRECTLY validates the URL at line 180, but CodeQL flags the DOWNSTREA
 This complex flow breaks CodeQL's taint tracking.
 
 **Current Request Construction (Lines 264-271):**
+
 ```go
 sanitizedRequestURL := fmt.Sprintf("%s://%s%s",
     safeURL.Scheme,
@@ -302,6 +318,7 @@ req, err := http.NewRequestWithContext(ctx, "POST", sanitizedRequestURL, &body)
 ```
 
 **Rationale:**
+
 - Existing validation is comprehensive and defense-in-depth
 - Multiple layers: scheme validation, DNS resolution, private IP blocking
 - Documentation makes security architecture explicit
@@ -316,6 +333,7 @@ req, err := http.NewRequestWithContext(ctx, "POST", sanitizedRequestURL, &body)
 **Vulnerability:** HTTP request URL depends on user-provided value
 
 **Current Code (Lines 87-96):**
+
 ```go
 if len(transport) == 0 || transport[0] == nil {
     // Production path: Full security validation with DNS/IP checks
@@ -332,11 +350,13 @@ if len(transport) == 0 || transport[0] == nil {
 
 **Root Cause Analysis:**
 This function is specifically DESIGNED for testing URL connectivity, so it must accept user input. However:
+
 1. It uses `security.ValidateExternalURL()` for production code
 2. It uses `ssrfSafeDialer()` that validates IPs at connection time (defense-in-depth)
 3. The test path (with mock transport) skips network entirely
 
 **Current Request (Lines 155-168):**
+
 ```go
 ctx := context.Background()
 start := time.Now()
@@ -380,6 +400,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 **Rationale:**
+
 - Function purpose requires accepting user URLs (it's a testing utility)
 - Existing validation is comprehensive: ValidateExternalURL + ssrfSafeDialer
 - Defense-in-depth architecture with multiple validation layers
@@ -393,10 +414,12 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ### Context: Existing Protections
 
 The codebase uses:
+
 - **Structured logging** via `logger.Log().WithField()`
 - **Sanitization function** `util.SanitizeForLog()` for user input
 
 **Existing Function (`internal/util/sanitize.go`):**
+
 ```go
 func SanitizeForLog(s string) string {
     // Remove control characters that could corrupt logs
@@ -410,6 +433,7 @@ func SanitizeForLog(s string) string {
 ```
 
 **Usage Pattern:**
+
 ```go
 logger.Log().WithField("filename", util.SanitizeForLog(filepath.Base(filename))).Info("...")
 ```
@@ -425,6 +449,7 @@ logger.Log().WithField("filename", util.SanitizeForLog(filepath.Base(filename)))
 **Vulnerability:** `filename` parameter logged without sanitization
 
 **Current Code (Lines 71-76):**
+
 ```go
 if err := h.service.RestoreBackup(filename); err != nil {
     middleware.GetRequestLogger(c).WithField("action", "restore_backup").WithField("filename", util.SanitizeForLog(filepath.Base(filename))).WithError(err).Error("Failed to restore backup")
@@ -436,6 +461,7 @@ if err := h.service.RestoreBackup(filename); err != nil {
 
 **Root Cause Analysis:**
 **WAIT!** This code ALREADY uses `util.SanitizeForLog()`! Line 72 shows:
+
 ```go
 .WithField("filename", util.SanitizeForLog(filepath.Base(filename)))
 ```
@@ -452,6 +478,7 @@ if err := h.service.RestoreBackup(filename); err != nil {
 ```
 
 **Rationale:**
+
 - Existing sanitization is correct
 - `filepath.Base()` further limits to just filename (no path traversal)
 - `util.SanitizeForLog()` removes control characters
@@ -468,33 +495,43 @@ if err := h.service.RestoreBackup(filename); err != nil {
 Let me examine the specific lines:
 
 **Line 711 (SendExternal):**
+
 ```go
 logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
 ```
+
 ✅ **Already sanitized** - Uses `util.SanitizeForLog(p.Name)`
 
 **Lines 717 (4 instances - in PullPreset):**
+
 ```go
 logger.Log().WithField("cache_dir", util.SanitizeForLog(cacheDir)).WithField("slug", util.SanitizeForLog(slug)).Info("attempting to pull preset")
 ```
+
 ✅ **Already sanitized** - Both fields use `util.SanitizeForLog()`
 
 **Line 721 (another logger call):**
+
 ```go
 logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey)...
 ```
+
 ⚠️ **Partial sanitization** - `cached.CacheKey` is NOT sanitized
 
 **Line 724 (list entries):**
+
 ```go
 logger.Log().WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
 ```
+
 ✅ **Already sanitized**
 
 **Line 819 (BanIP):**
+
 ```go
 logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
 ```
+
 ✅ **Already sanitized**
 
 ---
@@ -502,6 +539,7 @@ logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Faile
 ### Fix 2: crowdsec_handler.go:711 - Provider Name
 
 **Current Code (Line 158):**
+
 ```go
 logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
 ```
@@ -509,6 +547,7 @@ logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).E
 **Status:** ✅ ALREADY FIXED - Uses `util.SanitizeForLog()`
 
 **Action:** Add suppression comment if CodeQL still flags:
+
 ```go
 // codeql[go/log-injection] - provider name sanitized via util.SanitizeForLog
 logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).Error("Failed to send webhook")
@@ -521,6 +560,7 @@ logger.Log().WithError(err).WithField("provider", util.SanitizeForLog(p.Name)).E
 **Lines:** 569, 576, 583, 590 (approximate - need to count actual instances)
 
 **Current Pattern:**
+
 ```go
 logger.Log().WithField("slug", util.SanitizeForLog(slug)).Info("...")
 ```
@@ -528,6 +568,7 @@ logger.Log().WithField("slug", util.SanitizeForLog(slug)).Info("...")
 **Status:** ✅ ALREADY FIXED - All use `util.SanitizeForLog()`
 
 **Action:** Add suppression comment if needed:
+
 ```go
 // codeql[go/log-injection] - all fields sanitized via util.SanitizeForLog
 ```
@@ -537,6 +578,7 @@ logger.Log().WithField("slug", util.SanitizeForLog(slug)).Info("...")
 ### Fix 7: crowdsec_handler.go:721 - Cache Key Not Sanitized
 
 **Current Code (Lines ~576-580):**
+
 ```go
 if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
     logger.Log().WithField("slug", util.SanitizeForLog(slug)).WithField("cache_key", cached.CacheKey).WithField("archive_path", cached.ArchivePath).WithField("preview_path", cached.PreviewPath).Info("preset found in cache")
@@ -546,11 +588,13 @@ if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
 `cached.CacheKey`, `cached.ArchivePath`, and `cached.PreviewPath` are derived from `slug` but not directly sanitized.
 
 **Risk Assessment:**
+
 - `CacheKey` is generated by the system (not direct user input)
 - `ArchivePath` and `PreviewPath` are file paths constructed by the system
 - However, they ARE derived from user-supplied `slug`
 
 **Proposed Fix:**
+
 ```go
 if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
     // codeql[go/log-injection] - slug sanitized; cache_key/paths are system-generated from sanitized slug
@@ -563,6 +607,7 @@ if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
 ```
 
 **Rationale:**
+
 - Defense-in-depth: sanitize all fields even if derived
 - Prevents injection if cache key generation logic changes
 - Minimal performance impact
@@ -573,6 +618,7 @@ if cached, err := h.Hub.Cache.Load(ctx, slug); err == nil {
 ### Fix 8: crowdsec_handler.go:724 - Preset Not Found
 
 **Current Code (Line ~590):**
+
 ```go
 logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("preset not found in cache before apply")
 ```
@@ -580,6 +626,7 @@ logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("p
 **Status:** ✅ ALREADY FIXED - Uses `util.SanitizeForLog()`
 
 **Action:** No change needed. Add suppression if CodeQL flags:
+
 ```go
 // codeql[go/log-injection] - slug sanitized via util.SanitizeForLog
 ```
@@ -589,6 +636,7 @@ logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).Warn("p
 ### Fix 9: crowdsec_handler.go:819 - BanIP Function
 
 **Current Code (Line ~819):**
+
 ```go
 logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Failed to execute cscli decisions add")
 ```
@@ -604,6 +652,7 @@ logger.Log().WithError(err).WithField("ip", util.SanitizeForLog(ip)).Warn("Faile
 **Search for all logger calls with user-controlled data:**
 
 **Line 612 (ApplyPreset):**
+
 ```go
 logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithField("hub_base_url", h.Hub.HubBaseURL).WithField("backup_path", res.BackupPath).WithField("cache_key", res.CacheKey).Warn("crowdsec preset apply failed")
 ```
@@ -611,6 +660,7 @@ logger.Log().WithError(err).WithField("slug", util.SanitizeForLog(slug)).WithFie
 **Issue:** `res.BackupPath` and `res.CacheKey` not sanitized
 
 **Proposed Fix:**
+
 ```go
 logger.Log().WithError(err).
     WithField("slug", util.SanitizeForLog(slug)).
@@ -625,6 +675,7 @@ logger.Log().WithError(err).
 ## Implementation Checklist
 
 ### Email Injection (3 Fixes)
+
 - [ ] Fix 1: Add defensive validation to `SendInvite` appName parameter (line 222)
 - [ ] Fix 2: Add security comment documenting sanitization flow (line 332)
 - [ ] Fix 3: Add function-level documentation for `SendEmail` (line 211)
@@ -632,6 +683,7 @@ logger.Log().WithError(err).
 - [ ] Add unit tests for edge cases (empty strings, only control chars, very long inputs)
 
 ### SSRF (2 Fixes)
+
 - [ ] Fix 1: Add security comment and CodeQL suppression to `sendCustomWebhook` (line 305)
 - [ ] Fix 2: Add security comment and CodeQL suppression to `TestURLConnectivity` (line 168)
 - [ ] Verify `security.ValidateExternalURL` has comprehensive test coverage
@@ -639,6 +691,7 @@ logger.Log().WithError(err).
 - [ ] Document security architecture in README or security docs
 
 ### Log Injection (10 Fixes)
+
 - [ ] Fix 1: Add CodeQL suppression for `backup_handler.go:75` (already sanitized)
 - [ ] Fixes 2-6: Add suppressions for `crowdsec_handler.go:717` (already sanitized)
 - [ ] Fix 7: Add `util.SanitizeForLog` to cache_key, archive_path, preview_path (line 721)
@@ -649,6 +702,7 @@ logger.Log().WithError(err).
 - [ ] Verify `util.SanitizeForLog` removes all control characters (test coverage)
 
 ### Testing Strategy
+
 - [ ] Unit tests for `sanitizeEmailHeader` edge cases
 - [ ] Unit tests for `sanitizeEmailBody` dot-stuffing
 - [ ] Unit tests for `util.SanitizeForLog` with control characters
@@ -658,6 +712,7 @@ logger.Log().WithError(err).
 - [ ] Re-run CodeQL scan after fixes to verify 0 HIGH/CRITICAL findings
 
 ### Documentation
+
 - [ ] Update `SECURITY.md` with email injection protection details
 - [ ] Document SSRF protection architecture in README or docs
 - [ ] Add comments explaining security model to each fixed location
@@ -668,17 +723,20 @@ logger.Log().WithError(err).
 ## Success Criteria
 
 ✅ **MUST ACHIEVE:**
+
 - CodeQL Go scan shows **0 HIGH or CRITICAL findings**
 - All existing tests pass without modification
 - Coverage maintained at ≥85%
 - No functional regressions
 
 ✅ **SHOULD ACHIEVE:**
+
 - CodeQL Go scan shows **0 MEDIUM findings** (if feasible)
 - Security documentation updated
 - Security testing guidelines documented
 
 ✅ **NICE TO HAVE:**
+
 - CodeQL custom queries to detect missing sanitization
 - Pre-commit hook to enforce sanitization patterns
 - Security review checklist for PR reviews
@@ -696,6 +754,7 @@ Many of these findings appear to be **false positives** where CodeQL's taint ana
 3. **SSRF (Fixes 1-2):** Comprehensive validation via `security.ValidateExternalURL`
 
 **Implication:**
+
 - Fixes will mostly be **documentation and suppression comments**
 - Few actual code changes needed
 - Primary focus should be verifying existing protections are correct
@@ -705,6 +764,7 @@ Many of these findings appear to be **false positives** where CodeQL's taint ana
 **Fix 7 (Log Injection - cache_key):** Likely a true positive where derived data is not sanitized
 
 **Recommended Approach:**
+
 1. Add suppression comments to obvious false positives
 2. Fix true positives (add sanitization where missing)
 3. Document security model explicitly
@@ -728,6 +788,7 @@ msg.WriteString(fmt.Sprintf("Subject: %s\r\n", sanitizeEmailHeader(subject)))
 ```
 
 **Rationale:**
+
 - Allows passing CodeQL checks without over-engineering
 - Documents WHY the code is safe
 - Preserves existing well-tested security functions
@@ -738,17 +799,20 @@ msg.WriteString(fmt.Sprintf("Subject: %s\r\n", sanitizeEmailHeader(subject)))
 ## Timeline Estimate
 
 **Phase 1 (Email Injection):** 2-3 hours
+
 - Add documentation comments: 30 min
 - Add defensive validation: 1 hour
 - Write tests: 1 hour
 - Verify with CodeQL: 30 min
 
 **Phase 2 (SSRF):** 1-2 hours
+
 - Add security documentation: 1 hour
 - Add suppression comments: 30 min
 - Verify with CodeQL: 30 min
 
 **Phase 3 (Log Injection):** 3-4 hours
+
 - Fix true positive (cache_key): 1 hour
 - Add suppression comments: 1 hour
 - Audit all logger calls: 1 hour

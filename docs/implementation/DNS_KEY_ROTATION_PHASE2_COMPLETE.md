@@ -1,17 +1,21 @@
 # DNS Encryption Key Rotation - Phase 2 Implementation Complete
 
 ## Overview
+
 Implemented Phase 2 (Key Rotation Automation) from the DNS Future Features plan, providing zero-downtime encryption key rotation with multi-version support, admin API endpoints, and comprehensive audit logging.
 
 ## Implementation Date
+
 January 3, 2026
 
 ## Components Implemented
 
 ### 1. Core Rotation Service
+
 **File**: `backend/internal/crypto/rotation_service.go`
 
-#### Features:
+#### Features
+
 - **Multi-Key Version Support**: Loads and manages multiple encryption keys
   - Current key: `CHARON_ENCRYPTION_KEY`
   - Next key (for rotation): `CHARON_ENCRYPTION_KEY_NEXT`
@@ -32,23 +36,28 @@ January 3, 2026
   - `ValidateKeyConfiguration()`: Tests round-trip encryption for all configured keys
   - `GenerateNewKey()`: Utility for admins to generate secure 32-byte keys
 
-#### Test Coverage:
+#### Test Coverage
+
 - **File**: `backend/internal/crypto/rotation_service_test.go`
 - **Coverage**: 86.9% (exceeds 85% requirement) ✅
 - **Tests**: 600+ lines covering initialization, encryption, decryption, rotation workflow, concurrency, zero-downtime simulation, and edge cases
 
 ### 2. DNS Provider Model Extension
+
 **File**: `backend/internal/models/dns_provider.go`
 
-#### Changes:
+#### Changes
+
 - Added `KeyVersion int` field with `gorm:"default:1;index"` tag
 - Tracks which encryption key version was used for each provider's credentials
 - Enables version-aware decryption and rotation status reporting
 
 ### 3. DNS Provider Service Integration
+
 **File**: `backend/internal/services/dns_provider_service.go`
 
-#### Modifications:
+#### Modifications
+
 - Added `rotationService *crypto.RotationService` field
 - Gracefully falls back to basic encryption if RotationService initialization fails
 - **Create** method: Uses `EncryptWithCurrentKey()` returning (ciphertext, version)
@@ -57,9 +66,11 @@ January 3, 2026
 - Audit logs include `key_version` in details
 
 ### 4. Admin API Endpoints
+
 **File**: `backend/internal/api/handlers/encryption_handler.go`
 
-#### Endpoints:
+#### Endpoints
+
 1. **GET /api/v1/admin/encryption/status**
    - Returns rotation status, current/next key presence, key distribution
    - Shows provider count by key version
@@ -79,33 +90,40 @@ January 3, 2026
    - Tests round-trip encryption for current, next, and legacy keys
    - Audit logs: `encryption_key_validation_success`, `encryption_key_validation_failed`
 
-#### Access Control:
+#### Access Control
+
 - All endpoints require `user_role = "admin"` via `isAdmin()` check
 - Returns HTTP 403 for non-admin users
 
-#### Test Coverage:
+#### Test Coverage
+
 - **File**: `backend/internal/api/handlers/encryption_handler_test.go`
 - **Coverage**: 85.8% (exceeds 85% requirement) ✅
 - **Tests**: 450+ lines covering all endpoints, admin/non-admin access, integration workflow
 
 ### 5. Route Registration
+
 **File**: `backend/internal/api/routes/routes.go`
 
-#### Changes:
+#### Changes
+
 - Added conditional encryption management route group under `/api/v1/admin/encryption`
 - Routes only registered if `RotationService` initializes successfully
 - Prevents app crashes if encryption keys are misconfigured
 
 ### 6. Audit Logging Enhancements
+
 **File**: `backend/internal/services/security_service.go`
 
-#### Improvements:
+#### Improvements
+
 - Added `sync.WaitGroup` for graceful goroutine shutdown
 - `Close()` now waits for background goroutine to finish processing
 - `Flush()` method for testing: waits for all pending audit logs to be written
 - Silently ignores errors from closed databases (common in tests)
 
-#### Event Types:
+#### Event Types
+
 1. `encryption_key_rotation_started` - Rotation initiated
 2. `encryption_key_rotation_completed` - Rotation succeeded (includes details)
 3. `encryption_key_rotation_failed` - Rotation failed (includes error)
@@ -116,30 +134,36 @@ January 3, 2026
 
 ## Zero-Downtime Rotation Workflow
 
-### Step-by-Step Process:
+### Step-by-Step Process
+
 1. **Current State**: All providers encrypted with key version 1
+
    ```bash
    export CHARON_ENCRYPTION_KEY="<current-32-byte-key>"
    ```
 
 2. **Prepare Next Key**: Set the new key without restarting
+
    ```bash
    export CHARON_ENCRYPTION_KEY_NEXT="<new-32-byte-key>"
    ```
 
 3. **Trigger Rotation**: Call admin API endpoint
+
    ```bash
    curl -X POST https://your-charon-instance/api/v1/admin/encryption/rotate \
      -H "Authorization: Bearer <admin-token>"
    ```
 
 4. **Verify Rotation**: All providers now use version 2
+
    ```bash
    curl https://your-charon-instance/api/v1/admin/encryption/status \
      -H "Authorization: Bearer <admin-token>"
    ```
 
 5. **Promote Next Key**: Make it the current key (requires restart)
+
    ```bash
    export CHARON_ENCRYPTION_KEY="<new-32-byte-key>"  # Former NEXT key
    export CHARON_ENCRYPTION_KEY_V1="<old-32-byte-key>"  # Keep as legacy
@@ -148,14 +172,17 @@ January 3, 2026
 
 6. **Future Rotations**: Repeat process with new NEXT key
 
-### Rollback Procedure:
+### Rollback Procedure
+
 If rotation fails mid-process:
+
 1. Providers still using old key (version 1) remain accessible
 2. Failed providers logged in `RotationResult.FailedProviders`
 3. Retry rotation after fixing issues
 4. Fallback decryption automatically tries all available keys
 
 To revert to previous key after full rotation:
+
 1. Set previous key as current: `CHARON_ENCRYPTION_KEY="<old-key>"`
 2. Keep rotated key as legacy: `CHARON_ENCRYPTION_KEY_V2="<rotated-key>"`
 3. All providers remain accessible via fallback mechanism
@@ -177,7 +204,8 @@ CHARON_ENCRYPTION_KEY_V2="<32-byte-base64-key>"
 
 ## Testing
 
-### Unit Test Summary:
+### Unit Test Summary
+
 - ✅ **RotationService Tests**: 86.9% coverage
   - Initialization with various key combinations
   - Encryption/decryption with version tracking
@@ -193,7 +221,8 @@ CHARON_ENCRYPTION_KEY_V2="<32-byte-base64-key>"
   - Pagination support
   - Async audit logging verification
 
-### Test Execution:
+### Test Execution
+
 ```bash
 # Run all rotation-related tests
 cd backend
@@ -205,6 +234,7 @@ go test ./internal/crypto ./internal/api/handlers -cover
 ```
 
 ## Database Migrations
+
 - GORM `AutoMigrate` handles schema changes automatically
 - New `key_version` column added to `dns_providers` table with default value of 1
 - No manual SQL migration required per project standards

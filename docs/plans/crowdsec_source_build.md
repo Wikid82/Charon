@@ -133,6 +133,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 **expr-lang/expr Usage in CrowdSec:**
 
 CrowdSec uses `expr-lang/expr` extensively for:
+
 - **Scenario evaluation** (attack pattern matching)
 - **Parser filters** (log parsing conditional logic)
 - **Whitelist expressions** (decision exceptions)
@@ -141,6 +142,7 @@ CrowdSec uses `expr-lang/expr` extensively for:
 **Vulnerability Impact:**
 
 CVE-2025-68156 (GHSA-cfpf-hrx2-8rv6) affects expression evaluation, potentially allowing:
+
 - Arbitrary code execution via crafted expressions
 - Denial of service through malicious scenarios
 - Security bypass in rule evaluation
@@ -739,18 +741,18 @@ docker exec <container-id> cscli parsers list
 
 ### Secondary Success Metrics
 
-4. **Build Performance:**
+1. **Build Performance:**
    - ✅ Build time increase < 10 seconds
    - ✅ Image size increase < 5MB
    - ✅ Cache efficiency maintained
 
-5. **Documentation:**
+2. **Documentation:**
    - ✅ Dockerfile comments updated
    - ✅ CI workflow documented
    - ✅ Security remediation plan updated
    - ✅ Rollback procedures documented
 
-6. **CI/CD:**
+3. **CI/CD:**
    - ✅ GitHub Actions includes CrowdSec verification
    - ✅ Renovate tracks expr-lang version
    - ✅ PR builds trigger verification
@@ -817,34 +819,34 @@ docker exec <container-id> cscli parsers list
 
 ### Short-term (Within 1 week)
 
-4. **Monitor CrowdSec Functionality:**
+1. **Monitor CrowdSec Functionality:**
    - Review CrowdSec logs for expr-lang errors
    - Check scenario execution metrics
    - Validate decision creation rates
 
-5. **Renovate Configuration:**
+2. **Renovate Configuration:**
    - Verify Renovate detects expr-lang tracking comment
    - Test automated PR creation for expr-lang updates
    - Document Renovate configuration for future maintainers
 
-6. **Performance Baseline:**
+3. **Performance Baseline:**
    - Measure build time with/without cache
    - Document image size changes
    - Optimize if performance degradation observed
 
 ### Long-term (Within 1 month)
 
-7. **Upstream Monitoring:**
+1. **Upstream Monitoring:**
    - Watch for CrowdSec v1.7.5+ release with native expr-lang v1.17.7
    - Consider removing manual patch if upstream includes fix
    - Track expr-lang security advisories
 
-8. **Architecture Review:**
+2. **Architecture Review:**
    - Evaluate multi-arch support (drop unsupported architectures?)
    - Consider distroless base images for security
    - Review CrowdSec fallback stage necessity
 
-9. **Security Posture Audit:**
+3. **Security Posture Audit:**
    - Schedule quarterly Trivy scans
    - Enable Dependabot for Go modules
    - Implement automated CVE monitoring
@@ -978,7 +980,7 @@ go get github.com/expr-lang/expr@latest
 
 ```
 go: inconsistent vendoring in /tmp/crowdsec:
-	github.com/expr-lang/expr@v1.17.7: is explicitly required in go.mod, but not marked as explicit in vendor/modules.txt
+ github.com/expr-lang/expr@v1.17.7: is explicitly required in go.mod, but not marked as explicit in vendor/modules.txt
 ```
 
 **Cause:** Vendored dependencies out of sync
@@ -1042,25 +1044,25 @@ RUN ... \
 ## References
 
 1. **CVE-2025-68156:** GitHub Security Advisory GHSA-cfpf-hrx2-8rv6
-   - https://github.com/advisories/GHSA-cfpf-hrx2-8rv6
+   - <https://github.com/advisories/GHSA-cfpf-hrx2-8rv6>
 
 2. **expr-lang/expr Repository:**
-   - https://github.com/expr-lang/expr
+   - <https://github.com/expr-lang/expr>
 
 3. **CrowdSec GitHub Repository:**
-   - https://github.com/crowdsecurity/crowdsec
+   - <https://github.com/crowdsecurity/crowdsec>
 
 4. **CrowdSec Build Documentation:**
-   - https://doc.crowdsec.net/docs/next/contributing/build_crowdsec
+   - <https://doc.crowdsec.net/docs/next/contributing/build_crowdsec>
 
 5. **Dockerfile Best Practices:**
-   - https://docs.docker.com/develop/develop-images/dockerfile_best-practices/
+   - <https://docs.docker.com/develop/develop-images/dockerfile_best-practices/>
 
 6. **Go Module Documentation:**
-   - https://go.dev/ref/mod
+   - <https://go.dev/ref/mod>
 
 7. **Renovate Documentation:**
-   - https://docs.renovatebot.com/
+   - <https://docs.renovatebot.com/>
 
 ---
 

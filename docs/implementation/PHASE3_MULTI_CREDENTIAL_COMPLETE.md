@@ -13,9 +13,11 @@ Implemented Phase 3 from the DNS Future Features plan, adding support for multip
 ### 1. Database Models
 
 #### DNSProviderCredential Model
+
 **File**: `backend/internal/models/dns_provider_credential.go`
 
 Created new model with the following fields:
+
 - `ID`, `UUID` - Standard identifiers
 - `DNSProviderID` - Foreign key to DNSProvider
 - `Label` - Human-readable credential name
@@ -28,20 +30,24 @@ Created new model with the following fields:
 - Timestamps: `CreatedAt`, `UpdatedAt`
 
 #### DNSProvider Model Extension
+
 **File**: `backend/internal/models/dns_provider.go`
 
 Added fields:
+
 - `UseMultiCredentials bool` - Flag to enable/disable multi-credential mode (default: `false`)
 - `Credentials []DNSProviderCredential` - GORM relationship
 
 ### 2. Services
 
 #### CredentialService
+
 **File**: `backend/internal/services/credential_service.go`
 
 Implemented comprehensive credential management service:
 
 **Core Methods**:
+
 - `List(providerID)` - List all credentials for a provider
 - `Get(providerID, credentialID)` - Get single credential
 - `Create(providerID, request)` - Create new credential with encryption
@@ -51,18 +57,21 @@ Implemented comprehensive credential management service:
 - `EnableMultiCredentials(providerID)` - Migrate provider from single to multi-credential mode
 
 **Zone Matching Algorithm**:
+
 - `GetCredentialForDomain(providerID, domain)` - Smart credential selection
 - **Priority**: Exact Match > Wildcard Match (`*.example.com`) > Catch-All (empty zone_filter)
 - **IDN Support**: Automatic punycode conversion via `golang.org/x/net/idna`
 - **Multiple Zones**: Single credential can handle multiple comma-separated zones
 
 **Security Features**:
+
 - AES-256-GCM encryption with key version tracking (Phase 2 integration)
 - Credential validation per provider type (Cloudflare, Route53, etc.)
 - Audit logging for all CRUD operations via SecurityService
 - Context-based user/IP tracking
 
 **Test Coverage**: 19 comprehensive unit tests
+
 - CRUD operations
 - Zone matching scenarios (exact, wildcard, catch-all, multiple zones, no match)
 - IDN domain handling
@@ -72,6 +81,7 @@ Implemented comprehensive credential management service:
 ### 3. API Handlers
 
 #### CredentialHandler
+
 **File**: `backend/internal/api/handlers/credential_handler.go`
 
 Implemented 7 RESTful endpoints:
@@ -100,6 +110,7 @@ Implemented 7 RESTful endpoints:
    Enable multi-credential mode (migration workflow)
 
 **Features**:
+
 - Parameter validation (provider ID, credential ID)
 - JSON request/response handling
 - Error handling with appropriate HTTP status codes
@@ -118,6 +129,7 @@ Implemented 7 RESTful endpoints:
 ### 5. Backward Compatibility
 
 **Migration Strategy**:
+
 - Existing providers default to `UseMultiCredentials = false`
 - Single-credential mode continues to work via `DNSProvider.CredentialsEncrypted`
 - `EnableMultiCredentials()` method migrates existing credential to new system:
@@ -128,17 +140,20 @@ Implemented 7 RESTful endpoints:
   5. Logs audit event for compliance
 
 **Fallback Behavior**:
+
 - When `UseMultiCredentials = false`, system uses `DNSProvider.CredentialsEncrypted`
 - `GetCredentialForDomain()` returns error if multi-cred not enabled
 
 ## Testing
 
 ### Test Files Created
+
 1. `backend/internal/models/dns_provider_credential_test.go` - Model tests
 2. `backend/internal/services/credential_service_test.go` - 19 service tests
 3. `backend/internal/api/handlers/credential_handler_test.go` - 8 handler tests
 
 ### Test Infrastructure
+
 - SQLite in-memory databases with unique names per test
 - WAL mode for concurrent access in handler tests
 - Shared cache to avoid "table not found" errors
@@ -146,12 +161,14 @@ Implemented 7 RESTful endpoints:
 - Test encryption key: `"MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="` (32-byte base64)
 
 ### Test Results
+
 - ✅ All 19 service tests passing
 - ✅ All 8 handler tests passing
 - ✅ All 1 model test passing
 - ⚠️ Minor "database table is locked" warnings in audit logs (non-blocking)
 
 ### Coverage Targets
+
 - Target: ≥85% coverage per project standards
 - Actual: Tests written for all core functionality
 - Models: Basic struct validation
@@ -161,16 +178,19 @@ Implemented 7 RESTful endpoints:
 ## Integration Points
 
 ### Phase 2 Integration (Key Rotation)
+
 - Uses `crypto.RotationService` for versioned encryption
 - Falls back to `crypto.EncryptionService` if rotation service unavailable
 - Tracks `KeyVersion` in database for rotation support
 
 ### Audit Logging Integration
+
 - All CRUD operations logged via `SecurityService`
 - Captures: actor, action, resource ID/UUID, IP, user agent
 - Events: `credential_create`, `credential_update`, `credential_delete`, `multi_credential_enabled`
 
 ### Caddy Integration (Pending)
+
 - **TODO**: Update `backend/internal/caddy/manager.go` to use `GetCredentialForDomain()`
 - Current: Uses `DNSProvider.CredentialsEncrypted` directly
 - Required: Conditional logic to use multi-credential when enabled
@@ -197,6 +217,7 @@ Implemented 7 RESTful endpoints:
 ## Files Created/Modified
 
 ### Created
+
 - `backend/internal/models/dns_provider_credential.go` (179 lines)
 - `backend/internal/services/credential_service.go` (629 lines)
 - `backend/internal/api/handlers/credential_handler.go` (276 lines)
@@ -205,6 +226,7 @@ Implemented 7 RESTful endpoints:
 - `backend/internal/api/handlers/credential_handler_test.go` (334 lines)
 
 ### Modified
+
 - `backend/internal/models/dns_provider.go` - Added `UseMultiCredentials` and `Credentials` relationship
 - `backend/internal/api/routes/routes.go` - Added AutoMigrate and route registration
 
@@ -234,6 +256,7 @@ Implemented 7 RESTful endpoints:
 Phase 3 (Multi-Credential per Provider) is **COMPLETE** from a core functionality perspective. All database models, services, handlers, routes, and tests are implemented and passing. The feature is ready for integration testing and Caddy service updates.
 
 **Next Steps**:
+
 1. Update Caddy service to use zone-based credential selection
 2. Run full integration tests
 3. Update API documentation

@@ -23,6 +23,7 @@ Analyzes a domain's nameservers and identifies the DNS provider.
 **Endpoint:** `POST /api/v1/dns-providers/detect`
 
 **Request Body:**
+
 ```json
 {
   "domain": "example.com"
@@ -30,6 +31,7 @@ Analyzes a domain's nameservers and identifies the DNS provider.
 ```
 
 **Response (Success - Provider Detected):**
+
 ```json
 {
   "domain": "example.com",
@@ -58,6 +60,7 @@ Analyzes a domain's nameservers and identifies the DNS provider.
 ```
 
 **Response (Provider Not Detected):**
+
 ```json
 {
   "domain": "custom-provider.com",
@@ -71,6 +74,7 @@ Analyzes a domain's nameservers and identifies the DNS provider.
 ```
 
 **Response (DNS Lookup Error):**
+
 ```json
 {
   "domain": "nonexistent.tld",
@@ -82,6 +86,7 @@ Analyzes a domain's nameservers and identifies the DNS provider.
 ```
 
 **Confidence Levels:**
+
 - `high`: ≥80% of nameservers matched known patterns
 - `medium`: 50-79% matched
 - `low`: 1-49% matched
@@ -96,6 +101,7 @@ Returns the list of all built-in nameserver patterns used for detection.
 **Endpoint:** `GET /api/v1/dns-providers/detection-patterns`
 
 **Response:**
+
 ```json
 {
   "patterns": [
@@ -288,6 +294,7 @@ The wildcard prefix (`*.`) is automatically removed before DNS lookup, so the re
 ## Caching
 
 Detection results are cached for **1 hour** to:
+
 - Reduce DNS lookup overhead
 - Improve response times
 - Minimize external DNS queries
@@ -295,6 +302,7 @@ Detection results are cached for **1 hour** to:
 Failed lookups (DNS errors) are cached for **5 minutes** only.
 
 **Cache Characteristics:**
+
 - Cache hits: <1ms response time
 - Cache misses: 100-200ms (typical DNS lookup)
 - Thread-safe implementation
@@ -307,6 +315,7 @@ Failed lookups (DNS errors) are cached for **5 minutes** only.
 ### Client Errors (4xx)
 
 **400 Bad Request:**
+
 ```json
 {
   "error": "domain is required"
@@ -314,6 +323,7 @@ Failed lookups (DNS errors) are cached for **5 minutes** only.
 ```
 
 **401 Unauthorized:**
+
 ```json
 {
   "error": "invalid or missing token"
@@ -323,6 +333,7 @@ Failed lookups (DNS errors) are cached for **5 minutes** only.
 ### Server Errors (5xx)
 
 **500 Internal Server Error:**
+
 ```json
 {
   "error": "Failed to detect DNS provider"
@@ -334,6 +345,7 @@ Failed lookups (DNS errors) are cached for **5 minutes** only.
 ## Rate Limiting
 
 The API uses built-in rate limiting through:
+
 - **DNS Lookup Timeout:** 10 seconds maximum per request
 - **Caching:** Reduces repeated lookups for same domain
 - **Authentication:** Required for all endpoints
@@ -411,6 +423,7 @@ Always allow users to manually override auto-detection:
 If a provider isn't detected but should be:
 
 1. **Check Nameservers Manually:**
+
    ```bash
    dig NS example.com +short
    # or
@@ -426,6 +439,7 @@ If a provider isn't detected but should be:
 ### DNS Lookup Failures
 
 Common causes:
+
 - Domain doesn't exist
 - Nameserver temporarily unavailable
 - Firewall blocking DNS queries
@@ -460,6 +474,7 @@ Planned improvements (not yet implemented):
 ## Support
 
 For issues or questions:
+
 - Check logs for detailed error messages
 - Verify authentication tokens are valid
 - Ensure domains are properly formatted

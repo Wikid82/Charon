@@ -18,6 +18,7 @@
 Successfully resolved issue where PR status checks didn't appear when docs-to-issues workflow ran.
 
 **Documentation:**
+
 - **Implementation Summary**: [docs/implementation/DOCS_TO_ISSUES_FIX_2026-01-11.md](../implementation/DOCS_TO_ISSUES_FIX_2026-01-11.md)
 - **QA Report**: [docs/reports/qa_docs_to_issues_workflow_fix.md](../reports/qa_docs_to_issues_workflow_fix.md)
 - **Archived Plan**: [docs/plans/archive/docs_to_issues_workflow_fix_2026-01-11.md](archive/docs_to_issues_workflow_fix_2026-01-11.md)
@@ -33,6 +34,7 @@ Successfully resolved issue where PR status checks didn't appear when docs-to-is
 The CI workflow investigation and documentation has been completed. Both issues were determined to be false positives or expected GitHub behavior with no security gaps.
 
 **Final Documentation:**
+
 - **Implementation Summary**: [docs/implementation/CI_WORKFLOW_FIXES_2026-01-11.md](../implementation/CI_WORKFLOW_FIXES_2026-01-11.md)
 - **QA Report**: [docs/reports/qa_report.md](../reports/qa_report.md)
 - **Archived Plan**: [docs/plans/archive/GITHUB_SECURITY_WARNING_RESOLUTION_PLAN_2026-01-11.md](archive/GITHUB_SECURITY_WARNING_RESOLUTION_PLAN_2026-01-11.md)
@@ -46,6 +48,7 @@ The CI workflow investigation and documentation has been completed. Both issues 
 Successfully fixed workflow orchestration issue where supply-chain-verify was running before docker-build completed, causing verification to skip on PRs.
 
 **Documentation:**
+
 - **Implementation Summary**: [docs/implementation/WORKFLOW_ORCHESTRATION_FIX.md](../implementation/WORKFLOW_ORCHESTRATION_FIX.md)
 - **QA Report**: [docs/reports/qa_report_workflow_orchestration.md](../reports/qa_report_workflow_orchestration.md)
 - **Archived Plan**: [docs/plans/archive/workflow_orchestration_fix_2026-01-11.md](archive/workflow_orchestration_fix_2026-01-11.md)
@@ -59,6 +62,7 @@ Successfully fixed workflow orchestration issue where supply-chain-verify was ru
 Successfully resolved CI/CD failures in the Supply Chain Verification workflow caused by Grype SBOM format mismatch.
 
 **Documentation:**
+
 - **Implementation Summary**: [docs/implementation/GRYPE_SBOM_REMEDIATION.md](../implementation/GRYPE_SBOM_REMEDIATION.md)
 - **QA Report**: [docs/reports/qa_report.md](../reports/qa_report.md)
 - **Archived Plan**: [docs/plans/archive/grype_sbom_remediation_2026-01-10.md](archive/grype_sbom_remediation_2026-01-10.md)
@@ -93,6 +97,7 @@ When a specification is complete:
 ## Archive Location
 
 Completed and archived specifications can be found in:
+
 - [docs/plans/archive/](archive/)
 
 ---

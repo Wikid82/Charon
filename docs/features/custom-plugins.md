@@ -354,9 +354,9 @@ sudo chmod -R o-w /etc/charon/plugins
 
 ### Getting Help
 
-- **GitHub Discussions:** https://github.com/Wikid82/charon/discussions
-- **Issue Tracker:** https://github.com/Wikid82/charon/issues
-- **Documentation:** https://docs.charon.example.com
+- **GitHub Discussions:** <https://github.com/Wikid82/charon/discussions>
+- **Issue Tracker:** <https://github.com/Wikid82/charon/issues>
+- **Documentation:** <https://docs.charon.example.com>
 
 ### Reporting Issues
 

@@ -15,6 +15,7 @@ Restore DoD to ✅ PASS by eliminating **all HIGH/CRITICAL** findings from:
 - Trivy results produced by **Security: Trivy Scan**
 
 Hard constraints:
+
 - Do **not** weaken gates (no suppressing findings unless a false-positive is proven and documented).
 - Prefer minimal, targeted changes.
 - Avoid adding new runtime dependencies.
@@ -40,10 +41,12 @@ QA report note: Trivy filesystem scan may be picking up **workspace caches/artif
 ## Step 0 — Trivy triage (required first)
 
 Objective: Re-run the current Trivy task and determine whether HIGH/CRITICAL findings are attributable to:
+
 - **Repo-tracked paths** (e.g., `backend/go.mod`, `backend/go.sum`, `Dockerfile`, `frontend/`, etc.), or
 - **Generated/cache paths** under the workspace (e.g., `.cache/`, `**/*.cover`, `codeql-db-*`, temporary build outputs).
 
 Steps:
+
 1. Run **Security: Trivy Scan**.
 2. For each HIGH/CRITICAL item, record the affected file path(s) reported by Trivy.
 3. Classify each finding:
@@ -51,6 +54,7 @@ Steps:
    - **Scan-scope noise**: path is a workspace cache/artifact directory not intended as deliverable input.
 
 Decision outcomes:
+
 - If HIGH/CRITICAL are **repo-tracked / shipped** → remediate by upgrading only the affected components to Trivy’s fixed versions (see Workstreams C/D).
 - If HIGH/CRITICAL are **only cache/artifact paths** → treat as scan-scope noise and align Trivy scan scope to repo contents by excluding those directories (without disabling scanners or suppressing findings).
 
@@ -68,6 +72,7 @@ Implementation direction (minimal + CodeQL-friendly):
 4. Add unit tests that attempt CRLF injection in subject/from/to and assert the send/build path rejects it.
 
 Acceptance criteria:
+
 - CodeQL Go scan shows **0** `go/email-injection` findings.
 - Backend unit tests cover the rejection paths.
 
@@ -76,9 +81,11 @@ Acceptance criteria:
 Objective: Remove an “incomplete hostname regex” pattern flagged by CodeQL.
 
 Preferred change:
+
 - Replace hostname regex usage with an exact string match (or an anchored + escaped regex like `^link\.example\.com$`).
 
 Acceptance criteria:
+
 - CodeQL JS scan shows **0** `js/incomplete-hostname-regexp` findings.
 
 ### Workstream C — Container / embedded binaries (DevOps): Fix Trivy image finding
@@ -92,6 +99,7 @@ Implementation direction:
 3. If no suitable CrowdSec release is available, patch the build in the CrowdSec build stage similarly to the existing Caddy stage override (force `expr@1.17.7` before building).
 
 Acceptance criteria:
+
 - Trivy image scan reports **0 HIGH/CRITICAL**.
 
 ### Workstream D — Go module upgrades (Backend_Dev + QA_Security): Fix Trivy repo scan findings
@@ -101,13 +109,17 @@ Objective: Eliminate Trivy filesystem-scan HIGH/CRITICAL findings without over-u
 Implementation direction (conditional; driven by Step 0 triage):
 
 1. If Trivy attributes HIGH/CRITICAL to `backend/go.mod` / `backend/go.sum` **or** to the built `app/charon` binary:
-  - Bump **only the specific Go modules Trivy flags** to Trivy’s fixed versions.
-  - Run `go mod tidy` and ensure builds/tests stay green.
-2. If Trivy attributes HIGH/CRITICAL **only** to workspace caches / generated artifacts (e.g., `.cache/go/pkg/mod/...`):
-  - Treat as scan-scope noise and align Trivy’s filesystem scan scope to repo-tracked content by excluding those directories.
-  - This is **not** gate weakening: scanners stay enabled and the project must still achieve **0 HIGH/CRITICAL** in Trivy outputs.
+
+- Bump **only the specific Go modules Trivy flags** to Trivy’s fixed versions.
+- Run `go mod tidy` and ensure builds/tests stay green.
+
+1. If Trivy attributes HIGH/CRITICAL **only** to workspace caches / generated artifacts (e.g., `.cache/go/pkg/mod/...`):
+
+- Treat as scan-scope noise and align Trivy’s filesystem scan scope to repo-tracked content by excluding those directories.
+- This is **not** gate weakening: scanners stay enabled and the project must still achieve **0 HIGH/CRITICAL** in Trivy outputs.
 
 Acceptance criteria:
+
 - Trivy scan reports **0 HIGH/CRITICAL**.
 
 ## Validation (VS Code tasks)
@@ -122,14 +134,14 @@ Run tasks in this order (only run frontend ones if Workstream B changes anything
 
 If any changes are made to `Dockerfile` / CrowdSec build stage:
 
-6. **Build & Run: Local Docker Image No-Cache** (recommended)
-7. **Security: Trivy Scan** (re-verify image scan after rebuild)
+1. **Build & Run: Local Docker Image No-Cache** (recommended)
+2. **Security: Trivy Scan** (re-verify image scan after rebuild)
 
 If `frontend/` changes are made:
 
-6. **Lint: TypeScript Check**
-7. **Test: Frontend with Coverage**
-8. **Lint: Frontend**
+1. **Lint: TypeScript Check**
+2. **Test: Frontend with Coverage**
+3. **Lint: Frontend**
 
 ## Handoff checklist
 

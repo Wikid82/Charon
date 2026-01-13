@@ -20,6 +20,7 @@
 **Translation:** Staticcheck must be a **COMMIT GATE** - failures must BLOCK the commit, forcing immediate fix before commit succeeds.
 
 **Current Gaps:**
+
 - ✅ Staticcheck IS enabled in golangci-lint (`.golangci.yml` line 14)
 - ✅ Staticcheck IS running in CI via golangci-lint-action (`quality-checks.yml` line 65-70)
 - ❌ Staticcheck is NOT running in local pre-commit hooks as a BLOCKING gate
@@ -28,6 +29,7 @@
 - ⚠️ Test files excluded from staticcheck in `.golangci.yml` (line 68-70)
 
 **Why This Matters:**
+
 - Developers see staticcheck warnings/errors in VS Code editor
 - **These issues are NOT blocked at commit time** ← CRITICAL PROBLEM
 - CI failures don't block merges (continue-on-error: true)
@@ -40,10 +42,12 @@
 ### Supervisor Critical Feedback & Decisions
 
 **Feedback #1: Redundancy Issue**
+
 - Current plan creates duplicate staticcheck runs (standalone + golangci-lint)
 - **Decision:** Use **Hybrid Approach** (Supervisor's recommendation) - explained below
 
 **Feedback #2: Performance Benchmarks Required**
+
 - **ACTUAL MEASUREMENT (2026-01-11):**
   - Command: `time staticcheck ./...` (in backend/)
   - **Runtime: 15.3 seconds (real), 44s CPU (user), 4.3s I/O (sys)**
@@ -52,20 +56,24 @@
   - Exit code: 1 (FAILS - this is what we want for blocking)
 
 **Feedback #3: Version Pinning**
+
 - **Decision:** Pin to `@2024.1.1` in installation docs
 - Note: Installation of 2024.1.1 failed due to compiler bug; fallback to @latest (2025.1.1) works
 - Will document @latest with version verification step
 
 **Feedback #4: CI Alignment Issue**
+
 - CI has `continue-on-error: true` for golangci-lint (line 71 in quality-checks.yml)
 - **Local will be STRICTER than CI** - local BLOCKS, CI warns
 - **Decision:** Document this discrepancy; recommend CI fix in Phase 6 (future work)
 
 **Feedback #5: Test File Exclusion**
+
 - `.golangci.yml` line 68-70: staticcheck excluded from `_test.go` files
 - **Decision:** Match this behavior in new hook - exclude test files
 
 **Feedback #6: Pre-flight Check**
+
 - **Decision:** Add verification step that staticcheck is installed before running
 
 ---
@@ -75,6 +83,7 @@
 **Why Hybrid Approach?**
 
 **Advantages:**
+
 1. **No Duplication:** Uses existing golangci-lint infrastructure
 2. **Consistent Configuration:** Single source of truth (`.golangci.yml`)
 3. **Test Exclusions Aligned:** Automatically respects test file exclusions
@@ -82,17 +91,20 @@
 5. **Standard Practice:** Many projects use golangci-lint with selective linters for pre-commit
 
 **Performance Comparison:**
+
 - Standalone staticcheck: **15.3s**
 - golangci-lint (staticcheck only): ~**18-22s** (estimated +20% overhead)
 - golangci-lint (all 8 linters): 30-60s (too slow for pre-commit)
 
 **Implementation Strategy:**
+
 - Create lightweight pre-commit hook using golangci-lint with **ONLY fast linters**
 - Enable: staticcheck, govet, errcheck, ineffassign, unused
 - Disable: gosec, gocritic, bodyclose (slower or less critical)
 - **CRITICAL:** Hook MUST exit with non-zero code to BLOCK commits
 
 **Why NOT Standalone?**
+
 - Supervisor correctly identified duplication concern
 - Maintaining two configurations (hook + `.golangci.yml`) creates drift risk
 - golangci-lint overhead is acceptable (3-7s) for consistency benefits
@@ -123,11 +135,13 @@
 **File:** `backend/.golangci.yml`
 
 **Staticcheck Configuration:**
+
 - ✅ Line 14: `- staticcheck` (enabled in linters.enable)
 - ✅ Lines 68-70: **Test file exclusions** (staticcheck excluded from `_test.go`)
   - **IMPORTANT:** New hook MUST match this exclusion behavior
 
 **Other Enabled Linters:**
+
 - Fast: govet, ineffassign, unused, errcheck, staticcheck
 - Slower: bodyclose, gocritic, gosec
 
@@ -136,11 +150,13 @@
 **File:** `.github/workflows/quality-checks.yml`
 
 **Lines 65-71:**
+
 - Runs golangci-lint (includes staticcheck) in CI
 - **⚠️ CRITICAL ISSUE:** `continue-on-error: true` means failures **don't block merges**
 - This creates **local stricter than CI** situation
 
 **Implication:**
+
 - Local pre-commit will BLOCK on staticcheck errors
 - CI will ALLOW merge with same errors
 - **Recommendation:** Remove `continue-on-error: true` in future PR (Phase 6)
@@ -148,6 +164,7 @@
 #### System Environment
 
 **Staticcheck Installation Status:**
+
 - ✅ **NOW INSTALLED:** staticcheck 2025.1.1 (0.6.1)
 - Location: `$GOPATH/bin/staticcheck`
 - **Benchmark Complete:** 15.3s runtime on full codebase
@@ -219,6 +236,7 @@ issues:
 ```
 
 **Key Features:**
+
 - **Pre-flight check:** Verifies golangci-lint is installed before running
 - **Fast config:** Uses `.golangci-fast.yml` (only 5 linters, ~20s runtime)
 - **BLOCKING:** Exit code propagates - failures BLOCK commit
@@ -231,6 +249,7 @@ issues:
 **Location:** Development Setup section (after pre-commit installation)
 
 **Addition:**
+
 ```markdown
 ### Go Development Tools
 
@@ -300,13 +319,13 @@ golangci-lint --version
 
 .PHONY: lint-fast
 lint-fast:
-	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused)..."
-	cd backend && golangci-lint run --config .golangci-fast.yml ./...
+ @echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused)..."
+ cd backend && golangci-lint run --config .golangci-fast.yml ./...
 
 .PHONY: lint-staticcheck
 lint-staticcheck:
-	@echo "Running staticcheck only..."
-	cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...
+ @echo "Running staticcheck only..."
+ cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...
 ```
 
 ---
@@ -504,6 +523,7 @@ make lint-staticcheck # Should run staticcheck only
 **File:** `docs/implementation/STATICCHECK_BLOCKING_INTEGRATION_COMPLETE.md`
 
 **Contents:**
+
 ```markdown
 # Staticcheck BLOCKING Pre-Commit Integration - Implementation Complete
 
@@ -678,12 +698,14 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 **Line 71:** Remove or change `continue-on-error: true` to `continue-on-error: false`
 
 **Requires:**
+
 - Team discussion and agreement
 - Ensure existing codebase passes golangci-lint cleanly
 - May need to fix existing issues first
 - Consider adding lint-fixes PR before enforcing
 
 **Trade-offs:**
+
 - **Pro:** Consistent quality enforcement (local + CI)
 - **Pro:** Prevents merging code with linter issues
 - **Con:** May slow down initial adoption
@@ -745,6 +767,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 ### Performance Benchmarks (ACTUAL - Measured 2026-01-11)
 
 **Environment:**
+
 - System: Development environment
 - Backend: Go 1.x codebase
 - Lines of Go code: ~XX,XXX (estimate)
@@ -759,12 +782,14 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 | go vet | <5s | - | - | 0 | (active) |
 
 **Analysis:**
+
 - ✅ Fast config overhead acceptable: +30% vs standalone (~5s)
 - ✅ Well under 30s target for pre-commit
 - ✅ BLOCKING behavior confirmed (exit code 1)
 - ✅ Consistency: Both tools find same staticcheck issues
 
 **Current Issues Found (2026-01-11):**
+
 - 1x Deprecated API (SA1019): `filepath.HasPrefix`
 - 5x Unused values (SA4006): test setup code
 - 1x Simplification opportunity (S1017): if statement
@@ -780,11 +805,13 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 ### File Reference Summary
 
 **Files to Create:**
+
 1. `backend/.golangci-fast.yml` - Lightweight config for pre-commit (5 linters)
 2. `docs/implementation/STATICCHECK_BLOCKING_INTEGRATION_COMPLETE.md` - Implementation summary
 3. `docs/plans/archive/staticcheck_blocking_integration_2026-01-11.md` - Archived spec (after completion)
 
 **Files to Modify:**
+
 1. `.pre-commit-config.yaml` (line ~44: add golangci-lint-fast hook after go-vet)
 2. `.vscode/tasks.json` (line ~211: add 2 new lint tasks after go-vet task)
 3. `Makefile` (line ~141: add lint-fast and lint-staticcheck targets after lint-backend)
@@ -796,6 +823,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 6. `CHANGELOG.md` (Unreleased section: add breaking change notice)
 
 **Files to Review (No Changes):**
+
 - `backend/.golangci.yml` - Reference for test exclusions (lines 68-70)
 - `.github/workflows/quality-checks.yml` - Reference for CI config (line 71: continue-on-error)
 
@@ -806,6 +834,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 **If problems occur during implementation:**
 
 1. **Remove pre-commit hook:**
+
    ```bash
    # Edit .pre-commit-config.yaml - remove golangci-lint-fast hook
    git checkout HEAD -- .pre-commit-config.yaml
@@ -814,16 +843,19 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
    ```
 
 2. **Delete fast config:**
+
    ```bash
    rm backend/.golangci-fast.yml
    ```
 
 3. **Revert documentation:**
+
    ```bash
    git checkout HEAD -- README.md CHANGELOG.md .github/instructions/copilot-instructions.md
    ```
 
 4. **Remove VS Code tasks and Makefile targets:**
+
    ```bash
    git checkout HEAD -- .vscode/tasks.json Makefile
    ```
@@ -831,6 +863,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 **Rollback Time:** < 5 minutes (all changes are additive, easy to remove)
 
 **Risk Mitigation:**
+
 - Test each phase independently before proceeding
 - Keep backup of original files during implementation
 - Document any unexpected issues in implementation summary
@@ -876,6 +909,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
    - **Residual Risk:** MEDIUM - requires cultural change
 
 **Risk Mitigation Strategy:**
+
 - Phased rollout: Test with subset of developers first (if possible)
 - Clear communication: Explain WHY blocking is important
 - Support: Troubleshooting guide and quick-check tasks
@@ -898,10 +932,12 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 **Total Estimated Time:** 3-4 hours (excluding Phase 6)
 
 **Critical Path:**
+
 - Phase 1 → Phase 4 (must verify blocking works)
 - Phase 4 → Phase 5 (documentation depends on successful testing)
 
 **Parallel Work Possible:**
+
 - Phase 2 can start while Phase 1 is being tested
 - Phase 3 documentation can be drafted during Phase 1-2
 
@@ -945,6 +981,7 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
    - **Alternative Rejected:** Full golangci-lint (30-60s too slow)
 
 **Review Conditions:**
+
 - Re-evaluate after 1 month of usage
 - Gather developer feedback on performance and adoption
 - Measure impact on commit frequency and quality
@@ -955,12 +992,15 @@ Move `docs/plans/current_spec.md` to `docs/plans/archive/staticcheck_blocking_in
 ## Archive Location
 
 **Current Specification:**
+
 - This file: `docs/plans/current_spec.md`
 
 **After Implementation:**
+
 - Archive to: `docs/plans/archive/staticcheck_blocking_integration_2026-01-11.md`
 
 **Previous Specifications:**
+
 - See: [docs/plans/archive/](archive/) for historical specs
 
 ---

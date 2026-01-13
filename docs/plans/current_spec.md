@@ -1,385 +1,163 @@
-# Backend Coverage Investigation - PR #461
+# Nightly Branch Automation & Package Creation Plan
 
-**Investigation Date**: 2026-01-12 06:30 UTC
-**Analyst**: GitHub Copilot
-**Status**: ✅ ROOT CAUSE IDENTIFIED
-**Issue**: Backend coverage below 85% threshold due to test failures
+This document details the implementation plan for adding a new `nightly` branch between `development` and `main`, with automated merging and package creation.
+
+**Date Created:** 2026-01-13
+**Status:** Planning Phase
+**Priority:** High
+
+---
+
+## Quick Reference
+
+**See full detailed specification in:** [Nightly Branch Implementation Specification](./nightly_branch_implementation.md)
+
+This file contains only the executive summary. The complete 2800+ line specification includes:
+
+- Current workflow analysis
+- Branch hierarchy design
+- 7-phase implementation plan
+- Complete workflow files
+- Testing strategies
+- Rollback procedures
+- Troubleshooting guides
 
 ---
 
 ## Executive Summary
 
-**CONFIRMED ROOT CAUSE**: Audit logging tests in `dns_provider_service_test.go` are failing because the request context (user_id, source_ip, user_agent) is not being properly set or extracted during test execution.
+**Objective:** Add a `nightly` branch between `development` and `main` to create a stabilization layer with automated builds.
 
-**Coverage Status**:
-- **Current**: 84.8%
-- **Required**: 85%
-- **Deficit**: 0.2%
+**Key Changes Required:**
 
-**Test Status**:
-- ✅ **Passing**: 99% of tests (all tests except audit logging)
-- ❌ **Failing**: 6 audit logging tests in `internal/services/dns_provider_service_test.go`
+1. Update `.github/workflows/propagate-changes.yml` (fix line 149, enable line 151-152)
+2. Create `.github/workflows/nightly-build.yml` (new workflow for nightly packages)
+3. Update `.github/workflows/docker-build.yml` (add nightly branch support)
+4. Update `.github/workflows/supply-chain-verify.yml` (add nightly tag handling)
+5. Configure branch protection for nightly branch
+6. Update documentation (README.md, VERSION.md, CONTRIBUTING.md)
 
-**Impact**: Tests are failing → Coverage report generation is affected → Coverage drops below threshold
+**Branch Flow:**
+
+```
+feature/* → development → nightly → main (tagged releases)
+```
+
+**Automation:**
+
+- `development` → `nightly`: Auto-merge via workflow
+- `nightly` → `main`: Manual PR with full review
+- `nightly`: Daily builds + packages at 02:00 UTC
+
+**Package Artifacts:**
+
+- Docker images: `nightly`, `nightly-{date}`, `nightly-{sha}`
+- Cross-compiled binaries (Linux, Windows, macOS)
+- Linux packages (deb, rpm)
+- SBOM and vulnerability reports
 
 ---
 
-## Detailed Findings
+## Implementation Phases
 
-### 1. Test Execution Results
+### Phase 1: Update Propagate Workflow ⚡ URGENT
 
-**Command**: `/projects/Charon/scripts/go-test-coverage.sh`
+**File:** `.github/workflows/propagate-changes.yml`
 
-**Duration**: ~32 seconds (normal, no hangs)
+- Fix line 149: Remove third parameter from `createPR` call
+- Enable line 151-152: Uncomment `development` → `nightly` propagation
 
-**Result Summary**:
-```
-PASS: 197 tests
-FAIL: 6 tests (all in dns_provider_service_test.go)
-Coverage: 84.8%
-Required: 85%
-Status: BELOW THRESHOLD
-```
+### Phase 2: Create Nightly Build Workflow
 
-### 2. Failing Tests Analysis
+**File:** `.github/workflows/nightly-build.yml` (NEW)
 
-**File**: `backend/internal/services/dns_provider_service_test.go`
+- Triggers: Push to nightly, scheduled daily at 02:00 UTC
+- Jobs: build-and-push, test-image, build-release, verify-supply-chain
 
-**Failing Tests**:
-1. `TestDNSProviderService_AuditLogging_Create` (line 1589)
-2. `TestDNSProviderService_AuditLogging_Update` (line 1643)
-3. `TestDNSProviderService_AuditLogging_Delete` (line 1703)
-4. `TestDNSProviderService_AuditLogging_Test` (line 1747)
-5. `TestDNSProviderService_AuditLogging_GetDecryptedCredentials`
-6. `TestDNSProviderService_AuditLogging_ContextHelpers`
+### Phase 3: Update Docker Build
 
-**Error Pattern**: All tests fail with the same assertion errors:
+**File:** `.github/workflows/docker-build.yml`
 
-```
-Expected: "test-user"
-Actual:   "system"
+- Add `nightly` to trigger branches
+- Add `nightly` tag to metadata action
+- Update test-image tag determination
 
-Expected: "192.168.1.1"
-Actual:   ""
+### Phase 4: Update Supply Chain Verification
 
-Expected: "TestAgent/1.0"
-Actual:   ""
-```
+**File:** `.github/workflows/supply-chain-verify.yml`
 
-### 3. Root Cause Analysis
+- Add `nightly` branch handling in tag determination
 
-**Problem**: The test context is not properly configured with audit metadata before service calls.
+### Phase 5: Configuration Files
 
-**Evidence**:
-```go
-// Test expects these context values to be extracted:
-assert.Equal(t, "test-user", event.UserID)         // ❌ Gets "system" instead
-assert.Equal(t, "192.168.1.1", event.SourceIP)     // ❌ Gets "" instead
-assert.Equal(t, "TestAgent/1.0", event.UserAgent)  // ❌ Gets "" instead
-```
+- Review `.gitignore`, `.dockerignore`, `Dockerfile` (no changes needed)
+- Optionally create `codecov.yml`
+- Update `.github/propagate-config.yml`
 
-**Why This Happens**:
-1. Tests create a context: `ctx := context.Background()`
-2. Tests set context values (likely using wrong keys or format)
-3. Service calls `auditService.Log()` which extracts values from context
-4. Context extraction fails because keys don't match or values aren't set correctly
-5. Defaults to "system" for user_id and "" for IP/agent
+### Phase 6: Branch Protection
 
-**Location**: Lines 1589, 1593-1594, 1643, 1703, 1705, 1747+ in `dns_provider_service_test.go`
+- Create nightly branch from development
+- Configure protection rules (allow force pushes, require status checks)
 
-### 4. Coverage Impact
+### Phase 7: Documentation
 
-**Package-Level Coverage**:
-
-| Package | Coverage | Status |
-|---------|----------|--------|
-| `internal/services` | **80.7%** | ❌ FAILED (6 failing tests) |
-| `internal/utils` | 74.2% | ✅ PASSING |
-| `pkg/dnsprovider/builtin` | 30.4% | ✅ PASSING |
-| `pkg/dnsprovider/custom` | 91.1% | ✅ PASSING |
-| `pkg/dnsprovider` | 0.0% | ⚠️ No tests (interface only) |
-| **Overall** | **84.8%** | ❌ BELOW 85% |
-
-**Why Coverage Is Low**:
-- The failing tests in `internal/services` prevent the coverage report from being finalized correctly
-- Test failures cause the test suite to exit with non-zero status
-- This interrupts the coverage calculation process
-- The 0.2% shortfall is likely due to uncovered error paths in the audit logging code
-
-### 5. Is This a Real Issue or CI Quirk?
-
-**VERDICT**: ✅ **REAL ISSUE** (Not a CI quirk)
-
-**Evidence**:
-1. ✅ Tests fail **locally** (reproduced on dev machine)
-2. ✅ Tests fail **consistently** (same 6 tests every time)
-3. ✅ Tests fail with **specific assertions** (not timeouts or random failures)
-4. ✅ The error messages are **deterministic** (always expect same values)
-5. ❌ No hangs, timeouts, or race conditions detected
-6. ❌ No CI-specific environment issues
-7. ❌ No timing-dependent failures
-
-**Conclusion**: This is a legitimate test bug that must be fixed.
+- Update `README.md` with nightly info
+- Update `VERSION.md` with nightly section
+- Update `CONTRIBUTING.md` with workflow
 
 ---
 
-## Specific Line Ranges Needing Tests
+## Files to Modify
 
-Based on the failure analysis, the following areas need attention:
-
-### 1. Context Value Extraction in Tests
-
-**File**: `backend/internal/services/dns_provider_service_test.go`
-
-**Problem Lines**:
-- Lines 1580-1595 (Create test - context setup)
-- Lines 1635-1650 (Update test - context setup)
-- Lines 1695-1710 (Delete test - context setup)
-- Lines 1740-1755 (Test credentials test - context setup)
-
-**What's Missing**: Proper context value injection using the correct context keys that the audit service expects.
-
-**Expected Fix Pattern**:
-```go
-// WRONG (current):
-ctx := context.Background()
-
-// RIGHT (needed):
-ctx := context.WithValue(context.Background(), middleware.UserIDKey, "test-user")
-ctx = context.WithValue(ctx, middleware.SourceIPKey, "192.168.1.1")
-ctx = context.WithValue(ctx, middleware.UserAgentKey, "TestAgent/1.0")
-```
-
-### 2. Audit Service Context Keys
-
-**File**: `backend/internal/middleware/audit_context.go` (or similar)
-
-**Problem**: The tests don't know which context keys to use, or the keys are not exported.
-
-**What's Needed**:
-- Document or export the correct context key constants
-- Ensure test files import the correct package
-- Ensure context keys match between middleware and service
-
-### 3. Coverage Gaps (Non-Failure Related)
-
-**File**: `backend/internal/utils/*.go`
-
-**Coverage**: 74.2% (needs 85%)
-
-**Missing Coverage**:
-- Error handling paths in URL validation
-- Edge cases in network utility functions
-- Rarely-used helper functions
-
-**Recommendation**: Add targeted tests after fixing audit logging tests.
+| File | Action | Priority |
+|------|--------|----------|
+| `.github/workflows/propagate-changes.yml` | Edit (2 lines) | P0 |
+| `.github/workflows/nightly-build.yml` | Create (new) | P1 |
+| `.github/workflows/docker-build.yml` | Edit (3 locations) | P1 |
+| `.github/workflows/supply-chain-verify.yml` | Edit (1 location) | P2 |
+| `.github/propagate-config.yml` | Edit (optional) | P3 |
+| `README.md` | Edit | P3 |
+| `VERSION.md` | Edit | P3 |
+| `CONTRIBUTING.md` | Edit | P3 |
 
 ---
 
-## Recommended Fix
+## Success Criteria
 
-### Step 1: Identify Correct Context Keys
+1. ✅ Development → nightly auto-merge completes in <5 minutes
+2. ✅ Nightly Docker builds complete in <25 minutes
+3. ✅ Build success rate >95% over 30 days
+4. ✅ Zero critical vulnerabilities in nightly builds
+5. ✅ SBOM generation success rate 100%
 
-**Action**: Find the context key definitions used by the audit service.
+---
 
-**Likely Location**:
-```bash
-grep -r "UserIDKey\|SourceIPKey\|UserAgentKey" backend/internal/
-```
+## Next Steps
 
-**Expected Files**:
-- `backend/internal/middleware/auth.go`
-- `backend/internal/middleware/audit.go`
-- `backend/internal/middleware/context.go`
-
-### Step 2: Update Test Context Setup
-
-**File**: `backend/internal/services/dns_provider_service_test.go`
-
-**Lines to Fix**: 1580-1595, 1635-1650, 1695-1710, 1740-1755
-
-**Pattern**:
-```go
-// Import the middleware package
-import "github.com/Wikid82/charon/backend/internal/middleware"
-
-// In each test, replace context setup with:
-ctx := context.WithValue(context.Background(), middleware.UserIDKey, "test-user")
-ctx = context.WithValue(ctx, middleware.SourceIPKey, "192.168.1.1")
-ctx = context.WithValue(ctx, middleware.UserAgentKey, "TestAgent/1.0")
-```
-
-### Step 3: Re-run Tests
-
-**Command**:
-```bash
-cd /projects/Charon/backend
-go test -v -race ./internal/services/... -run TestDNSProviderService_AuditLogging
-```
-
-**Expected**: All 6 tests pass
-
-### Step 4: Verify Coverage
-
-**Command**:
-```bash
-/projects/Charon/scripts/go-test-coverage.sh
-```
-
-**Expected**: Coverage ≥85%
+1. Read the full specification in `./nightly_branch_implementation.md`
+2. Review current workflows to understand integration points
+3. Create implementation branch: `feature/nightly-branch-automation`
+4. Implement Phase 1 (propagate workflow fix)
+5. Test locally with workflow triggers
+6. Deploy remaining phases incrementally
 
 ---
 
 ## Timeline Estimate
 
-| Task | Duration | Confidence |
-|------|----------|------------|
-| Find context keys | 5 min | High |
-| Update test contexts | 15 min | High |
-| Re-run tests | 2 min | High |
-| Verify coverage | 2 min | High |
-| **TOTAL** | **~25 min** | **High** |
+| Phase | Effort | Duration |
+|-------|--------|----------|
+| Phase 1 | 30 min | Day 1 |
+| Phase 2 | 2 hours | Day 1-2 |
+| Phase 3 | 30 min | Day 2 |
+| Phase 4 | 30 min | Day 2 |
+| Phase 5 | 1 hour | Day 2 |
+| Phase 6 | 30 min | Day 3 |
+| Phase 7 | 1 hour | Day 3 |
+| Testing | 4 hours | Day 3-4 |
+| **Total** | **~10 hours** | **3-4 days** |
 
 ---
 
-## Confidence Assessment
-
-**Overall Confidence**: 🟢 **95%**
-
-**High Confidence (>90%)**:
-- ✅ Root cause is identified (context values not set correctly)
-- ✅ Failure pattern is consistent (same 6 tests, same assertions)
-- ✅ Fix is straightforward (update context setup in tests)
-- ✅ No concurrency issues, hangs, or timeouts
-- ✅ All other tests pass successfully
-
-**Low Risk Areas**:
-- Tests run quickly (no hangs)
-- No race conditions detected
-- No CI-specific issues
-- No infrastructure problems
-
----
-
-## Is This Blocking the PR?
-
-**YES** - This is blocking PR #461 from merging.
-
-**Why**:
-1. ✅ Coverage is below 85% threshold (84.8%)
-2. ✅ Codecov workflow will fail (requires ≥85%)
-3. ✅ Quality checks workflow will fail (test failures)
-4. ✅ PR cannot be merged with failing required checks
-
-**Severity**: 🔴 **CRITICAL** (blocks merge)
-
-**Priority**: 🔴 **P0** (must fix before merge)
-
----
-
-## IMMEDIATE ACTIONS (Next 30 Minutes) ⚡
-
-### 1. Find Context Key Definitions
-
-**Execute this command**:
-```bash
-cd /projects/Charon/backend
-grep -rn "type contextKey\|UserIDKey\|SourceIPKey\|UserAgentKey" internal/middleware internal/security internal/auth 2>/dev/null | head -20
-```
-
-**Expected Output**: File and line numbers where context keys are defined
-
-**Timeline**: 2 minutes
-
----
-
-### 2. Inspect Audit Logging Test Setup
-
-**Execute this command**:
-```bash
-cd /projects/Charon/backend
-sed -n '1580,1600p' internal/services/dns_provider_service_test.go
-```
-
-**Look For**:
-- How context is created
-- What context values are set
-- What imports are used
-
-**Timeline**: 3 minutes
-
----
-
-### 3. Compare with Working Audit Tests
-
-**Execute this command**:
-```bash
-cd /projects/Charon/backend
-grep -rn "AuditLogging.*context.WithValue" internal/ --include="*_test.go" | head -10
-```
-
-**Purpose**: Find examples of correctly setting audit context in other tests
-
-**Timeline**: 2 minutes
-
----
-
-## FIX IMPLEMENTATION (Next 20 Minutes) 🔧
-
-Once context keys are identified:
-
-1. **Update test helper or inline context setup** in `dns_provider_service_test.go`
-2. **Apply to all 6 failing tests** (lines 1580-1595, 1635-1650, 1695-1710, 1740-1755, etc.)
-3. **Re-run tests** to validate fix
-4. **Verify coverage** reaches ≥85%
-
-**Timeline**: 20 minutes
-
----
-
-## VALIDATION (Next 5 Minutes) ✅
-
-```bash
-# Step 1: Run failing tests
-cd /projects/Charon/backend
-go test -v ./internal/services/... -run TestDNSProviderService_AuditLogging
-
-# Step 2: Run full coverage
-/projects/Charon/scripts/go-test-coverage.sh
-
-# Step 3: Check coverage percentage
-tail -5 backend/test-output.txt
-```
-
-**Expected**:
-- ✅ All 6 tests pass
-- ✅ Coverage ≥85%
-- ✅ No test failures
-
----
-
-## SUMMARY OF FINDINGS
-
-### Root Cause
-**Context values for audit logging are not properly set in DNS provider service tests**, causing:
-- user_id to default to "system" instead of test value
-- source_ip to be empty instead of test IP
-- user_agent to be empty instead of test agent string
-
-### Impact
-- ❌ 6 tests failing in `internal/services/dns_provider_service_test.go`
-- ❌ Coverage: 84.8% (0.2% below 85% threshold)
-- ❌ Blocks PR #461 from merging
-
-### Solution
-Fix context setup in 6 audit logging tests to use correct context keys and values.
-
-### Timeline
-**~25 minutes** to identify keys, fix tests, and validate coverage.
-
-### Confidence
-🟢 **95%** - Clear root cause, straightforward fix, no infrastructure issues.
-
----
-
-**END OF INVESTIGATION**
+**For complete details, workflows, scripts, and troubleshooting guides, see:**
+**[nightly_branch_implementation.md](./nightly_branch_implementation.md)**

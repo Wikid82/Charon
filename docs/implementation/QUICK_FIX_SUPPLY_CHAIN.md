@@ -33,6 +33,7 @@ RUN go get github.com/expr-lang/expr@v1.17.7 && \
 ```
 
 **All CVEs are fixed:**
+
 - ✅ CVE-2025-58183 (archive/tar) - Fixed in Go 1.25.2+
 - ✅ CVE-2025-58186 (net/http) - Fixed in Go 1.25.2+
 - ✅ CVE-2025-58187 (crypto/x509) - Fixed in Go 1.25.3+
@@ -117,6 +118,7 @@ docker build -t charon:local .
 ## Need More Details?
 
 See full analysis:
+
 - [Supply Chain Scan Analysis](./SUPPLY_CHAIN_SCAN_ANALYSIS.md)
 - [Detailed Remediation Plan](./SUPPLY_CHAIN_REMEDIATION_PLAN.md)
 

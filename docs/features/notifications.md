@@ -56,6 +56,7 @@ Simple, clean notifications with essential information:
 ```
 
 **Use when:**
+
 - You want low-noise notifications
 - Space is limited (mobile notifications)
 - Only essential info is needed
@@ -80,6 +81,7 @@ Comprehensive notifications with all available context:
 ```
 
 **Use when:**
+
 - You need full event context
 - Multiple team members review notifications
 - Historical tracking is important
@@ -89,6 +91,7 @@ Comprehensive notifications with all available context:
 Create your own template with complete control over structure and formatting.
 
 **Use when:**
+
 - Standard templates don't meet your needs
 - You have specific formatting requirements
 - Integrating with custom systems
@@ -348,6 +351,7 @@ Some events include additional variables:
 If you've been using webhook providers without JSON templates:
 
 **Before (Basic webhook):**
+
 ```
 Type: webhook
 URL: https://discord.com/api/webhooks/...
@@ -355,6 +359,7 @@ Template: (not available)
 ```
 
 **After (JSON template):**
+
 ```
 Type: discord
 URL: https://discord.com/api/webhooks/...
@@ -386,6 +391,7 @@ Before saving, always test your template:
 **Error:** `Invalid JSON template`
 
 **Solution:** Validate your JSON using a tool like [jsonlint.com](https://jsonlint.com). Common issues:
+
 - Missing closing braces `}`
 - Trailing commas
 - Unescaped quotes in strings
@@ -455,6 +461,7 @@ Always test notifications before relying on them for critical alerts.
 ### 3. Use Color Coding
 
 Consistent colors help quickly identify severity:
+
 - 🔴 Red: Errors, outages
 - 🟡 Yellow: Warnings
 - 🟢 Green: Success, recovery
@@ -463,6 +470,7 @@ Consistent colors help quickly identify severity:
 ### 4. Group Related Events
 
 Configure multiple providers for different event types:
+
 - Critical alerts → Discord (with mentions)
 - Info notifications → Slack (general channel)
 - All events → Gotify (personal alerts)
@@ -470,6 +478,7 @@ Configure multiple providers for different event types:
 ### 5. Rate Limit Awareness
 
 Be mindful of service limits:
+
 - **Discord**: 5 requests per 2 seconds per webhook
 - **Slack**: 1 request per second per workspace
 - **Gotify**: No strict limits (self-hosted)

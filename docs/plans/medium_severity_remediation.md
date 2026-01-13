@@ -11,10 +11,12 @@
 **FINDING: All MEDIUM severity warnings are either RESOLVED or FALSE POSITIVES.**
 
 The original vulnerability scan flagged 2 categories of MEDIUM severity issues:
+
 1. golang.org/x/crypto v0.42.0 → v0.45.0 (2 GHSAs)
 2. Alpine APK packages (4 CVEs)
 
 **Current Status**:
+
 - ✅ **govulncheck**: 0 vulnerabilities detected
 - ✅ **Trivy scan**: 0 MEDIUM/HIGH/CRITICAL CVEs detected
 - ✅ **CodeQL scans**: 0 security issues
@@ -29,11 +31,13 @@ The original vulnerability scan flagged 2 categories of MEDIUM severity issues:
 ### 1.1 Current State
 
 **Current Version** (from `backend/go.mod`):
+
 ```go
 golang.org/x/crypto v0.46.0
 ```
 
 **Original Warning**:
+
 - Suggested downgrade from v0.42.0 to v0.45.0
 - GHSA-j5w8-q4qc-rx2x
 - GHSA-f6x5-jh6r-wrfv
@@ -43,16 +47,19 @@ golang.org/x/crypto v0.46.0
 **Finding**: The original scan suggested **downgrading** from v0.42.0 to v0.45.0, which is suspicious. The current version is v0.46.0, which is **newer** than the suggested target.
 
 **govulncheck Results** (from QA Report):
+
 - ✅ **0 vulnerabilities detected** in golang.org/x/crypto
 - govulncheck scans against the official Go vulnerability database and would have flagged any issues in v0.46.0
 
 **Actual Usage in Codebase**:
+
 - `backend/internal/models/user.go` - Uses `bcrypt` for password hashing
 - `backend/internal/services/security_service.go` - Uses `bcrypt` for password operations
 - `backend/internal/crypto/encryption.go` - Uses stdlib `crypto/aes`, `crypto/cipher`, `crypto/rand` (NOT x/crypto)
 
 **GHSA Research**:
 The GHSAs mentioned (j5w8-q4qc-rx2x, f6x5-jh6r-wrfv) likely refer to vulnerabilities that:
+
 1. Were patched in newer versions (we're on v0.46.0)
 2. Are not applicable to our usage patterns (we use bcrypt, not affected algorithms)
 3. Were false positives from the original scan tool
@@ -62,6 +69,7 @@ The GHSAs mentioned (j5w8-q4qc-rx2x, f6x5-jh6r-wrfv) likely refer to vulnerabili
 **Status**: ✅ **RESOLVED** (False Positive or Already Patched)
 
 **Evidence**:
+
 - govulncheck reports 0 vulnerabilities
 - Current version (v0.46.0) is newer than suggested version
 - Codebase only uses bcrypt (stable, widely vetted algorithm)
@@ -76,12 +84,14 @@ The GHSAs mentioned (j5w8-q4qc-rx2x, f6x5-jh6r-wrfv) likely refer to vulnerabili
 ### 2.1 Current State
 
 **Current Alpine Version** (from `Dockerfile` line 290):
+
 ```dockerfile
 # renovate: datasource=docker depName=alpine
 FROM alpine:3.23 AS crowdsec-fallback
 ```
 
 **Original Warnings**:
+
 | Package | Version | CVE |
 |---------|---------|-----|
 | busybox | 1.37.0-r20 | CVE-2025-60876 |
@@ -92,6 +102,7 @@ FROM alpine:3.23 AS crowdsec-fallback
 ### 2.2 Analysis
 
 **Dockerfile Security Measures** (line 275):
+
 ```dockerfile
 # Install runtime dependencies for Charon
 # su-exec is used for dropping privileges after Docker socket group setup
@@ -103,11 +114,13 @@ RUN apk --no-cache add bash ca-certificates sqlite-libs sqlite tzdata curl gette
 ```
 
 **Key Points**:
+
 1. ✅ `apk --no-cache upgrade` is executed on line 276 - upgrades ALL Alpine packages
 2. ✅ Alpine 3.23 is a recent release with active security maintenance
 3. ✅ Trivy scan shows **0 MEDIUM/HIGH/CRITICAL CVEs** in the final container
 
 **Trivy Scan Results** (from QA Report):
+
 ```
 Security Scan Results
 3.1 Trivy Container Vulnerability Scan
@@ -122,11 +135,13 @@ Results:
 ### 2.3 Verification
 
 **Container Image**: charon:patched (sha256:164353a5d3dd)
+
 - ✅ Scanned with Trivy against latest vulnerability database (80.08 MiB)
 - ✅ 0 MEDIUM, HIGH, or CRITICAL CVEs detected
 - ✅ All Alpine packages upgraded to latest security patches
 
 **CVE Analysis**:
+
 - CVE-2025-60876 (busybox): Either patched in Alpine 3.23 or mitigated by apk upgrade
 - CVE-2025-10966 (curl): Either patched in Alpine 3.23 or mitigated by apk upgrade
 
@@ -135,6 +150,7 @@ Results:
 **Status**: ✅ **RESOLVED** (Patched via `apk upgrade`)
 
 **Evidence**:
+
 - Trivy scan confirms 0 MEDIUM/HIGH/CRITICAL CVEs in final container
 - Dockerfile explicitly runs `apk --no-cache upgrade` before finalizing image
 - Alpine 3.23 provides actively maintained security patches
@@ -161,12 +177,14 @@ All security scanning tools agree on the current state:
 ### 3.2 Defense-in-Depth Evidence
 
 **Supply Chain Security**:
+
 - ✅ expr-lang v1.17.7 (patched CVE-2025-68156)
 - ✅ golang.org/x/crypto v0.46.0 (latest stable)
 - ✅ Alpine 3.23 with `apk upgrade` (latest security patches)
 - ✅ Go 1.25.5 (latest stable, patched stdlib CVEs)
 
 **Container Security**:
+
 - ✅ Multi-stage build (minimal attack surface)
 - ✅ Non-root user execution (charon:1000)
 - ✅ Capability restrictions (only CAP_NET_BIND_SERVICE for Caddy)
@@ -203,6 +221,7 @@ All security scanning tools agree on the current state:
 ✅ **NO IMMEDIATE ACTION REQUIRED**
 
 All MEDIUM severity warnings have been addressed through:
+
 1. Regular dependency updates (golang.org/x/crypto v0.46.0)
 2. Container image patching (`apk upgrade`)
 3. Multi-layer security validation (govulncheck, Trivy, CodeQL)
@@ -210,6 +229,7 @@ All MEDIUM severity warnings have been addressed through:
 ### 5.2 Ongoing Maintenance
 
 **Recommended Practices** (Already Implemented):
+
 - ✅ Continue using `apk --no-cache upgrade` in Dockerfile
 - ✅ Keep govulncheck in CI/CD pipeline
 - ✅ Monitor Trivy scans for new vulnerabilities
@@ -219,11 +239,13 @@ All MEDIUM severity warnings have been addressed through:
 ### 5.3 Future Monitoring
 
 **Watch for**:
+
 - New GHSAs published for golang.org/x/crypto (Renovate will alert)
 - Alpine 3.24 release (Renovate will create PR)
 - New busybox/curl CVEs (Trivy scans will detect)
 
 **No Action Needed Unless**:
+
 - govulncheck reports new vulnerabilities
 - Trivy scan detects MEDIUM+ CVEs
 - Security advisories published for current versions
@@ -247,10 +269,12 @@ All MEDIUM severity warnings have been addressed through:
 **FINAL STATUS**: ✅ **ALL MEDIUM WARNINGS RESOLVED**
 
 **Summary**:
+
 1. **golang.org/x/crypto**: Current v0.46.0 is secure, govulncheck confirms no vulnerabilities
 2. **Alpine Packages**: `apk upgrade` applies all patches, Trivy confirms 0 CVEs
 
 **Deployment Confidence**: **HIGH**
+
 - Multi-layer security validation confirms no MEDIUM+ vulnerabilities
 - All original warnings addressed through dependency updates and patching
 - Current security posture exceeds industry best practices
@@ -262,6 +286,7 @@ All MEDIUM severity warnings have been addressed through:
 **Report Generated**: 2026-01-11
 **Investigator**: GitHub Copilot Security Agent
 **Related Documents**:
+
 - `docs/reports/qa_report.md` (CVE-2025-68156 Remediation)
 - `backend/go.mod` (Current Dependencies)
 - `Dockerfile` (Container Security Configuration)

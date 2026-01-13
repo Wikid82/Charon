@@ -3,11 +3,13 @@
 ## Executive Summary
 
 **Problem**: CodeQL static analysis detects SSRF vulnerability in `backend/internal/utils/url_testing.go` line 113:
+
 ```
 rawURL parameter (tainted source) → http.NewRequestWithContext(rawURL) [SINK]
 ```
 
 **Root Cause**: The taint chain is NOT broken because:
+
 1. The `rawURL` parameter flows directly to `http.NewRequestWithContext()` at line 113
 2. While `ssrfSafeDialer()` validates IPs at CONNECTION TIME, CodeQL's static analysis cannot detect this runtime protection
 3. Static analysis sees: `tainted input → network request` without an intermediate sanitization step
@@ -17,6 +19,7 @@ rawURL parameter (tainted source) → http.NewRequestWithContext(rawURL) [SINK]
 **Recommendation**: **Option A** - Use `security.ValidateExternalURL()` with conditional execution based on transport parameter
 
 **Key Design Decisions**:
+
 1. **Test Path Preservation**: Skip validation when custom `http.RoundTripper` is provided (test path)
 2. **Unconditional Options**: Always use `WithAllowHTTP()` and `WithAllowLocalhost()` (function design requirement)
 3. **Defense in Depth**: Accept double validation (cheap DNS cache hit) for security layering
@@ -29,11 +32,13 @@ rawURL parameter (tainted source) → http.NewRequestWithContext(rawURL) [SINK]
 ### 1. Conditional Validation Based on Transport Parameter
 
 **Problem**: Tests inject custom `http.RoundTripper` to mock network calls. If we validate URLs even with test transport, we perform REAL DNS lookups that:
+
 - Break test isolation
 - Fail in environments without network access
 - Cause tests to fail even though the mock transport would work
 
 **Solution**: Only validate when `transport` parameter is nil/empty
+
 ```go
 if len(transport) == 0 || transport[0] == nil {
     // Production path: Validate
@@ -44,6 +49,7 @@ if len(transport) == 0 || transport[0] == nil {
 ```
 
 **Why This Is Secure**:
+
 - Production code never provides custom transport (always nil)
 - Test code provides mock transport that bypasses network entirely
 - `ssrfSafeDialer()` provides connection-time protection as fallback
@@ -53,6 +59,7 @@ if len(transport) == 0 || transport[0] == nil {
 **Problem**: `TestURLConnectivity()` is DESIGNED to test HTTP and localhost connectivity. These are not optional features.
 
 **Solution**: Always use `WithAllowHTTP()` and `WithAllowLocalhost()`
+
 ```go
 validatedURL, err := security.ValidateExternalURL(rawURL,
     security.WithAllowHTTP(),      // REQUIRED: Function tests HTTP URLs
@@ -60,6 +67,7 @@ validatedURL, err := security.ValidateExternalURL(rawURL,
 ```
 
 **Why These Are Not Security Bypasses**:
+
 - The function's PURPOSE is to test connectivity to any reachable URL
 - Security policy is enforced by CALLERS (e.g., handlers validate before calling)
 - This validation is defense-in-depth, not the primary security layer
@@ -69,6 +77,7 @@ validatedURL, err := security.ValidateExternalURL(rawURL,
 **Problem**: `settings_handler.go` already validates URLs before calling `TestURLConnectivity()`
 
 **Solution**: Accept the redundancy as defense-in-depth
+
 ```go
 // Handler layer
 validatedURL, err := security.ValidateExternalURL(userInput)
@@ -77,6 +86,7 @@ reachable, latency, err := TestURLConnectivity(validatedURL)  // Validates again
 ```
 
 **Why This Is Acceptable**:
+
 - DNS results are cached (1ms overhead, not 50ms)
 - Multiple layers reduce risk of bypass
 - CodeQL only needs validation in ONE layer of the chain
@@ -87,6 +97,7 @@ reachable, latency, err := TestURLConnectivity(validatedURL)  // Validates again
 ## Analysis: Why CodeQL Still Fails
 
 ### Current Control Flow
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // ❌ rawURL (tainted) used immediately
@@ -99,6 +110,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 ### What CodeQL Sees
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Taint Flow Analysis                                         │
@@ -111,6 +123,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 ### What CodeQL CANNOT See
+
 - Runtime IP validation in `ssrfSafeDialer()`
 - Connection-time DNS resolution checks
 - Dynamic private IP blocking
@@ -124,6 +137,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ### Option A: Use `security.ValidateExternalURL()` ⭐ RECOMMENDED
 
 **Rationale**:
+
 - Consistent with the fix in `settings_handler.go`
 - Clearly breaks taint chain by returning a new string
 - Provides defense-in-depth with pre-validation
@@ -131,6 +145,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 - Already tested and proven to work
 
 **Implementation**:
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // CRITICAL: Validate URL and break taint chain for CodeQL
@@ -159,6 +174,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 **Why This Works for CodeQL**:
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ NEW Taint Flow (BROKEN)                                      │
@@ -171,6 +187,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 **Pros**:
+
 - ✅ Satisfies CodeQL static analysis
 - ✅ Consistent with other handlers
 - ✅ Provides DNS resolution validation BEFORE request
@@ -180,6 +197,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 - ✅ Existing `ssrfSafeDialer()` provides additional runtime protection
 
 **Cons**:
+
 - ⚠️ Requires import of `security` package
 - ⚠️ Small performance overhead (extra DNS resolution)
 - ⚠️ May need to handle test scenarios with `WithAllowLocalhost()`
@@ -189,6 +207,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ### Option B: Parse, Validate, and Reconstruct URL
 
 **Implementation**:
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // Phase 1: Parse and validate
@@ -215,11 +234,13 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 **Pros**:
+
 - ✅ No external dependencies
 - ✅ Creates new string value (breaks taint)
 - ✅ Keeps existing `ssrfSafeDialer()` protection
 
 **Cons**:
+
 - ❌ Does NOT validate IPs at this point (only at connection time)
 - ❌ Inconsistent with handler pattern
 - ❌ More complex and less maintainable
@@ -232,9 +253,11 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 **Description**: Document that callers MUST validate before calling.
 
 **Pros**:
+
 - ✅ Moves validation responsibility to callers
 
 **Cons**:
+
 - ❌ Breaks API contract
 - ❌ Requires changes to ALL callers
 - ❌ Doesn't satisfy CodeQL (taint still flows through)
@@ -247,6 +270,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ### Implementation Plan
 
 #### Step 1: Import Security Package
+
 **File**: `backend/internal/utils/url_testing.go`
 **Location**: Line 3 (imports section)
 
@@ -264,10 +288,12 @@ import (
 ```
 
 #### Step 2: Add URL Validation at Function Start
+
 **File**: `backend/internal/utils/url_testing.go`
 **Location**: Line 55 (start of `TestURLConnectivity()`)
 
 **REPLACE**:
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // Parse URL
@@ -283,6 +309,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 **WITH**:
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // Parse URL first to validate structure
@@ -325,6 +352,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 #### Step 3: Request Creation (No Changes Needed)
+
 **File**: `backend/internal/utils/url_testing.go`
 **Location**: Line 113
 
@@ -344,6 +372,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ### Impact on Existing Tests
 
 **Test Files to Review**:
+
 - `backend/internal/utils/url_testing_test.go`
 - `backend/internal/handlers/settings_handler_test.go`
 - `backend/internal/services/notification_service_test.go`
@@ -351,6 +380,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 **CRITICAL: Test Suite Must Pass Without Modification**
 
 The revised implementation preserves test behavior by:
+
 1. **Detecting Test Context**: Custom `http.RoundTripper` indicates test mode
 2. **Skipping Validation in Tests**: Avoids real DNS lookups that would break test isolation
 3. **Preserving Mock Transport**: Test transport bypasses network completely
@@ -358,6 +388,7 @@ The revised implementation preserves test behavior by:
 **Expected Test Behavior**:
 
 #### ✅ Tests That Will PASS (No Changes Needed)
+
 1. **Valid HTTP URLs**: `http://example.com` - validation allows HTTP with `WithAllowHTTP()`
 2. **Valid HTTPS URLs**: `https://example.com` - standard behavior
 3. **Localhost URLs**: `http://localhost:8080` - validation allows with `WithAllowLocalhost()`
@@ -368,6 +399,7 @@ The revised implementation preserves test behavior by:
 #### 🎯 Why Tests Continue to Work
 
 **Test Pattern (with custom transport)**:
+
 ```go
 // Test creates mock transport
 mockTransport := &mockRoundTripper{response: &http.Response{StatusCode: 200}}
@@ -381,6 +413,7 @@ reachable, _, err := utils.TestURLConnectivity("http://example.com", mockTranspo
 ```
 
 **Production Pattern (no custom transport)**:
+
 ```go
 // Production code calls without transport
 reachable, _, err := utils.TestURLConnectivity("http://example.com")
@@ -392,7 +425,9 @@ reachable, _, err := utils.TestURLConnectivity("http://example.com")
 ```
 
 #### ⚠️ Edge Cases (Unlikely to Exist)
+
 If tests exist that:
+
 1. **Test validation behavior directly** without providing custom transport
    - These would now fail earlier (at validation stage vs connection stage)
    - **Expected**: None exist (validation is tested in security package)
@@ -410,7 +445,9 @@ If tests exist that:
 **Direct Callers of `TestURLConnectivity()`**:
 
 #### 1. `settings_handler.go` - TestPublicURL Handler
+
 **Current Code**:
+
 ```go
 validatedURL, err := security.ValidateExternalURL(url)
 // ...
@@ -418,6 +455,7 @@ reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 ```
 
 **Impact**: ✅ **NO BREAKING CHANGE**
+
 - Already passes validated URL
 - Double validation occurs but is acceptable (defense-in-depth)
 - **Why Double Validation is OK**:
@@ -428,12 +466,15 @@ reachable, latency, err := utils.TestURLConnectivity(validatedURL)
 - **CodeQL Perspective**: Only needs ONE validation in the chain; having two is fine
 
 #### 2. `notification_service.go` - SendWebhookNotification
+
 **Current Code** (approximate):
+
 ```go
 reachable, latency, err := utils.TestURLConnectivity(webhookURL)
 ```
 
 **Impact**: ✅ **NO BREAKING CHANGE**
+
 - Validation now happens inside `TestURLConnectivity()`
 - Behavior unchanged (private IPs still blocked)
 - May see different error messages for invalid URLs
@@ -474,12 +515,14 @@ reachable, latency, err := utils.TestURLConnectivity(webhookURL)
 ### DNS Rebinding Protection
 
 **Time-of-Check/Time-of-Use (TOCTOU) Attack**:
+
 ```
 T0: ValidateExternalURL("http://attacker.com") → resolves to 203.0.113.5 (public) ✅
 T1: ssrfSafeDialer() connects to "attacker.com" → resolves to 127.0.0.1 (private) ❌
 ```
 
 **Mitigation**: The `ssrfSafeDialer()` validates IPs at T1 (connection time), so even if DNS changes between T0 and T1, the connection is blocked. This is why we keep BOTH validations:
+
 - **ValidateExternalURL()** at T0: Satisfies CodeQL, provides early feedback
 - **ssrfSafeDialer()** at T1: Prevents TOCTOU attacks, ultimate enforcement
 
@@ -490,6 +533,7 @@ T1: ssrfSafeDialer() connects to "attacker.com" → resolves to 127.0.0.1 (priva
 ### Unit Tests to Add/Update
 
 #### Test 1: Verify Private IP Blocking
+
 ```go
 func TestTestURLConnectivity_BlocksPrivateIP(t *testing.T) {
     // Should fail at validation stage now
@@ -500,6 +544,7 @@ func TestTestURLConnectivity_BlocksPrivateIP(t *testing.T) {
 ```
 
 #### Test 2: Verify Invalid Scheme Rejection
+
 ```go
 func TestTestURLConnectivity_RejectsInvalidScheme(t *testing.T) {
     // Should fail at validation stage now
@@ -510,6 +555,7 @@ func TestTestURLConnectivity_RejectsInvalidScheme(t *testing.T) {
 ```
 
 #### Test 3: Verify Localhost Allowed
+
 ```go
 func TestTestURLConnectivity_AllowsLocalhost(t *testing.T) {
     server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -525,6 +571,7 @@ func TestTestURLConnectivity_AllowsLocalhost(t *testing.T) {
 ```
 
 #### Test 4: Verify Existing Tests Still Pass
+
 ```bash
 cd backend && go test -v -run TestTestURLConnectivity ./internal/utils/
 ```
@@ -534,6 +581,7 @@ cd backend && go test -v -run TestTestURLConnectivity ./internal/utils/
 ### Integration Tests
 
 Run existing integration tests to ensure no regressions:
+
 ```bash
 # Settings handler tests (already uses ValidateExternalURL)
 cd backend && go test -v -run TestSettingsHandler ./internal/handlers/
@@ -549,11 +597,13 @@ cd backend && go test -v -run TestNotificationService ./internal/services/
 ### How CodeQL Analysis Works
 
 **What CodeQL Needs to See**:
+
 1. **Tainted Source**: User-controlled input (parameter)
 2. **Sanitizer**: Function that returns a NEW value after validation
 3. **Clean Sink**: Network operation uses the NEW value, not the original
 
 **Why the Production Path Matters**:
+
 - CodeQL performs static analysis on ALL possible code paths
 - The test path (with custom transport) is a **separate code path** that doesn't reach the network sink
 - The production path (without custom transport) is what CodeQL analyzes for SSRF
@@ -562,6 +612,7 @@ cd backend && go test -v -run TestNotificationService ./internal/services/
 ### How the Fix Satisfies CodeQL
 
 #### Production Code Path (What CodeQL Analyzes)
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) {
     // rawURL = TAINTED
@@ -579,6 +630,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) {
 ```
 
 **CodeQL Taint Flow Analysis**:
+
 ```
 Production Path:
 ┌──────────────────────────────────────────────────────────────┐
@@ -602,6 +654,7 @@ Test Path (with custom transport):
 ### Why Function Options Are Unconditional
 
 **Background**: `TestURLConnectivity()` is designed to test connectivity to any reachable URL, including:
+
 - HTTP URLs (not just HTTPS)
 - Localhost URLs (for local services)
 
@@ -613,6 +666,7 @@ security.WithAllowLocalhost()  // REQUIRED: Function tests localhost services
 ```
 
 **Why These Are Always Set**:
+
 1. **Functional Requirement**: The function name is `TestURLConnectivity`, not `TestSecureURLConnectivity`
 2. **Use Case**: Testing webhook endpoints (may be HTTP in dev), local services (localhost:8080)
 3. **Security**: The function is NOT exposed to untrusted input directly
@@ -621,6 +675,7 @@ security.WithAllowLocalhost()  // REQUIRED: Function tests localhost services
 4. **Caller's Responsibility**: Callers decide what security policy to apply BEFORE calling this function
 
 **Not a Security Bypass**:
+
 - If a handler needs to enforce HTTPS-only, it validates BEFORE calling `TestURLConnectivity()`
 - If a handler allows HTTP, it's an intentional policy decision, not a bypass
 - This function's job is to test connectivity, not enforce security policy
@@ -628,12 +683,14 @@ security.WithAllowLocalhost()  // REQUIRED: Function tests localhost services
 ### How to Verify Fix
 
 #### Step 1: Run CodeQL Analysis
+
 ```bash
 codeql database create codeql-db --language=go --source-root=backend
 codeql database analyze codeql-db codeql/go-queries --format=sarif-latest --output=codeql-results.sarif
 ```
 
 #### Step 2: Check for SSRF Findings
+
 ```bash
 # Should NOT find SSRF in url_testing.go line 113
 grep -A 5 "url_testing.go" codeql-results.sarif | grep -i "ssrf"
@@ -642,7 +699,9 @@ grep -A 5 "url_testing.go" codeql-results.sarif | grep -i "ssrf"
 **Expected Result**: No SSRF findings in `url_testing.go`
 
 #### Step 3: Verify Taint Flow is Broken
+
 Check SARIF output for taint flow:
+
 ```json
 {
   "results": [
@@ -660,12 +719,14 @@ Check SARIF output for taint flow:
 ## Migration Steps
 
 ### Phase 1: Implementation (15 minutes)
+
 1. ✅ Add `security` package import to `url_testing.go`
 2. ✅ Insert `security.ValidateExternalURL()` call at function start
 3. ✅ Update all references from `rawURL` to `validatedURL`
 4. ✅ Add explanatory comments for CodeQL
 
 ### Phase 2: Testing (20 minutes)
+
 1. ✅ Run unit tests: `go test ./internal/utils/`
    - **Expected**: All tests PASS without modification
    - **Reason**: Tests use custom transport, validation is skipped
@@ -680,11 +741,13 @@ Check SARIF output for taint flow:
    - **Expected**: Coverage unchanged (new code is covered by production path)
 
 ### Phase 3: Verification (10 minutes)
+
 1. ✅ Run CodeQL analysis
 2. ✅ Verify no SSRF findings in `url_testing.go`
 3. ✅ Review SARIF output for clean taint flow
 
 ### Phase 4: Documentation (5 minutes)
+
 1. ✅ Update function documentation to mention validation
 2. ✅ Update SSRF_COMPLETE.md with new architecture
 3. ✅ Mark this plan as complete
@@ -700,6 +763,7 @@ Check SARIF output for taint flow:
 ### How Test Preservation Works
 
 #### 1. Test Detection Mechanism
+
 ```go
 if len(transport) == 0 || transport[0] == nil {
     // Production path: Validate
@@ -709,6 +773,7 @@ if len(transport) == 0 || transport[0] == nil {
 ```
 
 **Test Pattern Recognition**:
+
 - `TestURLConnectivity(url)` → Production (validate)
 - `TestURLConnectivity(url, mockTransport)` → Test (skip validation)
 - `TestURLConnectivity(url, nil)` → Production (validate)
@@ -716,6 +781,7 @@ if len(transport) == 0 || transport[0] == nil {
 #### 2. Why Tests Don't Break
 
 **Problem if we validated in test path**:
+
 ```go
 // Test provides mock transport to avoid real network
 mockTransport := &mockRoundTripper{...}
@@ -729,6 +795,7 @@ reachable, _, err := TestURLConnectivity("http://example.com", mockTransport)
 ```
 
 **Solution - skip validation with custom transport**:
+
 ```go
 // Test provides mock transport
 mockTransport := &mockRoundTripper{...}
@@ -774,6 +841,7 @@ func TestTestURLConnectivity_Timeout(t *testing.T) {
 ```
 
 **Production code that gets validation**:
+
 ```go
 // backend/internal/handlers/settings_handler.go
 func (h *SettingsHandler) TestPublicURL(w http.ResponseWriter, r *http.Request) {
@@ -801,6 +869,7 @@ func (h *SettingsHandler) TestPublicURL(w http.ResponseWriter, r *http.Request) 
 ### Verification Checklist
 
 Before merging, verify:
+
 - [ ] `go test ./internal/utils/` - All tests pass
 - [ ] `go test ./internal/handlers/` - All tests pass
 - [ ] `go test ./internal/services/` - All tests pass
@@ -814,16 +883,19 @@ Before merging, verify:
 ## Risk Assessment
 
 ### Security Risks
+
 - **Risk**: None. This ADDS validation, doesn't remove it.
 - **Mitigation**: Keep existing `ssrfSafeDialer()` for defense-in-depth.
 
 ### Performance Risks
+
 - **Risk**: Extra DNS resolution (one at validation, one at connection).
 - **Impact**: ~10-50ms added latency (DNS lookup time).
 - **Mitigation**: DNS resolver caching will reduce impact for repeated requests.
 - **Acceptable**: Testing is not a hot path; security takes priority.
 
 ### Compatibility Risks
+
 - **Risk**: Tests may need error message updates.
 - **Impact**: LOW - Only test assertions may need adjustment.
 - **Mitigation**: Run full test suite before merging.
@@ -833,6 +905,7 @@ Before merging, verify:
 ## Success Criteria
 
 ### ✅ Definition of Done
+
 1. CodeQL analysis shows NO SSRF findings in `url_testing.go` line 113
 2. All existing unit tests pass **WITHOUT ANY MODIFICATIONS** ⚠️ CRITICAL
 3. All integration tests pass
@@ -842,6 +915,7 @@ Before merging, verify:
 7. Code review approved
 
 ### 🎯 Expected Outcome
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ CodeQL Results: url_testing.go                             │
@@ -867,6 +941,7 @@ Before merging, verify:
 ## Appendix: Code Comparison
 
 ### Before (Current - FAILS CodeQL)
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // ❌ rawURL is TAINTED
@@ -889,6 +964,7 @@ func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, f
 ```
 
 ### After (With Fix - PASSES CodeQL)
+
 ```go
 func TestURLConnectivity(rawURL string, transport ...http.RoundTripper) (bool, float64, error) {
     // Parse URL first to validate structure

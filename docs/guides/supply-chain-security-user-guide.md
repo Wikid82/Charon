@@ -7,6 +7,7 @@ Charon implements comprehensive supply chain security measures to ensure you can
 ## Why Supply Chain Security Matters
 
 When you download and run software, you're trusting that:
+
 - The software came from the legitimate source
 - It hasn't been tampered with during distribution
 - The build process was secure and reproducible
@@ -49,6 +50,7 @@ cosign verify \
 ```
 
 **Expected Output:**
+
 ```
 Verification for ghcr.io/wikid82/charon:latest --
 The following checks were performed on each of these signatures:
@@ -66,6 +68,7 @@ The following checks were performed on each of these signatures:
 **What it does:** Confirms the image was signed by the Charon project and hasn't been modified.
 
 **Command:**
+
 ```bash
 cosign verify \
   --certificate-identity-regexp='https://github.com/Wikid82/charon' \
@@ -74,12 +77,14 @@ cosign verify \
 ```
 
 **What to check:**
+
 - ✅ "Verification for ... --" message appears
 - ✅ Certificate identity matches `https://github.com/Wikid82/charon`
 - ✅ OIDC issuer is `https://token.actions.githubusercontent.com`
 - ✅ No errors or warnings
 
 **Troubleshooting:**
+
 - **Error: "no matching signatures"** → The image may not be signed, or you have the wrong tag
 - **Error: "certificate identity doesn't match"** → The image may be compromised or unofficial
 - **Error: "OIDC issuer doesn't match"** → The signing process didn't use GitHub Actions
@@ -89,16 +94,19 @@ cosign verify \
 **What it does:** Proves the software was built by the official GitHub Actions workflow from the official repository.
 
 **Step 1: Download provenance**
+
 ```bash
 curl -LO https://github.com/Wikid82/charon/releases/download/v1.0.0/provenance.json
 ```
 
 **Step 2: Download the binary**
+
 ```bash
 curl -LO https://github.com/Wikid82/charon/releases/download/v1.0.0/charon-linux-amd64
 ```
 
 **Step 3: Verify provenance**
+
 ```bash
 slsa-verifier verify-artifact \
   --provenance-path provenance.json \
@@ -107,6 +115,7 @@ slsa-verifier verify-artifact \
 ```
 
 **Expected Output:**
+
 ```
 Verified signature against tlog entry index XXXXX at URL: https://rekor.sigstore.dev/api/v1/log/entries/...
 Verified build using builder https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v1.9.0 at commit SHA256:...
@@ -114,12 +123,14 @@ PASSED: Verified SLSA provenance
 ```
 
 **What to check:**
+
 - ✅ "PASSED: Verified SLSA provenance"
 - ✅ Builder is the official SLSA generator
 - ✅ Source URI matches `github.com/Wikid82/charon`
 - ✅ Entry is recorded in Rekor transparency log
 
 **Troubleshooting:**
+
 - **Error: "artifact hash doesn't match"** → The binary may have been tampered with
 - **Error: "source URI doesn't match"** → The build came from an unofficial repository
 - **Error: "invalid provenance"** → The provenance file may be corrupted
@@ -129,11 +140,13 @@ PASSED: Verified SLSA provenance
 **What it does:** Shows all dependencies included in Charon, allowing you to check for known vulnerabilities.
 
 **Step 1: Download SBOM**
+
 ```bash
 curl -LO https://github.com/Wikid82/charon/releases/download/v1.0.0/sbom.spdx.json
 ```
 
 **Step 2: View SBOM contents**
+
 ```bash
 # Pretty-print the SBOM
 cat sbom.spdx.json | jq .
@@ -143,12 +156,14 @@ cat sbom.spdx.json | jq -r '.packages[].name' | sort
 ```
 
 **Step 3: Check for vulnerabilities**
+
 ```bash
 # Requires Grype (see prerequisites)
 grype sbom:sbom.spdx.json
 ```
 
 **Expected Output:**
+
 ```
 NAME                 INSTALLED           VULNERABILITY   SEVERITY
 github.com/caddyserver/caddy/v2  v2.11.0    (no vulnerabilities found)
@@ -156,12 +171,14 @@ github.com/caddyserver/caddy/v2  v2.11.0    (no vulnerabilities found)
 ```
 
 **What to check:**
+
 - ✅ SBOM contains expected packages (Go modules, npm packages)
 - ✅ Package versions match release notes
 - ✅ No critical or high-severity vulnerabilities
 - ⚠️ Known acceptable vulnerabilities are documented in SECURITY.md
 
 **Troubleshooting:**
+
 - **High/Critical vulnerabilities found** → Check SECURITY.md for known issues and mitigation status
 - **SBOM format error** → Download may be corrupted, try again
 - **Missing packages** → SBOM may be incomplete, report as an issue
@@ -244,6 +261,7 @@ All signatures are recorded in the public Rekor transparency log:
 ### GitHub Release Assets
 
 Each release includes:
+
 - `provenance.json` - SLSA provenance attestation
 - `sbom.spdx.json` - Software Bill of Materials
 - `*.sig` - Cosign signature files (for binaries)
@@ -256,18 +274,21 @@ Each release includes:
 ## Security Best Practices
 
 ### Before Deploying
+
 1. ✅ Always verify signatures before first deployment
 2. ✅ Check SBOM for known vulnerabilities
 3. ✅ Verify provenance for critical environments
 4. ✅ Pin to specific version tags (not `latest`)
 
 ### During Operations
+
 1. ✅ Set up automated verification in CI/CD
 2. ✅ Monitor SECURITY.md for vulnerability updates
 3. ✅ Subscribe to GitHub release notifications
 4. ✅ Re-verify after any manual image pulls
 
 ### For Production Environments
+
 1. ✅ Require signature verification before deployment
 2. ✅ Use admission controllers (e.g., Kyverno, OPA) to enforce verification
 3. ✅ Maintain audit logs of verified deployments
@@ -280,10 +301,13 @@ Each release includes:
 ### Common Issues
 
 #### "cosign: command not found"
+
 **Solution:** Install Cosign (see Prerequisites section)
 
 #### "Error: no matching signatures"
+
 **Possible causes:**
+
 - Image tag doesn't exist
 - Image was pulled before signing implementation
 - Using an unofficial image source
@@ -291,14 +315,18 @@ Each release includes:
 **Solution:** Use official images from `ghcr.io/wikid82/charon` with tags v1.0.0 or later
 
 #### "Error: certificate identity doesn't match"
+
 **Possible causes:**
+
 - Image is from an unofficial source
 - Image may be compromised
 
 **Solution:** Only use images from the official repository. Report suspicious images.
 
 #### "slsa-verifier: verification failed"
+
 **Possible causes:**
+
 - Provenance file doesn't match the binary
 - Binary was modified after signing
 - Wrong provenance file downloaded
@@ -306,7 +334,9 @@ Each release includes:
 **Solution:** Re-download both provenance and binary from the same release
 
 #### Grype shows vulnerabilities
+
 **Solution:**
+
 1. Check SECURITY.md for known issues
 2. Review vulnerability severity and exploitability
 3. Check if patches are available in newer releases

@@ -25,27 +25,35 @@
 ### Frontend Layer
 
 #### A. Layout.tsx (Navigation Definition)
+
 - **File**: [frontend/src/components/Layout.tsx](../../frontend/src/components/Layout.tsx#L81)
 - **Navigation entry** (line 81):
+
   ```typescript
   { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
   ```
+
 - **Location**: Nested under the "Settings" menu group
 - **Status**: ✅ Entry exists, links to `/settings/notifications`
 
 #### B. App.tsx (Route Definitions)
+
 - **File**: [frontend/src/App.tsx](../../frontend/src/App.tsx)
 - **Notifications route** (line 70):
+
   ```typescript
   <Route path="notifications" element={<Notifications />} />
   ```
+
 - **Location**: Top-level route under the authenticated layout (NOT under `/settings`)
 - **Actual path**: `/notifications`
 - **Status**: ⚠️ Route exists at WRONG path
 
 #### C. Settings.tsx (Settings Tab Navigation)
+
 - **File**: [frontend/src/pages/Settings.tsx](../../frontend/src/pages/Settings.tsx)
 - **Tab items** (lines 14-18):
+
   ```typescript
   const navItems = [
     { path: '/settings/system', label: t('settings.system'), icon: Server },
@@ -53,9 +61,11 @@
     { path: '/settings/account', label: t('settings.account'), icon: User },
   ]
   ```
+
 - **Status**: ❌ **Missing notifications tab** - not integrated into Settings page
 
 #### D. Notifications.tsx (Page Component)
+
 - **File**: [frontend/src/pages/Notifications.tsx](../../frontend/src/pages/Notifications.tsx)
 - **Status**: ✅ **Fully implemented** - manages notification providers, templates, tests
 - **Features**:
@@ -66,6 +76,7 @@
   - Event type subscriptions (proxy hosts, remote servers, domains, certs, uptime)
 
 #### E. useNotifications.ts (Hook)
+
 - **File**: [frontend/src/hooks/useNotifications.ts](../../frontend/src/hooks/useNotifications.ts)
 - **Purpose**: Security notification settings (different from provider management)
 - **Hooks exported**:
@@ -77,6 +88,7 @@
 - **Note**: This hook is for **security-specific** notifications (WAF, ACL, rate limiting), NOT the general notification providers page
 
 #### F. NotificationCenter.tsx (Header Component)
+
 - **File**: [frontend/src/components/NotificationCenter.tsx](../../frontend/src/components/NotificationCenter.tsx)
 - **Purpose**: Dropdown bell icon in header showing system notifications
 - **API endpoints used**:
@@ -87,6 +99,7 @@
 - **Status**: ✅ Working correctly, separate from the settings page
 
 #### G. API Client - notifications.ts
+
 - **File**: [frontend/src/api/notifications.ts](../../frontend/src/api/notifications.ts)
 - **Exports**:
   - Provider CRUD: `getProviders`, `createProvider`, `updateProvider`, `deleteProvider`, `testProvider`
@@ -100,6 +113,7 @@
 ### Backend Layer
 
 #### H. routes.go (Route Registration)
+
 - **File**: [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go)
 - **Notification endpoints registered**:
 
@@ -126,6 +140,7 @@
 - **Status**: ✅ All backend routes exist
 
 #### I. Handler Files
+
 - `notification_handler.go` - System notifications list/read
 - `notification_provider_handler.go` - Provider CRUD
 - `notification_template_handler.go` - External templates
@@ -133,11 +148,13 @@
 - **Status**: ✅ All handlers implemented
 
 #### J. Service Files
+
 - `notification_service.go` - Core notification service
 - `security_notification_service.go` - Security notification config
 - **Status**: ✅ All services implemented
 
 #### K. Model Files
+
 - `notification.go` - System notification model
 - `notification_provider.go` - Provider model
 - `notification_template.go` - Template model
@@ -193,18 +210,21 @@ From `get_changed_files`, the relevant recent change to Layout.tsx:
 There are actually **TWO different notification features** that may be causing confusion:
 
 ### Feature 1: Notification Providers (Settings Page)
+
 - **Purpose**: Configure external notification channels (Discord, Slack, etc.)
 - **Page**: `Notifications.tsx`
 - **API**: `/api/v1/notifications/providers/*`, `/api/v1/notifications/external-templates/*`
 - **This is what the settings navigation should show**
 
 ### Feature 2: System Notifications (Header Bell)
+
 - **Purpose**: In-app notification center showing system events
 - **Component**: `NotificationCenter.tsx`
 - **API**: `/api/v1/notifications`, `/api/v1/notifications/:id/read`
 - **This already works correctly in the header**
 
 ### Feature 3: Security Notifications (Cerberus Modal)
+
 - **Purpose**: Configure notifications for security events (WAF blocks, ACL denials, etc.)
 - **Component**: `SecurityNotificationSettingsModal.tsx`
 - **Hook**: `useNotifications.ts`
@@ -275,7 +295,8 @@ This keeps the existing route but changes the navigation structure.
 
 ## 7. Summary
 
-### What EXISTS and WORKS:
+### What EXISTS and WORKS
+
 - ✅ `Notifications.tsx` page component (fully implemented)
 - ✅ `notifications.ts` API client (complete)
 - ✅ Backend handlers and routes (complete)
@@ -283,11 +304,13 @@ This keeps the existing route but changes the navigation structure.
 - ✅ `NotificationCenter.tsx` header component (works)
 - ✅ Navigation link in Layout.tsx (points to `/settings/notifications`)
 
-### What's BROKEN:
+### What's BROKEN
+
 - ❌ **Route definition** - Route is at `/notifications` but navigation points to `/settings/notifications`
 - ❌ **Settings.tsx tabs** - Missing notifications tab
 
-### What NEEDS to be done:
+### What NEEDS to be done
+
 1. Add route `<Route path="notifications" element={<Notifications />} />` under `/settings/*` in App.tsx
 2. Add notifications tab to Settings.tsx navItems array
 3. Optionally remove the old `/notifications` top-level route to avoid confusion

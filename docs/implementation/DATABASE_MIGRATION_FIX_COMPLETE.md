@@ -11,23 +11,28 @@ Fixed database migration and test failures related to the `KeyVersion` field in 
 **Problem**: Tests failed with "no such table: dns_providers" errors when running the full test suite.
 
 **Root Cause**:
+
 - SQLite's `:memory:` database mode without shared cache caused isolation issues between parallel tests
 - Tests running in parallel accessed the database before AutoMigrate completed
 - Connection pool settings weren't optimized for test scenarios
 
 **Solution**:
+
 1. Changed database connection string to use shared cache mode with mutex:
+
    ```go
    dbPath := ":memory:?cache=shared&mode=memory&_mutex=full"
    ```
 
 2. Configured connection pool for single-threaded SQLite access:
+
    ```go
    sqlDB.SetMaxOpenConns(1)
    sqlDB.SetMaxIdleConns(1)
    ```
 
 3. Added table existence verification after migration:
+
    ```go
    if !db.Migrator().HasTable(&models.DNSProvider{}) {
        t.Fatal("failed to create dns_providers table")
@@ -35,6 +40,7 @@ Fixed database migration and test failures related to the `KeyVersion` field in 
    ```
 
 4. Added cleanup to close database connections:
+
    ```go
    t.Cleanup(func() {
        sqlDB.Close()
@@ -42,6 +48,7 @@ Fixed database migration and test failures related to the `KeyVersion` field in 
    ```
 
 **Files Modified**:
+
 - `backend/internal/services/dns_provider_service_test.go`
 
 ### Issue 2: KeyVersion Field Configuration
@@ -49,12 +56,14 @@ Fixed database migration and test failures related to the `KeyVersion` field in 
 **Problem**: Needed to verify that the `KeyVersion` field was properly configured with GORM tags for database migration.
 
 **Verification**:
+
 - ✅ Field is properly defined with `gorm:"default:1;index"` tag
 - ✅ Field is exported (capitalized) for GORM access
 - ✅ Default value of 1 is set for backward compatibility
 - ✅ Index is created for efficient key rotation queries
 
 **Model Definition** (already correct):
+
 ```go
 // Encryption key version used for credentials (supports key rotation)
 KeyVersion int `json:"key_version" gorm:"default:1;index"`
@@ -65,6 +74,7 @@ KeyVersion int `json:"key_version" gorm:"default:1;index"`
 **Problem**: Needed to ensure DNSProvider model is included in AutoMigrate calls.
 
 **Verification**:
+
 - ✅ DNSProvider is included in route registration AutoMigrate (`backend/internal/api/routes/routes.go` line 69)
 - ✅ SecurityAudit is migrated first (required for background audit logging)
 - ✅ Migration order is correct (no dependency issues)
@@ -74,6 +84,7 @@ KeyVersion int `json:"key_version" gorm:"default:1;index"`
 ### Migration README
 
 Created comprehensive migration documentation:
+
 - **Location**: `backend/internal/migrations/README.md`
 - **Contents**:
   - Migration strategy overview
@@ -86,11 +97,13 @@ Created comprehensive migration documentation:
 ## Test Results
 
 ### Before Fix
+
 - Multiple tests failing with "no such table: dns_providers"
 - Tests passed in isolation but failed when run together
 - Inconsistent behavior due to race conditions
 
 ### After Fix
+
 - ✅ All DNS provider tests pass (60+ tests)
 - ✅ All backend tests pass
 - ✅ Coverage: 86.4% (exceeds 85% threshold)
@@ -98,6 +111,7 @@ Created comprehensive migration documentation:
 - ✅ Tests are deterministic and reliable
 
 ### Test Execution
+
 ```bash
 cd backend && go test ./...
 # Result: All tests pass
@@ -107,6 +121,7 @@ cd backend && go test ./...
 ## Backward Compatibility
 
 ✅ **Fully Backward Compatible**
+
 - Existing DNS providers will automatically get `key_version = 1`
 - No data migration required
 - GORM handles the schema update automatically
@@ -157,6 +172,7 @@ cd backend && go test ./...
 ## Definition of Done
 
 All acceptance criteria met:
+
 - ✅ AutoMigrate properly creates KeyVersion field
 - ✅ All backend tests pass
 - ✅ No "no such table" errors
@@ -167,6 +183,7 @@ All acceptance criteria met:
 ## Notes for QA
 
 The fixes address the root cause of test failures:
+
 1. Database initialization is now reliable and deterministic
 2. Tests can run in parallel without interference
 3. SQLite connection pooling is properly configured

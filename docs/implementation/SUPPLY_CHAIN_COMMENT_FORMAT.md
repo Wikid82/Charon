@@ -5,6 +5,7 @@ Quick reference for the PR comment format used by the supply chain security work
 ## Comment Identifier
 
 All comments include a hidden HTML identifier for update tracking:
+
 ```html
 <!-- supply-chain-security-comment -->
 ```
@@ -16,6 +17,7 @@ This allows the `peter-evans/create-or-update-comment` action to find and update
 ## Comment Sections
 
 ### 1. Header
+
 ```markdown
 ## 🔒 Supply Chain Security Scan
 
@@ -28,6 +30,7 @@ This allows the `peter-evans/create-or-update-comment` action to find and update
 ### 2. Status (varies by condition)
 
 #### A. Waiting for Image
+
 ```markdown
 ### ⏳ Status: Waiting for Image
 
@@ -37,6 +40,7 @@ _This is normal for PR workflows._
 ```
 
 #### B. SBOM Validation Failed
+
 ```markdown
 ### ⚠️ Status: SBOM Validation Failed
 
@@ -46,6 +50,7 @@ The Software Bill of Materials (SBOM) could not be validated. Please check the [
 ```
 
 #### C. No Vulnerabilities
+
 ```markdown
 ### ✅ Status: No Vulnerabilities Detected
 
@@ -60,6 +65,7 @@ The Software Bill of Materials (SBOM) could not be validated. Please check the [
 ```
 
 #### D. Critical Vulnerabilities
+
 ```markdown
 ### 🚨 Status: Critical Vulnerabilities Detected
 
@@ -77,6 +83,7 @@ The Software Bill of Materials (SBOM) could not be validated. Please check the [
 ```
 
 #### E. High-Severity Vulnerabilities
+
 ```markdown
 ### ⚠️ Status: High-Severity Vulnerabilities Detected
 
@@ -94,6 +101,7 @@ X high-severity vulnerabilities found. Please review and address.
 ```
 
 #### F. Other Vulnerabilities
+
 ```markdown
 ### 📊 Status: Vulnerabilities Detected
 
@@ -111,6 +119,7 @@ Security scan found X vulnerabilities.
 ```
 
 ### 3. Footer
+
 ```markdown
 ---
 
@@ -183,6 +192,7 @@ graph TD
 ```
 
 The `peter-evans/create-or-update-comment` action:
+
 1. Searches for comments by `github-actions[bot]`
 2. Filters by content containing `<!-- supply-chain-security-comment -->`
 3. Updates if found, creates if not found
@@ -193,18 +203,21 @@ The `peter-evans/create-or-update-comment` action:
 ## Integration Points
 
 ### Triggered By
+
 - `docker-build.yml` workflow completion (via `workflow_run`)
 - Direct `pull_request` events
 - Scheduled runs (Mondays 00:00 UTC)
 - Manual dispatch
 
 ### Data Sources
+
 - **Syft**: SBOM generation
 - **Grype**: Vulnerability scanning
 - **GitHub Container Registry**: Docker images
 - **GitHub API**: PR comments
 
 ### Outputs
+
 - PR comment (updated in place)
 - Step summary in workflow
 - Artifact upload (SBOM)

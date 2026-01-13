@@ -47,11 +47,13 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/insta
 ```
 
 Ensure `$GOPATH/bin` is in your `PATH`:
+
 ```bash
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
 Verify installation:
+
 ```bash
 golangci-lint --version
 # Should output: golangci-lint has version 1.xx.x ...
@@ -98,11 +100,34 @@ npm run dev  # Start frontend dev server
 
 ### Branching Strategy
 
-- **main** - Production-ready code
-- **development** - Main development branch (default)
+- **main** - Production-ready code (stable releases)
+- **nightly** - Pre-release testing branch (automated daily builds at 02:00 UTC)
+- **development** - Main development branch (default for contributions)
 - **feature/** - Feature branches (e.g., `feature/add-ssl-support`)
 - **bugfix/** - Bug fix branches (e.g., `bugfix/fix-import-crash`)
 - **hotfix/** - Urgent production fixes
+
+### Branch Flow
+
+The project uses a three-tier branching model:
+
+```
+development → nightly → main
+   (unstable)    (testing)  (stable)
+```
+
+**Flow details:**
+
+1. **development → nightly**: Automated daily merge at 02:00 UTC
+2. **nightly → main**: Manual PR after validation and testing
+3. **Contributors always branch from `development`**
+
+**Why nightly?**
+
+- Provides a testing ground for features before production
+- Automated daily builds catch integration issues
+- Users can test pre-release features via `nightly` Docker tag
+- Maintainers validate stability before merging to `main`
 
 ### Creating a Feature Branch
 
@@ -113,6 +138,8 @@ git checkout development
 git pull upstream development
 git checkout -b feature/your-feature-name
 ```
+
+**Note:** Never branch from `nightly` or `main`. The `nightly` branch is managed by automation and receives daily merges from `development`.
 
 ### Commit Message Guidelines
 
@@ -222,6 +249,49 @@ export function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) 
 
 ## Testing Guidelines
 
+### Testing Against Nightly Builds
+
+Before submitting a PR, test your changes against the latest nightly build:
+
+**Pull latest nightly:**
+
+```bash
+docker pull ghcr.io/wikid82/charon:nightly
+```
+
+**Run your local changes against nightly:**
+
+```bash
+# Start nightly container
+docker run -d --name charon-nightly \
+  -p 8080:8080 \
+  ghcr.io/wikid82/charon:nightly
+
+# Test your feature/fix
+curl http://localhost:8080/api/v1/health
+
+# Clean up
+docker stop charon-nightly && docker rm charon-nightly
+```
+
+**Integration testing:**
+
+If your changes affect existing features, verify compatibility:
+
+1. Deploy nightly build in test environment
+2. Run your modified frontend/backend against it
+3. Verify no regressions in existing functionality
+4. Document any breaking changes in your PR
+
+**Reporting nightly issues:**
+
+If you find bugs in nightly builds:
+
+1. Check if the issue exists in `development` branch
+2. Open an issue tagged with `nightly` label
+3. Include nightly build date or commit SHA
+4. Provide reproduction steps
+
 ### Backend Tests
 
 Write tests for all new functionality:
@@ -298,6 +368,7 @@ Charon uses [Agent Skills](https://agentskills.io) for AI-discoverable developme
 ### What is a Skill?
 
 A skill is a combination of:
+
 - **YAML Frontmatter**: Metadata following the [agentskills.io specification](https://agentskills.io/specification)
 - **Markdown Documentation**: Usage instructions, examples, and troubleshooting
 - **Execution Script**: Shell script that performs the actual task
@@ -305,6 +376,7 @@ A skill is a combination of:
 ### When to Create a Skill
 
 Create a new skill when you have a:
+
 - **Repeatable task** that developers run frequently
 - **Complex workflow** that benefits from documentation
 - **CI/CD operation** that should be AI-discoverable
@@ -317,6 +389,7 @@ Create a new skill when you have a:
 #### 1. Plan Your Skill
 
 Before creating, define:
+
 - **Name**: Use `{category}-{feature}-{variant}` format (e.g., `test-backend-coverage`)
 - **Category**: test, integration-test, security, qa, build, utility, docker
 - **Purpose**: One clear sentence describing what it does
@@ -407,6 +480,7 @@ command example
 **Last Updated**: YYYY-MM-DD
 **Maintained by**: Charon Project
 **Source**: Original implementation or script path
+
 ```
 
 #### 4. Create the Execution Script
@@ -511,24 +585,28 @@ All skills must pass validation:
 ### Best Practices
 
 **Documentation:**
+
 - Keep SKILL.md under 500 lines
 - Include real-world examples
 - Document all prerequisites clearly
 - Add troubleshooting section for common issues
 
 **Scripts:**
+
 - Always use helper functions for logging and error handling
 - Validate environment before execution
 - Make scripts idempotent when possible
 - Clean up resources on exit (use trap)
 
 **Testing:**
+
 - Test skill in clean environment
 - Verify all exit codes
 - Check output format consistency
 - Test error scenarios
 
 **Metadata:**
+
 - Set accurate `execution_time` (short < 1min, medium 1-5min, long > 5min)
 - Use `ci_cd_safe: false` for interactive or risky operations
 - Mark `idempotent: true` only if truly safe to run repeatedly
@@ -539,17 +617,20 @@ All skills must pass validation:
 Charon provides helper scripts for common operations:
 
 **Logging** (`_logging_helpers.sh`):
+
 - `log_info`, `log_success`, `log_warning`, `log_error`, `log_debug`
 - `log_step` for section headers
 - `log_command` to log before executing
 
 **Error Handling** (`_error_handling_helpers.sh`):
+
 - `error_exit` to print error and exit
 - `check_command_exists`, `check_file_exists`, `check_dir_exists`
 - `run_with_retry` for network operations
 - `trap_error` for automatic error trapping
 
 **Environment** (`_environment_helpers.sh`):
+
 - `validate_go_environment`, `validate_python_environment`, `validate_node_environment`
 - `validate_docker_environment`
 - `set_default_env` for environment variables

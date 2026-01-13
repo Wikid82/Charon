@@ -30,6 +30,7 @@
 | SSRF-006 | `http://192.168.255.255/webhook` | ❌ Blocked |
 
 **Command**:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/settings/test-url \
   -H "Content-Type: application/json" \
@@ -65,6 +66,7 @@ curl -X POST http://localhost:8080/api/v1/settings/test-url \
 | SSRF-023 | `http://169.254.0.1/` | ❌ Blocked (link-local range) |
 
 **Command**:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/settings/test-url \
   -H "Content-Type: application/json" \
@@ -118,6 +120,7 @@ curl -X POST http://localhost:8080/api/v1/settings/test-url \
 | SSRF-062 | URL redirects to private IP | ❌ Blocked |
 
 **Test Setup**: Use httpbin.org redirect:
+
 ```bash
 # This should be blocked if final destination is private
 curl -X POST http://localhost:8080/api/v1/settings/test-url \

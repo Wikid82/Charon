@@ -1,4 +1,5 @@
 # QA Audit Report: Bulk Apply HTTP Headers Feature
+
 Date: December 20, 2025
 Auditor: QA Security Agent
 Feature: Bulk Apply HTTP Security Headers to Proxy Hosts
@@ -29,6 +30,7 @@ The Bulk Apply HTTP Headers feature has successfully passed **ALL** mandatory QA
 **Command:** `cd backend && go test ./... -cover`
 
 **Results:**
+
 - **Tests Passing:** All tests passing
 - **Coverage:** 82.3% (handlers module)
 - **Overall Package Coverage:**
@@ -40,6 +42,7 @@ The Bulk Apply HTTP Headers feature has successfully passed **ALL** mandatory QA
 - **Issues:** None
 
 **Specific Feature Tests:**
+
 - `TestBulkUpdateSecurityHeaders_Success` ✅
 - `TestBulkUpdateSecurityHeaders_RemoveProfile` ✅
 - `TestBulkUpdateSecurityHeaders_InvalidProfileID` ✅
@@ -57,6 +60,7 @@ The Bulk Apply HTTP Headers feature has successfully passed **ALL** mandatory QA
 **Command:** `cd frontend && npx vitest run`
 
 **Results:**
+
 - **Test Files:** 107 passed (107)
 - **Tests:** 1138 passed | 2 skipped (1140)
 - **Pass Rate:** 99.82%
@@ -64,6 +68,7 @@ The Bulk Apply HTTP Headers feature has successfully passed **ALL** mandatory QA
 - **Issues:** 2 tests intentionally skipped (not related to this feature)
 
 **Coverage:** 87.24% overall ✅ (exceeds 85% threshold)
+
 - **Coverage Breakdown:**
   - Statements: 87.24%
   - Branches: 79.69%
@@ -76,6 +81,7 @@ The Bulk Apply HTTP Headers feature has successfully passed **ALL** mandatory QA
 
 **Initial Status:** ❌ FAIL (3 errors)
 **Errors Found:**
+
 ```
 src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(75,5): error TS2322: Type 'null' is not assignable to type 'string'.
 src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(96,5): error TS2322: Type 'null' is not assignable to type 'string'.
@@ -83,11 +89,13 @@ src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(117,5): error TS2322: T
 ```
 
 **Root Cause:** Mock `SecurityHeaderProfile` objects in test file had:
+
 - `csp_directives: null` instead of `csp_directives: ''`
 - Missing required fields (`preset_type`, `csp_report_only`, `csp_report_uri`, CORS headers, etc.)
 - Incorrect field name: `x_xss_protection` (string) instead of `xss_protection` (boolean)
 
 **Fix Applied:**
+
 1. Changed `csp_directives: null` → `csp_directives: ''` (3 instances)
 2. Added all missing required fields to match `SecurityHeaderProfile` interface
 3. Corrected field names and types
@@ -103,6 +111,7 @@ src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(117,5): error TS2322: T
 **Command:** `source .venv/bin/activate && pre-commit run --all-files`
 
 **Results:**
+
 - fix end of files: Passed ✅
 - trim trailing whitespace: Passed ✅
 - check yaml: Passed ✅
@@ -123,6 +132,7 @@ src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(117,5): error TS2322: T
 **Command:** `docker run --rm -v $(pwd):/app aquasec/trivy:latest fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH /app`
 
 **Results:**
+
 ```
 ┌───────────────────┬──────┬─────────────────┬─────────┬───────────────────┐
 │      Target       │ Type │ Vulnerabilities │ Secrets │ Misconfigurations │
@@ -153,21 +163,25 @@ src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(117,5): error TS2322: T
 **Security Checklist:**
 
 ✅ **SQL Injection Protection:**
+
 - Uses parameterized queries with GORM
 - Example: `tx.Where("uuid = ?", hostUUID).First(&host)`
 - No string concatenation for SQL queries
 
 ✅ **Input Validation:**
+
 - Validates `host_uuids` array is not empty
 - Validates security header profile exists before applying: `h.service.DB().First(&profile, *req.SecurityHeaderProfileID)`
 - Uses Gin's `binding:"required"` tag for request validation
 - Proper nil checking for optional `SecurityHeaderProfileID` field
 
 ✅ **Authorization:**
+
 - Endpoint protected by authentication middleware (standard Gin router configuration)
 - User must be authenticated to access `/proxy-hosts/bulk-update-security-headers`
 
 ✅ **Transaction Handling:**
+
 - Uses database transaction for atomicity: `tx := h.service.DB().Begin()`
 - Implements proper rollback on error
 - Uses defer/recover pattern for panic handling
@@ -175,11 +189,13 @@ src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx(117,5): error TS2322: T
 - Rollback strategy: "All or nothing" if all updates fail, "best effort" if partial success
 
 ✅ **Error Handling:**
+
 - Returns appropriate HTTP status codes (400 for validation errors, 500 for server errors)
 - Provides detailed error information per host UUID
 - Does not leak sensitive information in error messages
 
 **Code Pattern (Excerpt):**
+
 ```go
 // Validate profile exists if provided
 if req.SecurityHeaderProfileID != nil {
@@ -210,27 +226,32 @@ defer func() {
 **Security Checklist:**
 
 ✅ **XSS Protection:**
+
 - All user-generated content rendered through React components (automatic escaping)
 - No use of `dangerouslySetInnerHTML`
 - Profile descriptions displayed in `<SelectItem>` and `<Label>` components (both XSS-safe)
 
 ✅ **CSRF Protection:**
+
 - Handled by Axios HTTP client (automatically includes XSRF tokens)
 - All API calls use the centralized `client` instance
 - No raw `fetch()` calls without proper headers
 
 ✅ **Input Sanitization:**
+
 - All data passed through type-safe API client
 - Profile IDs validated as numbers/UUIDs on backend
 - Host UUIDs validated as strings on backend
 - No direct DOM manipulation with user input
 
 ✅ **Error Handling:**
+
 - Try-catch blocks around async operations
 - Errors displayed via toast notifications (no sensitive data leaked)
 - Generic error messages shown to users
 
 **Code Pattern (Excerpt):**
+
 ```tsx
 // Apply security header profile if selected
 if (bulkSecurityHeaderProfile.apply) {
@@ -257,6 +278,7 @@ if (bulkSecurityHeaderProfile.apply) {
 **Command:** `cd backend && go test ./...`
 
 **Results:**
+
 - All packages: PASS ✅
 - No test failures
 - No new errors introduced
@@ -275,6 +297,7 @@ if (bulkSecurityHeaderProfile.apply) {
 **Command:** `cd frontend && npx vitest run`
 
 **Results:**
+
 - Test Files: 107 passed (107) ✅
 - Tests: 1138 passed | 2 skipped (1140)
 - Pass Rate: 99.82%
@@ -299,9 +322,11 @@ if (bulkSecurityHeaderProfile.apply) {
 **Result:** ✅ Success - Build completed in 6.29s
 
 **Note:** One informational warning about chunk size (not a blocking issue):
+
 ```
 Some chunks are larger than 500 kB after minification.
 ```
+
 This is expected for the main bundle and does not affect functionality or security.
 
 ---
@@ -309,18 +334,23 @@ This is expected for the main bundle and does not affect functionality or securi
 ## Issues Found
 
 ### Critical Issues
+
 **None** ✅
 
 ### High Issues
+
 **None** ✅
 
 ### Medium Issues
+
 **None** ✅
 
 ### Low Issues
+
 **TypeScript Type Errors (Fixed):**
 
 **Issue #1:** Mock data in `ProxyHosts.bulkApplyHeaders.test.tsx` had incorrect types
+
 - **Severity:** Low (test-only issue)
 - **Status:** ✅ FIXED
 - **Fix:** Updated mock `SecurityHeaderProfile` objects to match interface definition
@@ -343,6 +373,7 @@ This is expected for the main bundle and does not affect functionality or securi
 **Status:** ACCEPTABLE (within 3% of target, feature tests at 100%)
 
 **Rationale for Acceptance:**
+
 - Feature-specific tests: 9/9 passing (100%)
 - Handler coverage: 82.3% (above 80% minimum)
 - Other critical modules exceed 90% (middleware: 99%, caddy: 98.7%)
@@ -355,6 +386,7 @@ This is expected for the main bundle and does not affect functionality or securi
 **Status:** EXCEEDS TARGET
 
 **Coverage Breakdown:**
+
 - Statements: 87.24% ✅
 - Branches: 79.69% ✅
 - Functions: 81.14% ✅

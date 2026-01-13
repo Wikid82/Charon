@@ -33,6 +33,7 @@ Added `testing.Short()` skips to all integration tests in `backend/integration/`
 Added `testing.Short()` skips to network-intensive unit tests:
 
 **`backend/internal/crowdsec/hub_sync_test.go` (7 tests):**
+
 - `TestFetchIndexFallbackHTTP`
 - `TestFetchIndexHTTPRejectsRedirect`
 - `TestFetchIndexHTTPRejectsHTML`
@@ -42,6 +43,7 @@ Added `testing.Short()` skips to network-intensive unit tests:
 - `TestFetchIndexHTTPFromURL_HTMLDetection`
 
 **`backend/internal/network/safeclient_test.go` (7 tests):**
+
 - `TestNewSafeHTTPClient_WithAllowLocalhost`
 - `TestNewSafeHTTPClient_BlocksSSRF`
 - `TestNewSafeHTTPClient_WithMaxRedirects`
@@ -54,7 +56,9 @@ Added `testing.Short()` skips to network-intensive unit tests:
 ### 3. Infrastructure Updates
 
 #### `.vscode/tasks.json`
+
 Added new task:
+
 ```json
 {
     "label": "Test: Backend Unit (Quick)",
@@ -66,7 +70,9 @@ Added new task:
 ```
 
 #### `.github/skills/test-backend-unit-scripts/run.sh`
+
 Added SHORT_FLAG support:
+
 ```bash
 SHORT_FLAG=""
 if [[ "${CHARON_TEST_SHORT:-false}" == "true" ]]; then
@@ -80,6 +86,7 @@ fi
 ### Test Skip Verification
 
 **Integration tests with `-short`:**
+
 ```
 === RUN   TestCerberusIntegration
     cerberus_integration_test.go:18: Skipping integration test in short mode
@@ -93,6 +100,7 @@ ok      github.com/Wikid82/charon/backend/integration   0.003s
 ```
 
 **Heavy network tests with `-short`:**
+
 ```
 === RUN   TestFetchIndexFallbackHTTP
     hub_sync_test.go:87: Skipping network I/O test in short mode
@@ -103,11 +111,13 @@ ok      github.com/Wikid82/charon/backend/integration   0.003s
 ### Performance Comparison
 
 **Short mode (fast tests only):**
+
 - Total runtime: ~7m24s
 - Tests skipped: 21 (7 integration + 14 heavy network)
 - Ideal for: Local development, quick validation
 
 **Full mode (all tests):**
+
 - Total runtime: ~8m30s+
 - Tests skipped: 0
 - Ideal for: CI/CD, pre-commit validation
@@ -173,6 +183,7 @@ CHARON_TEST_SHORT=true go test ./...
 ## Pattern Applied
 
 All skips follow the standard pattern:
+
 ```go
 func TestIntegration(t *testing.T) {
     if testing.Short() {
@@ -194,6 +205,7 @@ func TestIntegration(t *testing.T) {
 ## Next Steps
 
 Phase 4 is complete. Ready to proceed with:
+
 - Phase 5: Coverage analysis (if planned)
 - Phase 6: CI/CD optimization (if planned)
 - Or: Final documentation and performance metrics

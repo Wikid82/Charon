@@ -26,11 +26,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 **Location:** [config.go#L66-L105](../../backend/internal/caddy/config.go#L66-L105)
 
 Current SSL provider handling:
+
 - `letsencrypt` - ACME with Let's Encrypt
 - `zerossl` - ZeroSSL module
 - `both`/default - Both issuers as fallback
 
 **Current Issuer Configuration:**
+
 ```go
 switch sslProvider {
 case "letsencrypt":
@@ -96,6 +98,7 @@ All models follow this pattern:
 ### 2.2 Relevant Existing Models
 
 #### SSLCertificate ([ssl_certificate.go](../../backend/internal/models/ssl_certificate.go))
+
 ```go
 type SSLCertificate struct {
     ID          uint       `json:"id" gorm:"primaryKey"`
@@ -113,11 +116,13 @@ type SSLCertificate struct {
 ```
 
 #### SecurityConfig ([security_config.go](../../backend/internal/models/security_config.go))
+
 - Stores global security settings
 - Uses `gorm:"type:text"` for JSON blobs
 - Has sensitive field (`BreakGlassHash`) with `json:"-"` tag
 
 #### Setting ([setting.go](../../backend/internal/models/setting.go))
+
 ```go
 type Setting struct {
     ID        uint      `json:"id" gorm:"primaryKey"`
@@ -130,6 +135,7 @@ type Setting struct {
 ```
 
 #### NotificationProvider ([notification_provider.go](../../backend/internal/models/notification_provider.go))
+
 - Stores webhook URLs and configs
 - **Currently does NOT encrypt sensitive data** (URLs stored as plaintext)
 - Uses JSON config for flexible provider-specific data
@@ -139,6 +145,7 @@ type Setting struct {
 **Location:** [backend/internal/models/user.go](../../backend/internal/models/user.go)
 
 Uses bcrypt for password hashing:
+
 ```go
 func (u *User) SetPassword(password string) error {
     hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -243,6 +250,7 @@ type DNSProviderCredential struct {
 ### 4.2 Request/Response Examples
 
 #### Create DNS Provider Request
+
 ```json
 {
   "name": "My Cloudflare Account",
@@ -256,6 +264,7 @@ type DNSProviderCredential struct {
 ```
 
 #### List DNS Providers Response
+
 ```json
 {
   "providers": [
@@ -299,6 +308,7 @@ type ProxyHost struct {
 ### 5.1 Recommended Approach: AES-256-GCM
 
 **Why AES-GCM:**
+
 - Authenticated encryption (provides confidentiality + integrity)
 - Standard and well-vetted
 - Fast on modern CPUs with AES-NI
@@ -386,11 +396,13 @@ func (s *EncryptionService) Decrypt(ciphertextB64 string) ([]byte, error) {
 ### 5.3 Key Management
 
 #### Environment Variable
+
 ```bash
 CHARON_ENCRYPTION_KEY=<base64-encoded-32-byte-key>
 ```
 
 #### Key Generation (one-time setup)
+
 ```bash
 openssl rand -base64 32
 ```
@@ -511,26 +523,31 @@ type AutomationPolicy struct {
 ## 8. Implementation Phases
 
 ### Phase 1: Foundation
+
 1. Create encryption package
 2. Create DNSProvider model
 3. Database migration
 
 ### Phase 2: Service Layer
+
 1. DNS provider service (CRUD)
 2. Credential encryption/decryption
 3. Provider connectivity testing
 
 ### Phase 3: API Layer
+
 1. DNS provider handlers
 2. Route registration
 3. API validation
 
 ### Phase 4: Caddy Integration
+
 1. Update config generation
 2. DNS challenge issuer building
 3. ProxyHost integration
 
 ### Phase 5: Testing & Documentation
+
 1. Unit tests (>85% coverage)
 2. Integration tests
 3. API documentation

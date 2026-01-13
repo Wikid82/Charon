@@ -146,9 +146,10 @@ jobs:
 
             if (currentBranch === 'main') {
               // Main -> Development
-              await createPR('main', 'development', 'nightly');
+              await createPR('main', 'development');
             } else if (currentBranch === 'development') {
               // Development -> Nightly
+              await createPR('development', 'nightly');
             } else if (currentBranch === 'nightly') {
               // Nightly -> Feature branches
               const branches = await github.paginate(github.rest.repos.listBranches, {

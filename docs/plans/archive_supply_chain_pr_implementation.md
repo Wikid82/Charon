@@ -58,6 +58,7 @@ The `docker-build.yml` workflow is failing at the "Save Docker Image as Artifact
 ```
 
 **Key Parameters for PR Builds**:
+
 - `push: false` (line 117)
 - `load: true` (line 118) - **This loads the image into the local Docker daemon**
 - `tags: ${{ steps.meta.outputs.tags }}` (line 119)
@@ -80,11 +81,13 @@ The `docker-build.yml` workflow is failing at the "Save Docker Image as Artifact
 ```
 
 **For PR builds**, only this tag is enabled (line 111):
+
 - `type=raw,value=pr-${{ github.event.pull_request.number }}`
 
 This generates the tag: `ghcr.io/${IMAGE_NAME}:pr-${PR_NUMBER}`
 
 **Example**: For PR #123 with owner "Wikid82", the tag would be:
+
 - Input to metadata-action: `ghcr.io/wikid82/charon` (already normalized at line 56-57)
 - Generated tag: `ghcr.io/wikid82/charon:pr-123`
 
@@ -99,11 +102,13 @@ This generates the tag: `ghcr.io/${IMAGE_NAME}:pr-${PR_NUMBER}`
 > When using `load: true`, the image is loaded into the local Docker daemon. However, **multi-platform builds cannot be loaded** (they require `push: true`), so only single-platform builds work with `load: true`.
 
 **The Problem**: The `docker save` command at line 141 references:
+
 ```bash
 ghcr.io/${IMAGE_NAME}:pr-${{ github.event.pull_request.number }}
 ```
 
 But the image loaded locally might be tagged as:
+
 - `ghcr.io/wikid82/charon:pr-123` ✅ (correct - what we expect)
 - `wikid82/charon:pr-123` ❌ (missing registry prefix)
 - Or the image might exist but with a different tag format
@@ -154,6 +159,7 @@ verify-supply-chain-pr-skipped (lines 724-754)
 ```
 
 **Dependency Chain Impact**:
+
 1. ❌ `build-and-push` fails at line 141 (docker save)
 2. ❌ Artifact is never uploaded (lines 144-150)
 3. ❌ `verify-supply-chain-pr` cannot download artifact (line 517) - job is marked as "skipped" or "failed"
@@ -164,6 +170,7 @@ verify-supply-chain-pr-skipped (lines 724-754)
 Looking at similar patterns in the file that **work correctly**:
 
 **Line 376** (in `test-image` job):
+
 ```yaml
 - name: Normalize image name
   run: |
@@ -173,6 +180,7 @@ Looking at similar patterns in the file that **work correctly**:
 ```
 
 This job **doesn't load images locally** - it pulls from the registry (line 395):
+
 ```yaml
 - name: Pull Docker image
   run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
@@ -181,6 +189,7 @@ This job **doesn't load images locally** - it pulls from the registry (line 395)
 So this pattern works because it's pulling from a pushed image, not a locally loaded one.
 
 **Line 516** (in `verify-supply-chain-pr` job):
+
 ```yaml
 - name: Normalize image name
   run: |
@@ -199,6 +208,7 @@ This step **expects to load the image from an artifact** (lines 511-520), so it 
 ### Workflow-Level Configuration
 
 **Tool Versions** (extracted as environment variables):
+
 - `SYFT_VERSION`: v1.17.0
 - `GRYPE_VERSION`: v0.85.0
 
@@ -215,6 +225,7 @@ These will be defined at the workflow level to ensure consistency and easier upd
 **Dependency**: `needs: build-and-push`
 **Purpose**: Download image artifact, perform SBOM generation and vulnerability scanning
 **Skip Conditions**:
+
 - If `build-and-push` output `skip_build == 'true'`
 - If `build-and-push` did not succeed
 
@@ -227,8 +238,10 @@ These will be defined at the workflow level to ensure consistency and easier upd
 ### Key Technical Decisions
 
 #### Decision 1: Image Sharing Strategy
+
 **Chosen Approach**: Save image as tar archive and share via GitHub Actions artifacts
 **Why**:
+
 - Jobs run in isolated environments; local Docker images are not shared by default
 - Artifacts provide reliable cross-job data sharing
 - Avoids registry push for PR builds (maintains current security model)
@@ -236,28 +249,34 @@ These will be defined at the workflow level to ensure consistency and easier upd
 **Alternative Considered**: Push to registry with ephemeral tags (rejected: requires registry permissions, security concerns, cleanup complexity)
 
 #### Decision 2: Tool Versions
+
 **Syft**: v1.17.0 (matches existing security-verify-sbom skill)
 **Grype**: v0.85.0 (matches existing security-verify-sbom skill)
 **Why**: Consistent with existing workflows, tested versions
 
 #### Decision 3: Failure Behavior
+
 **Critical Vulnerabilities**: Fail the job (exit code 1)
 **High Vulnerabilities**: Warn but don't fail
 **Why**: Aligns with project standards (see security-verify-sbom.SKILL.md)
 
 #### Decision 4: SARIF Category Strategy
+
 **Category Format**: `supply-chain-pr-${{ github.event.pull_request.number }}-${{ github.sha }}`
 **Why**: Including SHA prevents conflicts when multiple commits are pushed to the same PR concurrently
 **Without SHA**: Concurrent uploads to the same category would overwrite each other
 
 #### Decision 5: Null Safety in Outputs
+
 **Approach**: Add explicit null checks and fallback values for all step outputs
 **Why**:
+
 - Step outputs may be undefined if steps are skipped or fail
 - Prevents workflow failures in reporting steps
 - Ensures graceful degradation of user feedback
 
 #### Decision 6: Workflow Conflict Resolution
+
 **Issue**: `supply-chain-verify.yml` currently handles PR workflow_run events, creating duplicate verification
 **Solution**: Update `supply-chain-verify.yml` to exclude PR builds from workflow_run triggers
 **Why**: Inline verification in docker-build.yml provides faster feedback; workflow_run is unnecessary for PRs
@@ -325,6 +344,7 @@ See complete YAML in Appendix B.
 **File**: `.github/workflows/supply-chain-verify.yml`
 **Location**: Update the `verify-sbom` job condition (around line 68)
 **Current**:
+
 ```yaml
 if: |
   (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
@@ -332,6 +352,7 @@ if: |
 ```
 
 **Updated**:
+
 ```yaml
 if: |
   (github.event_name != 'schedule' || github.ref == 'refs/heads/main') &&
@@ -344,6 +365,7 @@ if: |
 
 ---
 **Generate**:
+
 - SBOM file (CycloneDX JSON)
 - Vulnerability scan results (JSON)
 - GitHub SARIF report (for Security tab integration)
@@ -366,6 +388,7 @@ See complete YAML job definitions in Appendix A and B.
 ### Insertion Instructions
 
 **Location in docker-build.yml**:
+
 - Environment variables: After line 22
 - Image artifact upload: After line 113 (in build-and-push job)
 - New jobs: After line 229 (end of `trivy-pr-app-only` job)
@@ -377,6 +400,7 @@ See complete YAML job definitions in Appendix A and B.
 ## Testing Plan
 
 ### Phase 1: Basic Validation
+
 1. Create test PR on `feature/beta-release`
 2. Verify artifact upload/download works correctly
 3. Verify image loads successfully in verification job
@@ -388,6 +412,7 @@ See complete YAML job definitions in Appendix A and B.
 9. Verify job summary is created with all null checks working
 
 ### Phase 2: Critical Fixes Validation
+
 1. **Image Access**: Verify artifact contains image tar, verify download succeeds, verify docker load works
 2. **Conditionals**: Test that job skips when build-and-push fails or is skipped
 3. **SARIF Category**: Push multiple commits to same PR, verify no SARIF conflicts in Security tab
@@ -396,18 +421,21 @@ See complete YAML job definitions in Appendix A and B.
 6. **Skipped Feedback**: Create chore commit, verify skipped feedback job posts comment
 
 ### Phase 3: Edge Cases
+
 1. Test with intentionally vulnerable dependency
 2. Test with build skip (chore commit)
 3. Test concurrent PRs (verify artifacts don't collide)
 4. Test rapid successive commits to same PR
 
 ### Phase 4: Performance Validation
+
 1. Measure baseline PR build time (without feature)
 2. Measure new PR build time (with feature)
 3. Verify increase is within expected 50-60% range
 4. Monitor artifact storage usage
 
 ### Phase 5: Rollback
+
 If issues arise, revert the commit. No impact on main/tag builds.
 
 ---
@@ -415,6 +443,7 @@ If issues arise, revert the commit. No impact on main/tag builds.
 ## Success Criteria
 
 ### Functional
+
 - ✅ Artifacts are uploaded/downloaded correctly for all PR builds
 - ✅ Image loads successfully in verification job
 - ✅ Job runs for all PR builds (when not skipped)
@@ -429,11 +458,13 @@ If issues arise, revert the commit. No impact on main/tag builds.
 - ✅ No duplicate verification from supply-chain-verify.yml
 
 ### Performance
+
 - ⏱️ Completes in <15 minutes
 - 📦 Artifact size <250MB
 - 📈 Total PR build time increase: 50-60% (acceptable)
 
 ### Reliability
+
 - 🔒 All null checks in place (no undefined variable errors)
 - 🔄 Handles concurrent PR commits without conflicts
 - ✅ Graceful degradation if steps fail

@@ -33,6 +33,7 @@ PR Opened
 **Architecture Decision**: Keep workflows separate with dependency orchestration via `workflow_run` trigger.
 
 **Rationale**:
+
 - **Modularity**: Each workflow has a distinct, cohesive purpose
 - **Reusability**: Verification can run on-demand or scheduled independently
 - **Maintainability**: Easier to test, debug, and understand individual workflows
@@ -45,6 +46,7 @@ PR Opened
 Modify `supply-chain-verify.yml` triggers:
 
 **Current**:
+
 ```yaml
 on:
   release:
@@ -57,6 +59,7 @@ on:
 ```
 
 **Proposed**:
+
 ```yaml
 on:
   release:
@@ -77,6 +80,7 @@ on:
 ```
 
 **Key Changes**:
+
 1. Remove `pull_request` trigger (prevents premature execution)
 2. Add `workflow_run` trigger that waits for docker-build workflow
 3. Specify branches to match docker-build's branch targets
@@ -164,6 +168,7 @@ Update the "Comment on PR" step to work with `workflow_run` context:
 ### Workflow Execution Flow (After Fix)
 
 **PR Workflow**:
+
 ```
 PR Opened/Updated
     └─> docker-build.yml runs
@@ -179,6 +184,7 @@ PR Opened/Updated
 ```
 
 **Push to Main**:
+
 ```
 Push to main
     └─> docker-build.yml runs
@@ -190,12 +196,14 @@ Push to main
 ### Implementation Checklist
 
 **Changes to `.github/workflows/supply-chain-verify.yml`**:
+
 - [x] Update triggers section (remove pull_request, add workflow_run)
 - [x] Add job conditional (check workflow_run.conclusion)
 - [x] Update tag determination (handle workflow_run context)
 - [x] Update PR comment logic (extract PR number correctly)
 
 **Testing Plan**:
+
 - [ ] Test PR workflow (verify sequential execution and correct tagging)
 - [ ] Test push to main (verify 'latest' tag usage)
 - [ ] Test manual trigger (verify workflow_dispatch works)
@@ -247,6 +255,7 @@ Push to main
 **Status**: ✅ All phases completed successfully
 
 **Changes Made**:
+
 1. ✅ Added `workflow_run` trigger to supply-chain-verify.yml
 2. ✅ Removed `pull_request` trigger
 3. ✅ Added workflow success filter
@@ -255,12 +264,14 @@ Push to main
 6. ✅ Added debug logging for validation
 
 **Validation**:
+
 - ✅ Security audit passed (see [qa_report_workflow_orchestration.md](../../reports/qa_report_workflow_orchestration.md))
 - ✅ Pre-commit hooks passed
 - ✅ YAML syntax validated
 - ✅ No breaking changes to other workflows
 
 **Documentation**:
+
 - [Implementation Summary](../../implementation/WORKFLOW_ORCHESTRATION_FIX.md)
 - [QA Report](../../reports/qa_report_workflow_orchestration.md)
 

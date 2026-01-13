@@ -150,6 +150,7 @@ The details modal displays:
 The details field contains a JSON object with event-specific information:
 
 **Create Event Example:**
+
 ```json
 {
   "name": "Cloudflare Production",
@@ -159,6 +160,7 @@ The details field contains a JSON object with event-specific information:
 ```
 
 **Update Event Example:**
+
 ```json
 {
   "changed_fields": ["credentials", "is_default"],
@@ -172,6 +174,7 @@ The details field contains a JSON object with event-specific information:
 ```
 
 **Test Event Example:**
+
 ```json
 {
   "test_result": "success",
@@ -180,6 +183,7 @@ The details field contains a JSON object with event-specific information:
 ```
 
 **Decrypt Event Example:**
+
 ```json
 {
   "purpose": "certificate_issuance",
@@ -230,12 +234,14 @@ Export audit logs for external analysis, compliance reporting, or archival:
 ### Scenario 1: New DNS Provider Setup
 
 **Timeline:**
+
 1. User `admin@example.com` logs in from `192.168.1.100`
 2. Navigates to DNS Providers page
 3. Clicks "Add DNS Provider"
 4. Fills in Cloudflare credentials and clicks Save
 
 **Audit Log Entries:**
+
 ```
 2026-01-03 14:23:45 | user:5 | dns_provider_create | dns_provider | {"name":"Cloudflare Prod","type":"cloudflare","is_default":true}
 ```
@@ -243,10 +249,12 @@ Export audit logs for external analysis, compliance reporting, or archival:
 ### Scenario 2: Credential Testing
 
 **Timeline:**
+
 1. User tests existing provider credentials
 2. API validation succeeds
 
 **Audit Log Entries:**
+
 ```
 2026-01-03 14:25:12 | user:5 | credential_test | dns_provider | {"test_result":"success","response_time_ms":342}
 ```
@@ -254,12 +262,14 @@ Export audit logs for external analysis, compliance reporting, or archival:
 ### Scenario 3: Certificate Issuance
 
 **Timeline:**
+
 1. Caddy detects new host requires SSL certificate
 2. Caddy decrypts DNS provider credentials
 3. ACME DNS-01 challenge completes successfully
 4. Certificate issued
 
 **Audit Log Entries:**
+
 ```
 2026-01-03 14:30:00 | system | credential_decrypt | dns_provider | {"purpose":"certificate_issuance","success":true}
 2026-01-03 14:30:45 | system | certificate_issued | certificate | {"domain":"app.example.com","provider":"cloudflare","result":"success"}
@@ -268,10 +278,12 @@ Export audit logs for external analysis, compliance reporting, or archival:
 ### Scenario 4: Provider Update
 
 **Timeline:**
+
 1. User updates default provider setting
 2. API saves changes
 
 **Audit Log Entries:**
+
 ```
 2026-01-03 15:00:22 | user:5 | dns_provider_update | dns_provider | {"changed_fields":["is_default"],"old_values":{"is_default":false},"new_values":{"is_default":true}}
 ```
@@ -279,10 +291,12 @@ Export audit logs for external analysis, compliance reporting, or archival:
 ### Scenario 5: Provider Deletion
 
 **Timeline:**
+
 1. User deletes unused DNS provider
 2. Credentials are securely wiped
 
 **Audit Log Entries:**
+
 ```
 2026-01-03 16:45:33 | user:5 | dns_provider_delete | dns_provider | {"name":"Old Provider","type":"route53","had_credentials":true}
 ```
@@ -342,6 +356,7 @@ Audit logging is designed for minimal performance impact:
 - **Automatic Cleanup**: Old logs are periodically deleted to prevent database bloat
 
 **Typical Impact:**
+
 - API request latency: +0.1ms (sending to channel)
 - Database writes: Batched in background, no user-facing impact
 - Storage: ~500 bytes per event, ~1.5 GB per year at 100 events/day
@@ -371,11 +386,13 @@ If audit log pages load slowly:
 Retrieve audit logs with pagination and filtering.
 
 **Endpoint:**
+
 ```http
 GET /api/v1/audit-logs
 ```
 
 **Query Parameters:**
+
 - `page` (int, default: 1): Page number
 - `limit` (int, default: 50, max: 100): Results per page
 - `actor` (string): Filter by actor (user ID or "system")
@@ -386,12 +403,14 @@ GET /api/v1/audit-logs
 - `end_date` (RFC3339): End of date range
 
 **Example Request:**
+
 ```bash
 curl -X GET "https://charon.example.com/api/v1/audit-logs?page=1&limit=50&event_category=dns_provider&start_date=2026-01-01T00:00:00Z" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 **Response:**
+
 ```json
 {
   "audit_logs": [
@@ -423,20 +442,24 @@ curl -X GET "https://charon.example.com/api/v1/audit-logs?page=1&limit=50&event_
 Retrieve complete details for a specific audit event.
 
 **Endpoint:**
+
 ```http
 GET /api/v1/audit-logs/:uuid
 ```
 
 **Parameters:**
+
 - `uuid` (string, required): Event UUID
 
 **Example Request:**
+
 ```bash
 curl -X GET "https://charon.example.com/api/v1/audit-logs/550e8400-e29b-41d4-a716-446655440000" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 **Response:**
+
 ```json
 {
   "id": 1,
@@ -458,24 +481,29 @@ curl -X GET "https://charon.example.com/api/v1/audit-logs/550e8400-e29b-41d4-a71
 Retrieve all audit events for a specific DNS provider.
 
 **Endpoint:**
+
 ```http
 GET /api/v1/dns-providers/:id/audit-logs
 ```
 
 **Parameters:**
+
 - `id` (int, required): DNS provider ID
 
 **Query Parameters:**
+
 - `page` (int, default: 1): Page number
 - `limit` (int, default: 50, max: 100): Results per page
 
 **Example Request:**
+
 ```bash
 curl -X GET "https://charon.example.com/api/v1/dns-providers/3/audit-logs?page=1&limit=50" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 **Response:**
+
 ```json
 {
   "audit_logs": [
@@ -543,11 +571,13 @@ Authorization: Bearer YOUR_API_TOKEN
 Configure how long audit logs are retained before automatic deletion:
 
 **Environment Variable:**
+
 ```bash
 AUDIT_LOG_RETENTION_DAYS=90  # Default: 90 days
 ```
 
 **Docker Compose:**
+
 ```yaml
 services:
   charon:
@@ -560,6 +590,7 @@ services:
 Configure the size of the audit log channel buffer (advanced):
 
 **Environment Variable:**
+
 ```bash
 AUDIT_LOG_CHANNEL_SIZE=1000  # Default: 1000 events
 ```
