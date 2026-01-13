@@ -1,4 +1,14 @@
-name: Playwright Tests
+# ============================================================================
+# DISABLED: This workflow has been integrated into docker-build.yml
+# ============================================================================
+# Integration date: January 12, 2026
+# Reason: Consolidated E2E testing with Docker build workflow for better
+# visibility and to ensure tests run against the actual built image.
+#
+# See: .github/workflows/docker-build.yml → e2e-tests-pr job
+# ============================================================================
+
+name: Playwright Tests (DISABLED)
 on:
   push:
     branches: [ main, master ]

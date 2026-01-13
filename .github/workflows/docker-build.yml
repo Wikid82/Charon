@@ -363,7 +363,7 @@ jobs:
 
       - name: Upload Trivy results
         if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
           sarif_file: 'trivy-results.sarif'
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -642,7 +642,7 @@ jobs:
       # Critical Fix #3: SARIF category includes SHA to prevent conflicts
       - name: Upload SARIF to GitHub Security
         if: always()
-        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
           sarif_file: grype-results.sarif
           category: supply-chain-pr-${{ github.event.pull_request.number }}-${{ github.sha }}
@@ -793,3 +793,113 @@ jobs:
               issue_number: context.issue.number,
               body: body
             });
+
+  # ============================================================================
+  # E2E Tests (Playwright) for PR Builds
+  # ============================================================================
+  # This job runs end-to-end tests using Playwright against the Docker image
+  # built for pull requests. It validates the application's functionality from
+  # the user's perspective before merging.
+  #
+  # Dependency Chain: build-and-push → e2e-tests-pr
+  # ============================================================================
+  e2e-tests-pr:
+    name: E2E Tests (Playwright)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.build-and-push.outputs.skip_build != 'true' &&
+      needs.build-and-push.result == 'success'
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pr-image-${{ github.event.pull_request.number }}
+
+      - name: Load Docker image
+        run: |
+          echo "📦 Loading image from artifact..."
+          docker load -i charon-pr-image.tar
+          echo "✅ Image loaded successfully"
+
+      - name: Normalize image name
+        run: |
+          IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Verify loaded image
+        run: |
+          IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+          if ! docker image inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+            echo "❌ ERROR: Image not found: ${IMAGE_REF}"
+            docker images
+            exit 1
+          fi
+          echo "✅ Image loaded: ${IMAGE_REF}"
+
+      - name: Start application container
+        run: |
+          IMAGE_REF="ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}"
+          docker run -d --name charon \
+            -p 8080:8080 \
+            -e CHARON_ENV=development \
+            -e CHARON_DEBUG=1 \
+            -e CHARON_ENCRYPTION_KEY=test-key-for-ci-only-not-production \
+            "${IMAGE_REF}"
+
+      - name: Wait for application health
+        run: |
+          echo "Waiting for application to be ready..."
+          timeout 120 bash -c 'until curl -sf http://localhost:8080/api/v1/health > /dev/null; do
+            echo "Waiting for health endpoint..."
+            sleep 2
+          done'
+          echo "✅ Application is ready"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
+        with:
+          node-version: lts/*
+
+      - name: Install Playwright dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Run Playwright E2E tests
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8080
+        run: npx playwright test
+
+      - name: Stop application container
+        if: always()
+        run: docker stop charon && docker rm charon
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-report-pr-${{ github.event.pull_request.number }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Create E2E Test Summary
+        if: always()
+        run: |
+          echo "## 🎭 E2E Test Results - PR #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image**: \`ghcr.io/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ job.status == 'success' && '✅ All tests passed' || '❌ Tests failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ job.status }}" != "success" ]]; then
+            echo "📊 [View Test Report](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts)" >> $GITHUB_STEP_SUMMARY
+          fi
