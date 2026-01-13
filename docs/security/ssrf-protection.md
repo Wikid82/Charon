@@ -5,6 +5,7 @@
 Server-Side Request Forgery (SSRF) is a critical web security vulnerability where an attacker can abuse server functionality to access or manipulate internal resources. Charon implements comprehensive defense-in-depth SSRF protection across all features that accept user-controlled URLs.
 
 **Status**: ✅ **CodeQL CWE-918 Resolved** (PR #450)
+
 - Taint chain break verified via static analysis
 - Test coverage: 90.2% for URL validation utilities
 - Zero security vulnerabilities (Trivy, govulncheck clean)
@@ -91,10 +92,12 @@ Charon validates all user-controlled URLs in the following features:
 **Protection**: All webhook URLs are validated before saving to prevent SSRF attacks when security events trigger notifications.
 
 **Validation on**:
+
 - Configuration save (fail-fast)
 - Notification delivery (defense-in-depth)
 
 **Example Valid URL**:
+
 ```json
 {
   "webhook_url": "https://hooks.slack.com/services/T00/B00/XXX"
@@ -102,6 +105,7 @@ Charon validates all user-controlled URLs in the following features:
 ```
 
 **Blocked URLs**:
+
 - Private IPs: `http://192.168.1.1/admin`
 - Cloud metadata: `http://169.254.169.254/latest/meta-data/`
 - Internal hostnames: `http://internal-db.local:3306/`
@@ -117,6 +121,7 @@ Charon validates all user-controlled URLs in the following features:
 **Use Case**: Send notifications to Discord, Slack, or custom monitoring systems.
 
 **Example Valid URL**:
+
 ```json
 {
   "webhook_url": "https://discord.com/api/webhooks/123456/abcdef"
@@ -134,6 +139,7 @@ Charon validates all user-controlled URLs in the following features:
 **Admin Access Required**: Yes (prevents abuse by non-privileged users)
 
 **Example Usage**:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/settings/test-url \
   -H "Content-Type: application/json" \
@@ -150,6 +156,7 @@ curl -X POST http://localhost:8080/api/v1/settings/test-url \
 **Protection**: CrowdSec hub URLs are validated against an allowlist of official hub domains. Custom hub URLs require HTTPS.
 
 **Allowed Domains**:
+
 - `hub-data.crowdsec.net` (official hub)
 - `raw.githubusercontent.com` (official mirror)
 - `*.example.com`, `*.local` (test domains, testing only)
@@ -165,6 +172,7 @@ curl -X POST http://localhost:8080/api/v1/settings/test-url \
 **Protection**: GitHub API URLs are validated to ensure only official GitHub domains are queried. Prevents SSRF via update check manipulation.
 
 **Allowed Domains**:
+
 - `api.github.com`
 - `github.com`
 
@@ -187,6 +195,7 @@ Charon blocks **13+ IP ranges** to prevent SSRF attacks:
 | `192.168.0.0/16` | Class C private network | `192.168.1.1` |
 
 **Attack Example**:
+
 ```bash
 # Attacker attempts to access internal database
 curl -X POST /api/v1/settings/security/webhook \
@@ -209,6 +218,7 @@ curl -X POST /api/v1/settings/security/webhook \
 | `100.100.100.200` | Alibaba Cloud | Instance metadata |
 
 **Attack Example**:
+
 ```bash
 # Attacker attempts AWS metadata access
 curl -X POST /api/v1/settings/security/webhook \
@@ -219,6 +229,7 @@ curl -X POST /api/v1/settings/security/webhook \
 ```
 
 **Why This Matters**: Cloud metadata endpoints expose:
+
 - IAM role credentials (AWS access keys)
 - Service account tokens (GCP)
 - Managed identity credentials (Azure)
@@ -236,6 +247,7 @@ curl -X POST /api/v1/settings/security/webhook \
 | `::1/128` | IPv6 loopback | `::1` |
 
 **Attack Example**:
+
 ```bash
 # Attacker attempts to access Charon's internal API
 curl -X POST /api/v1/settings/security/webhook \
@@ -277,6 +289,7 @@ Charon uses a **four-stage validation pipeline** for all user-controlled URLs:
 ### Stage 1: URL Format Validation
 
 **Checks**:
+
 - ✅ URL is not empty
 - ✅ URL parses correctly (valid syntax)
 - ✅ Scheme is `http` or `https` only
@@ -284,6 +297,7 @@ Charon uses a **four-stage validation pipeline** for all user-controlled URLs:
 - ✅ No credentials in URL (e.g., `http://user:pass@example.com`)
 
 **Blocked Schemes**:
+
 - `file://` (file system access)
 - `ftp://` (FTP protocol smuggling)
 - `gopher://` (legacy protocol exploitation)
@@ -291,6 +305,7 @@ Charon uses a **four-stage validation pipeline** for all user-controlled URLs:
 - `javascript:` (XSS/code injection)
 
 **Example Validation Failure**:
+
 ```go
 // Blocked: Invalid scheme
 err := ValidateExternalURL("file:///etc/passwd")
@@ -302,17 +317,20 @@ err := ValidateExternalURL("file:///etc/passwd")
 ### Stage 2: DNS Resolution
 
 **Checks**:
+
 - ✅ Hostname resolves via DNS (3-second timeout)
 - ✅ At least one IP address returned
 - ✅ Handles both IPv4 and IPv6 addresses
 - ✅ Prevents DNS timeout attacks
 
 **Protection Against**:
+
 - Non-existent domains (typosquatting)
 - DNS timeout DoS attacks
 - DNS rebinding (resolved IPs checked immediately before request)
 
 **Example**:
+
 ```go
 // Resolve hostname to IPs
 ips, err := net.LookupIP("webhook.example.com")
@@ -331,6 +349,7 @@ for _, ip := range ips {
 ### Stage 3: IP Range Validation
 
 **Checks**:
+
 - ✅ ALL resolved IPs are checked (not just the first)
 - ✅ Private IP ranges blocked (13+ CIDR blocks)
 - ✅ IPv4 and IPv6 support
@@ -338,6 +357,7 @@ for _, ip := range ips {
 - ✅ Loopback and link-local addresses blocked
 
 **Validation Logic**:
+
 ```go
 func isPrivateIP(ip net.IP) bool {
     // Check loopback and link-local first (fast path)
@@ -376,12 +396,14 @@ func isPrivateIP(ip net.IP) bool {
 ### Stage 4: Request Execution
 
 **Checks**:
+
 - ✅ Use validated IP explicitly (bypass DNS caching attacks)
 - ✅ Set timeout (5-10 seconds, context-based)
 - ✅ Limit redirects (0-2 maximum)
 - ✅ Log all SSRF attempts with HIGH severity
 
 **HTTP Client Configuration**:
+
 ```go
 client := &http.Client{
     Timeout: 10 * time.Second,
@@ -403,16 +425,19 @@ client := &http.Client{
 **Purpose**: Enable local development and integration testing
 
 **When Allowed**:
+
 - URL connectivity testing with `WithAllowLocalhost()` option
 - Development environment (`CHARON_ENV=development`)
 - Explicit test fixtures in test code
 
 **Allowed Addresses**:
+
 - `localhost` (hostname)
 - `127.0.0.1` (IPv4)
 - `::1` (IPv6)
 
 **Example**:
+
 ```go
 // Production: Blocked
 err := ValidateExternalURL("http://localhost:8080/admin")
@@ -430,11 +455,13 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 ### When to Use `WithAllowLocalhost`
 
 **✅ Safe Uses**:
+
 1. **Unit tests**: Testing validation logic with mock servers
 2. **Integration tests**: Testing against local test fixtures
 3. **Development mode**: Local webhooks for debugging (with explicit flag)
 
 **❌ Unsafe Uses**:
+
 1. Production webhook configurations
 2. User-facing features without strict access control
 3. Any scenario where an attacker controls the URL
@@ -452,6 +479,7 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
    - Container orchestration APIs (Docker, Kubernetes)
 
 2. **Port Scanning**: Attacker can enumerate services:
+
    ```bash
    # Scan internal ports via error messages
    http://localhost:22/    # SSH (connection refused)
@@ -492,6 +520,7 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 ```
 
 **Why These Are Safe**:
+
 - ✅ Use HTTPS (encrypted, authenticated)
 - ✅ Resolve to public IP addresses
 - ✅ Operated by known, trusted services
@@ -542,6 +571,7 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 ```
 
 **Why These Are Blocked**:
+
 - ❌ Expose internal network resources
 - ❌ Allow cloud metadata access (credentials leak)
 - ❌ Enable protocol smuggling
@@ -557,11 +587,13 @@ err := ValidateExternalURL("http://localhost:8080/admin", WithAllowLocalhost())
 **Attack**: DNS record changes between validation and request execution
 
 **Charon's Defense**:
+
 1. Resolve hostname immediately before HTTP request
 2. Check ALL resolved IPs against blocklist
 3. Use explicit IP in HTTP client (bypass DNS cache)
 
 **Example Attack Scenario**:
+
 ```
 Time T0: Attacker configures webhook: http://evil.com/webhook
   DNS Resolution: evil.com → 203.0.113.10 (public IP, passes validation)
@@ -577,6 +609,7 @@ Time T3: Security event triggers webhook
 ```
 
 **Protection Mechanism**:
+
 ```go
 // Validation happens at configuration save AND request time
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
@@ -602,6 +635,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 **Attack**: Race condition between validation and request
 
 **Charon's Defense**:
+
 - Validation and DNS resolution happen in a single transaction
 - HTTP request uses resolved IP (no re-resolution)
 - Timeout prevents long-running requests that could stall validation
@@ -613,6 +647,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 **Attack**: Initial URL is valid, but redirects to private IP
 
 **Charon's Defense**:
+
 ```go
 client := &http.Client{
     CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -637,6 +672,7 @@ client := &http.Client{
 **Charon's Approach**: Generic user-facing errors, detailed server logs
 
 **User-Facing Error**:
+
 ```json
 {
   "error": "URL resolves to a private IP address (blocked for security)"
@@ -644,17 +680,20 @@ client := &http.Client{
 ```
 
 **Server Log**:
+
 ```
 level=HIGH msg="Blocked SSRF attempt" url="http://192.168.1.100/admin" resolved_ip="192.168.1.100" user_id="admin123" timestamp="2025-12-23T10:30:00Z"
 ```
 
 **What's Hidden**:
+
 - ❌ Internal IP addresses (except in validation context)
 - ❌ Network topology details
 - ❌ Service names or ports
 - ❌ DNS resolution details
 
 **What's Revealed**:
+
 - ✅ Validation failure reason (security context)
 - ✅ User-friendly explanation
 - ✅ Security justification
@@ -670,11 +709,13 @@ level=HIGH msg="Blocked SSRF attempt" url="http://192.168.1.100/admin" resolved_
 **Cause**: The URL's hostname resolves to a private IP range (RFC 1918, loopback, link-local).
 
 **Solutions**:
+
 1. ✅ Use a publicly accessible webhook endpoint
 2. ✅ If webhook must be internal, use a public-facing gateway/proxy
 3. ✅ For development, use a service like ngrok or localtunnel
 
 **Example Fix**:
+
 ```bash
 # BAD: Internal IP
 http://192.168.1.100/webhook
@@ -693,11 +734,13 @@ https://abc123.ngrok.io/webhook
 **Cause**: The URL uses `localhost`, `127.0.0.1`, or `::1` without the localhost exception enabled.
 
 **Solutions**:
+
 1. ✅ Use a public webhook service (Slack, Discord, etc.)
 2. ✅ Deploy webhook receiver on a public server
 3. ✅ For testing, use test URL endpoint with admin privileges
 
 **Example Fix**:
+
 ```bash
 # BAD: Localhost
 http://localhost:3000/webhook
@@ -720,6 +763,7 @@ curl -X POST /api/v1/settings/test-url \
 **Solution**: Change the URL scheme to `http://` or `https://`.
 
 **Example Fix**:
+
 ```bash
 # BAD: File protocol
 file:///etc/passwd
@@ -735,12 +779,14 @@ https://api.example.com/webhook
 **Cause**: Hostname does not resolve, or the server is unreachable.
 
 **Solutions**:
+
 1. ✅ Verify the domain exists and is publicly resolvable
 2. ✅ Check for typos in the URL
 3. ✅ Ensure the webhook receiver is running and accessible
 4. ✅ Test connectivity with `curl` or `ping` from Charon's network
 
 **Example Debugging**:
+
 ```bash
 # Test DNS resolution
 nslookup webhooks.example.com
@@ -810,6 +856,7 @@ EOF
 ### When to Contact Security Team
 
 **Report SSRF bypasses if you can**:
+
 1. Access private IPs despite validation
 2. Retrieve cloud metadata endpoints
 3. Use protocol smuggling to bypass scheme checks
@@ -817,6 +864,7 @@ EOF
 5. Bypass IP range checks with IPv6 or encoding tricks
 
 **How to Report**:
+
 - Email: `security@charon.example.com` (if configured)
 - GitHub Security Advisory: <https://github.com/Wikid82/charon/security/advisories/new>
 - Include: steps to reproduce, proof of concept (non-destructive)
@@ -828,11 +876,13 @@ EOF
 ### How to Use `ValidateExternalURL`
 
 **Import**:
+
 ```go
 import "github.com/Wikid82/charon/backend/internal/security"
 ```
 
 **Basic Usage**:
+
 ```go
 func SaveWebhookConfig(webhookURL string) error {
     // Validate before saving to database
@@ -847,6 +897,7 @@ func SaveWebhookConfig(webhookURL string) error {
 ```
 
 **With Options**:
+
 ```go
 // Allow HTTP (not recommended for production)
 validatedURL, err := security.ValidateExternalURL(webhookURL,
@@ -907,11 +958,13 @@ For runtime HTTP requests where SSRF protection must be enforced at connection t
 3. **Layer 3: Redirect Validation** - Each redirect target is validated before following
 
 **Import**:
+
 ```go
 import "github.com/Wikid82/charon/backend/internal/network"
 ```
 
 **Basic Usage**:
+
 ```go
 // Create a safe HTTP client with default options
 client := network.NewSafeHTTPClient()
@@ -927,6 +980,7 @@ defer resp.Body.Close()
 ```
 
 **With Options**:
+
 ```go
 // Custom timeout (default: 10 seconds)
 client := network.NewSafeHTTPClient(
@@ -1255,6 +1309,7 @@ func (s *NotificationService) SendWebhook(ctx context.Context, event SecurityEve
 Charon maintains extensive test coverage for all SSRF protection mechanisms:
 
 **URL Validation Tests** (90.2% coverage):
+
 - ✅ Private IP detection (IPv4/IPv6)
 - ✅ Cloud metadata endpoint blocking (169.254.169.254)
 - ✅ DNS resolution with timeout handling
@@ -1263,6 +1318,7 @@ Charon maintains extensive test coverage for all SSRF protection mechanisms:
 - ✅ Multiple IP address validation (all must pass)
 
 **Security Notification Tests**:
+
 - ✅ Webhook URL validation on save
 - ✅ Webhook URL re-validation on send
 - ✅ HTTPS enforcement in production
@@ -1270,12 +1326,14 @@ Charon maintains extensive test coverage for all SSRF protection mechanisms:
 - ✅ DNS rebinding protection
 
 **Integration Tests**:
+
 - ✅ End-to-end webhook delivery with SSRF checks
 - ✅ CrowdSec hub URL validation
 - ✅ URL connectivity testing with admin-only access
 - ✅ Performance benchmarks (< 10ms validation overhead)
 
 **Test Pattern Example**:
+
 ```go
 func TestValidateExternalURL_CloudMetadataDetection(t *testing.T) {
     // Test blocking AWS metadata endpoint
@@ -1325,6 +1383,7 @@ We're interested in:
 ### How to Report
 
 **Preferred Method**: GitHub Security Advisory
+
 1. Go to <https://github.com/Wikid82/charon/security/advisories/new>
 2. Provide:
    - Steps to reproduce
@@ -1334,6 +1393,7 @@ We're interested in:
 3. We'll respond within 48 hours
 
 **Alternative Method**: Email
+
 - Send to: `security@charon.example.com` (if configured)
 - Encrypt with PGP key (if available in SECURITY.md)
 - Include same information as GitHub advisory
@@ -1341,11 +1401,13 @@ We're interested in:
 ### Responsible Disclosure
 
 **Please**:
+
 - ✅ Give us time to fix before public disclosure (90 days)
 - ✅ Provide clear reproduction steps
 - ✅ Avoid destructive testing (don't attack real infrastructure)
 
 **We'll**:
+
 - ✅ Acknowledge your report within 48 hours
 - ✅ Provide regular status updates
 - ✅ Credit you in release notes (if desired)

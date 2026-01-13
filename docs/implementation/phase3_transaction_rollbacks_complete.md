@@ -63,12 +63,14 @@ Analyzed 5 database-heavy test files:
 The `testutil/db.go` helper should be used for **future tests** that meet these criteria:
 
 ✅ **Good Candidates:**
+
 - Tests using disk-based databases (SQLite files, PostgreSQL, MySQL)
 - Simple CRUD operations with straightforward setup
 - Tests that would benefit from parallelization
 - New test suites being created from scratch
 
 ❌ **Poor Candidates:**
+
 - Tests already using `:memory:` SQLite
 - Tests requiring different schemas per test
 - Tests with complex setup/teardown logic

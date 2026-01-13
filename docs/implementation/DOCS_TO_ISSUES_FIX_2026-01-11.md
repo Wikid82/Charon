@@ -32,11 +32,13 @@ Removed `[skip ci]` flag from workflow commit message while maintaining robust i
 `.github/workflows/docs-to-issues.yml` (Line 346)
 
 **Before:**
+
 ```yaml
 git commit -m "chore: move processed issue files to created/ [skip ci]"
 ```
 
 **After:**
+
 ```yaml
 git commit -m "chore: move processed issue files to created/"
 # Removed [skip ci] to allow CI checks to run on PRs
@@ -71,6 +73,7 @@ git commit -m "chore: move processed issue files to created/"
 **Level:** LOW
 
 **Justification:**
+
 - Workflow-only change (no application code modified)
 - Multiple loop protection mechanisms (path filter + bot guard)
 - Enables CI validation (improves security posture)

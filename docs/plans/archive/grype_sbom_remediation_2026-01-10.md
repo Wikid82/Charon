@@ -40,6 +40,7 @@ syft ${IMAGE} -o spdx-json > sbom-generated.json || {
 \`\`\`
 
 **Issues**:
+
 - Generates SBOM in **SPDX-JSON** format
 - Error handling exits with code 0, masking failures
 - Empty or malformed file may be created if image doesn't exist
@@ -55,6 +56,7 @@ grype sbom:sbom-generated.json -o json > vuln-scan.json || {
 \`\`\`
 
 **Issues**:
+
 - Assumes SBOM file is valid without checking
 - Fails if SBOM is empty, corrupted, or malformed
 - Error is suppressed with `exit 0`
@@ -83,11 +85,13 @@ grype sbom:sbom-generated.json -o json > vuln-scan.json || {
 ### Supported Formats (Anchore Documentation)
 
 **Grype** supports:
+
 - Syft JSON (native format)
 - SPDX JSON/XML
 - CycloneDX JSON/XML
 
 **Syft** outputs:
+
 - Syft JSON
 - SPDX JSON/XML
 - CycloneDX JSON/XML
@@ -126,6 +130,7 @@ grype sbom:sbom-generated.json -o json > vuln-scan.json || {
 Combine format standardization, validation, and conditional execution.
 
 **Phase 1** (Immediate - 2-4 hours):
+
 1. Standardize on **CycloneDX-JSON** format (aligns with docker-build.yml)
 2. Add image existence check before SBOM generation
 3. Add comprehensive SBOM validation before Grype scan
@@ -133,6 +138,7 @@ Combine format standardization, validation, and conditional execution.
 5. Skip gracefully when image doesn't exist
 
 **Phase 2** (Future enhancement - 4-8 hours):
+
 - Retrieve attested SBOM from registry instead of regenerating
 - Eliminates duplication and ensures consistency
 
@@ -147,6 +153,7 @@ Combine format standardization, validation, and conditional execution.
 **Location**: After "Determine Image Tag" step (after line 54)
 
 \`\`\`yaml
+
 - name: Check Image Availability
   id: image-check
   env:
@@ -187,6 +194,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 
 **Before**:
 \`\`\`yaml
+
 - name: Verify SBOM Completeness
   env:
     IMAGE: ghcr.io/${{ github.repository_owner }}/charon:${{ steps.tag.outputs.tag }}
@@ -194,6 +202,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 
 **After**:
 \`\`\`yaml
+
 - name: Verify SBOM Completeness
   if: steps.image-check.outputs.exists == 'true'
   env:
@@ -205,27 +214,31 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 **Location**: New step after "Verify SBOM Completeness" (after line 77)
 
 \`\`\`yaml
+
 - name: Validate SBOM File
   id: validate-sbom
   if: steps.image-check.outputs.exists == 'true'
   run: |
     echo "Validating SBOM file..."
 
-    # Check file exists
+  # Check file exists
+
     if [[ ! -f sbom-generated.json ]]; then
       echo "❌ SBOM file does not exist"
       echo "valid=false" >> $GITHUB_OUTPUT
       exit 0
     fi
 
-    # Check file is non-empty
+  # Check file is non-empty
+
     if [[ ! -s sbom-generated.json ]]; then
       echo "❌ SBOM file is empty"
       echo "valid=false" >> $GITHUB_OUTPUT
       exit 0
     fi
 
-    # Validate JSON structure
+  # Validate JSON structure
+
     if ! jq empty sbom-generated.json 2>/dev/null; then
       echo "❌ SBOM file contains invalid JSON"
       cat sbom-generated.json
@@ -233,7 +246,8 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
       exit 0
     fi
 
-    # Validate CycloneDX structure
+  # Validate CycloneDX structure
+
     BOMFORMAT=$(jq -r '.bomFormat // "missing"' sbom-generated.json)
     SPECVERSION=$(jq -r '.specVersion // "missing"' sbom-generated.json)
     COMPONENTS=$(jq '.components // [] | length' sbom-generated.json)
@@ -262,6 +276,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 **Location**: Lines 81-103 (replace entire "Scan for Vulnerabilities" step)
 
 \`\`\`yaml
+
 - name: Scan for Vulnerabilities
   if: steps.validate-sbom.outputs.valid == 'true'
   env:
@@ -272,7 +287,8 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
     echo "SBOM size: $(wc -c < sbom-generated.json) bytes"
     echo ""
 
-    # Run Grype with explicit path and better error handling
+  # Run Grype with explicit path and better error handling
+
     if ! grype sbom:./sbom-generated.json --output json --file vuln-scan.json; then
       echo ""
       echo "❌ Grype scan failed"
@@ -290,11 +306,13 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
     echo "✅ Grype scan completed successfully"
     echo ""
 
-    # Display human-readable results
+  # Display human-readable results
+
     echo "Vulnerability summary:"
     grype sbom:./sbom-generated.json --output table || true
 
-    # Parse and categorize results
+  # Parse and categorize results
+
     CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' vuln-scan.json 2>/dev/null || echo "0")
     HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' vuln-scan.json 2>/dev/null || echo "0")
     MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' vuln-scan.json 2>/dev/null || echo "0")
@@ -307,12 +325,14 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
     echo "  Medium: ${MEDIUM}"
     echo "  Low: ${LOW}"
 
-    # Set warnings for critical vulnerabilities
+  # Set warnings for critical vulnerabilities
+
     if [[ ${CRITICAL} -gt 0 ]]; then
       echo "::warning::${CRITICAL} critical vulnerabilities found"
     fi
 
-    # Store for PR comment
+  # Store for PR comment
+
     echo "CRITICAL_VULNS=${CRITICAL}" >> $GITHUB_ENV
     echo "HIGH_VULNS=${HIGH}" >> $GITHUB_ENV
     echo "MEDIUM_VULNS=${MEDIUM}" >> $GITHUB_ENV
@@ -344,6 +364,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 **Location**: Lines 107-122 (replace entire "Comment on PR" step)
 
 \`\`\`yaml
+
 - name: Comment on PR
   if: github.event_name == 'pull_request'
   uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
@@ -388,6 +409,7 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
         issue_number: context.issue.number,
         body: body
       });
+
 \`\`\`
 
 ---
@@ -399,40 +421,52 @@ syft ${IMAGE} -o cyclonedx-json > sbom-generated.json || {
 #### 1. Local SBOM Generation and Validation
 
 \`\`\`bash
+
 # Test SBOM generation with existing image
+
 docker pull ghcr.io/wikid82/charon:latest
 
 # Generate SBOM in CycloneDX format
+
 syft ghcr.io/wikid82/charon:latest -o cyclonedx-json > test-sbom.json
 
 # Validate JSON structure
+
 jq empty test-sbom.json && echo "✅ Valid JSON" || echo "❌ Invalid JSON"
 
 # Check CycloneDX fields
+
 jq '.bomFormat, .specVersion, .components | length' test-sbom.json
 
 # Test Grype scan
+
 grype sbom:./test-sbom.json -o table
 
 # Test with explicit path
+
 grype sbom:./test-sbom.json -o json > vuln-test.json
 
 # Check results
+
 jq '.matches | length' vuln-test.json
 \`\`\`
 
 #### 2. Test Empty/Invalid SBOM Handling
 
 \`\`\`bash
+
 # Test with empty file
+
 touch empty.json
 grype sbom:./empty.json 2>&1 | grep -i "format"
 
 # Test with invalid JSON
+
 echo "{invalid json" > invalid.json
 grype sbom:./invalid.json 2>&1 | grep -i "format"
 
 # Test with missing fields
+
 echo '{"bomFormat":"test"}' > incomplete.json
 grype sbom:./incomplete.json 2>&1 | grep -i "format"
 \`\`\`
@@ -440,10 +474,13 @@ grype sbom:./incomplete.json 2>&1 | grep -i "format"
 #### 3. Test Image Availability Check
 
 \`\`\`bash
+
 # Test manifest check for existing image
+
 docker manifest inspect ghcr.io/wikid82/charon:latest
 
 # Test manifest check for non-existent image
+
 docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 \`\`\`
 
@@ -495,11 +532,14 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 3. **Alternative: Pin Tool Versions**
    If the issue is version-related:
    \`\`\`yaml
+
    # Pin Syft version
-   curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v0.100.0
+
+   curl -sSfL <https://raw.githubusercontent.com/anchore/syft/main/install.sh> | sh -s -- -b /usr/local/bin v0.100.0
 
    # Pin Grype version
-   curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin v0.74.0
+
+   curl -sSfL <https://raw.githubusercontent.com/anchore/grype/main/install.sh> | sh -s -- -b /usr/local/bin v0.74.0
    \`\`\`
 
 ### Investigation Steps
@@ -515,12 +555,14 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 ## Dependencies and Prerequisites
 
 ### Tool Versions
+
 - **Syft**: Latest from install script (currently v0.100+)
 - **Grype**: Latest from install script (currently v0.74+)
 - **Docker**: v20+ (available in GitHub runners)
 - **jq**: v1.6+ (available in GitHub runners)
 
 ### GitHub Permissions Required
+
 - `contents: read` - Repository code access
 - `packages: read` - Container registry access
 - `pull-requests: write` - Comment on PRs
@@ -529,6 +571,7 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 - `attestations: write` - Create/verify attestations
 
 ### External Dependencies
+
 - GitHub Container Registry (ghcr.io) must be accessible
 - Anchore install scripts must be available
 - Internet access required for tool installation
@@ -538,11 +581,13 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 ## Implementation Checklist
 
 ### Preparation
+
 - [ ] Review current workflow file
 - [ ] Document current behavior
 - [ ] Create feature branch
 
 ### Implementation
+
 - [ ] Add image existence check step
 - [ ] Change SBOM format from SPDX to CycloneDX
 - [ ] Add SBOM validation step
@@ -552,6 +597,7 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 - [ ] Update workflow documentation
 
 ### Testing
+
 - [ ] Test locally with existing image
 - [ ] Test with empty SBOM file
 - [ ] Test with invalid JSON
@@ -562,12 +608,14 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 - [ ] Verify success path
 
 ### Documentation
+
 - [ ] Update README if needed
 - [ ] Document SBOM format choice
 - [ ] Add troubleshooting guide
 - [ ] Update CI/CD documentation
 
 ### Deployment
+
 - [ ] Create PR with changes
 - [ ] Code review
 - [ ] Merge to main
@@ -609,6 +657,7 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 ## Success Metrics
 
 ### Technical Metrics
+
 - Workflow success rate: 100% on valid images
 - SBOM validation accuracy: 100%
 - Grype scan completion rate: 100% on valid SBOMs
@@ -616,12 +665,14 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 - False negative rate: 0%
 
 ### Operational Metrics
+
 - Time to detect vulnerability: < 5 minutes after image build
 - Mean time to remediate issues: Immediate (next workflow run)
 - Manual intervention required: 0
 - CI/CD pipeline reliability: > 99%
 
 ### Quality Metrics
+
 - Zero "format not recognized" errors in 30 days
 - Clear, actionable error messages
 - Comprehensive workflow logs
@@ -636,6 +687,7 @@ docker manifest inspect ghcr.io/wikid82/charon:pr-99999 2>&1
 Instead of regenerating SBOM, retrieve the one created by docker-build:
 
 \`\`\`yaml
+
 - name: Retrieve Attested SBOM
   if: steps.image-check.outputs.exists == 'true'
   env:
@@ -644,7 +696,8 @@ Instead of regenerating SBOM, retrieve the one created by docker-build:
   run: |
     echo "Retrieving attested SBOM from registry..."
 
-    # Download attestation using GitHub CLI
+  # Download attestation using GitHub CLI
+
     gh attestation verify oci://${IMAGE} \
       --owner ${{ github.repository_owner }} \
       --format json > attestation.json 2>&1 || {
@@ -652,10 +705,12 @@ Instead of regenerating SBOM, retrieve the one created by docker-build:
       exit 0
     }
 
-    # Extract SBOM from attestation
+  # Extract SBOM from attestation
+
     jq -r '.predicate' attestation.json > sbom-attested.json
 
-    # Validate and use
+  # Validate and use
+
     if jq empty sbom-attested.json 2>/dev/null; then
       echo "✅ Retrieved attested SBOM"
       mv sbom-attested.json sbom-generated.json
@@ -665,12 +720,14 @@ Instead of regenerating SBOM, retrieve the one created by docker-build:
 \`\`\`
 
 **Benefits**:
+
 - Single source of truth
 - Eliminates duplication
 - Uses verified, signed SBOM
 - Aligns with supply chain best practices
 
 **Requirements**:
+
 - GitHub CLI with attestation support
 - Attestation must be published to registry
 - Additional testing for attestation retrieval
@@ -680,11 +737,13 @@ Instead of regenerating SBOM, retrieve the one created by docker-build:
 ## Related Documentation
 
 ### Internal References
+
 - [.github/workflows/supply-chain-verify.yml](.github/workflows/supply-chain-verify.yml)
 - [.github/workflows/docker-build.yml](.github/workflows/docker-build.yml)
 - Project README (Security section)
 
 ### External References
+
 - [Anchore Grype Documentation](https://github.com/anchore/grype)
 - [Anchore Syft Documentation](https://github.com/anchore/syft)
 - [CycloneDX Specification](https://cyclonedx.org/specification/overview/)
@@ -702,6 +761,7 @@ Instead of regenerating SBOM, retrieve the one created by docker-build:
 **Review Status**: Ready for Review
 
 **Required Reviewers**:
+
 - [ ] DevOps Lead / CI/CD Owner
 - [ ] Security Team Representative
 - [ ] Repository Maintainer

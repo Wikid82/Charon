@@ -16,6 +16,7 @@ We take security seriously. If you discover a security vulnerability in Charon, 
 ### Where to Report
 
 **Preferred Method**: GitHub Security Advisory (Private)
+
 1. Go to <https://github.com/Wikid82/charon/security/advisories/new>
 2. Fill out the advisory form with:
    - Vulnerability description
@@ -25,6 +26,7 @@ We take security seriously. If you discover a security vulnerability in Charon, 
    - Suggested fix (if applicable)
 
 **Alternative Method**: Email
+
 - Send to: `security@charon.dev` (if configured)
 - Use PGP encryption (key available below, if applicable)
 - Include same information as GitHub advisory
@@ -100,6 +102,7 @@ Charon implements industry-leading **5-layer defense-in-depth** SSRF protection 
 #### Learn More
 
 For complete technical details, see:
+
 - [SSRF Protection Guide](docs/security/ssrf-protection.md)
 - [Manual Test Plan](docs/issues/ssrf-manual-test-plan.md)
 - [QA Audit Report](docs/reports/qa_ssrf_remediation_report.md)
@@ -207,6 +210,7 @@ cosign verify \
 ```
 
 Successful verification output confirms:
+
 - The image was built by GitHub Actions
 - The build came from the official Charon repository
 - The image has not been tampered with since signing
@@ -321,6 +325,7 @@ Charon implements multiple layers of automated security scanning:
 **Trigger Timing**: Runs automatically after `docker-build.yml` completes successfully via `workflow_run` trigger.
 
 **Branch Coverage**: Triggers on **ALL branches** where docker-build completes, including:
+
 - `main` (default branch)
 - `development`
 - `feature/*` branches (including `feature/beta-release`)
@@ -329,6 +334,7 @@ Charon implements multiple layers of automated security scanning:
 **Why No Branch Filter**: GitHub Actions has a platform limitation where `branches` filters in `workflow_run` triggers only match the default branch. To ensure comprehensive supply chain verification across all branches and PRs, we intentionally omit the branch filter. The workflow file must exist on the branch to execute, preventing untrusted code execution.
 
 **Verification Steps**:
+
 1. SBOM completeness verification
 2. Vulnerability scanning with Grype
 3. Results uploaded as workflow artifacts
@@ -336,6 +342,7 @@ Charon implements multiple layers of automated security scanning:
 5. For releases: Cosign signature verification and SLSA provenance validation
 
 **Additional Triggers**:
+
 - Runs on all published releases
 - Scheduled weekly on Mondays at 00:00 UTC
 - Can be triggered manually via `workflow_dispatch`
@@ -373,6 +380,7 @@ The security scanning workflows use a coordinated orchestration pattern:
 4. **Weekly Maintenance**: `security-weekly-rebuild.yml` provides ongoing monitoring
 
 This pattern ensures:
+
 - Images are built before verification attempts to scan them
 - No race conditions between build and verification
 - Comprehensive coverage across all branches and PRs

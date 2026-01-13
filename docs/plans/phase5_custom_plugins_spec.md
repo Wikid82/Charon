@@ -13,6 +13,7 @@
 This document specifies the implementation of a custom DNS provider plugin system for Charon. This feature enables users to integrate DNS providers not supported out-of-the-box by creating Go plugins that implement a standard interface.
 
 ### Key Goals
+
 - Enable extensibility for custom/internal DNS providers
 - Maintain backward compatibility with existing providers
 - Provide security controls (signature verification, allowlisting)
@@ -39,11 +40,13 @@ This document specifies the implementation of a custom DNS provider plugin syste
 ### Caddy DNS Module Dependency
 
 External plugins provide:
+
 - UI credential field definitions
 - Credential validation
 - Caddy config generation
 
 But **Caddy itself must have the matching DNS provider module compiled in**. For example, to use PowerDNS:
+
 1. Install Charon's PowerDNS plugin (this feature) - handles UI/API/credentials
 2. Use Caddy built with [caddy-dns/powerdns](https://github.com/caddy-dns/powerdns) - handles actual DNS challenge
 
@@ -692,6 +695,7 @@ func (b *ConfigBuilder) buildDNSChallengeIssuer(dnsConfig *DNSProviderConfig) ma
 **File: `frontend/src/pages/Plugins.tsx`**
 
 Features:
+
 - List all installed plugins (built-in and external)
 - Show status (loaded, error, disabled)
 - Enable/disable toggle for external plugins
@@ -886,6 +890,7 @@ func (p *PowerDNSProvider) PollingInterval() time.Duration {
 ```
 
 **Build Command:**
+
 ```bash
 cd plugins/powerdns
 go build -buildmode=plugin -o ../powerdns.so main.go
@@ -900,6 +905,7 @@ go build -buildmode=plugin -o ../powerdns.so main.go
 ### 6.1 Critical Security Warnings
 
 > 🚨 **IN-PROCESS EXECUTION:** External plugins run in the same process as Charon. A malicious plugin has full access to:
+>
 > - All process memory (including encryption keys)
 > - Database connections
 > - Network capabilities
@@ -989,6 +995,7 @@ export CHARON_PLUGINS_STRICT_MODE=true
 ### 7.3 Build Requirements
 
 > ⚠️ **CGO Required:** Go plugins require CGO. Build plugins with:
+>
 > ```bash
 > CGO_ENABLED=1 go build -buildmode=plugin -o plugin.so main.go
 > ```

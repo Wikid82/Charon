@@ -339,6 +339,7 @@ Your backend application must be configured to trust proxy headers. Most framewo
 6. Click **"Apply Changes"**
 
 **Bulk Apply also supports:**
+
 - Applying or removing security header profiles across multiple hosts
 - Enabling/disabling Forward Auth, WAF, or Access Lists in bulk
 - Updating SSL certificate assignments for multiple hosts at once
@@ -761,21 +762,25 @@ Your uptime history will be preserved.
 ### Key Features
 
 **Failure Debouncing**: Requires **2 consecutive failures** before marking a host as "down"
+
 - Prevents false alarms from transient network hiccups
 - Container restarts don't trigger unnecessary alerts
 - Single TCP timeouts are logged but don't change status
 
 **Automatic Retries**: Up to 2 retry attempts per check with 2-second delay
+
 - Handles slow networks and warm-up periods
 - 10-second timeout per attempt (increased from 5s)
 - Total check time: up to 22 seconds for marginal hosts
 
 **Concurrent Processing**: All host checks run in parallel
+
 - Fast overall check times even with many hosts
 - No single slow host blocks others
 - Synchronized completion prevents race conditions
 
 **Status Consistency**: Checks complete before UI reads database
+
 - Eliminates stale status during page refreshes
 - No race conditions between checks and API calls
 - Reliable status display across rapid refreshes
@@ -789,6 +794,7 @@ Charon uses a **two-level check system** with enhanced reliability:
 **What it does:** Tests if the backend host/container is reachable via TCP connection with automatic retry on failure.
 
 **How it works:**
+
 - Groups monitors by their backend IP address (e.g., `172.20.0.11`)
 - Attempts TCP connection to the actual backend port (e.g., port `5690` for Wizarr)
 - **First failure**: Increments failure counter, status unchanged, waits 2s and retries
@@ -798,6 +804,7 @@ Charon uses a **two-level check system** with enhanced reliability:
 - If successful → Proceeds to Level 2 checks
 
 **Why it matters:**
+
 - Avoids redundant HTTP checks when an entire backend container is stopped or unreachable
 - Prevents false "down" alerts from single network hiccups
 - Handles slow container startups gracefully
@@ -810,6 +817,7 @@ This ensures correct connectivity checks for services on non-standard ports.
 **What it does:** Verifies the specific service is responding correctly via HTTP request.
 
 **How it works:**
+
 - Only runs if Level 1 passes
 - Performs HTTP GET to the public URL (e.g., `https://wizarr.hatfieldhosted.com`)
 - Accepts these as "up": 2xx (success), 3xx (redirect), 401 (auth required), 403 (forbidden)
@@ -823,6 +831,7 @@ This ensures correct connectivity checks for services on non-standard ports.
 ### When Things Go Wrong
 
 **Scenario 1: Backend container stopped**
+
 - Level 1: TCP connection fails (attempt 1) ❌
 - Level 1: TCP connection fails (attempt 2) ❌
 - Failure count: 2 → Host marked "down"
@@ -830,17 +839,20 @@ This ensures correct connectivity checks for services on non-standard ports.
 - Status: "down" with message "Host unreachable"
 
 **Scenario 2: Transient network issue**
+
 - Level 1: TCP connection fails (attempt 1) ❌
 - Failure count: 1 (threshold not met)
 - Status: Remains "up"
 - Next check: Success ✅ → Failure count reset to 0
 
 **Scenario 3: Service crashed but container running**
+
 - Level 1: TCP connection succeeds ✅
 - Level 2: HTTP request fails or returns 500 ❌
 - Status: "down" with specific HTTP error
 
 **Scenario 4: Everything working**
+
 - Level 1: TCP connection succeeds ✅
 - Level 2: HTTP request succeeds ✅
 - Status: "up" with latency measurement
@@ -851,11 +863,13 @@ This ensures correct connectivity checks for services on non-standard ports.
 **Issue**: Host shows "down" but service is accessible
 
 **Common causes**:
+
 1. **Timeout too short**: Increase from 10s if network is slow
 2. **Container warmup**: Service takes >10s to respond during startup
 3. **Firewall blocking**: Ensure Charon container can reach proxy host ports
 
 **Check logs**:
+
 ```bash
 docker logs charon 2>&1 | grep "Host TCP check completed"
 docker logs charon 2>&1 | grep "Retrying TCP check"
@@ -869,6 +883,7 @@ docker logs charon 2>&1 | grep "failure_count"
 **Per-Host**: Edit any proxy host and toggle "Enable Uptime Monitoring"
 
 **Bulk Operations**:
+
 1. Select multiple hosts (checkboxes)
 2. Click "Bulk Apply"
 3. Toggle "Uptime Monitoring" section
@@ -1040,6 +1055,7 @@ Uses WebSocket technology to stream logs with zero delay.
 **Template Styles:**
 
 **Minimal Template** — Clean, simple text notifications:
+
 ```json
 {
   "content": "{{.Title}}: {{.Message}}"
@@ -1047,6 +1063,7 @@ Uses WebSocket technology to stream logs with zero delay.
 ```
 
 **Detailed Template** — Rich formatting with all event details:
+
 ```json
 {
   "embeds": [{
@@ -1063,6 +1080,7 @@ Uses WebSocket technology to stream logs with zero delay.
 ```
 
 **Custom Template** — Design your own structure with template variables:
+
 - `{{.Title}}` — Event title (e.g., "SSL Certificate Renewed")
 - `{{.Message}}` — Event details
 - `{{.EventType}}` — Event classification (ssl_renewal, uptime_down, waf_block)
@@ -1104,6 +1122,7 @@ Uses WebSocket technology to stream logs with zero delay.
 **Minimum Log Level** (Legacy Setting):
 
 For backward compatibility, you can still configure minimum log level for security event notifications:
+
 - Only notify for warnings and errors (ignore info/debug)
 - Applies to Cerberus security events only
 - Accessible via Cerberus Dashboard → "Notification Settings"

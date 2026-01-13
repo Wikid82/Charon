@@ -2,7 +2,7 @@
 
 **Date**: 2026-01-11
 **Issue**: CI supply chain scan detects vulnerabilities not found locally
-**GitHub Actions Run**: https://github.com/Wikid82/Charon/actions/runs/20900717482
+**GitHub Actions Run**: <https://github.com/Wikid82/Charon/actions/runs/20900717482>
 
 ## Executive Summary
 
@@ -25,6 +25,7 @@ The discrepancy between local and CI vulnerability scans has been identified and
 **Location**: `usr/local/bin/crowdsec` and `usr/local/bin/cscli` (CrowdSec binaries)
 
 #### CVE-2025-58183 (HIGH)
+
 - **Component**: Go stdlib `archive/tar`
 - **Issue**: Unbounded allocation when parsing GNU sparse map
 - **Go Version Affected**: v1.25.1
@@ -32,18 +33,21 @@ The discrepancy between local and CI vulnerability scans has been identified and
 - **CVSS**: Likely HIGH due to DoS potential
 
 #### CVE-2025-58186 (HIGH)
+
 - **Component**: Go stdlib `net/http`
 - **Issue**: Unbounded HTTP headers despite 1MB default limit
 - **Go Version Affected**: v1.25.1
 - **Fixed In**: Go 1.24.8, 1.25.2
 
 #### CVE-2025-58187 (HIGH)
+
 - **Component**: Go stdlib `crypto/x509`
 - **Issue**: Name constraint checking algorithm performance issue
 - **Go Version Affected**: v1.25.1
 - **Fixed In**: Go 1.24.9, 1.25.3
 
 #### CVE-2025-61729 (HIGH)
+
 - **Component**: Go stdlib `crypto/x509`
 - **Issue**: Error string construction issue in HostnameError.Error()
 - **Go Version Affected**: v1.25.1
@@ -52,6 +56,7 @@ The discrepancy between local and CI vulnerability scans has been identified and
 ### 3. Why Local Scans Missed These
 
 **`govulncheck` Limitations:**
+
 1. **Source-only scanning**: Analyzes Go module dependencies, not compiled binaries
 2. **Reachability analysis**: Only reports vulnerabilities in code paths actually used
 3. **Scope**: Doesn't scan third-party binaries (CrowdSec, Caddy) embedded in the Docker image
@@ -62,11 +67,13 @@ The discrepancy between local and CI vulnerability scans has been identified and
 ### 4. Additional Vulnerabilities Found Locally (Trivy)
 
 When scanning the Docker image locally with Trivy, we found:
+
 - **CrowdSec/cscli**: CVE-2025-68156 (HIGH) in `github.com/expr-lang/expr` v1.17.2
 - **Go module cache**: 60+ MEDIUM vulnerabilities in cached dependencies (golang.org/x/crypto, golang.org/x/net, etc.)
 - **Dockerfile misconfigurations**: Running as root, missing healthchecks
 
 These are **NOT** in our production code but in:
+
 1. Build-time dependencies cached in `.cache/go/`
 2. Third-party binaries (CrowdSec)
 3. Development tools in the image
@@ -80,6 +87,7 @@ These are **NOT** in our production code but in:
 **Risk Level**: **LOW-MEDIUM** for production deployment
 
 **Rationale**:
+
 1. **Not in Charon codebase**: Vulnerabilities are in CrowdSec binaries (v1.6.5), not our code
 2. **Limited exposure**: CrowdSec runs as a sidecar/service, not directly exposed
 3. **Fixed upstream**: Go 1.25.2+ resolves these issues
@@ -90,6 +98,7 @@ These are **NOT** in our production code but in:
 **Risk Level**: **NEGLIGIBLE**
 
 **Rationale**:
+
 1. **Build artifacts**: Only in `.cache/go/pkg/mod/` directory
 2. **Not in runtime**: Not included in the final application binary
 3. **Development only**: Used during build, not deployed
@@ -101,6 +110,7 @@ These are **NOT** in our production code but in:
 #### 1. ✅ ALREADY FIXED: CrowdSec Built with Patched Go Version
 
 **Current State** (from Dockerfile analysis):
+
 ```dockerfile
 # Line 203: Building CrowdSec from source with Go 1.25.5
 FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS crowdsec-builder
@@ -115,12 +125,14 @@ RUN go get github.com/expr-lang/expr@v1.17.7 && \
 
 **Why CI Still Detects Vulnerabilities**:
 The local Trivy scan was run against an old image. The scan results in `trivy-image-scan.txt` show:
+
 - CrowdSec built with Go 1.25.1 (old)
 - Date: 2025-12-18 (3 weeks old)
 
 **Action Required**: Rebuild the image with current Dockerfile
 
 **Verification**:
+
 ```bash
 # Rebuild with latest Dockerfile
 docker build -t charon:local .
@@ -131,6 +143,7 @@ docker run --rm charon:local /usr/local/bin/crowdsec version
 ```
 
 #### 2. Update CI Threshold Configuration
+
 Since these are third-party binary issues, adjust CI to differentiate:
 
 ```yaml
@@ -157,6 +170,7 @@ Since these are third-party binary issues, adjust CI to differentiate:
 ```
 
 #### 3. Document Accepted Risks
+
 Create `.trivyignore` or grype configuration to suppress known false positives:
 
 ```yaml
@@ -173,6 +187,7 @@ ignore:
 ### Long-term Improvements
 
 #### 1. Multi-stage Build Optimization
+
 Separate build dependencies from runtime:
 
 ```dockerfile
@@ -189,11 +204,13 @@ COPY --from=crowdsecurity/crowdsec:v1.6.6 /usr/local/bin/crowdsec /usr/local/bin
 ```
 
 #### 2. Supply Chain Security Enhancements
+
 - **SLSA Provenance**: Already generating, ensure verification in deployment
 - **Cosign Signatures**: Already signing, add verification step in CI
 - **Dependency Pinning**: Pin CrowdSec and Caddy versions with checksums
 
 #### 3. Continuous Monitoring
+
 ```yaml
 # Add weekly scheduled scan
 on:
@@ -202,6 +219,7 @@ on:
 ```
 
 #### 4. Image Optimization
+
 - Remove `.cache/` from final image (already excluded via .dockerignore)
 - Use distroless or scratch base for Charon binary
 - Run containers as non-root user
@@ -248,6 +266,7 @@ cd backend && govulncheck ./...
 **Root Cause**: CI scan used stale Docker image from before security patches were committed to Dockerfile.
 
 **Recommendation**:
+
 - ✅ **Code is secure** - All fixes already in Dockerfile
 - ⚠️ **Rebuild required** - Docker image needs rebuild to apply fixes
 - 🔄 **CI will pass** - After rebuild, supply chain scan will show 0 vulnerabilities

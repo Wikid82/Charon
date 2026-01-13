@@ -13,6 +13,7 @@
 Implement a comprehensive supply chain security solution for Charon using **SBOM verification** (Software Bill of Materials), **Cosign** (artifact signing), and **SLSA** (provenance attestation). This plan integrates signing and verification into GitHub Actions workflows, creates production-ready GitHub Skills for local development, adds VS Code tasks for developer workflows, and includes complete key management procedures.
 
 **Key Goals**:
+
 1. Automate SBOM generation, verification, and vulnerability scanning
 2. Sign all Docker images and binaries with Cosign (keyless and local key support)
 3. Generate and verify SLSA provenance for all releases
@@ -22,6 +23,7 @@ Implement a comprehensive supply chain security solution for Charon using **SBOM
 7. Implement fallback mechanisms for service outages
 
 **Implementation Priority** (Revised):
+
 - **Phase 1**: SBOM Verification (Week 1) - Foundation for supply chain visibility
 - **Phase 2**: Cosign Integration (Week 2) - Artifact signing and integrity
 - **Phase 3**: SLSA Provenance (Week 3) - Build transparency and attestation
@@ -31,6 +33,7 @@ Implement a comprehensive supply chain security solution for Charon using **SBOM
 ## Background
 
 ### Current State
+
 - ✅ SBOM generation exists in `docker-build.yml` (Anchore SBOM action)
 - ✅ SBOM attestation exists in `docker-build.yml` (actions/attest-sbom)
 - ❌ No SBOM vulnerability scanning or semantic diffing
@@ -43,6 +46,7 @@ Implement a comprehensive supply chain security solution for Charon using **SBOM
 - ❌ No Rekor fallback mechanisms
 
 ### Security Requirements
+
 - **SLSA Level 2+**: Provenance generation with isolated build system
 - **Keyless Signing**: Use GitHub OIDC tokens (no long-lived keys in CI)
 - **Local Key Management**: Secure procedures for development signing with key-based signing
@@ -129,6 +133,7 @@ Implement a comprehensive supply chain security solution for Charon using **SBOM
 **Location**: Enhance existing SBOM generation (around line 160)
 
 **Changes**:
+
 1. Standardize SBOM format to SPDX
 2. Add vulnerability scanning with Grype
 3. Implement semantic SBOM diffing
@@ -633,6 +638,7 @@ VULN_SCAN_ENABLED=false .github/skills/scripts/skill-runner.sh security-verify-s
 ## Examples
 
 ### Basic Verification
+
 ```bash
 $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:test
 [INFO] Generating SBOM for charon:test...
@@ -643,6 +649,7 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:test
 ```
 
 ### With Baseline Comparison
+
 ```bash
 $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:latest sbom-baseline.json
 [INFO] Generating SBOM for charon:latest...
@@ -698,6 +705,7 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:latest sbom
 **Location**: After `Run GoReleaser` step (line ~60)
 
 **Changes**:
+
 1. Add Cosign installation
 2. Sign all release binaries
 3. Upload signatures as release assets
@@ -753,6 +761,7 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:latest sbom
 **Content**: Bash script implementing local Cosign signing (see appendix A2)
 
 **Key Features**:
+
 - Sign local Docker images
 - Sign arbitrary files (binaries, archives)
 - Support keyless (OIDC) and key-based signing
@@ -780,12 +789,14 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:latest sbom
 **No secrets required** for keyless signing (uses GitHub OIDC tokens automatically).
 
 Optional: For key-based signing (local development):
+
 - `COSIGN_PRIVATE_KEY`: Base64-encoded private key
 - `COSIGN_PASSWORD`: Password for private key
 
 ### 1.5 Testing & Validation
 
 **Acceptance Criteria**:
+
 - [ ] Docker images signed in `docker-build.yml` workflow
 - [ ] Release binaries signed in `release-goreleaser.yml` workflow
 - [ ] Signatures visible in Rekor transparency log
@@ -804,6 +815,7 @@ Optional: For key-based signing (local development):
 **Location**: After Cosign signing step
 
 **Changes**:
+
 1. Generate SLSA provenance using `slsa-github-generator`
 2. Attach provenance to image as attestation
 
@@ -830,6 +842,7 @@ Optional: For key-based signing (local development):
 **Location**: After Cosign signing step
 
 **Changes**:
+
 1. Generate SLSA provenance for all release artifacts
 2. Upload provenance as release asset
 
@@ -859,6 +872,7 @@ Optional: For key-based signing (local development):
 **Content**: Bash script implementing SLSA provenance generation and verification (see appendix B2)
 
 **Key Features**:
+
 - Generate SLSA provenance for local artifacts
 - Verify provenance against policy
 - Parse and display provenance metadata
@@ -883,6 +897,7 @@ Optional: For key-based signing (local development):
 ### 2.4 Testing & Validation
 
 **Acceptance Criteria**:
+
 - [ ] SLSA provenance generated for Docker images
 - [ ] SLSA provenance generated for release binaries
 - [ ] Provenance attestations pushed to registry
@@ -1122,6 +1137,7 @@ jobs:
 **Content**: Bash script implementing SBOM verification (see appendix C2)
 
 **Key Features**:
+
 - Generate SBOM from local Docker images
 - Compare SBOM against attested version
 - Check for known vulnerabilities in SBOM
@@ -1160,6 +1176,7 @@ jobs:
 ### 3.4 Testing & Validation
 
 **Acceptance Criteria**:
+
 - [ ] Verification workflow runs on releases
 - [ ] Verification workflow runs weekly
 - [ ] Docker image signatures verified
@@ -1297,6 +1314,7 @@ Default values work for standard setup:
 ### Phase 1 Testing (Cosign)
 
 **Test Case 1.1**: Docker Image Signing
+
 ```bash
 # Trigger workflow
 git tag -a v1.0.0-rc1 -m "Test release"
@@ -1309,6 +1327,7 @@ cosign verify ghcr.io/$USER/charon:v1.0.0-rc1 \
 ```
 
 **Test Case 1.2**: Local Signing via Skill
+
 ```bash
 # Build local image
 docker build -t charon:test .
@@ -1321,6 +1340,7 @@ cosign verify charon:test --key cosign.pub
 ```
 
 **Test Case 1.3**: VS Code Task
+
 ```bash
 # Open Command Palette (Ctrl+Shift+P)
 # Type: "Tasks: Run Task"
@@ -1331,6 +1351,7 @@ cosign verify charon:test --key cosign.pub
 ### Phase 2 Testing (SLSA)
 
 **Test Case 2.1**: SLSA Provenance Generation
+
 ```bash
 # Check release assets
 gh release view v1.0.0-rc1 --json assets
@@ -1345,6 +1366,7 @@ slsa-verifier verify-image ghcr.io/$USER/charon:v1.0.0-rc1 \
 ```
 
 **Test Case 2.2**: Local Provenance via Skill
+
 ```bash
 # Generate provenance for local artifact
 .github/skills/scripts/skill-runner.sh security-slsa-provenance generate charon-binary
@@ -1356,6 +1378,7 @@ slsa-verifier verify-image ghcr.io/$USER/charon:v1.0.0-rc1 \
 ### Phase 3 Testing (SBOM)
 
 **Test Case 3.1**: SBOM Verification Workflow
+
 ```bash
 # Trigger verification workflow
 gh workflow run supply-chain-verify.yml
@@ -1365,6 +1388,7 @@ gh run list --workflow=supply-chain-verify.yml --limit 1
 ```
 
 **Test Case 3.2**: Local SBOM Verification via Skill
+
 ```bash
 # Verify SBOM
 .github/skills/scripts/skill-runner.sh security-verify-sbom ghcr.io/$USER/charon:latest
@@ -1373,6 +1397,7 @@ gh run list --workflow=supply-chain-verify.yml --limit 1
 ```
 
 **Test Case 3.3**: Full Supply Chain Audit Task
+
 ```bash
 # Run complete audit via VS Code
 # Tasks: Run Task -> Security: Full Supply Chain Audit
@@ -1382,6 +1407,7 @@ gh run list --workflow=supply-chain-verify.yml --limit 1
 ### Integration Testing
 
 **End-to-End Test**: Release Pipeline
+
 1. Create feature branch
 2. Make code change
 3. Create PR
@@ -1393,6 +1419,7 @@ gh run list --workflow=supply-chain-verify.yml --limit 1
 9. Verify all signatures and attestations locally
 
 **Success Criteria**:
+
 - All workflows complete without errors
 - Signatures verify successfully
 - Provenance matches expected source
@@ -1404,25 +1431,30 @@ gh run list --workflow=supply-chain-verify.yml --limit 1
 ## Rollout Strategy
 
 ### Development Environment (Week 1)
+
 - Deploy Phase 1 (Cosign) to development branch
 - Test with beta releases
 - Validate skill execution locally
 - Gather developer feedback
 
 ### Staging Environment (Week 2)
+
 - Deploy Phase 2 (SLSA) to development branch
 - Test full signing pipeline
 - Validate provenance generation
 - Performance testing
 
 ### Production Environment (Week 3)
+
 - Deploy Phase 3 (SBOM verification) to main branch
 - Enable verification workflow
 - Monitor for issues
 - Update documentation
 
 ### Rollback Plan
+
 If critical issues arise:
+
 1. Disable verification workflow (comment out triggers)
 2. Remove signing steps from build workflows (make optional with flag)
 3. Maintain SBOM generation (already exists, low risk)
@@ -1450,6 +1482,7 @@ If critical issues arise:
 ### Dashboards
 
 Create GitHub insights dashboard:
+
 - Total artifacts signed (weekly)
 - Verification workflow runs (success/failure)
 - SLSA level compliance
@@ -1624,6 +1657,7 @@ Sign Docker images and files using Cosign for supply chain security.
 # Sign file
 .github/skills/scripts/skill-runner.sh security-sign-cosign file ./dist/charon-binary
 ```
+
 ```
 
 #### A2: Execution Script Skeleton
@@ -1689,6 +1723,7 @@ Generate and verify SLSA provenance for build artifacts.
 # Verify provenance
 .github/skills/scripts/skill-runner.sh security-slsa-provenance verify charon-binary
 ```
+
 ```
 
 ### Appendix C: SBOM Verification Skill Implementation
@@ -1718,6 +1753,7 @@ Verify Software Bill of Materials (SBOM) for Docker images and releases.
 # Verify local image
 .github/skills/scripts/skill-runner.sh security-verify-sbom charon:local
 ```
+
 ```
 
 ---

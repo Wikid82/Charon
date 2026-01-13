@@ -17,12 +17,15 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 ## Completed Phases (1-10)
 
 ### Phase 1: Plugin Interface and Registry ✅
+
 **Files**:
+
 - `backend/pkg/dnsprovider/plugin.go` (pre-existing)
 - `backend/pkg/dnsprovider/registry.go` (pre-existing)
 - `backend/pkg/dnsprovider/errors.go` (fixed corruption)
 
 **Features**:
+
 - `ProviderPlugin` interface with 14 methods
 - Thread-safe global registry with RWMutex
 - Interface version tracking (`v1`)
@@ -31,9 +34,11 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 - Caddy config builder methods
 
 ### Phase 2: Built-in Provider Migration ✅
+
 **Directory**: `backend/pkg/dnsprovider/builtin/`
 
 **Providers Implemented** (10 total):
+
 1. **Cloudflare** - `cloudflare.go`
    - API token authentication
    - Optional zone_id
@@ -80,32 +85,39 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
     - 120s propagation, 5s polling
 
 **Auto-Registration**: `builtin/init.go`
+
 - Package init() function registers all providers on import
 - Error logging for registration failures
 - Accessed via blank import in main.go
 
 ### Phase 3: Plugin Loader Service ✅
+
 **File**: `backend/internal/services/plugin_loader.go`
 
 **Security Features**:
+
 - SHA-256 signature computation and verification
 - Directory permission validation (rejects world-writable)
 - Windows platform rejection (Go plugins require Linux/macOS)
 - Both `T` and `*T` symbol lookup (handles both value and pointer exports)
 
 **Database Integration**:
+
 - Tracks plugin load status in `models.Plugin`
 - Statuses: pending, loaded, error
 - Records file path, signature, enabled flag, error message, load timestamp
 
 **Configuration**:
+
 - Plugin directory from `CHARON_PLUGINS_DIR` environment variable
 - Defaults to `./plugins` if not set
 
 ### Phase 4: Plugin Database Model ✅
+
 **File**: `backend/internal/models/plugin.go` (pre-existing)
 
 **Fields**:
+
 - `UUID` (string, indexed)
 - `FilePath` (string, unique index)
 - `Signature` (string, SHA-256)
@@ -117,9 +129,11 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 **Migrations**: AutoMigrate in both `main.go` and `routes.go`
 
 ### Phase 5: Plugin API Handlers ✅
+
 **File**: `backend/internal/api/handlers/plugin_handler.go`
 
 **Endpoints** (all under `/admin/plugins`):
+
 1. `GET /` - List all plugins (merges registry with database records)
 2. `GET /:id` - Get single plugin by UUID
 3. `POST /:id/enable` - Enable a plugin (checks usage before disabling)
@@ -129,9 +143,11 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 **Authorization**: All endpoints require admin authentication
 
 ### Phase 6: DNS Provider Service Integration ✅
+
 **File**: `backend/internal/services/dns_provider_service.go`
 
 **Changes**:
+
 - Removed hardcoded `SupportedProviderTypes` array
 - Removed hardcoded `ProviderCredentialFields` map
 - Added `GetSupportedProviderTypes()` - queries `dnsprovider.Global().Types()`
@@ -142,9 +158,11 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 **Backward Compatibility**: All existing functionality preserved, encryption maintained
 
 ### Phase 7: Caddy Config Builder Integration ✅
+
 **File**: `backend/internal/caddy/config.go`
 
 **Changes**:
+
 - Multi-credential mode uses `provider.BuildCaddyConfigForZone()`
 - Single-credential mode uses `provider.BuildCaddyConfig()`
 - Propagation timeout from `provider.PropagationTimeout()`
@@ -152,14 +170,17 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 - Removed hardcoded provider config logic
 
 ### Phase 8: PowerDNS Example Plugin ✅
+
 **Directory**: `plugins/powerdns/`
 
 **Files**:
+
 - `main.go` - Full ProviderPlugin implementation
 - `README.md` - Build and usage instructions
 - `powerdns.so` - Compiled plugin (14MB)
 
 **Features**:
+
 - Package: `main` (required for Go plugins)
 - Exported symbol: `Plugin` (type: `dnsprovider.ProviderPlugin`)
 - API connectivity testing in `TestCredentials()`
@@ -167,14 +188,17 @@ Successfully implemented the complete Phase 5 Custom DNS Provider Plugins Backen
 - `main()` function (required but unused)
 
 **Build Command**:
+
 ```bash
 CGO_ENABLED=1 go build -buildmode=plugin -o powerdns.so main.go
 ```
 
 ### Phase 9: Unit Tests ✅
+
 **Coverage**: 88.0% (Required: 85%+)
 
 **Test Files**:
+
 1. `backend/pkg/dnsprovider/builtin/builtin_test.go` (NEW)
    - Tests all 10 built-in providers
    - Validates type, metadata, credentials, Caddy config
@@ -190,11 +214,13 @@ CGO_ENABLED=1 go build -buildmode=plugin -o powerdns.so main.go
    - Added `dnsprovider` import
 
 **Test Execution**:
+
 ```bash
 cd backend && go test -v -coverprofile=coverage.txt ./...
 ```
 
 ### Phase 10: Main and Routes Integration ✅
+
 **Files Modified**:
 
 1. `backend/cmd/api/main.go`
@@ -213,18 +239,21 @@ cd backend && go test -v -coverprofile=coverage.txt ./...
 ## Architecture Decisions
 
 ### Registry Pattern
+
 - **Global singleton**: `dnsprovider.Global()` provides single source of truth
 - **Thread-safe**: RWMutex protects concurrent access
 - **Sorted types**: `Types()` returns alphabetically sorted provider names
 - **Existence check**: `IsSupported()` for quick validation
 
 ### Security Model
+
 - **Signature verification**: SHA-256 hash of plugin file
 - **Permission checks**: Reject world-writable directories (0o002)
 - **Platform restriction**: Reject Windows (Go plugin limitations)
 - **Sandbox execution**: Plugins run in same process but with limited scope
 
 ### Plugin Interface Design
+
 - **Version tracking**: InterfaceVersion ensures compatibility
 - **Lifecycle hooks**: Init() for setup, Cleanup() for teardown
 - **Dual validation**: ValidateCredentials() for syntax, TestCredentials() for connectivity
@@ -232,6 +261,7 @@ cd backend && go test -v -coverprofile=coverage.txt ./...
 - **Caddy integration**: BuildCaddyConfig() and BuildCaddyConfigForZone() methods
 
 ### Database Schema
+
 - **UUID primary key**: Stable identifier for API operations
 - **File path uniqueness**: Prevents duplicate plugin loads
 - **Status tracking**: Pending → Loaded/Error state machine
@@ -291,6 +321,7 @@ plugins/
 ## API Endpoints
 
 ### List Plugins
+
 ```http
 GET /admin/plugins
 Authorization: Bearer <admin_token>
@@ -320,6 +351,7 @@ Response 200:
 ```
 
 ### Get Plugin
+
 ```http
 GET /admin/plugins/:uuid
 Authorization: Bearer <admin_token>
@@ -338,6 +370,7 @@ Response 200:
 ```
 
 ### Enable Plugin
+
 ```http
 POST /admin/plugins/:uuid/enable
 Authorization: Bearer <admin_token>
@@ -349,6 +382,7 @@ Response 200:
 ```
 
 ### Disable Plugin
+
 ```http
 POST /admin/plugins/:uuid/disable
 Authorization: Bearer <admin_token>
@@ -365,6 +399,7 @@ Response 400 (if in use):
 ```
 
 ### Reload Plugins
+
 ```http
 POST /admin/plugins/reload
 Authorization: Bearer <admin_token>
@@ -382,12 +417,14 @@ Response 200:
 ### Creating a Custom DNS Provider Plugin
 
 1. **Create plugin directory**:
+
 ```bash
 mkdir -p plugins/myprovider
 cd plugins/myprovider
 ```
 
-2. **Implement the interface** (`main.go`):
+1. **Implement the interface** (`main.go`):
+
 ```go
 package main
 
@@ -426,12 +463,14 @@ func (p *MyProvider) Metadata() dnsprovider.ProviderMetadata {
 func main() {}
 ```
 
-3. **Build the plugin**:
+1. **Build the plugin**:
+
 ```bash
 CGO_ENABLED=1 go build -buildmode=plugin -o myprovider.so main.go
 ```
 
-4. **Deploy**:
+1. **Deploy**:
+
 ```bash
 mkdir -p /opt/charon/plugins
 cp myprovider.so /opt/charon/plugins/
@@ -439,13 +478,15 @@ chmod 755 /opt/charon/plugins
 chmod 644 /opt/charon/plugins/myprovider.so
 ```
 
-5. **Configure Charon**:
+1. **Configure Charon**:
+
 ```bash
 export CHARON_PLUGINS_DIR=/opt/charon/plugins
 ./charon
 ```
 
-6. **Verify loading** (check logs):
+1. **Verify loading** (check logs):
+
 ```
 2026-01-06 22:30:00 INFO Plugin loaded successfully: myprovider
 ```
@@ -479,6 +520,7 @@ curl -X POST \
 ## Known Limitations
 
 ### Go Plugin Constraints
+
 1. **Platform**: Linux and macOS only (Windows not supported by Go)
 2. **CGO Required**: Must build with `CGO_ENABLED=1`
 3. **Version Matching**: Plugin must be compiled with same Go version as Charon
@@ -486,12 +528,14 @@ curl -X POST \
 5. **Same Architecture**: Plugin and Charon must use same CPU architecture
 
 ### Security Considerations
+
 1. **Same Process**: Plugins run in same process as Charon (no sandboxing)
 2. **Signature Only**: SHA-256 signature verification, but not cryptographic signing
 3. **Directory Permissions**: Relies on OS permissions for plugin directory security
 4. **No Isolation**: Plugins have access to entire application memory space
 
 ### Performance
+
 1. **Large Binaries**: Plugin .so files are ~14MB each (Go runtime included)
 2. **Load Time**: Plugin loading adds ~100ms startup time per plugin
 3. **No Unloading**: Once loaded, plugins cannot be unloaded without restart
@@ -501,6 +545,7 @@ curl -X POST \
 ## Testing
 
 ### Unit Tests
+
 ```bash
 cd backend
 go test -v -coverprofile=coverage.txt ./...
@@ -511,13 +556,15 @@ go test -v -coverprofile=coverage.txt ./...
 ### Manual Testing
 
 1. **Test built-in provider registration**:
+
 ```bash
 cd backend
 go run cmd/api/main.go
 # Check logs for "Registered builtin DNS provider: cloudflare" etc.
 ```
 
-2. **Test plugin loading**:
+1. **Test plugin loading**:
+
 ```bash
 export CHARON_PLUGINS_DIR=/projects/Charon/plugins
 cd backend
@@ -525,7 +572,8 @@ go run cmd/api/main.go
 # Check logs for "Plugin loaded successfully: powerdns"
 ```
 
-3. **Test API endpoints**:
+1. **Test API endpoints**:
+
 ```bash
 # Get admin token
 TOKEN=$(curl -X POST http://localhost:8080/api/auth/login \
@@ -573,6 +621,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 ## Conclusion
 
 Phase 5 Custom DNS Provider Plugins Backend is **fully implemented** with:
+
 - ✅ All 10 built-in providers migrated to plugin architecture
 - ✅ Secure plugin loading with signature verification
 - ✅ Complete API for plugin management

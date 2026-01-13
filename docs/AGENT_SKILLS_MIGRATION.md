@@ -12,6 +12,7 @@
 Charon has migrated from legacy shell scripts in `/scripts` to a standardized [Agent Skills](https://agentskills.io) format stored in `.github/skills/`. This migration provides AI-discoverable, self-documenting tasks that work seamlessly with GitHub Copilot and other AI assistants.
 
 **Key Benefits:**
+
 - ✅ **AI Discoverability**: Skills are automatically discovered by GitHub Copilot
 - ✅ **Self-Documenting**: Each skill includes complete usage documentation
 - ✅ **Standardized Format**: Follows agentskills.io specification
@@ -32,6 +33,7 @@ scripts/trivy-scan.sh
 ```
 
 **Problems with legacy scripts:**
+
 - ❌ No standardized metadata
 - ❌ Not AI-discoverable
 - ❌ Inconsistent documentation
@@ -48,6 +50,7 @@ scripts/trivy-scan.sh
 ```
 
 **Benefits of Agent Skills:**
+
 - ✅ Standardized YAML metadata (name, version, tags, requirements)
 - ✅ AI-discoverable by GitHub Copilot and other tools
 - ✅ Comprehensive documentation in each SKILL.md file
@@ -72,6 +75,7 @@ scripts/trivy-scan.sh
 ### Scripts Migrated: 19 of 24
 
 **Migrated Scripts:**
+
 1. `go-test-coverage.sh` → `test-backend-coverage`
 2. `frontend-test-coverage.sh` → `test-frontend-coverage`
 3. `integration-test.sh` → `integration-test-all`
@@ -91,6 +95,7 @@ scripts/trivy-scan.sh
 17. Docker cleanup → `docker-prune`
 
 **Scripts NOT Migrated (by design):**
+
 - `debug_db.py` - Interactive debugging tool
 - `debug_rate_limit.sh` - Interactive debugging tool
 - `gopls_collect.sh` - IDE-specific tooling
@@ -142,6 +147,7 @@ scripts/trivy-scan.sh
 ### Flat Structure Rationale
 
 We chose a **flat directory structure** (no subcategories) for maximum AI discoverability:
+
 - ✅ Simpler skill discovery (no directory traversal)
 - ✅ Easier reference in tasks and workflows
 - ✅ Category implicit in naming (`test-*`, `integration-*`, etc.)
@@ -179,6 +185,7 @@ All tasks in `.vscode/tasks.json` now use the skill runner.
 ### GitHub Copilot
 
 Ask GitHub Copilot naturally:
+
 - "Run backend tests with coverage"
 - "Start the development environment"
 - "Run security scans on the project"
@@ -271,15 +278,18 @@ Brief description
 ```
 
 ## Examples
+
 Practical examples with explanations
 
 ## Error Handling
+
 Common errors and solutions
 
 ---
 
 **Last Updated**: 2025-12-20
 **Maintained by**: Charon Project
+
 ```
 
 ### Metadata Fields
@@ -427,6 +437,7 @@ Error: Skill execution script is not executable: .github/skills/test-backend-cov
 ```
 
 **Solution**: Make the script executable:
+
 ```bash
 chmod +x .github/skills/test-backend-coverage-scripts/run.sh
 ```
@@ -438,6 +449,7 @@ chmod +x .github/skills/test-backend-coverage-scripts/run.sh
 ```
 
 **Solution**: This is informational. The script still works, but you should migrate to skills:
+
 ```bash
 # Instead of:
 scripts/go-test-coverage.sh

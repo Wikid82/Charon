@@ -60,11 +60,11 @@ The reported 500 is thrown in (2), but it is experienced during the Proxy Host c
 
 ### B) Frontend: API client and payload shapes
 
-5. `frontend/src/api/client.ts`
+1. `frontend/src/api/client.ts`
      - Axios instance with `baseURL: '/api/v1'`.
      - All calls below are relative to `/api/v1`.
 
-6. `frontend/src/api/proxyHosts.ts`
+2. `frontend/src/api/proxyHosts.ts`
      - Function: `createProxyHost(host: Partial<ProxyHost>)`
          - Request: `POST /proxy-hosts`
          - Payload shape (snake_case; subset of):
@@ -89,7 +89,7 @@ The reported 500 is thrown in (2), but it is experienced during the Proxy Host c
              - `security_header_profile_id?: number | null`
          - Response: `ProxyHost` (same shape) from server.
 
-7. `frontend/src/api/docker.ts`
+3. `frontend/src/api/docker.ts`
      - Function: `dockerApi.listContainers(host?: string, serverId?: string)`
          - Request: `GET /docker/containers`
          - Query params:
@@ -107,7 +107,7 @@ The reported 500 is thrown in (2), but it is experienced during the Proxy Host c
 
 ### C) Backend: route definitions -> handlers
 
-8. `backend/internal/api/routes/routes.go`
+1. `backend/internal/api/routes/routes.go`
      - Route group base: `/api/v1`.
 
      Proxy Host routes:
@@ -127,16 +127,16 @@ The current route registration places Proxy Host routes on the unprotected `api`
 - Either way: document the intended access model so the frontend and deployments can assume the correct security posture.
 
      Docker routes:
-     - Docker routes are registered on `protected` (auth-required) and only if `services.NewDockerService()` returns `nil` error:
-         - `dockerService, err := services.NewDockerService()`
-         - `if err == nil { dockerHandler.RegisterRoutes(protected) }`
-     - Key route:
-         - `GET /api/v1/docker/containers`.
+  - Docker routes are registered on `protected` (auth-required) and only if `services.NewDockerService()` returns `nil` error:
+    - `dockerService, err := services.NewDockerService()`
+    - `if err == nil { dockerHandler.RegisterRoutes(protected) }`
+  - Key route:
+    - `GET /api/v1/docker/containers`.
 
      Clarification: `NewDockerService()` success is a client construction success, not a reachability/health guarantee.
-     - Result: the Docker endpoints may register at startup even when the Docker daemon/socket is unreachable, and failures will surface later per-request in `ListContainers`.
+  - Result: the Docker endpoints may register at startup even when the Docker daemon/socket is unreachable, and failures will surface later per-request in `ListContainers`.
 
-9. `backend/internal/api/handlers/proxy_host_handler.go`
+1. `backend/internal/api/handlers/proxy_host_handler.go`
      - Handler type: `ProxyHostHandler`
      - Method: `Create(c *gin.Context)`
          - Input binding: `c.ShouldBindJSON(&host)` into `models.ProxyHost`.
@@ -151,7 +151,7 @@ The current route registration places Proxy Host routes on the unprotected `api`
          - Response:
              - `201` with the persisted host JSON.
 
-10. `backend/internal/api/handlers/docker_handler.go`
+2. `backend/internal/api/handlers/docker_handler.go`
         - Handler type: `DockerHandler`
         - Method: `ListContainers(c *gin.Context)`
             - Reads query parameters:
@@ -170,18 +170,18 @@ The current route registration places Proxy Host routes on the unprotected `api`
 
 ### D) Backend: services -> Docker client wrapper -> persistence
 
-11. `backend/internal/services/proxyhost_service.go`
+1. `backend/internal/services/proxyhost_service.go`
         - Service: `ProxyHostService`
         - `Create(host *models.ProxyHost)`:
             - Validates domain uniqueness by exact `domain_names` string match.
             - Normalizes `advanced_config` again (duplicates handler logic).
             - Persists via `db.Create(host)`.
 
-12. `backend/internal/models/proxy_host.go` and `backend/internal/models/location.go`
+2. `backend/internal/models/proxy_host.go` and `backend/internal/models/location.go`
         - Persistence model: `models.ProxyHost` with snake_case JSON tags.
         - Related model: `models.Location`.
 
-13. `backend/internal/services/docker_service.go`
+3. `backend/internal/services/docker_service.go`
         - Wrapper: `DockerService`
         - `NewDockerService()`:
             - Creates Docker client via `client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())`.
@@ -194,7 +194,7 @@ The current route registration places Proxy Host routes on the unprotected `api`
             - Calls Docker API: `cli.ContainerList(ctx, container.ListOptions{All: false})`.
             - Maps Docker container data to `[]DockerContainer` response DTO (still local to the service file).
 
-14. `backend/internal/services/remoteserver_service.go` and `backend/internal/models/remote_server.go`
+4. `backend/internal/services/remoteserver_service.go` and `backend/internal/models/remote_server.go`
         - `RemoteServerService.GetByUUID(uuid)` loads `models.RemoteServer` used to build the remote Docker host string.
 
 ### E) Where the 500 is likely being thrown (and why)
@@ -226,15 +226,15 @@ This needs to distinguish two different “contracts”:
 - Behavioral contract: There is a mismatch/hazard in the frontend enablement condition that can produce calls with both selectors absent.
 
 - Proxy Host create:
-    - Frontend sends snake_case fields (e.g., `domain_names`, `forward_port`, `security_header_profile_id`).
-    - Backend binds into `models.ProxyHost` which uses matching snake_case JSON tags.
-    - Evidence: `models.ProxyHost` includes `json:"domain_names"`, `json:"forward_port"`, etc.
-    - Note: `enable_standard_headers` is a `*bool` in the backend model and a boolean-ish field in the frontend; JSON `true/false` binds correctly into `*bool`.
+  - Frontend sends snake_case fields (e.g., `domain_names`, `forward_port`, `security_header_profile_id`).
+  - Backend binds into `models.ProxyHost` which uses matching snake_case JSON tags.
+  - Evidence: `models.ProxyHost` includes `json:"domain_names"`, `json:"forward_port"`, etc.
+  - Note: `enable_standard_headers` is a `*bool` in the backend model and a boolean-ish field in the frontend; JSON `true/false` binds correctly into `*bool`.
 
 - Docker list containers:
-    - Frontend sends query params `host` and/or `server_id`.
-    - Backend reads `host` and `server_id` exactly.
-    - Evidence: `dockerApi.listContainers` constructs `{ host, server_id }`, and `DockerHandler.ListContainers` reads those exact query keys.
+  - Frontend sends query params `host` and/or `server_id`.
+  - Backend reads `host` and `server_id` exactly.
+  - Evidence: `dockerApi.listContainers` constructs `{ host, server_id }`, and `DockerHandler.ListContainers` reads those exact query keys.
 
 Behavioral hazard detail:
 
@@ -257,25 +257,25 @@ Behavioral hazard detail:
 ### API endpoint involved
 
 - `GET /api/v1/docker/containers?host=local`
-    - (Triggered by the “Source: Local (Docker Socket)” selection.)
+  - (Triggered by the “Source: Local (Docker Socket)” selection.)
 
 ### Expected vs actual
 
 - Expected:
-    - Containers list appears, allowing the user to pick a container and auto-fill forward host/port.
-    - If Docker is unavailable, the UI should show a clear “Docker unavailable” or “permission denied” message and not treat it as a generic server failure.
+  - Containers list appears, allowing the user to pick a container and auto-fill forward host/port.
+  - If Docker is unavailable, the UI should show a clear “Docker unavailable” or “permission denied” message and not treat it as a generic server failure.
 
 - Actual:
-    - API responds `500` with `{"error":"Failed to list containers: ..."}`.
-    - UI shows “Failed to connect: <message>” under the Containers select when the source is not “Custom / Manual”.
+  - API responds `500` with `{"error":"Failed to list containers: ..."}`.
+  - UI shows “Failed to connect: <message>” under the Containers select when the source is not “Custom / Manual”.
 
 ### Where to look for logs
 
 - Backend request logging middleware is enabled in `backend/cmd/api/main.go`:
-    - `router.Use(middleware.RequestID())`
-    - `router.Use(middleware.RequestLogger())`
-    - `router.Use(middleware.Recovery(cfg.Debug))`
-    - Expect to see request logs with status/latency for `/api/v1/docker/containers`.
+  - `router.Use(middleware.RequestID())`
+  - `router.Use(middleware.RequestLogger())`
+  - `router.Use(middleware.Recovery(cfg.Debug))`
+  - Expect to see request logs with status/latency for `/api/v1/docker/containers`.
 - `DockerHandler.ListContainers` currently returns JSON errors but does not emit a structured log line for the underlying Docker error; only request logs will show the 500 unless the error causes a panic (unlikely).
 
 ---
@@ -287,84 +287,84 @@ Phased remediation with minimal changes, ordered for fastest user impact.
 ### Phase 1: Make the UI stop calling Docker unless explicitly requested
 
 - Files:
-    - `frontend/src/hooks/useDocker.ts`
-    - (Optional) `frontend/src/components/ProxyHostForm.tsx`
+  - `frontend/src/hooks/useDocker.ts`
+  - (Optional) `frontend/src/components/ProxyHostForm.tsx`
 - Intended changes (high level):
-    - Ensure the Docker containers query is *disabled* when no `host` and no `serverId` are set.
-    - Keep “Source: Custom / Manual” truly free of Docker calls.
+  - Ensure the Docker containers query is *disabled* when no `host` and no `serverId` are set.
+  - Keep “Source: Custom / Manual” truly free of Docker calls.
 - Tests:
-    - Add/extend a frontend test to confirm **no request is made** when `host` and `serverId` are both `undefined` (the undefined/undefined case).
+  - Add/extend a frontend test to confirm **no request is made** when `host` and `serverId` are both `undefined` (the undefined/undefined case).
 
 ### Phase 2: Improve backend error mapping and message for Docker unavailability
 
 - Files:
-    - `backend/internal/api/handlers/docker_handler.go`
-    - (Optional) `backend/internal/services/docker_service.go`
+  - `backend/internal/api/handlers/docker_handler.go`
+  - (Optional) `backend/internal/services/docker_service.go`
 - Intended changes (high level):
-    - Detect common Docker connectivity errors (socket missing, permission denied, daemon unreachable) and return a more accurate status (e.g., `503 Service Unavailable`) with a clearer message.
-    - Add structured logging for the underlying error, including request_id.
-    - Security/SSRF hardening:
-        - Prefer `server_id` as the only remote selector.
-        - Remove `host` from the public API surface if feasible; if it must remain, restrict it strictly (e.g., allow only `local` and/or a strict allow-list of configured endpoints).
-        - Treat arbitrary `host` values as invalid input (deny-by-default) to prevent SSRF/network scanning.
+  - Detect common Docker connectivity errors (socket missing, permission denied, daemon unreachable) and return a more accurate status (e.g., `503 Service Unavailable`) with a clearer message.
+  - Add structured logging for the underlying error, including request_id.
+  - Security/SSRF hardening:
+    - Prefer `server_id` as the only remote selector.
+    - Remove `host` from the public API surface if feasible; if it must remain, restrict it strictly (e.g., allow only `local` and/or a strict allow-list of configured endpoints).
+    - Treat arbitrary `host` values as invalid input (deny-by-default) to prevent SSRF/network scanning.
 - Tests:
-    - Introduce a small interface around DockerService (or a function injection) so `DockerHandler` can be unit-tested without a real Docker daemon.
-    - Add unit tests in `backend/internal/api/handlers/docker_handler_test.go` covering:
-        - local Docker unavailable -> 503
-        - invalid `server_id` -> 404
-        - remote server host build -> correct host string
-        - selector validation: both `host` and `server_id` absent should be rejected if the backend adopts a stricter contract (recommended).
+  - Introduce a small interface around DockerService (or a function injection) so `DockerHandler` can be unit-tested without a real Docker daemon.
+  - Add unit tests in `backend/internal/api/handlers/docker_handler_test.go` covering:
+    - local Docker unavailable -> 503
+    - invalid `server_id` -> 404
+    - remote server host build -> correct host string
+    - selector validation: both `host` and `server_id` absent should be rejected if the backend adopts a stricter contract (recommended).
 
 ### Phase 3: Environment guidance and configuration surface
 
 - Files:
-    - `docs/debugging-local-container.md` (or another relevant doc page)
-    - (Optional) backend config docs
+  - `docs/debugging-local-container.md` (or another relevant doc page)
+  - (Optional) backend config docs
 - Intended changes (high level):
-    - Document how to mount `/var/run/docker.sock` in containerized deployments.
-    - Document rootless Docker socket path and `DOCKER_HOST` usage.
-    - Provide a “Docker integration status” indicator in UI (optional, later).
+  - Document how to mount `/var/run/docker.sock` in containerized deployments.
+  - Document rootless Docker socket path and `DOCKER_HOST` usage.
+  - Provide a “Docker integration status” indicator in UI (optional, later).
 
 ---
 
 ## 4) Risks & Edge Cases
 
 - Docker socket permissions:
-    - On Linux, `/var/run/docker.sock` is typically owned by `root:docker` and requires membership in the `docker` group.
-    - In containers, the effective UID/GID and group mapping matters.
+  - On Linux, `/var/run/docker.sock` is typically owned by `root:docker` and requires membership in the `docker` group.
+  - In containers, the effective UID/GID and group mapping matters.
 
 - Rootless Docker:
-    - Socket often at `unix:///run/user/<uid>/docker.sock` and requires `DOCKER_HOST` to point there.
-    - The current backend uses `client.FromEnv`; if `DOCKER_HOST` is not set, it will default to the standard rootful socket path.
+  - Socket often at `unix:///run/user/<uid>/docker.sock` and requires `DOCKER_HOST` to point there.
+  - The current backend uses `client.FromEnv`; if `DOCKER_HOST` is not set, it will default to the standard rootful socket path.
 
 - Docker-in-Docker vs host socket mount:
-    - If Charon runs inside a container, Docker access requires either:
-        - mounting the host socket into the container, or
-        - running DinD and pointing `DOCKER_HOST` to it.
+  - If Charon runs inside a container, Docker access requires either:
+    - mounting the host socket into the container, or
+    - running DinD and pointing `DOCKER_HOST` to it.
 
 - Path differences:
-    - `/var/run/docker.sock` (common) vs `/run/docker.sock` (symlinked on many distros) vs user socket paths.
+  - `/var/run/docker.sock` (common) vs `/run/docker.sock` (symlinked on many distros) vs user socket paths.
 
 - Remote server scheme/transport mismatch:
-    - `DockerHandler` assumes TCP for remote Docker (`tcp://host:port`). If a remote server is configured but Docker only listens on a Unix socket or requires TLS, listing will fail.
+  - `DockerHandler` assumes TCP for remote Docker (`tcp://host:port`). If a remote server is configured but Docker only listens on a Unix socket or requires TLS, listing will fail.
 
 - Security considerations:
-    - SSRF/network scanning risk (high): if callers can control the Docker client target via `host`, the system can be coerced into arbitrary outbound connections.
-        - Mitigation: remove `host` from the public API or strict allow-listing only; prefer `server_id` as the only remote selector.
-    - Docker socket risk (high): mounting `/var/run/docker.sock` (even as `:ro`) is effectively Docker-admin.
-        - Rationale: many Docker API operations are possible via read endpoints that still grant sensitive access; and “read-only bind mount” does not prevent Docker API actions if the socket is reachable.
-        - Least-privilege deployment guidance: disable Docker integration unless needed, isolate Charon in a dedicated environment, avoid exposing remote Docker APIs publicly, and prefer restricted `server_id`-based selection with strict auth.
+  - SSRF/network scanning risk (high): if callers can control the Docker client target via `host`, the system can be coerced into arbitrary outbound connections.
+    - Mitigation: remove `host` from the public API or strict allow-listing only; prefer `server_id` as the only remote selector.
+  - Docker socket risk (high): mounting `/var/run/docker.sock` (even as `:ro`) is effectively Docker-admin.
+    - Rationale: many Docker API operations are possible via read endpoints that still grant sensitive access; and “read-only bind mount” does not prevent Docker API actions if the socket is reachable.
+    - Least-privilege deployment guidance: disable Docker integration unless needed, isolate Charon in a dedicated environment, avoid exposing remote Docker APIs publicly, and prefer restricted `server_id`-based selection with strict auth.
 
 ## 5) Tests & Validation Requirements
 
 ### Required tests (definition of done for the remediation work)
 
 - Frontend:
-    - Add a test that asserts `useDocker(undefined, undefined)` does not issue a request (the undefined/undefined case).
-    - Ensure the UI “Custom / Manual” path does not fetch containers implicitly.
+  - Add a test that asserts `useDocker(undefined, undefined)` does not issue a request (the undefined/undefined case).
+  - Ensure the UI “Custom / Manual” path does not fetch containers implicitly.
 - Backend:
-    - Add handler unit tests for Docker routes using an injected/mocked docker service (no real Docker daemon required).
-    - Add tests for selector validation and for error mapping (e.g., unreachable/permission denied -> 503).
+  - Add handler unit tests for Docker routes using an injected/mocked docker service (no real Docker daemon required).
+  - Add tests for selector validation and for error mapping (e.g., unreachable/permission denied -> 503).
 
 ### Task-based validation steps (run via VS Code tasks)
 

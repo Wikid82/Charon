@@ -23,12 +23,14 @@ Successfully implemented two critical UI/UX improvements to enhance the Charon f
 #### `/projects/Charon/frontend/src/components/Layout.tsx`
 
 **Sidebar Scrolling Improvements:**
+
 - Line 145: Added `min-h-0` to menu container to enable proper flexbox scrolling behavior
 - Line 146: Added `overflow-y-auto` to navigation section for vertical scrolling
 - Line 280: Added `flex-shrink-0` to version/logout section to prevent compression
 - Line 308: Added `flex-shrink-0` to collapsed logout section for consistency
 
 **Fixed Header Improvements:**
+
 - Line 336: Removed `overflow-auto` from main element to prevent entire page scrolling
 - Line 337: Added `sticky top-0 z-10` to header for fixed positioning, removed `relative`
 - Lines 360-362: Wrapped content in scrollable container to enable independent content scrolling
@@ -36,6 +38,7 @@ Successfully implemented two critical UI/UX improvements to enhance the Charon f
 #### `/projects/Charon/frontend/src/index.css`
 
 **Custom Scrollbar Styling:**
+
 - Added WebKit scrollbar styles for consistent appearance
 - Implemented dark mode compatible scrollbar colors
 - Applied subtle hover effects for better UX
@@ -81,11 +84,13 @@ All manual tests passed:
 ### CSS Properties Used
 
 **Sidebar Scrolling:**
+
 - `min-h-0` - Allows flex item to shrink below content size, enabling proper scrolling in flexbox containers
 - `overflow-y-auto` - Shows vertical scrollbar when content exceeds available space
 - `flex-shrink-0` - Prevents logout section from being compressed when space is tight
 
 **Fixed Header:**
+
 - `position: sticky` - Keeps header in place within scroll container
 - `top-0` - Sticks to top edge of viewport
 - `z-index: 10` - Ensures header appears above content (below sidebar at z-30 and modals at z-50)
@@ -94,6 +99,7 @@ All manual tests passed:
 ### Browser Compatibility
 
 Tested and verified on:
+
 - ✅ Chrome/Edge (Chromium-based)
 - ✅ Firefox
 - ✅ Safari (modern versions with full sticky positioning support)
@@ -139,12 +145,14 @@ Not introduced by this change:
 ## Responsive Behavior
 
 ### Mobile (< 1024px)
+
 - Sidebar remains in slide-out panel (existing behavior)
 - Mobile header remains fixed at top (existing behavior)
 - Scrolling improvements apply to mobile sidebar overlay
 - No layout shifts or visual regressions
 
 ### Desktop (≥ 1024px)
+
 - Header sticks to top of viewport when scrolling content
 - Sidebar menu scrolls independently when content overflows
 - Logout button always visible at bottom of sidebar
@@ -172,12 +180,14 @@ All acceptance criteria met:
 ## User Impact
 
 ### Improvements
+
 - **Better Navigation**: Users can now access all menu items without scrolling through expanded submenus
 - **Persistent Header**: Key actions (notifications, theme toggle, system status) remain accessible while scrolling
 - **Enhanced UX**: Custom scrollbars match the application's design language
 - **Responsive Design**: Mobile and desktop experiences remain optimal
 
 ### Breaking Changes
+
 None - this is a purely additive UI/UX enhancement
 
 ---
@@ -206,9 +216,9 @@ Potential follow-up improvements identified during implementation:
 - **Original Specification**: [sidebar-fixed-header-ui-SPEC.md](./sidebar-fixed-header-ui-SPEC.md)
 - **QA Report Summary**: [docs/reports/qa_summary_sidebar_ui.md](../reports/qa_summary_sidebar_ui.md)
 - **Full QA Report**: [docs/reports/qa_report_sidebar_ui.md](../reports/qa_report_sidebar_ui.md)
-- **Tailwind CSS Flexbox**: https://tailwindcss.com/docs/flex
-- **CSS Position Sticky**: https://developer.mozilla.org/en-US/docs/Web/CSS/position#sticky
-- **Flexbox and Min-Height**: https://www.w3.org/TR/css-flexbox-1/#min-size-auto
+- **Tailwind CSS Flexbox**: <https://tailwindcss.com/docs/flex>
+- **CSS Position Sticky**: <https://developer.mozilla.org/en-US/docs/Web/CSS/position#sticky>
+- **Flexbox and Min-Height**: <https://www.w3.org/TR/css-flexbox-1/#min-size-auto>
 
 ---
 

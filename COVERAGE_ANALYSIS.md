@@ -1,4 +1,5 @@
 # Coverage Analysis Report
+
 **Date**: January 12, 2026
 **Current Coverage**: 83.2%
 **Target Coverage**: 85.0%
@@ -81,12 +82,14 @@ internal/api/handlers/manual_challenge_handler.go:
 
 ## DNS Challenge Feature Status
 
-### ✅ WELL-TESTED Components:
+### ✅ WELL-TESTED Components
+
 - `pkg/dnsprovider/custom/manual_provider.go`: **91.1%** ✓
 - `internal/services/dns_provider_service.go`: **81-100%** per function ✓
 - `internal/services/manual_challenge_service.go`: **75-100%** per function ✓
 
-### ⚠️ NEEDS WORK Components:
+### ⚠️ NEEDS WORK Components
+
 - `pkg/dnsprovider/registry.go`: **0%** ❌
 - `internal/api/handlers/manual_challenge_handler.go`: **35-66%** on key endpoints ⚠️
 
@@ -95,11 +98,13 @@ internal/api/handlers/manual_challenge_handler.go:
 ## Path to 85% Coverage
 
 ### Option A: Test pkg/dnsprovider/registry.go (RECOMMENDED)
+
 **Effort**: 30-45 minutes
 **Impact**: ~0.5-1.0% coverage gain (129 lines)
 **Risk**: Low (pure logic, no external dependencies)
 
 **Test Strategy**:
+
 ```go
 // Test plan for registry_test.go
 1. TestNewRegistry() - constructor
@@ -115,11 +120,13 @@ internal/api/handlers/manual_challenge_handler.go:
 ```
 
 ### Option B: Improve manual_challenge_handler.go
+
 **Effort**: 45-60 minutes
 **Impact**: ~0.8-1.2% coverage gain
 **Risk**: Medium (HTTP testing, state management)
 
 **Test Strategy**:
+
 ```go
 // Add tests for:
 1. VerifyChallenge - error paths (invalid IDs, DNS failures)
@@ -130,11 +137,13 @@ internal/api/handlers/manual_challenge_handler.go:
 ```
 
 ### Option C: Quick Wins (Sanitize + Init Files)
+
 **Effort**: 20-30 minutes
 **Impact**: ~0.3-0.5% coverage gain
 **Risk**: Very Low (simple utility functions)
 
 **Test Strategy**:
+
 ```go
 // Test sanitize.go functions
 1. Test XSS prevention
@@ -152,16 +161,19 @@ internal/api/handlers/manual_challenge_handler.go:
 ## Recommended Action Plan (45-60 min)
 
 **Phase 1** (20 min): Test `pkg/dnsprovider/registry.go`
+
 - Create `pkg/dnsprovider/registry_test.go`
 - Test all 10 functions
 - Expected gain: +0.8%
 
 **Phase 2** (25 min): Test sanitization files
+
 - Expand `internal/api/handlers/sanitize_test.go`
 - Create `internal/util/sanitize_test.go`
 - Expected gain: +0.4%
 
 **Phase 3** (15 min): Verify and adjust
+
 - Run coverage again
 - Check if we hit 85%
 - If not, add 2-3 tests to `manual_challenge_handler.go`
@@ -176,12 +188,14 @@ internal/api/handlers/manual_challenge_handler.go:
 **Pragmatic Option**: Set threshold to **83.0%**
 
 **Rationale**:
+
 1. Main entry point (`cmd/api/main.go`) is at 26% (hard to test)
 2. Seed script (`cmd/seed/main.go`) is at 19% (not production code)
 3. Middleware init functions are low-value test targets
 4. **Core business logic is well-tested** (DNS providers, services, handlers)
 
 **Files Intentionally Untested** (acceptable):
+
 - `cmd/api/main.go` - integration test territory
 - `cmd/seed/main.go` - utility script
 - `internal/server/server.go` - wired in integration tests
@@ -219,6 +233,7 @@ internal/api/handlers/manual_challenge_handler.go:
 **We CAN reach 85% with targeted testing in < 1 hour.**
 
 **Recommendation**:
+
 1. **Immediate**: Test `pkg/dnsprovider/registry.go` (+0.8%)
 2. **Quick Win**: Test sanitization utilities (+0.4%)
 3. **If Needed**: Add 3-5 tests to `manual_challenge_handler.go` (+0.3-0.5%)
@@ -232,6 +247,7 @@ internal/api/handlers/manual_challenge_handler.go:
 Choose one path:
 
 **Path A** (Testing):
+
 ```bash
 # 1. Create registry_test.go
 touch pkg/dnsprovider/registry_test.go
@@ -245,6 +261,7 @@ go tool cover -func=coverage.out | tail -1
 ```
 
 **Path B** (Threshold Adjustment):
+
 ```bash
 # Update CI configuration to 83%
 # Focus on Patch Coverage (100% for new changes)

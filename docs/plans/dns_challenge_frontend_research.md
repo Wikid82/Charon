@@ -105,6 +105,7 @@ const handleSubmit = (e: React.FormEvent) => {
 ### Password/Credential Input Pattern
 
 From `Input.tsx`:
+
 - Built-in password visibility toggle
 - Uses `type="password"` with eye icon
 - Supports `helperText` for guidance
@@ -139,6 +140,7 @@ const handleTestConnection = async () => {
 **Purpose**: Manage DNS provider configurations for DNS-01 challenges
 
 **Layout**:
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ DNS Providers                        [+ Add Provider]   │
@@ -157,6 +159,7 @@ const handleTestConnection = async () => {
 ```
 
 **Features**:
+
 - List configured DNS providers
 - Add/Edit/Delete provider configurations
 - Test DNS propagation
@@ -169,6 +172,7 @@ const handleTestConnection = async () => {
 **Purpose**: Add/edit DNS provider configuration
 
 **Key Features**:
+
 - Dynamic form fields based on provider type
 - Credential inputs with password masking
 - Test connection button
@@ -209,6 +213,7 @@ const handleTestConnection = async () => {
 **Purpose**: Visual feedback for DNS TXT record propagation
 
 **Features**:
+
 - Shows test domain and expected TXT record
 - Real-time propagation status
 - Retry button

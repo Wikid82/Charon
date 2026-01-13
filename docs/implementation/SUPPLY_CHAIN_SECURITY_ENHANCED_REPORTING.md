@@ -9,6 +9,7 @@ Enhanced the supply chain security workflow (`.github/workflows/supply-chain-ver
 ### 1. New Vulnerability Parsing Step
 
 Added `Parse Vulnerability Details` step that:
+
 - Extracts detailed vulnerability data from Grype JSON output
 - Generates separate files for each severity level (Critical, High, Medium, Low)
 - Limits to first 20 vulnerabilities per severity to maintain PR comment readability
@@ -20,6 +21,7 @@ Added `Parse Vulnerability Details` step that:
   - Brief description (truncated to 80 characters)
 
 **Implementation:**
+
 ```yaml
 - name: Parse Vulnerability Details
   run: |
@@ -36,11 +38,13 @@ Added `Parse Vulnerability Details` step that:
 Updated `Build PR Comment Body` step to include:
 
 #### Summary Section (Preserved)
+
 - Maintains existing summary table with vulnerability counts
 - Clear status indicators (✅ No issues, ⚠️ High/Critical found)
 - Direct link to full workflow run
 
 #### New Detailed Findings Section
+
 - **Collapsible Details**: Uses `<details>` tags for each severity level
 - **Markdown Tables**: Formatted vulnerability lists with:
   - CVE ID
@@ -51,6 +55,7 @@ Updated `Build PR Comment Body` step to include:
 - **Truncation Handling**: Shows first 20 vulnerabilities per severity, with "...and X more" message if truncated
 
 **Example Output:**
+
 ```markdown
 ## 🔍 Detailed Findings
 
@@ -70,6 +75,7 @@ _...and 3 more. View the full scan results for complete details._
 ### 3. Vulnerability Scan Artifacts
 
 Added artifact upload for detailed analysis:
+
 - **Full JSON Report**: `vuln-scan.json` with complete Grype output
 - **Parsed Tables**: Individual `.txt` files for each severity level
 - **Retention**: 30 days for historical tracking
@@ -81,20 +87,24 @@ Added artifact upload for detailed analysis:
 ### 4. Edge Case Handling
 
 #### No Vulnerabilities
+
 - Shows celebratory message with empty table
 - No detailed findings section (clean display)
 
 #### Scan Failures
+
 - Existing error handling preserved
 - Shows error message with link to logs
 - Action required notification
 
 #### Large Vulnerability Lists
+
 - Limits display to first 20 per severity
 - Adds "...and X more" message with link to full report
 - Prevents GitHub comment size limits (65,536 characters)
 
 #### Missing Data
+
 - Gracefully handles missing fixed versions ("No fix available")
 - Shows "N/A" for missing descriptions
 - Fallback messages if parsing fails
@@ -102,18 +112,21 @@ Added artifact upload for detailed analysis:
 ## Benefits
 
 ### For Developers
+
 - **Immediate Visibility**: See specific CVEs without leaving the PR
 - **Actionable Information**: Know exactly which packages need updating
 - **Prioritization**: Severity grouping helps focus on critical issues first
 - **Context**: Brief descriptions provide quick understanding
 
 ### For Security Reviews
+
 - **Compliance**: Complete audit trail via artifacts
 - **Tracking**: Historical data for vulnerability trends
 - **Evidence**: Detailed reports for security assessments
 - **Integration**: JSON format compatible with security tools
 
 ### For CI/CD
+
 - **Performance**: Maintains fast PR feedback (no additional scans)
 - **Readability**: Collapsible sections keep comments manageable
 - **Automation**: Structured data enables further automation
@@ -122,6 +135,7 @@ Added artifact upload for detailed analysis:
 ## Technical Details
 
 ### Data Flow
+
 1. **Grype Scan** → Generates `vuln-scan.json` (existing)
 2. **Parse Step** → Extracts data using `jq` into `.txt` files
 3. **Comment Build** → Assembles markdown with collapsible sections
@@ -129,11 +143,13 @@ Added artifact upload for detailed analysis:
 5. **Artifact Upload** → Preserves full data for analysis
 
 ### Performance Impact
+
 - **Minimal**: Parsing adds ~5-10 seconds
 - **No Additional Scans**: Reuses existing Grype output
 - **Cached Database**: Grype DB already updated in scan step
 
 ### GitHub API Considerations
+
 - **Comment Size**: Truncation at 20/severity keeps well below 65KB limit
 - **Rate Limits**: Single comment update (not multiple calls)
 - **Markdown Rendering**: Uses native GitHub markdown (no custom HTML)
@@ -141,6 +157,7 @@ Added artifact upload for detailed analysis:
 ## Usage Examples
 
 ### Developer Workflow
+
 1. Submit PR
 2. Wait for docker-build to complete
 3. Review supply chain security comment
@@ -149,6 +166,7 @@ Added artifact upload for detailed analysis:
 6. Push updates, workflow re-runs automatically
 
 ### Security Audit
+
 1. Navigate to Actions → Supply Chain Verification
 2. Download `vulnerability-scan-*.zip` artifact
 3. Extract `vuln-scan.json`
@@ -156,6 +174,7 @@ Added artifact upload for detailed analysis:
 5. Generate compliance reports
 
 ### Troubleshooting
+
 - **No details shown**: Check workflow logs for parsing errors
 - **Truncated list**: Download artifact for full list
 - **Outdated data**: Trigger manual workflow run to refresh
@@ -164,6 +183,7 @@ Added artifact upload for detailed analysis:
 ## Future Enhancements
 
 ### Potential Improvements
+
 - [ ] **Links to CVE Databases**: Add NIST/NVD links for each CVE
 - [ ] **CVSS Scores**: Include severity scores (numerical)
 - [ ] **Exploitability**: Flag if exploit is publicly available
@@ -174,6 +194,7 @@ Added artifact upload for detailed analysis:
 - [ ] **SLA Tracking**: Monitor time-to-resolution for vulnerabilities
 
 ### Integration Opportunities
+
 - **GitHub Security**: Link to Security tab alerts
 - **Dependabot**: Cross-reference with dependency PRs
 - **CodeQL**: Correlate with code analysis findings
@@ -182,13 +203,16 @@ Added artifact upload for detailed analysis:
 ## Migration Notes
 
 ### Backward Compatibility
+
 - ✅ Existing summary format preserved
 - ✅ Comment update mechanism unchanged
 - ✅ No breaking changes to workflow triggers
 - ✅ Artifact naming follows existing conventions
 
 ### Rollback Plan
+
 If issues arise:
+
 1. Revert the three modified steps in workflow file
 2. Existing summary-only comments will resume
 3. No data loss (artifacts still uploaded)
@@ -209,10 +233,10 @@ If issues arise:
 
 ## References
 
-- **Grype Documentation**: https://github.com/anchore/grype
-- **GitHub Actions Best Practices**: https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions
-- **Markdown Collapsible Sections**: https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections
-- **OWASP Dependency Check**: https://owasp.org/www-project-dependency-check/
+- **Grype Documentation**: <https://github.com/anchore/grype>
+- **GitHub Actions Best Practices**: <https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions>
+- **Markdown Collapsible Sections**: <https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections>
+- **OWASP Dependency Check**: <https://owasp.org/www-project-dependency-check/>
 
 ---
 

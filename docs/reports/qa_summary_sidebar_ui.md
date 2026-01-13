@@ -54,6 +54,7 @@ All manual regression tests passed:
 ## ⚠️ Known Issues
 
 **40 pre-existing linting warnings** (not related to this change):
+
 - 35 warnings: Test files using `any` type (acceptable for mocking)
 - 2 warnings: React hooks exhaustive-deps (technical debt)
 - 2 warnings: Fast refresh warnings (architectural decision)

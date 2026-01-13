@@ -9,6 +9,7 @@
 ## Executive Summary
 
 GitHub Advanced Security is reporting that 2 workflow configurations from `refs/heads/main` are missing in the current PR branch (`feature/beta-release`):
+
 1. `.github/workflows/security-weekly-rebuild.yml:security-rebuild`
 2. `.github/workflows/docker-publish.yml:build-and-push`
 
@@ -23,6 +24,7 @@ GitHub Advanced Security is reporting that 2 workflow configurations from `refs/
 ### 1. File State Analysis
 
 #### Current Branch (`feature/beta-release`)
+
 ```
 ✅ .github/workflows/security-weekly-rebuild.yml EXISTS
    - Job name: security-rebuild
@@ -42,6 +44,7 @@ GitHub Advanced Security is reporting that 2 workflow configurations from `refs/
 ```
 
 #### Main Branch (`refs/heads/main`)
+
 ```
 ✅ .github/workflows/security-weekly-rebuild.yml EXISTS
    - Job name: security-rebuild
@@ -67,6 +70,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 ```
 
 **Key Findings:**
+
 - `docker-publish.yml` was deleted on **BOTH** main and feature/beta-release branches
 - `docker-build.yml` exists on **BOTH** branches with the **SAME** job name
 - The warning is a GitHub Advanced Security tracking artifact from when `docker-publish.yml` existed
@@ -85,6 +89,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 | **Concurrency Control** | ✅ Yes | ✅ Yes (ENHANCED) |
 
 **Improvement Analysis:** `docker-build.yml` is **MORE SECURE** than the deleted `docker-publish.yml`:
+
 - Added SBOM generation (supply chain security)
 - Added SBOM attestation with cryptographic signing
 - Added CVE-2025-68156 verification for Caddy
@@ -102,6 +107,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 | `docker-build.yml` | `trivy-pr-app-only` | ✅ Yes (app binary) | ❌ No | PR only |
 
 **Coverage Assessment:**
+
 - Weekly security rebuilds: ✅ ACTIVE
 - Per-commit scanning: ✅ ACTIVE
 - PR-specific scanning: ✅ ACTIVE
@@ -117,6 +123,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 **Symptom:** GitHub Advanced Security tracks workflow configurations by **filename + job name**. When a workflow file is deleted/renamed, GitHub Security's internal tracking doesn't automatically update the reference mapping.
 
 **Root Cause Chain:**
+
 1. `docker-publish.yml` existed on main branch (tracked as `docker-publish.yml:build-and-push`)
 2. Commit `f640524b` deleted `docker-publish.yml` and functionality was moved to `docker-build.yml`
 3. GitHub Security still has historical tracking data for `docker-publish.yml:build-and-push`
@@ -124,6 +131,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 5. File not found → Warning generated
 
 **Why This is a False Positive:**
+
 - The job name `build-and-push` still exists in `docker-build.yml`
 - All Trivy scanning functionality is preserved (and enhanced)
 - Both branches have the same state (file deleted, functionality moved)
@@ -132,6 +140,7 @@ Date:   Sun Dec 21 15:11:25 2025 +0000
 ### Why Was docker-publish.yml Deleted?
 
 Based on git history and inspection:
+
 1. **Consolidation:** Functionality was merged/improved in `docker-build.yml`
 2. **Enhancement:** `docker-build.yml` added SBOM, attestation, and CVE checks
 3. **Maintenance:** Reduced workflow file duplication
@@ -142,15 +151,18 @@ Based on git history and inspection:
 ## Resolution Strategy
 
 ### Option 1: Do Nothing (RECOMMENDED)
+
 **Rationale:** This is a **false positive tracking issue**, not a functional security problem.
 
 **Pros:**
+
 - No code changes required
 - No risk of breaking existing functionality
 - Security coverage is complete and enhanced
 - Warning will eventually clear when GitHub Security updates its tracking
 
 **Cons:**
+
 - Warning remains visible in GitHub Security UI
 - May confuse reviewers/auditors
 
@@ -159,19 +171,23 @@ Based on git history and inspection:
 ---
 
 ### Option 2: Force GitHub Security to Update Tracking
+
 **Approach:** Trigger a manual re-scan or workflow dispatch on main branch to refresh GitHub Security's workflow registry.
 
 **Steps:**
+
 1. Navigate to Actions → `security-weekly-rebuild.yml`
 2. Click "Run workflow" → Run on main branch
 3. Wait for workflow completion
 4. Check if GitHub Security updates its tracking
 
 **Pros:**
+
 - May clear the warning faster
 - No code changes required
 
 **Cons:**
+
 - No guarantee GitHub Security will update tracking immediately
 - May need to wait for GitHub's internal cache/indexing to refresh
 - Uses CI/CD resources
@@ -181,9 +197,11 @@ Based on git history and inspection:
 ---
 
 ### Option 3: Re-create docker-publish.yml as a Wrapper (NOT RECOMMENDED)
+
 **Approach:** Create a new `docker-publish.yml` that calls `docker-build.yml` via `workflow_call`.
 
 **Example Implementation:**
+
 ```yaml
 # .github/workflows/docker-publish.yml
 name: Docker Publish (Deprecated - Use docker-build.yml)
@@ -197,10 +215,12 @@ jobs:
 ```
 
 **Pros:**
+
 - Satisfies GitHub Security's filename tracking
 - Maintains backward compatibility for any external references
 
 **Cons:**
+
 - ❌ Creates unnecessary file duplication
 - ❌ Adds maintenance burden
 - ❌ Confuses future developers (two files doing the same thing)
@@ -212,21 +232,25 @@ jobs:
 ---
 
 ### Option 4: Add Comprehensive Documentation
+
 **Approach:** Document the workflow file rename/migration in repository documentation.
 
 **Implementation:**
+
 1. Update `CHANGELOG.md` with entry for docker-publish.yml removal
 2. Add section to `SECURITY.md` explaining current Trivy coverage
 3. Create `.github/workflows/README.md` documenting workflow structure
 4. Add comment to `docker-build.yml` explaining it replaced `docker-publish.yml`
 
 **Pros:**
+
 - ✅ Improves project documentation
 - ✅ Helps future maintainers understand the change
 - ✅ Provides audit trail for security reviews
 - ✅ No functional changes, zero risk
 
 **Cons:**
+
 - Doesn't clear the GitHub Security warning
 - Requires documentation updates
 
@@ -237,11 +261,14 @@ jobs:
 ## Recommended Action Plan
 
 ### Phase 1: Documentation (IMMEDIATE)
+
 **Objective:** Create audit trail and improve project documentation.
 
 **Tasks:**
+
 1. ✅ Create this plan document (`docs/plans/GITHUB_SECURITY_WARNING_RESOLUTION_PLAN.md`) ← DONE
 2. Add entry to `CHANGELOG.md`:
+
    ```markdown
    ### Changed
    - Replaced `.github/workflows/docker-publish.yml` with `.github/workflows/docker-build.yml` for enhanced supply chain security
@@ -249,7 +276,9 @@ jobs:
      - Added CVE-2025-68156 verification for Caddy
      - Job name `build-and-push` preserved for continuity
    ```
+
 3. Add section to `SECURITY.md`:
+
    ```markdown
    ## Security Scanning Coverage
 
@@ -267,7 +296,9 @@ jobs:
 
    All Trivy results are uploaded to the [Security tab](../../security/code-scanning).
    ```
+
 4. Add header comment to `docker-build.yml`:
+
    ```yaml
    # This workflow replaced docker-publish.yml on 2025-12-21
    # Enhancement: Added SBOM generation, attestation, and CVE verification
@@ -281,13 +312,17 @@ jobs:
 ---
 
 ### Phase 2: Verification (AFTER DOCUMENTATION)
+
 **Objective:** Confirm that security scanning is functioning correctly.
 
 **Tasks:**
+
 1. Verify `security-weekly-rebuild.yml` is scheduled correctly:
+
    ```bash
    git show main:.github/workflows/security-weekly-rebuild.yml | grep -A 5 "schedule:"
    ```
+
 2. Check recent workflow runs in GitHub Actions UI:
    - Verify `docker-build.yml` runs on push/PR
    - Verify `security-weekly-rebuild.yml` runs weekly
@@ -298,6 +333,7 @@ jobs:
    - Check for any missed scans
 
 **Success Criteria:**
+
 - ✅ All workflows show successful runs
 - ✅ Trivy SARIF results appear in Security tab
 - ✅ No scan failures in last 30 days
@@ -310,14 +346,17 @@ jobs:
 ---
 
 ### Phase 3: Monitor (ONGOING)
+
 **Objective:** Track if GitHub Security warning clears naturally.
 
 **Tasks:**
+
 1. Check PR status page weekly for warning persistence
 2. If warning persists after 4 weeks, try Option 2 (manual workflow dispatch)
 3. If warning persists after 8 weeks, open GitHub Support ticket
 
 **Success Criteria:**
+
 - Warning clears within 4-8 weeks as GitHub Security updates tracking
 
 **Estimated Time:** 5 minutes/week
@@ -341,6 +380,7 @@ jobs:
 ### Impact Analysis
 
 **If We Do Nothing:**
+
 - Security scanning: ✅ UNAFFECTED (fully functional)
 - Code quality: ✅ UNAFFECTED
 - Developer experience: ✅ UNAFFECTED
@@ -348,6 +388,7 @@ jobs:
 - Compliance audits: ✅ PASS (coverage is complete, documented)
 
 **If We Implement Phase 1 (Documentation):**
+
 - Security scanning: ✅ UNAFFECTED
 - Code quality: ✅ IMPROVED (better documentation)
 - Developer experience: ✅ IMPROVED (clearer history)
@@ -361,6 +402,7 @@ jobs:
 ### Workflow File Comparison
 
 #### security-weekly-rebuild.yml
+
 ```yaml
 name: Weekly Security Rebuild
 on:
@@ -376,6 +418,7 @@ jobs:
 ```
 
 #### docker-build.yml (current)
+
 ```yaml
 name: Docker Build, Publish & Test
 on:
@@ -396,6 +439,7 @@ jobs:
 ```
 
 #### docker-publish.yml (DELETED on 2025-12-21)
+
 ```yaml
 name: Docker Build, Publish & Test  # ← Same name as docker-build.yml
 on:
@@ -414,6 +458,7 @@ jobs:
 ```
 
 **Migration Notes:**
+
 - ✅ Job name `build-and-push` preserved for continuity
 - ✅ All Trivy functionality preserved
 - ✅ Enhanced with SBOM generation and attestation
@@ -425,12 +470,14 @@ jobs:
 ## Dependencies
 
 ### Files to Review/Update (Phase 1)
+
 - [ ] `CHANGELOG.md` - Add entry for workflow migration
 - [ ] `SECURITY.md` - Document security scanning coverage
 - [ ] `.github/workflows/docker-build.yml` - Add header comment
 - [ ] `.github/workflows/README.md` - Create workflow documentation (optional)
 
 ### No Changes Required (Already Compliant)
+
 - ✅ `.gitignore` - No new files/folders added
 - ✅ `.dockerignore` - No Docker changes
 - ✅ `.codecov.yml` - No coverage changes
@@ -441,6 +488,7 @@ jobs:
 ## Success Criteria
 
 ### Phase 1 Success (Documentation)
+
 - [x] Plan document created and comprehensive
 - [x] Root cause identified (workflow file renamed)
 - [x] Security coverage verified (all scans active)
@@ -451,12 +499,14 @@ jobs:
 - [ ] No linting or formatting errors
 
 ### Phase 2 Success (Verification)
+
 - [ ] All workflows show successful recent runs
 - [ ] Trivy SARIF results visible in Security tab
 - [ ] No scan failures in last 30 days
 - [ ] Weekly security rebuild on schedule
 
 ### Phase 3 Success (Monitoring)
+
 - [ ] GitHub Security warning tracked weekly
 - [ ] Warning clears within 8 weeks OR GitHub Support ticket opened
 - [ ] No functional issues with security scanning
@@ -468,6 +518,7 @@ jobs:
 ### Why Not Fix the "Warning" Immediately?
 
 **Considered Approaches:**
+
 1. **Re-create docker-publish.yml as wrapper**
    - ❌ Creates maintenance burden
    - ❌ Doesn't solve root cause
@@ -484,6 +535,7 @@ jobs:
    - ⚠️ Should be last resort after monitoring
 
 **Selected Approach: Document and Monitor**
+
 - ✅ Zero risk to existing functionality
 - ✅ Improves project documentation
 - ✅ Provides audit trail
@@ -494,26 +546,34 @@ jobs:
 ## Questions and Answers
 
 ### Q: Is this a security vulnerability?
+
 **A:** No. This is a tracking/reporting issue in GitHub Advanced Security's workflow registry. All security scanning functionality is active and enhanced compared to the deleted workflow.
 
 ### Q: Will this block merging the PR?
+
 **A:** No. GitHub Advanced Security warnings are informational and do not block merges. The warning indicates a tracking discrepancy, not a functional security gap.
 
 ### Q: Should we re-create docker-publish.yml?
+
 **A:** No. Re-creating the file would be symptom patching and create maintenance burden. The functionality exists in `docker-build.yml` with enhancements.
 
 ### Q: How long will the warning persist?
+
 **A:** Unknown. It depends on GitHub's internal tracking cache refresh cycle. Typically, these warnings clear within 4-8 weeks as GitHub's systems update. If it persists beyond 8 weeks, we can escalate to GitHub Support.
 
 ### Q: Does this affect compliance audits?
+
 **A:** No. This document provides a complete audit trail showing:
+
 1. Security scanning coverage is complete
 2. Functionality was enhanced, not reduced
 3. The warning is a false positive from filename tracking
 4. All Trivy scans are active and uploading to Security tab
 
 ### Q: What if reviewers question the warning?
+
 **A:** Point them to this document which provides:
+
 1. Complete investigation summary
 2. Root cause analysis
 3. Risk assessment (LOW severity, tracking issue only)
@@ -528,6 +588,7 @@ jobs:
 **Security Status:** ✅ **NO SECURITY GAPS** - All Trivy scanning is active, functional, and enhanced compared to the deleted workflow.
 
 **Recommended Action:**
+
 1. ✅ **Implement Phase 1** - Document the migration (30 minutes, zero risk)
 2. ✅ **Implement Phase 2** - Verify scanning functionality (15 minutes, read-only)
 3. ✅ **Implement Phase 3** - Monitor warning status (5 min/week, optional escalation)
@@ -543,19 +604,22 @@ jobs:
 ## References
 
 ### Git Commits
+
 - `f640524b` - Removed docker-publish.yml (Dec 21, 2025)
 - `e58fcb71` - Created docker-build.yml (initial)
 - `8311d68d` - Updated docker-build.yml buildx action (latest)
 
 ### Workflow Files
+
 - `.github/workflows/security-weekly-rebuild.yml` - Weekly security rebuild
 - `.github/workflows/docker-build.yml` - Current build and publish workflow
 - `.github/workflows/docker-publish.yml` - DELETED (replaced by docker-build.yml)
 
 ### Documentation
-- GitHub Advanced Security: https://docs.github.com/en/code-security
-- Trivy Scanner: https://github.com/aquasecurity/trivy
-- SARIF Format: https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning
+
+- GitHub Advanced Security: <https://docs.github.com/en/code-security>
+- Trivy Scanner: <https://github.com/aquasecurity/trivy>
+- SARIF Format: <https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/sarif-support-for-code-scanning>
 
 ---
 

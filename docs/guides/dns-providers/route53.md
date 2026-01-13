@@ -44,11 +44,11 @@ Create a custom IAM policy with minimum required permissions:
 }
 ```
 
-6. Click **Next: Tags** (optional tags)
-7. Click **Next: Review**
-8. **Name:** `CharonRoute53DNSChallenge`
-9. **Description:** `Allows Charon to manage DNS TXT records for ACME challenges`
-10. Click **Create Policy**
+1. Click **Next: Tags** (optional tags)
+2. Click **Next: Review**
+3. **Name:** `CharonRoute53DNSChallenge`
+4. **Description:** `Allows Charon to manage DNS TXT records for ACME challenges`
+5. Click **Create Policy**
 
 > **Tip:** For production, scope the policy to specific hosted zones by replacing `*` with your zone ID.
 
@@ -98,6 +98,7 @@ Expand **Advanced Settings** to customize:
 3. Verify you see: ✅ **Connection successful**
 
 The test verifies:
+
 - Credentials are valid
 - IAM user has required permissions
 - Route 53 hosted zones are accessible

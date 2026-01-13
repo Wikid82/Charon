@@ -56,12 +56,14 @@ Check 4: ✅ Success → Status: Up, Failure Count: 0  (recovery alert)
 This timeout determines how long Charon waits for a TCP connection before considering it failed.
 
 **Increase timeout if:**
+
 - You have slow networks
 - Hosts are geographically distant
 - Containers take time to warm up
 - You see intermittent false "down" alerts
 
 **Decrease timeout if:**
+
 - You want faster failure detection
 - Your hosts are on local network
 - Response times are consistently fast

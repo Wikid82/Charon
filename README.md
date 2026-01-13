@@ -42,16 +42,22 @@ You want your apps accessible online. You don't want to become a networking expe
 ## 🐕 Cerberus Security Suite
 
 ### 🕵️‍♂️ **CrowdSec Integration**
-  - Protects your applications from attacks using behavior-based detection and automated remediation.
+
+- Protects your applications from attacks using behavior-based detection and automated remediation.
+
 ### 🔐 **Access Control Lists (ACLs)**
-  - Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+
+- Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+
 ### 🧱 **Web Application Firewall (WAF)**
-  - Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+
+- Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+
 ### ⏱️ **Rate Limiting**
-  - Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
+
+- Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
 
 ---
-
 
 ## ✨ Top 10 Features
 
@@ -136,6 +142,19 @@ services:
 
 ```
 
+**Using Nightly Builds:**
+
+To test the latest nightly build (automated daily at 02:00 UTC):
+
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:nightly
+    # ... rest of configuration
+```
+
+> **Note:** Nightly builds are for testing and may contain experimental features. Use `latest` for production.
+
 Then run:
 
 ```bash
@@ -143,6 +162,8 @@ docker-compose up -d
 ```
 
 ### Docker Run (One-Liner)
+
+**Stable Release:**
 
 ```bash
 docker run -d \
@@ -157,6 +178,24 @@ docker run -d \
   -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
   ghcr.io/wikid82/charon:latest
 ```
+
+**Nightly Build (Testing):**
+
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 443:443/udp \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
+  ghcr.io/wikid82/charon:nightly
+```
+
+> **Note:** Nightly builds include the latest development features and are rebuilt daily at 02:00 UTC. Use for testing only.
 
 ### What Just Happened?
 

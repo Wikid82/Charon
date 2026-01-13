@@ -55,6 +55,9 @@ Example: `0.1.0-alpha`, `1.0.0-beta.1`, `2.0.0-rc.2`
 ### Available Tags
 
 - **`latest`**: Latest stable release (main branch)
+- **`nightly`**: Latest nightly build (nightly branch, rebuilt daily at 02:00 UTC)
+- **`nightly-YYYY-MM-DD`**: Date-specific nightly build
+- **`nightly-<sha>`**: Commit-specific nightly build
 - **`development`**: Latest development build (development branch)
 - **`v1.2.3`**: Specific version tag
 - **`1.2`**: Latest patch for minor version
@@ -71,11 +74,81 @@ docker pull ghcr.io/wikid82/charon:latest
 # Use specific version
 docker pull ghcr.io/wikid82/charon:v1.0.0
 
-# Use development builds
+# Use latest nightly build (automated daily at 02:00 UTC)
+docker pull ghcr.io/wikid82/charon:nightly
+
+# Use date-specific nightly build
+docker pull ghcr.io/wikid82/charon:nightly-2026-01-13
+
+# Use commit-specific nightly build
+docker pull ghcr.io/wikid82/charon:nightly-abc123
+
+# Use development builds (unstable, every commit)
 docker pull ghcr.io/wikid82/charon:development
 
-# Use specific commit
+# Use specific commit from main
 docker pull ghcr.io/wikid82/charon:main-abc123
+```
+
+### Nightly Builds
+
+Nightly builds provide a testing ground for features before they reach `main`:
+
+- **Automated**: Built daily at 02:00 UTC from the `nightly` branch
+- **Source**: Auto-merged from `development` branch
+- **Purpose**: Pre-release testing and validation
+- **Stability**: More stable than `development`, less stable than `latest`
+
+**When to use nightly:**
+
+- Testing new features before stable release
+- Validating bug fixes
+- Contributing to pre-release testing
+- Running in staging environments
+
+**When to avoid nightly:**
+
+- Production environments (use `latest` instead)
+- Critical infrastructure
+- When maximum stability is required
+
+## Nightly Versioning Format
+
+### Version Precedence
+
+Charon uses the following version hierarchy:
+
+1. **Stable releases**: `v1.2.3` (highest precedence)
+2. **Nightly builds**: `nightly-YYYY-MM-DD` or `nightly-{sha}`
+3. **Development builds**: `development` or `development-{sha}` (lowest precedence)
+
+### Nightly Version Tags
+
+Nightly builds use multiple tag formats:
+
+- **`nightly`**: Always points to the latest nightly build (floating tag)
+- **`nightly-YYYY-MM-DD`**: Date-specific build (e.g., `nightly-2026-01-13`)
+- **`nightly-{sha}`**: Commit-specific build (e.g., `nightly-abc1234`)
+
+**Tag characteristics:**
+
+| Tag Format           | Immutable | Use Case                        |
+|----------------------|-----------|---------------------------------|
+| `nightly`            | No        | Latest nightly features         |
+| `nightly-2026-01-13` | Yes       | Reproducible date-based testing |
+| `nightly-abc1234`    | Yes       | Exact commit testing            |
+
+**Version in API responses:**
+
+Nightly builds report their version in the health endpoint:
+
+```json
+{
+  "version": "nightly-2026-01-13",
+  "git_commit": "abc1234567890def",
+  "build_date": "2026-01-13T02:00:00Z",
+  "branch": "nightly"
+}
 ```
 
 ## Version Information
@@ -153,6 +226,10 @@ git commit -m "fix: correct proxy timeout handling"
 
 ## CI Tag-based Releases (recommended)
 
-- CI derives the release `Version` from the Git tag (e.g., `v1.2.3`) and embeds this value into the backend binary via Go ldflags; frontend reads the version from the backend's API. This avoids automatic commits to `main`.
-- The `.version` file is optional. If present, use the `scripts/check-version-match-tag.sh` script or the included pre-commit hook to validate that `.version` matches the latest Git tag.
-- CI will still generate changelogs automatically using the release-drafter workflow and create GitHub Releases when tags are pushed.
+- CI derives the release `Version` from the Git tag (e.g., `v1.2.3`) and embeds this value into the
+  backend binary via Go ldflags; frontend reads the version from the backend's API. This avoids
+  automatic commits to `main`.
+- The `.version` file is optional. If present, use the `scripts/check-version-match-tag.sh` script
+  or the included pre-commit hook to validate that `.version` matches the latest Git tag.
+- CI will still generate changelogs automatically using the release-drafter workflow and create
+  GitHub Releases when tags are pushed.

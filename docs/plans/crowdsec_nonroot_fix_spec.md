@@ -24,6 +24,7 @@ The Charon container was migrated from root to non-root user (UID/GID 1000, user
 **User**: `charon` (UID 1000, GID 1000)
 
 **Directory Permissions**:
+
 ```
 ✓ /var/log/crowdsec/      - charon:charon (correct)
 ✓ /var/log/caddy/         - charon:charon (correct)
@@ -32,6 +33,7 @@ The Charon container was migrated from root to non-root user (UID/GID 1000, user
 ```
 
 **CrowdSec Config Issues** (`/app/data/crowdsec/config/config.yaml`):
+
 ```yaml
 common:
   log_media: file
@@ -236,6 +238,7 @@ RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
 After implementation, verify these conditions:
 
 ### 1. Container Startup
+
 ```bash
 docker logs charon 2>&1 | grep -i crowdsec
 # Expected: "CrowdSec configuration initialized"
@@ -244,12 +247,14 @@ docker logs charon 2>&1 | grep -i crowdsec
 ```
 
 ### 2. Symlink Creation
+
 ```bash
 docker exec charon ls -la /etc/crowdsec
 # Expected: lrwxrwxrwx ... /etc/crowdsec -> /app/data/crowdsec/config
 ```
 
 ### 3. Config File Paths
+
 ```bash
 docker exec charon grep -E "log_dir|data_dir|config_dir" /app/data/crowdsec/config/config.yaml
 # Expected:
@@ -259,12 +264,14 @@ docker exec charon grep -E "log_dir|data_dir|config_dir" /app/data/crowdsec/conf
 ```
 
 ### 4. Log Directory Writability
+
 ```bash
 docker exec charon test -w /var/log/crowdsec/ && echo "writable" || echo "not writable"
 # Expected: writable
 ```
 
 ### 5. CrowdSec Start via API
+
 ```bash
 # Enable CrowdSec via API
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/admin/crowdsec/start
@@ -275,6 +282,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/admin/crowds
 ```
 
 ### 6. Manual Process Start (Direct Test)
+
 ```bash
 docker exec charon /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.yaml
 # Should start without permission errors
@@ -282,6 +290,7 @@ docker exec charon /usr/local/bin/crowdsec -c /app/data/crowdsec/config/config.y
 ```
 
 ### 7. LAPI Connectivity
+
 ```bash
 docker exec charon cscli lapi status
 # Expected: "You can successfully interact with Local API (LAPI)"
@@ -292,6 +301,7 @@ docker exec charon cscli lapi status
 ## Testing Strategy
 
 ### Phase 1: Clean Start Test
+
 1. Remove existing volume: `docker volume rm charon_data`
 2. Start fresh container: `docker compose up -d`
 3. Verify symlink and config paths
@@ -299,6 +309,7 @@ docker exec charon cscli lapi status
 5. Verify process starts successfully
 
 ### Phase 2: Upgrade Test (Migration Scenario)
+
 1. Use existing volume with old directory structure
 2. Start updated container
 3. Verify entrypoint migrates old configs
@@ -306,6 +317,7 @@ docker exec charon cscli lapi status
 5. Enable CrowdSec via UI
 
 ### Phase 3: Lifecycle Test
+
 1. Start CrowdSec via API
 2. Verify LAPI becomes ready
 3. Stop CrowdSec via API
@@ -313,6 +325,7 @@ docker exec charon cscli lapi status
 5. Verify CrowdSec auto-starts if enabled
 
 ### Phase 4: Hub Operations Test
+
 1. Run `cscli hub update`
 2. Install test preset via API
 3. Verify files stored in correct locations

@@ -11,10 +11,12 @@
 After implementing `--no-cache` builds, the supply chain scan still reports **8 Medium vulnerabilities**. Investigation reveals these are **actual runtime dependencies**, not false positives from cached layers.
 
 **Vulnerability Breakdown**:
+
 - **3 Alpine APK packages** (busybox, curl, ssl_client) - CVE-2025-60876, CVE-2025-10966 (no fixes available)
 - **2 Go dependencies** (golang.org/x/crypto v0.42.0) - GHSA-j5w8-q4qc-rx2x, GHSA-f6x5-jh6r-wrfv (fix available: v0.45.0)
 
 **Current Status**:
+
 - ✅ No-cache builds implemented successfully
 - ⚠️ Alpine base image vulnerabilities have no upstream patches yet
 - 🔧 golang.org/x/crypto requires dependency update
@@ -26,6 +28,7 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 ### Actual Vulnerabilities Found (Not False Positives)
 
 #### 1. Alpine Base Image - busybox (CVE-2025-60876)
+
 **Affected Packages**: busybox, busybox-binsh, ssl_client
 **Current Version**: 1.37.0-r20
 **Fixed Version**: None available
@@ -34,6 +37,7 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 **Details**: CVE-2025-60876 affects busybox utilities in Alpine 3.21. No patch is available yet from Alpine upstream.
 
 **Impact**:
+
 - Affects base image utilities (not directly used by application)
 - Busybox provides minimal shell and utilities in Alpine
 - Low exploitability in containerized environment
@@ -41,6 +45,7 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 **Recommendation**: Monitor Alpine security advisories for patch release.
 
 #### 2. Alpine Base Image - curl (CVE-2025-10966)
+
 **Current Version**: 8.14.1-r2
 **Fixed Version**: None available
 **Severity**: Medium
@@ -48,6 +53,7 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 **Details**: CVE-2025-10966 affects libcurl in Alpine 3.21. No patch is available yet from Alpine upstream.
 
 **Impact**:
+
 - curl is used by healthcheck scripts
 - Medium severity with limited attack surface
 - Requires network access to exploit
@@ -55,15 +61,18 @@ After implementing `--no-cache` builds, the supply chain scan still reports **8 
 **Recommendation**: Monitor Alpine security advisories for patch release.
 
 #### 3. Go Dependencies - golang.org/x/crypto (GHSA-j5w8-q4qc-rx2x, GHSA-f6x5-jh6r-wrfv)
+
 **Current Version**: v0.42.0 (transitive dependency)
 **Fixed Version**: v0.45.0
 **Severity**: Medium
 
 **Details**: Two GitHub Security Advisories affecting golang.org/x/crypto v0.42.0:
+
 - GHSA-j5w8-q4qc-rx2x: SSH connection handling vulnerability
 - GHSA-f6x5-jh6r-wrfv: SSH key parsing vulnerability
 
 **Dependency Chain**:
+
 ```
 github.com/go-playground/validator/v10@v10.28.0
   └─> golang.org/x/crypto@v0.42.0 (VULNERABLE)
@@ -72,6 +81,7 @@ Direct dependency: golang.org/x/crypto@v0.46.0 (SAFE)
 ```
 
 **Impact**:
+
 - Transitive dependency from go-playground/validator
 - validator library used for input validation in API handlers
 - Medium severity - requires specific conditions to exploit
@@ -124,6 +134,7 @@ require (
 **Expected Impact**: Eliminates 2-4 of the 8 Medium vulnerabilities (the golang.org/x/crypto issues).
 
 **Testing Required**:
+
 - ✅ Backend unit tests
 - ✅ Integration tests
 - ✅ Validate validator/v10 compatibility
@@ -144,25 +155,31 @@ Since Alpine has not released patches for CVE-2025-60876 and CVE-2025-10966:
 #### 3. Monitor Alpine Security Advisories
 
 **Action Plan**:
+
 1. Subscribe to Alpine Linux security mailing list
-2. Check https://security.alpinelinux.org/vuln daily
+2. Check <https://security.alpinelinux.org/vuln> daily
 3. When patches are released:
+
    ```bash
    # Update Dockerfile base image
    FROM caddy:2-alpine  # This will pull the latest Alpine patch
    ```
+
 4. Rebuild and re-scan to verify resolution
 
 #### 4. Monitor go-playground/validator Updates
 
 **Action Plan**:
-1. Check https://github.com/go-playground/validator/releases weekly
+
+1. Check <https://github.com/go-playground/validator/releases> weekly
 2. When validator releases version with golang.org/x/crypto@v0.45.0+:
+
    ```bash
    cd backend
    go get -u github.com/go-playground/validator/v10@latest
    go mod tidy
    ```
+
 3. Remove the replace directive from go.mod
 4. Re-run tests and supply chain scan
 
@@ -173,11 +190,13 @@ Since Alpine has not released patches for CVE-2025-60876 and CVE-2025-10966:
 #### 5. Implement Automated Dependency Updates
 
 **Tools to Consider**:
+
 - Renovate Bot (already configured) - increase update frequency
 - Dependabot for Go modules
 - Automated security patch PRs
 
 **Configuration**:
+
 ```json
 // .github/renovate.json
 {
@@ -195,11 +214,13 @@ Since Alpine has not released patches for CVE-2025-60876 and CVE-2025-10966:
 #### 6. Alternative Base Images
 
 **Research Options**:
+
 1. **Distroless** (Google) - Minimal attack surface, no shell
 2. **Alpine with chainguard** - Hardened Alpine with faster security patches
 3. **Wolfi** (Chainguard) - Modern, security-first distribution
 
 **Evaluation Criteria**:
+
 - Security patch velocity
 - Compatibility with Caddy
 - Image size impact
@@ -285,11 +306,13 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 ### Expected Results
 
 **Before Replace Directive**:
+
 ```
 Medium: 8 (busybox x3, curl x1, golang.org/x/crypto x4)
 ```
 
 **After Replace Directive**:
+
 ```
 Medium: 4 (busybox x3, curl x1)
 ```
@@ -349,6 +372,7 @@ go test ./...
 Implementing `--no-cache` builds across all workflows eliminates false positive vulnerability reports from cached Go module layers. This provides accurate security posture reporting, clean SBOMs, and compliance-ready artifacts. The trade-off of slightly longer build times is acceptable for the security benefits gained.
 
 **Next Steps**:
+
 1. ✅ Changes committed to `docker-build.yml` and `waf-integration.yml`
 2. ⏳ Wait for next PR build to validate clean scan results
 3. ⏳ Monitor build time impact and adjust if needed
@@ -384,12 +408,14 @@ Implementing `--no-cache` builds across all workflows eliminates false positive 
 ### Risk Assessment
 
 **Alpine CVEs (3 unique vulnerabilities in 4 packages)**:
+
 - **Exploitability**: Low (requires local access or specific network conditions)
 - **Impact**: Limited (utilities not directly exposed to user input)
 - **Mitigation**: Containerization limits attack surface
 - **Status**: **ACCEPTED RISK** - Monitor for upstream patches
 
 **golang.org/x/crypto (2 unique vulnerabilities, 4 entries due to scan reporting)**:
+
 - **Exploitability**: Medium (requires SSH connection handling)
 - **Impact**: Medium (transitive dependency from validator)
 - **Mitigation**: Add replace directive to force v0.45.0

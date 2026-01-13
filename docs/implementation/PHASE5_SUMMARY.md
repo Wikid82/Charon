@@ -7,6 +7,7 @@
 ## What Was Implemented
 
 ### 1. Plugin System Core (10 phases)
+
 - ✅ Plugin interface and registry (pre-existing, validated)
 - ✅ 10 built-in DNS providers (Cloudflare, Route53, DigitalOcean, GCP, Azure, Namecheap, GoDaddy, Hetzner, Vultr, DNSimple)
 - ✅ Secure plugin loader with SHA-256 verification
@@ -19,6 +20,7 @@
 - ✅ Main.go and routes integration
 
 ### 2. Key Files Created
+
 ```
 backend/pkg/dnsprovider/builtin/
 ├── cloudflare.go, route53.go, digitalocean.go
@@ -41,6 +43,7 @@ plugins/powerdns/
 ```
 
 ### 3. Files Modified
+
 ```
 backend/internal/services/dns_provider_service.go
   - Removed hardcoded provider lists
@@ -99,12 +102,14 @@ go test -v -coverprofile=coverage.txt ./...
 ```
 
 ## Security Features
+
 - ✅ SHA-256 signature verification
 - ✅ Directory permission validation (rejects world-writable)
 - ✅ Windows platform rejection (Go plugin limitation)
 - ✅ Usage checking (prevents disabling in-use plugins)
 
 ## Known Limitations
+
 - Linux/macOS only (Go plugin constraint)
 - CGO required (`CGO_ENABLED=1`)
 - Same Go version required for plugin and Charon
@@ -112,7 +117,9 @@ go test -v -coverprofile=coverage.txt ./...
 - ~14MB per plugin (Go runtime embedded)
 
 ## Next Steps
+
 Frontend implementation (Phase 6) - Plugin management UI
 
 ## Documentation
+
 See [PHASE5_PLUGINS_COMPLETE.md](./PHASE5_PLUGINS_COMPLETE.md) for full details.

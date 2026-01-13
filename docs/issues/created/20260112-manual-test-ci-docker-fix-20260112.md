@@ -29,11 +29,13 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Objective**: Verify normal PR build succeeds with image artifact save
 
 **Steps**:
+
 1. Create a test PR with a minor change (e.g., update README.md)
 2. Wait for `docker-build.yml` workflow to trigger
 3. Monitor the workflow execution in GitHub Actions
 
 **Expected Results**:
+
 - [ ] ✅ `build-and-push` job completes successfully
 - [ ] ✅ "Save Docker Image as Artifact" step completes without errors
 - [ ] ✅ Step output shows: "🔍 Detected image tag: ghcr.io/wikid82/charon:pr-XXX"
@@ -52,10 +54,12 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Objective**: Verify defensive validation catches missing or invalid tags
 
 **Steps**:
+
 1. Review the "Save Docker Image as Artifact" step logs
 2. Check for validation output
 
 **Expected Results**:
+
 - [ ] ✅ Step logs show: "🔍 Detected image tag: ghcr.io/wikid82/charon:pr-XXX"
 - [ ] ✅ No error messages about missing tags
 - [ ] ✅ Image inspection succeeds (no "not found locally" errors)
@@ -69,12 +73,14 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Objective**: Verify downstream job receives and processes the artifact correctly
 
 **Steps**:
+
 1. Wait for `verify-supply-chain-pr` job to start
 2. Check "Download Image Artifact" step
 3. Check "Load Docker Image" step
 4. Check "Verify Loaded Image" step
 
 **Expected Results**:
+
 - [ ] ✅ Artifact downloads successfully
 - [ ] ✅ Image loads without errors
 - [ ] ✅ Verification step confirms image exists: "✅ Image verified: ghcr.io/wikid82/charon:pr-XXX"
@@ -93,6 +99,7 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Note**: This scenario is difficult to test without artificially breaking the build. Monitor for this in production if a natural failure occurs.
 
 **Expected Behavior** (if error occurs):
+
 - [ ] Step fails fast with clear diagnostics
 - [ ] Error message shows exact issue (missing tag, image not found, etc.)
 - [ ] Available images are listed for debugging
@@ -107,11 +114,13 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 ### Check Previous Failure Cases
 
 **Steps**:
+
 1. Review previous failed PR builds (before fix)
 2. Note the exact error messages
 3. Confirm those errors no longer occur
 
 **Expected Results**:
+
 - [ ] ✅ No "reference does not exist" errors
 - [ ] ✅ No "image not found" errors during save
 - [ ] ✅ No manual tag reconstruction mismatches
@@ -125,12 +134,14 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Objective**: Ensure fix does not introduce performance degradation
 
 **Metrics to Monitor**:
+
 - [ ] Build time (build-and-push job duration)
 - [ ] Artifact save time
 - [ ] Artifact upload time
 - [ ] Total PR workflow duration
 
 **Expected Results**:
+
 - Build time: ~10-15 minutes (no significant change)
 - Artifact save: <30 seconds
 - Artifact upload: <1 minute
@@ -170,26 +181,32 @@ Verify that the CI Docker build fix resolves the "reference does not exist" erro
 **Tester**: [Name]
 
 ### Scenario 1: Standard PR Build
+
 - Status: [ ] PASS / [ ] FAIL
 - Notes:
 
 ### Scenario 2: Metadata Tag Validation
+
 - Status: [ ] PASS / [ ] FAIL
 - Notes:
 
 ### Scenario 3: Supply Chain Verification Integration
+
 - Status: [ ] PASS / [ ] FAIL
 - Notes:
 
 ### Scenario 4: Error Handling
+
 - Status: [ ] PASS / [ ] FAIL / [ ] N/A
 - Notes:
 
 ### Regression Testing
+
 - Status: [ ] PASS / [ ] FAIL
 - Notes:
 
 ### Performance Validation
+
 - Status: [ ] PASS / [ ] FAIL
 - Build time: X minutes
 - Artifact save: X seconds

@@ -3,6 +3,7 @@
 **Date:** December 23, 2025
 **Status:** 🔴 CRITICAL - Required for Beta Release
 **Current State:**
+
 - Coverage: **84.7%** (Target: ≥85%) - **0.3% gap**
 - Test Failures: **7 test scenarios (21 total sub-test failures)**
 - Root Cause: SSRF protection correctly blocking localhost/private IPs in tests
@@ -35,6 +36,7 @@ All 7 failing tests are caused by the new SSRF protection correctly blocking `ht
 **Location:** `backend/internal/utils/url_connectivity_test.go`
 
 **Failing Tests:**
+
 - `TestTestURLConnectivity_Success` (line 17)
 - `TestTestURLConnectivity_Redirect` (line 35)
 - `TestTestURLConnectivity_TooManyRedirects` (line 56)
@@ -48,11 +50,13 @@ All 7 failing tests are caused by the new SSRF protection correctly blocking `ht
 - `TestTestURLConnectivity_Timeout` (line 143)
 
 **Error Message:**
+
 ```
 access to private IP addresses is blocked (resolved to 127.0.0.1)
 ```
 
 **Analysis:**
+
 - These tests use `httptest.NewServer()` which creates servers on `127.0.0.1`
 - SSRF protection correctly identifies and blocks these private IPs
 - Tests need to use mock transport that bypasses DNS resolution and HTTP connection
@@ -113,6 +117,7 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 ```
 
 **Files to Modify:**
+
 - `backend/internal/utils/url_testing.go` (add transport parameter)
 - `backend/internal/utils/url_connectivity_test.go` (update all 6 failing tests)
 
@@ -125,9 +130,11 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 **Location:** `backend/internal/api/handlers/settings_handler_test.go`
 
 **Failing Test:**
+
 - `TestSettingsHandler_TestPublicURL_Success` (line 662)
 
 **Error Details:**
+
 ```
 Line 673: Expected: true, Actual: false (reachable)
 Line 674: Expected not nil (latency)
@@ -135,6 +142,7 @@ Line 675: Expected not nil (message)
 ```
 
 **Root Cause:**
+
 - Test calls `/settings/test-url` endpoint which internally calls `TestURLConnectivity()`
 - The test is trying to validate a localhost URL, which is blocked by SSRF protection
 - Unlike the utils tests, this is testing the full HTTP handler flow
@@ -165,6 +173,7 @@ type URLValidator interface {
    - Alternatively: use a real public URL (e.g., `https://httpbin.org/status/200`)
 
 **Alternative Quick Fix (if refactoring is too invasive):**
+
 - Change test to use a real public URL instead of localhost
 - Add comment explaining why we use external URL for this specific test
 - Pros: No code changes to production code
@@ -174,6 +183,7 @@ type URLValidator interface {
 Use the quick fix for immediate unblocking, plan interface refactoring for post-release cleanup.
 
 **Files to Modify:**
+
 - `backend/internal/api/handlers/settings_handler_test.go` (line 662-676)
 - Optionally: `backend/internal/api/handlers/settings_handler.go` (if using DI approach)
 
@@ -186,6 +196,7 @@ Use the quick fix for immediate unblocking, plan interface refactoring for post-
 ### Current Coverage by Package
 
 **Packages Below Target:**
+
 - `internal/utils`: **51.5%** (biggest gap)
 - `internal/services`: 83.5% (close but below)
 - `cmd/seed`: 62.5%
@@ -199,12 +210,14 @@ Focus on `internal/utils` package as it has the largest gap and fewest lines of 
 #### 2.1 Missing Coverage in `internal/utils`
 
 **Files in package:**
+
 - `url.go` (likely low coverage)
 - `url_testing.go` (covered by existing tests)
 
 **Action Items:**
 
 1. **Audit `url.go` for uncovered functions:**
+
    ```bash
    cd backend && go test -coverprofile=coverage.out ./internal/utils
    go tool cover -html=coverage.out -o utils_coverage.html
@@ -217,10 +230,12 @@ Focus on `internal/utils` package as it has the largest gap and fewest lines of 
    - Aim for 80-90% coverage of `url.go` to bring package average above 70%
 
 **Expected Impact:**
+
 - Adding 5-10 tests for `url.go` functions should increase package coverage from 51.5% to ~75%
 - This alone should push total coverage from 84.7% to **~85.5%** (exceeding target)
 
 **Files to Modify:**
+
 - Add new test file: `backend/internal/utils/url_test.go`
 - Or expand: `backend/internal/utils/url_connectivity_test.go`
 
@@ -233,11 +248,13 @@ Focus on `internal/utils` package as it has the largest gap and fewest lines of 
 If `url.go` tests don't push coverage high enough, target these next:
 
 **Option A: `internal/services` (83.5% → 86%)**
+
 - Review coverage HTML report for services with lowest coverage
 - Add edge case tests for error handling paths
 - Focus on: `access_list_service.go`, `backup_service.go`, `certificate_service.go`
 
 **Option B: `cmd/seed` (62.5% → 75%)**
+
 - Add tests for seeding logic and error handling
 - Mock database interactions
 - Test seed data validation
@@ -251,9 +268,11 @@ If `url.go` tests don't push coverage high enough, target these next:
 ## Implementation Plan & Sequence
 
 ### Phase 1: Coverage First (Get to ≥85%)
+
 **Rationale:** Easier to run tests without failures constantly appearing
 
 **Steps:**
+
 1. ✅ Audit `internal/utils/url.go` for uncovered functions
 2. ✅ Write unit tests for all uncovered functions in `url.go`
 3. ✅ Run coverage report: `go test -coverprofile=coverage.out ./...`
@@ -266,6 +285,7 @@ If `url.go` tests don't push coverage high enough, target these next:
 ### Phase 2: Fix Test Failures (Make all tests pass)
 
 #### Step 2A: Fix Utils Tests (Priority 1.1)
+
 1. ✅ Add `http.RoundTripper` parameter to `TestURLConnectivity()`
 2. ✅ Create mock transport helper in test file
 3. ✅ Update all 6 failing test functions to use mock transport
@@ -275,6 +295,7 @@ If `url.go` tests don't push coverage high enough, target these next:
 **Exit Criteria:** All utils tests pass
 
 #### Step 2B: Fix Settings Handler Test (Priority 1.2)
+
 1. ✅ Choose approach: Quick fix (public URL) or DI refactoring
 2. ✅ Implement fix in `settings_handler_test.go`
 3. ✅ Run tests: `go test ./internal/api/handlers -v -run TestSettingsHandler_TestPublicURL`
@@ -312,18 +333,22 @@ If `url.go` tests don't push coverage high enough, target these next:
 ## Risk Assessment
 
 ### Low Risk Items ✅
+
 - Adding unit tests for `url.go` (no production code changes)
 - Mock transport in `url_connectivity_test.go` (test-only changes)
 - Quick fix for settings handler test (minimal change)
 
 ### Medium Risk Items ⚠️
+
 - Dependency injection refactoring in settings handler (if chosen)
   - **Mitigation:** Test thoroughly, use quick fix as backup
 
 ### High Risk Items 🔴
+
 - None identified
 
 ### Security Considerations
+
 - **CRITICAL:** Do NOT add localhost to SSRF allowlist
 - **CRITICAL:** Do NOT disable SSRF checks in production code
 - **CRITICAL:** Mock transport must only be available in test builds
@@ -334,15 +359,19 @@ If `url.go` tests don't push coverage high enough, target these next:
 ## Alternative Approaches Considered
 
 ### ❌ Approach 1: Add test allowlist to SSRF protection
+
 **Why Rejected:** Weakens security, could leak to production
 
 ### ❌ Approach 2: Use build tags to disable SSRF in tests
+
 **Why Rejected:** Too risky, could accidentally disable in production
 
 ### ❌ Approach 3: Skip failing tests temporarily
+
 **Why Rejected:** Violates project standards, hides real issues
 
 ### ✅ Approach 4: Mock HTTP transport (SELECTED)
+
 **Why Selected:** Industry standard, no security impact, clean separation of concerns
 
 ---
@@ -350,9 +379,11 @@ If `url.go` tests don't push coverage high enough, target these next:
 ## Dependencies & Blockers
 
 **Dependencies:**
+
 - None (all work can proceed immediately)
 
 **Potential Blockers:**
+
 - If `url.go` has fewer functions than expected, may need to add tests to `services` package
   - **Mitigation:** Identified backup options in Section 2.2
 
@@ -361,15 +392,18 @@ If `url.go` tests don't push coverage high enough, target these next:
 ## Testing Strategy
 
 ### Unit Tests
+
 - ✅ All new tests must follow existing patterns in `*_test.go` files
 - ✅ Use table-driven tests for multiple scenarios
 - ✅ Mock external dependencies (HTTP, DNS)
 
 ### Integration Tests
+
 - ⚠️ No integration test changes required (SSRF tests pass)
 - ✅ Verify SSRF protection still blocks localhost in production
 
 ### Regression Tests
+
 - ✅ Run full suite before and after changes
 - ✅ Compare coverage reports to ensure no decrease
 - ✅ Verify no new failures introduced
@@ -381,12 +415,14 @@ If `url.go` tests don't push coverage high enough, target these next:
 If any issues arise during implementation:
 
 1. **Revert to last known good state:**
+
    ```bash
    git checkout HEAD -- backend/internal/utils/
    git checkout HEAD -- backend/internal/api/handlers/settings_handler_test.go
    ```
 
 2. **Re-run tests to confirm stability:**
+
    ```bash
    go test ./...
    ```
@@ -398,12 +434,14 @@ If any issues arise during implementation:
 ## Success Metrics
 
 ### Before Remediation
+
 - Coverage: 84.7%
 - Test Failures: 21
 - Failing Test Scenarios: 7
 - QA Status: ⚠️ CONDITIONAL PASS
 
 ### After Remediation
+
 - Coverage: ≥85.5%
 - Test Failures: 0
 - Failing Test Scenarios: 0
@@ -432,16 +470,19 @@ If any issues arise during implementation:
 ## Post-Remediation Tasks
 
 ### Immediate (Before Merge)
+
 - [ ] Update QA report with final metrics
 - [ ] Update PR description with remediation summary
 - [ ] Request final code review
 
 ### Short-Term (Post-Merge)
+
 - [ ] Document mock transport pattern in testing guidelines
 - [ ] Add linter rule to prevent `httptest.NewServer()` in SSRF-tested code paths
 - [ ] Create tech debt ticket for settings handler DI refactoring (if using quick fix)
 
 ### Long-Term
+
 - [ ] Evaluate test coverage targets for individual packages
 - [ ] Consider increasing global coverage target to 90%
 - [ ] Add automated coverage regression detection to CI
@@ -451,6 +492,7 @@ If any issues arise during implementation:
 ## Timeline
 
 **Day 1 (4-6 hours):**
+
 - Hour 1-2: Increase coverage in `internal/utils`
 - Hour 3-4: Fix URL connectivity tests (mock transport)
 - Hour 5: Fix settings handler test

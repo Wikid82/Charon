@@ -13,6 +13,7 @@
 **File:** [docs/implementation/crowdsec_startup_fix_COMPLETE.md](implementation/crowdsec_startup_fix_COMPLETE.md)
 
 **Contents:**
+
 - Executive summary of problem and solution
 - Before/after architecture diagrams (text-based)
 - Detailed implementation changes (4 files, 21 lines)
@@ -32,6 +33,7 @@
 **File:** [docs/migration-guide-crowdsec-auto-start.md](migration-guide-crowdsec-auto-start.md)
 
 **Contents:**
+
 - Overview of behavioral changes
 - 4 migration paths (A: fresh install, B: upgrade disabled, C: upgrade enabled, D: environment variables)
 - Auto-start behavior explanation
@@ -52,6 +54,7 @@
 **File:** [docs/getting-started.md](getting-started.md#L110-L175)
 
 **Changes:**
+
 - Expanded "Auto-Start Behavior" section
 - Added detailed explanation of reconciliation timing
 - Added mutex protection explanation
@@ -68,6 +71,7 @@
 **File:** [docs/security.md](security.md#L30-L122)
 
 **Changes:**
+
 - Updated "How to Enable It" section
 - Changed timeout from 30s to 60s in documentation
 - Added reconciliation timing details
@@ -88,6 +92,7 @@
 **File:** [backend/internal/services/crowdsec_startup.go](../../backend/internal/services/crowdsec_startup.go#L17-L27)
 
 **Changes:**
+
 - Added detailed explanation of why mutex is needed
 - Listed 3 scenarios where concurrent reconciliation could occur
 - Listed 4 race conditions prevented by mutex
@@ -101,6 +106,7 @@
 **File:** [backend/internal/services/crowdsec_startup.go](../../backend/internal/services/crowdsec_startup.go#L29-L50)
 
 **Changes:**
+
 - Expanded function comment from 3 lines to 20 lines
 - Added initialization order diagram
 - Documented mutex protection behavior
@@ -202,6 +208,7 @@
 **Decision:** Create separate implementation summary and user migration guide
 
 **Rationale:**
+
 - Implementation summary for developers (technical details, code changes)
 - Migration guide for users (step-by-step, troubleshooting, FAQ)
 - Allows different levels of detail for different audiences
@@ -211,12 +218,14 @@
 **Decision:** Use ASCII art and indented text for diagrams
 
 **Rationale:**
+
 - Markdown-native (no external images)
 - Version control friendly
 - Easy to update
 - Accessible (screen readers can interpret)
 
 **Example:**
+
 ```
 Container Start
     ├─ Entrypoint Script
@@ -234,6 +243,7 @@ Container Start
 **Decision:** Enhance inline code comments for mutex and reconciliation function
 
 **Rationale:**
+
 - Comments visible in IDE (no need to open docs)
 - Future maintainers see explanation immediately
 - Reduces risk of outdated documentation
@@ -244,6 +254,7 @@ Container Start
 **Decision:** Troubleshooting in both implementation summary AND migration guide
 
 **Rationale:**
+
 - Developers need troubleshooting for implementation issues
 - Users need troubleshooting for operational issues
 - Slight overlap is acceptable (better than missing information)
@@ -257,6 +268,7 @@ Container Start
 **Reason:** Config validation already present (lines 163-169)
 
 **Verification:**
+
 ```bash
 # Verify LAPI configuration was applied correctly
 if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
@@ -281,6 +293,7 @@ No changes needed - this code already provides the necessary validation.
 ### When to Update
 
 Update documentation when:
+
 - Timeout value changes (currently 60s)
 - Auto-start conditions change
 - Reconciliation logic modified
@@ -300,6 +313,7 @@ Update documentation when:
 ### Review Checklist for Future Updates
 
 Before publishing documentation updates:
+
 - [ ] Test all command examples
 - [ ] Verify expected outputs
 - [ ] Check cross-references
@@ -348,15 +362,15 @@ Before publishing documentation updates:
 
 ### Short-Term (1-2 Weeks)
 
-4. **Monitor GitHub Issues** for documentation gaps
-5. **Update FAQ** based on common user questions
-6. **Add screenshots** to migration guide (if users request)
+1. **Monitor GitHub Issues** for documentation gaps
+2. **Update FAQ** based on common user questions
+3. **Add screenshots** to migration guide (if users request)
 
 ### Long-Term (1-3 Months)
 
-7. **Create video tutorial** for auto-start behavior
-8. **Add troubleshooting to wiki** for community contributions
-9. **Translate documentation** to other languages (if community interest)
+1. **Create video tutorial** for auto-start behavior
+2. **Add troubleshooting to wiki** for community contributions
+3. **Translate documentation** to other languages (if community interest)
 
 ---
 
@@ -375,6 +389,7 @@ Before publishing documentation updates:
 ## Contact
 
 For documentation questions:
+
 - **GitHub Issues:** [Report documentation issues](https://github.com/Wikid82/charon/issues)
 - **Discussions:** [Ask questions](https://github.com/Wikid82/charon/discussions)
 

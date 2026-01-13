@@ -32,6 +32,7 @@ The CrowdSec startup fix implementation has been reviewed and passes all securit
 **Status:** ✅ **PASS** (after auto-fix)
 
 **Findings:**
+
 - Trailing whitespace detected and **automatically fixed** in:
   - `backend/internal/services/crowdsec_startup.go`
   - `backend/cmd/api/main.go`
@@ -68,16 +69,19 @@ All TypeScript files compiled successfully with no type errors.
 **Status:** ✅ **PASS**
 
 **Scan Configuration:**
+
 - Severity levels: CRITICAL, HIGH, MEDIUM
 - Timeout: 10 minutes
 - Scanners: Vulnerability, Misconfiguration, Secret
 
 **Results:**
+
 ```
 [SUCCESS] Trivy scan completed - no issues found
 ```
 
 **Verification:**
+
 - ✅ ZERO Critical vulnerabilities
 - ✅ ZERO High vulnerabilities
 - ✅ No misconfigurations detected
@@ -89,12 +93,14 @@ All TypeScript files compiled successfully with no type errors.
 **Status:** ✅ **PASS**
 
 **Results:**
+
 ```
 No vulnerabilities found.
 [SUCCESS] No vulnerabilities found
 ```
 
 **Details:**
+
 - Go module dependencies scanned for known CVEs
 - Backend source code analyzed
 - All dependencies are up-to-date with security patches
@@ -109,6 +115,7 @@ No vulnerabilities found.
 **Status:** ✅ **PASS**
 
 **Coverage Metrics:**
+
 ```
 Overall Coverage: 87.01%
 Threshold Required: 85%
@@ -116,12 +123,14 @@ Status: PASSED (exceeds requirement by 2.01%)
 ```
 
 **Breakdown by Category:**
+
 - **Statements:** 87.01% (exceeds 85%)
 - **Branches:** 78.89% (acceptable for UI logic)
 - **Functions:** 80.72%
 - **Lines:** 87.83%
 
 **Key Components:**
+
 - ✅ API clients: 90.73%
 - ✅ CrowdSec integration: 81.81%
 - ✅ Console enrollment: 80%
@@ -133,11 +142,13 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Status:** ⚠️ **PARTIAL** (CrowdSec-specific tests pass, unrelated tests fail)
 
 **CrowdSec Services Package:**
+
 ```bash
 ✅ PASS: github.com/Wikid82/charon/backend/internal/services
 ```
 
 **CrowdSec-Specific Test Results:**
+
 - ✅ `TestDetectSecurityEvent_CrowdSecWithDecisionHeader`
 - ✅ `TestDetectSecurityEvent_CrowdSecWithOriginHeader`
 - ✅ `TestLogWatcherIntegration`
@@ -147,19 +158,23 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Pre-Existing Failures (NOT related to CrowdSec changes):**
 
 1. **Handlers Package Timeout:**
+
    ```
    FAIL: github.com/Wikid82/charon/backend/internal/api/handlers (timeout 441s)
    ```
+
    - **Cause:** Test suite takes >7 minutes (exceeds default timeout)
    - **Impact:** No functional issues, timing issue only
    - **Related to CrowdSec fix:** ❌ NO
    - **Recommendation:** Increase test timeout or split test suites
 
 2. **URL Connectivity Tests:**
+
    ```
    FAIL: github.com/Wikid82/charon/backend/internal/utils
    Coverage: 51.5%
    ```
+
    - **Failures:**
      - `TestTestURLConnectivity_StatusCodes/*` (11 sub-tests)
      - `TestTestURLConnectivity_InvalidURL/*` (3 sub-tests)
@@ -178,6 +193,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Status:** ✅ **PASS**
 
 **Test Coverage:**
+
 - ✅ CrowdSec startup reconciliation logic
 - ✅ Security config table initialization
 - ✅ Settings table override handling
@@ -190,6 +206,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Status:** ✅ **PASS** (for all packages except pre-existing issues)
 
 **Verified Functionality:**
+
 - ✅ Authentication and authorization
 - ✅ Database migrations
 - ✅ Security config persistence
@@ -203,6 +220,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Result:** ✅ **NO BREAKING CHANGES**
 
 **Changes Made:**
+
 1. Moved `ReconcileCrowdSecOnStartup` call from `routes.go` (goroutine) to `main.go` (synchronous)
 2. Added mutex lock to prevent concurrent reconciliation
 3. Increased LAPI wait timeout from 30s to 60s
@@ -210,6 +228,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 5. Added LAPI port validation in entrypoint script
 
 **Backward Compatibility:**
+
 - ✅ API endpoints unchanged
 - ✅ Database schema unchanged
 - ✅ Configuration format unchanged
@@ -225,6 +244,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 **File:** `Dockerfile` (line 287-292)
 
 **Change:**
+
 ```diff
  RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
 -             /app/data/crowdsec/config /app/data/crowdsec/data
@@ -234,6 +254,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 ```
 
 **Review:**
+
 - ✅ Fixes permission issues for non-root user
 - ✅ Follows principle of least privilege (CIS Docker Benchmark 4.1)
 - ✅ Ownership set to `charon:charon` (UID/GID 1000)
@@ -241,6 +262,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 - ✅ Aligns with container best practices
 
 **Security Validation:**
+
 - ✅ No privilege escalation
 - ✅ No volume mount vulnerabilities
 - ✅ No path traversal risks
@@ -250,23 +272,25 @@ Status: PASSED (exceeds requirement by 2.01%)
 **File:** `backend/cmd/api/main.go` (line 160-175)
 
 **Change:**
+
 ```diff
-+	// Reconcile CrowdSec state after migrations, before HTTP server starts
-+	// This ensures CrowdSec is running if user preference was to have it enabled
-+	crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
-+	if crowdsecBinPath == "" {
-+		crowdsecBinPath = "/usr/local/bin/crowdsec"
-+	}
-+	crowdsecDataDir := os.Getenv("CHARON_CROWDSEC_DATA")
-+	if crowdsecDataDir == "" {
-+		crowdsecDataDir = "/app/data/crowdsec"
-+	}
++ // Reconcile CrowdSec state after migrations, before HTTP server starts
++ // This ensures CrowdSec is running if user preference was to have it enabled
++ crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
++ if crowdsecBinPath == "" {
++  crowdsecBinPath = "/usr/local/bin/crowdsec"
++ }
++ crowdsecDataDir := os.Getenv("CHARON_CROWDSEC_DATA")
++ if crowdsecDataDir == "" {
++  crowdsecDataDir = "/app/data/crowdsec"
++ }
 +
-+	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-+	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
++ crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
++ services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
 ```
 
 **Review:**
+
 - ✅ Correct initialization order (after DB, before HTTP server)
 - ✅ Proper environment variable handling with fallbacks
 - ✅ Uses factory method for executor (testable)
@@ -274,6 +298,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 - ✅ Error handling delegated to service layer (with logging)
 
 **Security Validation:**
+
 - ✅ No command injection (paths from env vars are validated in service)
 - ✅ No race conditions (mutex in service layer)
 - ✅ No privilege escalation
@@ -283,23 +308,26 @@ Status: PASSED (exceeds requirement by 2.01%)
 **File:** `backend/internal/services/crowdsec_startup.go` (line 16-19, 31-32)
 
 **Change:**
+
 ```diff
 +// reconcileLock prevents concurrent reconciliation calls
 +var reconcileLock sync.Mutex
 +
  func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, binPath, dataDir string) {
-+	// Prevent concurrent reconciliation calls
-+	reconcileLock.Lock()
-+	defer reconcileLock.Unlock()
++ // Prevent concurrent reconciliation calls
++ reconcileLock.Lock()
++ defer reconcileLock.Unlock()
 ```
 
 **Review:**
+
 - ✅ Correct mutex usage (package-level lock)
 - ✅ Proper defer unlock (prevents deadlock)
 - ✅ Prevents race condition in container restart scenarios
 - ✅ No performance impact (reconciliation is infrequent)
 
 **Security Validation:**
+
 - ✅ No deadlock risks
 - ✅ No DoS via lock contention
 
@@ -308,6 +336,7 @@ Status: PASSED (exceeds requirement by 2.01%)
 **File:** `.docker/docker-entrypoint.sh` (line 164-168)
 
 **Change:**
+
 ```diff
 +    # Verify LAPI configuration was applied correctly
 +    if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
@@ -318,12 +347,14 @@ Status: PASSED (exceeds requirement by 2.01%)
 ```
 
 **Review:**
+
 - ✅ Validates critical configuration before startup
 - ✅ Provides clear feedback to operators
 - ✅ Non-blocking (continues even if validation fails)
 - ✅ Uses safe grep pattern (no regex injection)
 
 **Security Validation:**
+
 - ✅ No command injection
 - ✅ No sensitive data exposure in logs
 
@@ -338,11 +369,13 @@ Status: PASSED (exceeds requirement by 2.01%)
 **Timeout:** Default 10 minutes
 
 **Root Cause:**
+
 - Test suite contains numerous integration tests with real HTTP requests
 - No apparent infinite loop or deadlock
 - Tests are passing but slow
 
 **Recommendation:**
+
 ```bash
 # Option 1: Increase timeout
 go test -timeout 15m ./internal/api/handlers/...
@@ -361,17 +394,20 @@ go test -run Integration ./internal/api/handlers/...  # Slow tests separately
 **Failures:** 15 tests
 
 **Error Pattern:**
+
 ```
 Error: "access to private IP addresses is blocked (resolved to 127.0.0.1)"
        does not contain "status 404"
 ```
 
 **Root Cause:**
+
 - Tests use `httptest.NewServer()` which binds to `127.0.0.1`
 - Security validation rejects private IPs before making HTTP request
 - Tests expect HTTP status codes but get IP validation errors instead
 
 **Recommendation:**
+
 ```go
 // Fix: Disable private IP check for test environment
 func TestTestURLConnectivity_StatusCodes(t *testing.T) {
@@ -489,6 +525,7 @@ None.
 ### 10.1 Immediate Actions (Before Merge)
 
 1. **Fix Pre-Existing Test Failures (Critical):**
+
    ```bash
    # Address handler timeout
    cd backend && go test -timeout 15m ./internal/api/handlers/...
@@ -499,6 +536,7 @@ None.
    ```
 
 2. **Verify Coverage After Test Fixes:**
+
    ```bash
    cd backend && go test -coverprofile=coverage.out ./...
    go tool cover -func=coverage.out | grep total
@@ -507,12 +545,14 @@ None.
 ### 10.2 Short-Term Actions (Post-Merge)
 
 1. **Add Integration Test for Startup Reconciliation:**
+
    ```bash
    # Create test/integration/crowdsec_startup_test.go
    # Verify reconciliation works on container restart
    ```
 
 2. **Add Prometheus Metrics:**
+
    ```go
    crowdsec_startup_duration_seconds
    crowdsec_lapi_ready_total
@@ -520,6 +560,7 @@ None.
    ```
 
 3. **Add Frontend Loading State:**
+
    ```typescript
    // In CrowdSecConfig.tsx
    // Show "Starting CrowdSec..." with progress indicator
@@ -564,6 +605,7 @@ The CrowdSec startup fix implementation is **production-ready** from a security 
 **QA Audit Status:** ✅ **APPROVED** (with pre-existing issue documentation)
 
 **Approval Conditions:**
+
 - [x] Security scans passed (0 Critical/High)
 - [x] Frontend coverage ≥85% (87.01%)
 - [x] CrowdSec-specific tests passed
@@ -573,6 +615,7 @@ The CrowdSec startup fix implementation is **production-ready** from a security 
 - [ ] ⚠️ Pre-existing test failures tracked for separate fix
 
 **Recommended Actions:**
+
 1. **Merge CrowdSec fix** (this PR)
 2. **Create separate issue** for handler timeout
 3. **Create separate issue** for URL connectivity tests

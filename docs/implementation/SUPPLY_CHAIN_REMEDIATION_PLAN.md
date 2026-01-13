@@ -15,10 +15,12 @@ CI supply chain scans detected 4 HIGH-severity vulnerabilities in CrowdSec binar
 #### 1. CrowdSec Binary Vulnerabilities (HIGH x4)
 
 **Components Affected**:
+
 - `/usr/local/bin/crowdsec`
 - `/usr/local/bin/cscli`
 
 **CVEs**:
+
 1. **CVE-2025-58183** - archive/tar: Unbounded allocation in GNU sparse map parsing
 2. **CVE-2025-58186** - net/http: Unbounded HTTP headers
 3. **CVE-2025-58187** - crypto/x509: Name constraint checking performance
@@ -162,6 +164,7 @@ Add Trivy hook for pre-push image scanning:
 ```
 
 **Usage**:
+
 ```bash
 # Run before pushing
 pre-commit run --hook-stage manual trivy-docker
@@ -177,6 +180,7 @@ pre-commit run --hook-stage manual trivy-docker
 **Goal**: Minimize attack surface by removing build artifacts from runtime image
 
 **Changes**:
+
 1. Separate builder and runtime stages
 2. Remove development tools from final image
 3. Use distroless base for Charon binary
@@ -216,10 +220,12 @@ ARG CROWDSEC_CHECKSUM=sha256:abc123...
 ## Testing Strategy
 
 ### Unit Tests
+
 - ✅ Existing Go tests continue to pass
 - ✅ CrowdSec integration tests validate upgrade
 
 ### Integration Tests
+
 ```bash
 # Run integration test suite
 .github/skills/scripts/skill-runner.sh integration-test-all
@@ -228,6 +234,7 @@ ARG CROWDSEC_CHECKSUM=sha256:abc123...
 **Expected**: All tests pass with CrowdSec v1.6.6
 
 ### Security Tests
+
 ```bash
 # Verify no regressions
 govulncheck ./...  # Charon code
@@ -238,6 +245,7 @@ grype sbom:./sbom.json  # SBOM analysis
 **Expected**: 0 HIGH/CRITICAL in Charon, Caddy, and CrowdSec
 
 ### Smoke Tests (Post-deployment)
+
 1. CrowdSec starts successfully
 2. Logs show correct version
 3. Decision engine processes alerts
@@ -255,6 +263,7 @@ If CrowdSec v1.6.6 causes issues:
 ## Success Criteria
 
 ✅ **Deployment Approved** when:
+
 - [ ] CrowdSec upgraded to v1.6.6+
 - [ ] All HIGH/CRITICAL vulnerabilities resolved
 - [ ] CI supply chain scan passes
@@ -264,6 +273,7 @@ If CrowdSec v1.6.6 causes issues:
 ## Communication
 
 ### Stakeholders
+
 - **Development Team**: Implement Dockerfile changes
 - **QA Team**: Verify post-upgrade functionality
 - **Security Team**: Review scan results and sign off
@@ -271,9 +281,10 @@ If CrowdSec v1.6.6 causes issues:
 - **Product Owner**: Approve deployment window
 
 ### Status Updates
+
 - **Daily**: Slack #security-updates
 - **Weekly**: Include in sprint review
-- **Completion**: Email to security@company.com with scan results
+- **Completion**: Email to <security@company.com> with scan results
 
 ## Timeline
 
@@ -295,11 +306,13 @@ If CrowdSec v1.6.6 causes issues:
 ## Appendix
 
 ### Related Documents
+
 - [Supply Chain Scan Analysis](./SUPPLY_CHAIN_SCAN_ANALYSIS.md)
 - [Security Policy](../../SECURITY.md)
 - [CI/CD Documentation](../../.github/workflows/README.md)
 
 ### References
+
 - [CrowdSec v1.6.6 Release Notes](https://github.com/crowdsecurity/crowdsec/releases/tag/v1.6.6)
 - [Go 1.25.2 Security Fixes](https://go.dev/doc/devel/release#go1.25.2)
 - [NIST CVE Database](https://nvd.nist.gov/)

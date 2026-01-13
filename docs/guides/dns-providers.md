@@ -129,21 +129,25 @@ For detailed troubleshooting, see [DNS Challenges Troubleshooting](../troublesho
 ### Common Issues
 
 **"Encryption key not configured"**
+
 - Ensure `CHARON_ENCRYPTION_KEY` environment variable is set
 - Restart Charon after setting the variable
 
 **"Connection test failed"**
+
 - Verify credentials are correct
 - Check API token permissions
 - Ensure firewall allows outbound HTTPS to provider
 - Review provider-specific troubleshooting guides
 
 **"DNS propagation timeout"**
+
 - Increase propagation timeout in provider settings
 - Verify DNS provider is authoritative for the domain
 - Check provider status page for service issues
 
 **"Certificate issuance failed"**
+
 - Test DNS provider connection in UI
 - Check Charon logs for detailed error messages
 - Verify domain DNS is properly configured

@@ -169,6 +169,7 @@ curl -s http://localhost:2019/config/ | jq '.apps.tls.automation.policies[] | se
 ## Rollback
 
 If issues occur:
+
 1. Set `UseMultiCredentials=false` on all providers via API
 2. Restart Charon
 3. Investigate logs for credential resolution errors

@@ -76,6 +76,8 @@ jobs:
               TAG="latest"
             elif [[ "${{ github.event.workflow_run.head_branch }}" == "development" ]]; then
               TAG="dev"
+            elif [[ "${{ github.event.workflow_run.head_branch }}" == "nightly" ]]; then
+              TAG="nightly"
             elif [[ "${{ github.event.workflow_run.head_branch }}" == "feature/beta-release" ]]; then
               TAG="beta"
             elif [[ "${{ github.event.workflow_run.event }}" == "pull_request" ]]; then

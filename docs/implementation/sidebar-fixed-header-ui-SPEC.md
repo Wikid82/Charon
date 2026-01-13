@@ -55,6 +55,7 @@ The sidebar has the following structure:
 ```
 
 **Current Issues**:
+
 - Line 145: `flex flex-col flex-1` on the menu container allows it to grow indefinitely
 - Line 146: `<nav className="flex-1">` also uses `flex-1`, causing the navigation to expand and push the logout section down
 - No overflow control or max-height constraints
@@ -73,6 +74,7 @@ Desktop header (lines 337-361):
 ```
 
 **Current Issues**:
+
 - The header is part of the main content's flex column
 - No `position: fixed` or `sticky` positioning
 - Scrolls away with the content area
@@ -81,6 +83,7 @@ Desktop header (lines 337-361):
 ### Styling Approach
 
 The application uses:
+
 - **Tailwind CSS** for utility-first styling (`/projects/Charon/frontend/tailwind.config.js`)
 - **CSS Custom Properties** in `/projects/Charon/frontend/src/index.css` for design tokens
 - Inline Tailwind classes for component styling (no separate CSS modules)
@@ -92,6 +95,7 @@ The application uses:
 ### Improvement 1: Scrollable Sidebar Menu
 
 #### Goal
+
 Create a scrollable middle section in the sidebar between the logo and logout areas, ensuring the logout button remains visible even when submenus are expanded.
 
 #### Technical Approach
@@ -157,6 +161,7 @@ Create a scrollable middle section in the sidebar between the logo and logout ar
 ### Improvement 2: Fixed Header Bar
 
 #### Goal
+
 Make the desktop header bar remain visible at the top of the viewport when scrolling the main content area.
 
 #### Technical Approach
@@ -202,6 +207,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 ```
 
 **Trade-offs**:
+
 - `fixed` removes the element from document flow, requiring manual left padding
 - `sticky` is simpler and requires no layout adjustments
 - Recommend `sticky` as the primary solution
@@ -209,12 +215,14 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 #### Layout Conflicts & Z-Index Considerations
 
 **Current Z-Index Values in Layout**:
+
 - Mobile overlay: `z-20` (line 330)
 - Notification dropdown: `z-20` (line in NotificationCenter.tsx)
 - Sidebar: `z-30` (line 132)
 - Mobile header: `z-40` (line 127)
 
 **Recommended Z-Index Strategy**:
+
 - Desktop header: `z-10` (new, ensures it's below sidebar and modals)
 - Sidebar: `z-30` (existing, stays above header)
 - Mobile header: `z-40` (existing, stays above sidebar on mobile)
@@ -263,6 +271,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 ### Phase 1: Sidebar Scrollable Area
 
 1. **Backup current state**: Create a git branch for this feature
+
    ```bash
    git checkout -b feature/sidebar-scroll-and-fixed-header
    ```
@@ -274,10 +283,12 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
    - Line 308: Add `flex-shrink-0` to collapsed logout section
 
 3. **Test in development**:
+
    ```bash
    cd frontend
    npm run dev
    ```
+
    - Test all scenarios listed in "Testing Scenarios" section
    - Verify no visual regressions
 
@@ -337,6 +348,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 **Problem**: Older Safari versions have inconsistent `position: sticky` support
 
 **Mitigation**:
+
 - Test on Safari 13+ (current support is excellent)
 - If issues arise, fall back to `position: fixed` approach
 - Use CSS feature detection if needed
@@ -376,6 +388,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 **Problem**: Collapsing/expanding sidebar might cause visible layout shift with fixed header
 
 **Mitigation**:
+
 - Already handled by Tailwind transitions: `transition-all duration-200`
 - Existing CSS transitions on line 132 and 336 will smooth the animation
 - No additional work needed
@@ -385,6 +398,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 **Problem**: Mobile header is already fixed, might conflict with new desktop header behavior
 
 **Mitigation**:
+
 - Mobile header uses `lg:hidden` (line 127)
 - Desktop header uses `hidden lg:flex` (line 337)
 - No overlap between the two states
@@ -397,23 +411,27 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 ### `.gitignore`
 
 **Review**: No changes needed for CSS/layout updates
+
 - Already ignores common frontend build artifacts
 - No new files or directories will be created
 
 ### `codecov.yml`
 
 **Status**: File does not exist in repository
+
 - No changes needed
 
 ### `.dockerignore`
 
 **Review**: No changes needed
+
 - Layout changes are code modifications, not new files
 - All frontend source files are already properly handled
 
 ### `Dockerfile`
 
 **Review**: No changes needed
+
 - Layout changes are CSS/JSX modifications
 - Frontend build process remains unchanged
 - Build steps (lines 35-52) compile the app correctly regardless of layout changes
@@ -423,6 +441,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 ## Success Criteria
 
 ### Sidebar Scrollable Area
+
 - [ ] Logout button always visible at bottom of sidebar
 - [ ] Smooth scrolling when menu items overflow
 - [ ] No layout jumps or visual glitches
@@ -430,6 +449,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 - [ ] Mobile sidebar behaves correctly
 
 ### Fixed Header Bar
+
 - [ ] Header remains visible when scrolling content
 - [ ] No layout shift or jank during scroll
 - [ ] All header buttons remain functional
@@ -437,6 +457,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 - [ ] Sidebar toggle properly adjusts header width
 
 ### Overall
+
 - [ ] No performance degradation
 - [ ] Maintains accessibility standards
 - [ ] Works across all supported browsers
@@ -482,6 +503,7 @@ If `sticky` positioning causes issues (rare in modern browsers), use `fixed` pos
 ### Design System Considerations
 
 The application already uses a comprehensive design token system (see `/projects/Charon/frontend/src/index.css`):
+
 - Spacing tokens (`--space-*`)
 - Color tokens (`--color-*`)
 - Transition tokens (`--transition-*`)
@@ -495,6 +517,7 @@ After implementing these improvements, consider:
 1. **Sidebar Width Persistence**: Store user's preferred sidebar width (collapsed/expanded) in localStorage (already implemented on line 29-33)
 
 2. **Smooth Scroll to Active Item**: When a page loads, scroll the sidebar to show the active menu item:
+
    ```tsx
    useEffect(() => {
      const activeElement = document.querySelector('nav a[aria-current="page"]');
@@ -503,6 +526,7 @@ After implementing these improvements, consider:
    ```
 
 3. **Header Scroll Shadow**: Add a subtle shadow when content scrolls beneath header:
+
    ```tsx
    const [isScrolled, setIsScrolled] = useState(false);
 
@@ -520,9 +544,9 @@ After implementing these improvements, consider:
 
 ## References
 
-- Tailwind CSS Flexbox: https://tailwindcss.com/docs/flex
-- CSS Position Sticky: https://developer.mozilla.org/en-US/docs/Web/CSS/position#sticky
-- Flexbox and Min-Height: https://www.w3.org/TR/css-flexbox-1/#min-size-auto
+- Tailwind CSS Flexbox: <https://tailwindcss.com/docs/flex>
+- CSS Position Sticky: <https://developer.mozilla.org/en-US/docs/Web/CSS/position#sticky>
+- Flexbox and Min-Height: <https://www.w3.org/TR/css-flexbox-1/#min-size-auto>
 
 ---
 
