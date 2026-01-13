@@ -7,7 +7,6 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/beta-release",
     "development"
   ],
   "timezone": "America/New_York",
