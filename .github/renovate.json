@@ -7,27 +7,31 @@
     "helpers:pinGitHubActionDigests"
   ],
   "baseBranchPatterns": [
-    "feature/beta-release",
-    "nightly"
+    "development"
   ],
-  "timezone": "EST",
+  "timezone": "America/New_York",
   "dependencyDashboard": true,
   "prConcurrentLimit": 10,
-  "prHourlyLimit": 5,
+  "prHourlyLimit": 0,
   "labels": [
     "dependencies"
   ],
-  "rebaseWhen": "conflicted",
+  
+  "rebaseWhen": "auto",
+  
   "vulnerabilityAlerts": {
     "enabled": true
   },
+  
   "schedule": [
-    "before 8am"
+    "before 8am on monday"
   ],
+  
   "rangeStrategy": "bump",
   "automerge": true,
   "automergeType": "pr",
   "platformAutomerge": true,
+  
   "customManagers": [
     {
       "customType": "regex",
@@ -42,29 +46,25 @@
       "versioningTemplate": "semver"
     }
   ],
+  
   "packageRules": [
     {
-      "description": "Automerge digest updates (action pins, Docker SHAs)",
+      "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",
+      "matchPackagePatterns": ["*"],
       "matchUpdateTypes": [
-        "digest",
-        "pin"
+        "minor",
+        "patch",
+        "pin",
+        "digest"
       ],
+      "groupName": "weekly-non-major-updates",
       "automerge": true
     },
     {
-      "description": "Caddy transitive dependency patches in Dockerfile",
-      "matchManagers": [
-        "custom.regex"
-      ],
-      "matchFileNames": [
-        "Dockerfile"
-      ],
-      "labels": [
-        "dependencies",
-        "caddy-patch",
-        "security"
-      ],
-      "automerge": true,
+      "description": "Preserve your custom Caddy patch labels but allow them to group into the weekly PR",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["Dockerfile"],
+      "labels": ["caddy-patch", "security"],
       "matchPackageNames": [
         "/expr-lang/expr/",
         "/quic-go/quic-go/",
@@ -72,135 +72,16 @@
       ]
     },
     {
-      "description": "Automerge safe patch updates",
-      "matchUpdateTypes": [
-        "patch"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "Frontend npm: automerge minor for devDependencies",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchDepTypes": [
-        "devDependencies"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "automerge": true,
-      "labels": [
-        "dependencies",
-        "npm"
-      ]
-    },
-    {
-      "description": "Backend Go modules",
-      "matchManagers": [
-        "gomod"
-      ],
-      "labels": [
-        "dependencies",
-        "go"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "GitHub Actions updates",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "labels": [
-        "dependencies",
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "actions/checkout",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchPackageNames": [
-        "actions/checkout"
-      ],
-      "automerge": false,
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "labels": [
-        "dependencies",
-        "github-actions",
-        "manual-review"
-      ]
-    },
-    {
-      "description": "Do not auto-upgrade other github-actions majors without review",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false,
-      "labels": [
-        "dependencies",
-        "github-actions",
-        "manual-review"
-      ],
-      "prPriority": 0
-    },
-    {
       "description": "Docker: keep Caddy within v2 (no automatic jump to v3)",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "matchPackageNames": [
-        "caddy"
-      ],
-      "allowedVersions": "<3.0.0",
-      "labels": [
-        "dependencies",
-        "docker"
-      ],
-      "automerge": true,
-      "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)",
-      "versioning": "semver"
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["caddy"],
+      "allowedVersions": "<3.0.0"
     },
     {
-      "description": "Group non-breaking npm minor/patch",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "groupName": "npm minor/patch",
-      "prPriority": -1
-    },
-    {
-      "description": "Group docker base minor/patch",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "groupName": "docker base updates",
-      "prPriority": -1
+      "description": "Safety: Keep MAJOR updates separate and require manual review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["manual-review"]
     }
   ]
 }
