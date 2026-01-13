@@ -897,3 +897,66 @@ func TestImportHandler_UploadMulti(t *testing.T) {
 		assert.Contains(t, resp["error"], "empty")
 	})
 }
+
+// Additional tests for comprehensive coverage
+
+func TestImportHandler_Cancel_MissingSessionUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.DELETE("/import/cancel", handler.Cancel)
+
+	// Missing session_uuid parameter
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/import/cancel", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "session_uuid required", resp["error"])
+}
+
+func TestImportHandler_Cancel_InvalidSessionUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.DELETE("/import/cancel", handler.Cancel)
+
+	// Test "." which becomes empty after filepath.Base processing
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/import/cancel?session_uuid=.", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "invalid session_uuid", resp["error"])
+}
+
+func TestImportHandler_Commit_InvalidSessionUUID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupImportTestDB(t)
+	handler := handlers.NewImportHandler(db, "echo", "/tmp", "")
+	router := gin.New()
+	router.POST("/import/commit", handler.Commit)
+
+	// Test "." which becomes empty after filepath.Base processing
+	payload := map[string]any{
+		"session_uuid": ".",
+		"resolutions":  map[string]string{},
+	}
+	body, _ := json.Marshal(payload)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/import/commit", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "invalid session_uuid", resp["error"])
+}
