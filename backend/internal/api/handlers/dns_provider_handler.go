@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/gin-gonic/gin"
 )
 
@@ -214,210 +216,80 @@ func (h *DNSProviderHandler) TestCredentials(c *gin.Context) {
 
 // GetTypes handles GET /api/v1/dns-providers/types
 // Returns the list of supported DNS provider types with their required fields.
+// Types are sourced from the provider registry (built-in, custom, and external plugins).
 func (h *DNSProviderHandler) GetTypes(c *gin.Context) {
-	types := []gin.H{
-		{
-			"type": "cloudflare",
-			"name": "Cloudflare",
-			"fields": []gin.H{
-				{
-					"name":     "api_token",
-					"label":    "API Token",
-					"type":     "password",
-					"required": true,
-					"hint":     "Token with Zone:DNS:Edit permissions",
-				},
-			},
-			"documentation_url": "https://developers.cloudflare.com/api/tokens/",
-		},
-		{
-			"type": "route53",
-			"name": "Amazon Route 53",
-			"fields": []gin.H{
-				{
-					"name":     "access_key_id",
-					"label":    "Access Key ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "secret_access_key",
-					"label":    "Secret Access Key",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "region",
-					"label":    "AWS Region",
-					"type":     "text",
-					"required": true,
-					"default":  "us-east-1",
-				},
-			},
-			"documentation_url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-routing-traffic.html",
-		},
-		{
-			"type": "digitalocean",
-			"name": "DigitalOcean",
-			"fields": []gin.H{
-				{
-					"name":     "auth_token",
-					"label":    "API Token",
-					"type":     "password",
-					"required": true,
-					"hint":     "Personal Access Token with read/write scope",
-				},
-			},
-			"documentation_url": "https://docs.digitalocean.com/reference/api/api-reference/",
-		},
-		{
-			"type": "googleclouddns",
-			"name": "Google Cloud DNS",
-			"fields": []gin.H{
-				{
-					"name":     "service_account_json",
-					"label":    "Service Account JSON",
-					"type":     "textarea",
-					"required": true,
-					"hint":     "JSON key file for service account with DNS Administrator role",
-				},
-				{
-					"name":     "project",
-					"label":    "Project ID",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://cloud.google.com/dns/docs/",
-		},
-		{
-			"type": "namecheap",
-			"name": "Namecheap",
-			"fields": []gin.H{
-				{
-					"name":     "api_user",
-					"label":    "API Username",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "client_ip",
-					"label":    "Client IP Address",
-					"type":     "text",
-					"required": true,
-					"hint":     "Your server's public IP address (whitelisted in Namecheap)",
-				},
-			},
-			"documentation_url": "https://www.namecheap.com/support/api/intro/",
-		},
-		{
-			"type": "godaddy",
-			"name": "GoDaddy",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "api_secret",
-					"label":    "API Secret",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://developer.godaddy.com/",
-		},
-		{
-			"type": "azure",
-			"name": "Azure DNS",
-			"fields": []gin.H{
-				{
-					"name":     "tenant_id",
-					"label":    "Tenant ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "client_id",
-					"label":    "Client ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "client_secret",
-					"label":    "Client Secret",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "subscription_id",
-					"label":    "Subscription ID",
-					"type":     "text",
-					"required": true,
-				},
-				{
-					"name":     "resource_group",
-					"label":    "Resource Group",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://docs.microsoft.com/en-us/azure/dns/",
-		},
-		{
-			"type": "hetzner",
-			"name": "Hetzner",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://docs.hetzner.com/dns-console/dns/general/dns-overview/",
-		},
-		{
-			"type": "vultr",
-			"name": "Vultr",
-			"fields": []gin.H{
-				{
-					"name":     "api_key",
-					"label":    "API Key",
-					"type":     "password",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://www.vultr.com/api/",
-		},
-		{
-			"type": "dnsimple",
-			"name": "DNSimple",
-			"fields": []gin.H{
-				{
-					"name":     "oauth_token",
-					"label":    "OAuth Token",
-					"type":     "password",
-					"required": true,
-				},
-				{
-					"name":     "account_id",
-					"label":    "Account ID",
-					"type":     "text",
-					"required": true,
-				},
-			},
-			"documentation_url": "https://developer.dnsimple.com/",
-		},
+	// Get all registered providers from the global registry
+	providers := dnsprovider.Global().List()
+
+	// Build response with provider metadata and fields
+	types := make([]gin.H, 0, len(providers))
+	for _, provider := range providers {
+		metadata := provider.Metadata()
+
+		// Combine required and optional fields
+		requiredFields := provider.RequiredCredentialFields()
+		optionalFields := provider.OptionalCredentialFields()
+
+		// Convert fields to response format with required flag
+		fields := make([]gin.H, 0, len(requiredFields)+len(optionalFields))
+
+		for _, f := range requiredFields {
+			field := gin.H{
+				"name":     f.Name,
+				"label":    f.Label,
+				"type":     f.Type,
+				"required": true,
+			}
+			if f.Placeholder != "" {
+				field["placeholder"] = f.Placeholder
+			}
+			if f.Hint != "" {
+				field["hint"] = f.Hint
+			}
+			if len(f.Options) > 0 {
+				field["options"] = f.Options
+			}
+			fields = append(fields, field)
+		}
+
+		for _, f := range optionalFields {
+			field := gin.H{
+				"name":     f.Name,
+				"label":    f.Label,
+				"type":     f.Type,
+				"required": false,
+			}
+			if f.Placeholder != "" {
+				field["placeholder"] = f.Placeholder
+			}
+			if f.Hint != "" {
+				field["hint"] = f.Hint
+			}
+			if len(f.Options) > 0 {
+				field["options"] = f.Options
+			}
+			fields = append(fields, field)
+		}
+
+		providerType := gin.H{
+			"type":        metadata.Type,
+			"name":        metadata.Name,
+			"description": metadata.Description,
+			"is_built_in": metadata.IsBuiltIn,
+			"fields":      fields,
+		}
+
+		if metadata.DocumentationURL != "" {
+			providerType["documentation_url"] = metadata.DocumentationURL
+		}
+
+		types = append(types, providerType)
 	}
+
+	// Sort by type for stable, predictable output (registry.List already sorts, but explicit for safety)
+	sort.Slice(types, func(i, j int) bool {
+		return types[i]["type"].(string) < types[j]["type"].(string)
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"types": types,
