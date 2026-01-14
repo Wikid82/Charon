@@ -382,13 +382,19 @@ ENV CHARON_ENV=production \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \
-    CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+    CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec \
+    CHARON_PLUGINS_DIR=/app/plugins
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
-# Security: Set ownership of all application directories to non-root charon user
+# Security: Create plugins directory with secure permissions
+# Mode 0755: owner rwx, group rx, other rx (NOT world-writable)
+# This satisfies the PluginLoaderService security check (mode & 0002 == 0)
+RUN mkdir -p /app/plugins && chmod 755 /app/plugins
+
 # Security: Set ownership of all application directories to non-root charon user
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
+# Note: /app/plugins has 755 permissions (NOT world-writable) for security
 RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true

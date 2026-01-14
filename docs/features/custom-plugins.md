@@ -424,6 +424,7 @@ When reporting plugin issues, include:
 
 ## See Also
 
+- [Plugin Security Guide](./plugin-security.md)
 - [Plugin Development Guide](../development/plugin-development.md)
 - [DNS Provider Configuration](./dns-providers.md)
 - [Security Best Practices](../../SECURITY.md)

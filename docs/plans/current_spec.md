@@ -178,39 +178,220 @@ Before changing Docker/Caddy:
 
 ## Phase 3 — Plugin Security Hardening & Operator Controls
 
+**Status**: ✅ **Implementation Complete, QA-Approved** (2026-01-14)
+- Backend implementation complete
+- QA security review passed
+- Operator documentation published: [docs/features/plugin-security.md](docs/features/plugin-security.md)
+- Remaining: Unit test coverage for `plugin_loader_test.go`
+
+### Current Implementation Analysis
+
+**PluginLoaderService Location**: [backend/internal/services/plugin_loader.go](backend/internal/services/plugin_loader.go)
+
+**Constructor Signature**:
+```go
+func NewPluginLoaderService(db *gorm.DB, pluginDir string, allowedSignatures map[string]string) *PluginLoaderService
+```
+
+**Service Struct**:
+```go
+type PluginLoaderService struct {
+    pluginDir     string
+    allowedSigs   map[string]string // plugin name (without .so) -> expected signature
+    loadedPlugins map[string]string // plugin type -> file path
+    db            *gorm.DB
+    mu            sync.RWMutex
+}
+```
+
+**Existing Security Checks**:
+1. `verifyDirectoryPermissions(dir)` — rejects world-writable directories (mode `0002`)
+2. Signature verification in `LoadPlugin()` when `len(s.allowedSigs) > 0`:
+   - Checks if plugin name exists in allowlist → returns `dnsprovider.ErrPluginNotInAllowlist` if not
+   - Computes SHA-256 via `computeSignature()` → returns `dnsprovider.ErrSignatureMismatch` if different
+3. Interface version check via `meta.InterfaceVersion`
+
+**Current main.go Usage** (line ~163):
+```go
+pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil) // <-- nil bypasses allowlist
+```
+
+**Allowlist Behavior**:
+- When `allowedSignatures` is `nil` or empty: all plugins are loaded (permissive mode)
+- When `allowedSignatures` has entries: only listed plugins with matching signatures are allowed
+
+**Error Types** (from [backend/pkg/dnsprovider/errors.go](backend/pkg/dnsprovider/errors.go)):
+- `dnsprovider.ErrPluginNotInAllowlist` — plugin name not found in allowlist map
+- `dnsprovider.ErrSignatureMismatch` — SHA-256 hash doesn't match expected value
+
+### Design Decision: Option A (Env Var JSON Map)
+
+**Environment Variable**: `CHARON_PLUGIN_SIGNATURES`
+
+**Format**: JSON object mapping plugin filename (with `.so`) to SHA-256 signature
+```json
+{"powerdns.so": "sha256:abc123...", "myplugin.so": "sha256:def456..."}
+```
+
+**Behavior**:
+| Env Var State | Behavior |
+|---------------|----------|
+| Unset/empty (`""`) | Permissive mode (backward compatible) — all plugins loaded |
+| Set to `{}` | Strict mode with empty allowlist — no external plugins loaded |
+| Set with entries | Strict mode — only listed plugins with matching signatures |
+
+**Rationale for Option A**:
+- Single env var keeps configuration surface minimal
+- JSON is parseable in Go with `encoding/json`
+- Follows existing pattern (`CHARON_PLUGINS_DIR`, `CHARON_CROWDSEC_*`)
+- Operators can generate signatures with: `sha256sum plugin.so | awk '{print "sha256:" $1}'`
+
 ### Deliverables
 
-- Documented and configurable plugin loading policy:
-   - plugin directory (`CHARON_PLUGINS_DIR` already used by startup in [backend/cmd/api/main.go](backend/cmd/api/main.go))
-   - optional SHA-256 allowlist support wired end-to-end (from config/env → `NewPluginLoaderService(..., allowedSignatures)`)
-- Minimal operator guidance for secure deployment.
+1. **Parse and wire allowlist in main.go**
+2. **Helper function to parse signature env var**
+3. **Unit tests for PluginLoaderService** (currently missing!)
+4. **Operator documentation**
+
+### Implementation Tasks
+
+#### Task 3.1: Add Signature Parsing Helper
+
+**File**: [backend/cmd/api/main.go](backend/cmd/api/main.go) (or new file `backend/internal/config/plugin_config.go`)
+
+```go
+// parsePluginSignatures parses the CHARON_PLUGIN_SIGNATURES env var.
+// Returns nil if unset/empty (permissive mode).
+// Returns empty map if set to "{}" (strict mode, no plugins).
+// Returns populated map if valid JSON with entries.
+func parsePluginSignatures() (map[string]string, error) {
+    raw := os.Getenv("CHARON_PLUGIN_SIGNATURES")
+    if raw == "" {
+        return nil, nil // Permissive mode
+    }
+
+    var sigs map[string]string
+    if err := json.Unmarshal([]byte(raw), &sigs); err != nil {
+        return nil, fmt.Errorf("invalid CHARON_PLUGIN_SIGNATURES JSON: %w", err)
+    }
+    return sigs, nil
+}
+```
+
+#### Task 3.2: Wire Parsing into main.go
+
+**File**: [backend/cmd/api/main.go](backend/cmd/api/main.go)
+
+**Change** (around line 163):
+```go
+// Before:
+pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
+
+// After:
+pluginSignatures, err := parsePluginSignatures()
+if err != nil {
+    log.Fatalf("parse plugin signatures: %v", err)
+}
+if pluginSignatures != nil {
+    logger.Log().Infof("Plugin signature allowlist enabled with %d entries", len(pluginSignatures))
+} else {
+    logger.Log().Info("Plugin signature allowlist not configured (permissive mode)")
+}
+pluginLoader := services.NewPluginLoaderService(db, pluginDir, pluginSignatures)
+```
+
+#### Task 3.3: Create PluginLoaderService Unit Tests
+
+**File**: [backend/internal/services/plugin_loader_test.go](backend/internal/services/plugin_loader_test.go) (NEW)
+
+**Test Scenarios**:
+
+| Test Name | Setup | Expected Result |
+|-----------|-------|-----------------|
+| `TestNewPluginLoaderService_NilAllowlist` | `allowedSignatures: nil` | Service created, `allowedSigs` is nil |
+| `TestNewPluginLoaderService_EmptyAllowlist` | `allowedSignatures: map[string]string{}` | Service created, `allowedSigs` is empty map |
+| `TestNewPluginLoaderService_PopulatedAllowlist` | `allowedSignatures: {"test.so": "sha256:abc"}` | Service created with entries |
+| `TestLoadPlugin_AllowlistEmpty_SkipsVerification` | Empty allowlist, mock plugin | Plugin loads without signature check |
+| `TestLoadPlugin_AllowlistSet_PluginNotListed` | Allowlist without plugin | Returns `ErrPluginNotInAllowlist` |
+| `TestLoadPlugin_AllowlistSet_SignatureMismatch` | Allowlist with wrong hash | Returns `ErrSignatureMismatch` |
+| `TestLoadPlugin_AllowlistSet_SignatureMatch` | Allowlist with correct hash | Plugin loads successfully |
+| `TestVerifyDirectoryPermissions_Secure` | Dir mode `0755` | Returns nil |
+| `TestVerifyDirectoryPermissions_WorldWritable` | Dir mode `0777` | Returns error |
+| `TestComputeSignature_ValidFile` | Real file | Returns `sha256:...` string |
+| `TestLoadAllPlugins_DirectoryNotExist` | Non-existent dir | Returns nil (graceful skip) |
+| `TestLoadAllPlugins_DirectoryInsecure` | World-writable dir | Returns error |
+
+**Note**: Testing actual `.so` loading requires CGO and platform-specific binaries. Focus unit tests on:
+- Constructor behavior
+- `verifyDirectoryPermissions()` (create temp dirs)
+- `computeSignature()` (create temp files)
+- Allowlist logic flow (mock the actual `plugin.Open` call)
+
+#### Task 3.4: Create parsePluginSignatures Unit Tests
+
+**File**: [backend/cmd/api/main_test.go](backend/cmd/api/main_test.go) or integrate into plugin_loader_test.go
+
+| Test Name | Env Value | Expected Result |
+|-----------|-----------|-----------------|
+| `TestParsePluginSignatures_Unset` | (not set) | `nil, nil` |
+| `TestParsePluginSignatures_Empty` | `""` | `nil, nil` |
+| `TestParsePluginSignatures_EmptyObject` | `"{}"` | `map[string]string{}, nil` |
+| `TestParsePluginSignatures_Valid` | `{"a.so":"sha256:x"}` | `map with entry, nil` |
+| `TestParsePluginSignatures_InvalidJSON` | `"not json"` | `nil, error` |
+| `TestParsePluginSignatures_MultipleEntries` | `{"a.so":"sha256:x","b.so":"sha256:y"}` | `map with 2 entries, nil` |
 
 ### Tasks & Owners
 
 - **Backend_Dev**
-   - Wire a configuration source for plugin signatures into the `PluginLoaderService` creation path (currently passed `nil` in [backend/cmd/api/main.go](backend/cmd/api/main.go)).
-   - Prefer a single env var to stay minimal (example format: JSON map of `pluginName` → `sha256:...`).
-   - Add tests covering:
-      - allowlist reject (plugin not in allowlist)
-      - signature mismatch
-      - insecure directory permissions rejection
+   - [x] Create `parsePluginSignatures()` helper function ✅ *Completed 2026-01-14*
+   - [x] Update [backend/cmd/api/main.go](backend/cmd/api/main.go) to wire parsed signatures ✅ *Completed 2026-01-14*
+   - [ ] Create [backend/internal/services/plugin_loader_test.go](backend/internal/services/plugin_loader_test.go) with comprehensive test coverage
+   - [x] Add logging for allowlist mode (enabled vs permissive) ✅ *Completed 2026-01-14*
 - **DevOps**
-   - Ensure the plugin directory is mounted read-only where feasible.
-   - Validate container permissions align with `verifyDirectoryPermissions()` expectations.
+   - [x] Ensure the plugin directory is mounted read-only in production (`/app/plugins:ro`) ✅ *Completed 2026-01-14*
+   - [x] Validate container permissions align with `verifyDirectoryPermissions()` (mode `0755` or stricter) ✅ *Completed 2026-01-14*
+   - [x] Document how to generate plugin signatures: `sha256sum plugin.so | awk '{print "sha256:" $1}'` ✅ *See below*
 - **QA_Security**
-   - Threat model review focused on `.so` loading risks and expected mitigations.
+   - [x] Threat model review focused on `.so` loading risks ✅ *QA-approved 2026-01-14*
+   - [x] Verify error messages don't leak sensitive path information ✅ *QA-approved 2026-01-14*
+   - [x] Test edge cases: symlinks, race conditions, permission changes ✅ *QA-approved 2026-01-14*
 - **Docs_Writer**
-   - Update plugin operator docs to explain allowlisting, signatures, and safe deployment patterns.
+   - [x] Create/update plugin operator docs explaining: ✅ *Completed 2026-01-14*
+      - `CHARON_PLUGIN_SIGNATURES` format and behavior
+      - How to compute signatures
+      - Recommended deployment pattern (read-only mounts, strict allowlist)
+      - Security implications of permissive mode
+   - [x] Created [docs/features/plugin-security.md](docs/features/plugin-security.md) ✅ *Completed 2026-01-14*
 
 ### Acceptance Criteria
 
-- Plugins can be loaded successfully when allowed, and rejected when disallowed.
-- Misconfigured (world-writable) plugin directory is detected and prevents loading.
-- 100% patch coverage for modified lines.
+- [x] Plugins load successfully when signature matches allowlist ✅ *QA-approved*
+- [x] Plugins are rejected with `ErrPluginNotInAllowlist` when not in allowlist ✅ *QA-approved*
+- [x] Plugins are rejected with `ErrSignatureMismatch` when hash differs ✅ *QA-approved*
+- [x] World-writable plugin directory is detected and prevents all plugin loading ✅ *QA-approved*
+- [x] Empty/unset `CHARON_PLUGIN_SIGNATURES` maintains backward compatibility (permissive) ✅ *QA-approved*
+- [x] Invalid JSON in `CHARON_PLUGIN_SIGNATURES` causes startup failure with clear error ✅ *QA-approved*
+- [ ] 100% patch coverage for modified lines in `main.go`
+- [ ] New `plugin_loader_test.go` achieves high coverage of testable code paths
+- [x] Operator documentation created: [docs/features/plugin-security.md](docs/features/plugin-security.md) ✅ *Completed 2026-01-14*
 
 ### Verification Gates
 
-- Run backend + frontend coverage tasks, TypeScript check, pre-commit, and security scans.
+- Run backend coverage task: `shell: Test: Backend with Coverage`
+- Run security scans:
+   - `shell: Security: CodeQL Go Scan (CI-Aligned) [~60s]`
+   - `shell: Security: Go Vulnerability Check`
+- Run pre-commit: `shell: Lint: Pre-commit (All Files)`
+
+### Risks & Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Invalid JSON crashes startup | Explicit error handling with descriptive message |
+| Plugin name mismatch (with/without `.so`) | Document exact format; code expects filename as key |
+| Signature format confusion | Enforce `sha256:` prefix; reject malformed signatures |
+| Race condition: plugin modified after signature check | Document atomic deployment pattern (copy then rename) |
+| Operators forget to update signatures after plugin update | Log warning when signature verification is enabled |
 
 ---
 
@@ -248,9 +429,9 @@ Before changing Docker/Caddy:
 
 ## Open Questions (Need Explicit Decisions)
 
-- For plugin signature allowlisting: what is the desired configuration shape?
-   - **Option A (minimal)**: env var JSON map `pluginName` → `sha256:...` parsed by [backend/cmd/api/main.go](backend/cmd/api/main.go)
-   - **Option B (operator-friendly)**: load from a mounted file path (adds new config surface)
+- ~~For plugin signature allowlisting: what is the desired configuration shape?~~
+   - **DECIDED: Option A (minimal)**: env var `CHARON_PLUGIN_SIGNATURES` with JSON map `pluginFilename.so` → `sha256:...` parsed by [backend/cmd/api/main.go](backend/cmd/api/main.go). See Phase 3 for full specification.
+   - ~~**Option B (operator-friendly)**: load from a mounted file path (adds new config surface)~~ — Not chosen; JSON env var is sufficient and simpler.
 - For “first-party” providers (`webhook`, `script`, `rfc2136`): are these still required given external plugins already exist?
 
 ---
