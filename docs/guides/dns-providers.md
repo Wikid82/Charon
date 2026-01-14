@@ -12,7 +12,13 @@ DNS providers enable Charon to obtain SSL/TLS certificates for wildcard domains 
 
 ## Supported DNS Providers
 
-Charon supports the following DNS providers through Caddy's libdns modules:
+Charon dynamically discovers available DNS provider types from an internal registry. This registry includes:
+
+- **Built-in providers** — Compiled into Charon (Cloudflare, Route 53, etc.)
+- **Custom providers** — Special-purpose providers like `manual` for unsupported DNS services
+- **External plugins** — Third-party `.so` plugin files loaded at runtime
+
+### Built-in Providers
 
 | Provider | Type | Setup Guide |
 |----------|------|-------------|
@@ -26,6 +32,84 @@ Charon supports the following DNS providers through Caddy's libdns modules:
 | Hetzner | `hetzner` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.hetzner) |
 | Vultr | `vultr` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.vultr) |
 | DNSimple | `dnsimple` | [Documentation](https://caddyserver.com/docs/modules/dns.providers.dnsimple) |
+
+### Custom Providers
+
+| Provider | Type | Description |
+|----------|------|-------------|
+| Manual DNS | `manual` | For DNS providers without API support. Displays TXT record for manual creation. |
+
+### Discovering Available Provider Types
+
+Query available provider types programmatically via the API:
+
+```bash
+curl https://your-charon-instance/api/v1/dns-providers/types \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Example Response:**
+
+```json
+{
+  "types": [
+    {
+      "type": "cloudflare",
+      "name": "Cloudflare",
+      "description": "Cloudflare DNS provider",
+      "documentation_url": "https://developers.cloudflare.com/api/",
+      "is_built_in": true,
+      "fields": [...]
+    },
+    {
+      "type": "manual",
+      "name": "Manual DNS",
+      "description": "Manually create DNS TXT records",
+      "documentation_url": "",
+      "is_built_in": false,
+      "fields": []
+    }
+  ]
+}
+```
+
+**Response fields:**
+
+| Field | Description |
+|-------|-------------|
+| `type` | Unique identifier used in API requests |
+| `name` | Human-readable display name |
+| `description` | Brief description of the provider |
+| `documentation_url` | Link to provider's API documentation |
+| `is_built_in` | `true` for compiled providers, `false` for plugins/custom |
+| `fields` | Required credential fields and their specifications |
+
+> **Tip:** Use `is_built_in` to distinguish official providers from external plugins in your automation workflows.
+
+## Adding External Plugins
+
+Extend Charon with third-party DNS provider plugins by placing `.so` files in the plugin directory.
+
+### Installation
+
+1. Set the plugin directory environment variable:
+
+   ```bash
+   export CHARON_PLUGINS_DIR=/etc/charon/plugins
+   ```
+
+2. Copy plugin files:
+
+   ```bash
+   cp powerdns.so /etc/charon/plugins/
+   chmod 755 /etc/charon/plugins/powerdns.so
+   ```
+
+3. Restart Charon — plugins load automatically at startup.
+
+4. Verify the plugin appears in `GET /api/v1/dns-providers/types` with `is_built_in: false`.
+
+For detailed plugin installation and security guidance, see [Custom Plugins](../features/custom-plugins.md).
 
 ## General Setup Workflow
 
