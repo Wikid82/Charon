@@ -10,6 +10,9 @@ import (
 func init() {
 	providers := []dnsprovider.ProviderPlugin{
 		NewManualProvider(),
+		NewRFC2136Provider(),
+		NewWebhookProvider(),
+		NewScriptProvider(),
 	}
 
 	for _, provider := range providers {

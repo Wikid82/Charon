@@ -76,7 +76,7 @@ The task is not complete until ALL of the following pass with zero issues:
     - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
     - **On Failure**: Trace root cause through frontend → backend flow, report to Management or Dev subagent
     - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default `http://100.98.12.109:8080`
-    - All E2E tests must pass before proceeding
+    - **MANDATORY**: All E2E tests must pass before proceeding
 
 2. **Security Scans**:
     - CodeQL: Run VS Code task "Security: CodeQL All (CI-Aligned)" or individual Go/JS tasks
