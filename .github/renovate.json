@@ -16,22 +16,22 @@
   "labels": [
     "dependencies"
   ],
-  
+
   "rebaseWhen": "auto",
-  
+
   "vulnerabilityAlerts": {
     "enabled": true
   },
-  
+
   "schedule": [
     "before 8am on monday"
   ],
-  
+
   "rangeStrategy": "bump",
   "automerge": true,
   "automergeType": "pr",
   "platformAutomerge": true,
-  
+
   "customManagers": [
     {
       "customType": "regex",
@@ -46,7 +46,7 @@
       "versioningTemplate": "semver"
     }
   ],
-  
+
   "packageRules": [
     {
       "description": "THE MEGAZORD: Group ALL non-major updates (NPM, Docker, Go, Actions) into one weekly PR",

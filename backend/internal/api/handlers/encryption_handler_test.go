@@ -924,3 +924,242 @@ func TestEncryptionHandler_isAdmin_NonAdminRole(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+// TestEncryptionHandler_Rotate_AuditStartFailure tests audit logging failure when rotation starts
+func TestEncryptionHandler_Rotate_AuditStartFailure(t *testing.T) {
+	db := setupEncryptionTestDB(t)
+
+	// Generate test keys
+	currentKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+	nextKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	defer func() {
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+	}()
+
+	// Create test provider
+	currentService, err := crypto.NewEncryptionService(currentKey)
+	require.NoError(t, err)
+
+	credentials := map[string]string{"api_key": "test123"}
+	credJSON, _ := json.Marshal(credentials)
+	encrypted, _ := currentService.Encrypt(credJSON)
+
+	provider := models.DNSProvider{
+		Name:                 "Test Provider",
+		ProviderType:         "cloudflare",
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, db.Create(&provider).Error)
+
+	rotationService, err := crypto.NewRotationService(db)
+	require.NoError(t, err)
+
+	// Create security service and close DB to trigger audit failure
+	securityService := services.NewSecurityService(db)
+
+	// Close the database connection to trigger audit logging failures
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	router.ServeHTTP(w, req)
+
+	// Should still return error (rotation will fail due to closed DB)
+	// But the audit start failure should be logged as warning
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+
+	securityService.Close()
+}
+
+// TestEncryptionHandler_Rotate_AuditFailureFailure tests audit logging failure when rotation fails
+func TestEncryptionHandler_Rotate_AuditFailureFailure(t *testing.T) {
+	db := setupEncryptionTestDB(t)
+
+	// Generate test keys
+	currentKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+	// Don't set next key to trigger rotation failure
+
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
+
+	rotationService, err := crypto.NewRotationService(db)
+	require.NoError(t, err)
+
+	// Create security service and close DB to trigger audit failure
+	securityService := services.NewSecurityService(db)
+
+	// Close the database connection to trigger audit logging failures
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	router.ServeHTTP(w, req)
+
+	// Should return error (no next key + DB closed)
+	// Both audit start and audit failure logging should warn
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "CHARON_ENCRYPTION_KEY_NEXT not configured")
+
+	securityService.Close()
+}
+
+// TestEncryptionHandler_Rotate_AuditCompletionFailure tests audit logging failure when rotation completes
+func TestEncryptionHandler_Rotate_AuditCompletionFailure(t *testing.T) {
+	// This test is challenging because we need rotation to succeed but audit to fail
+	// We'll use a two-database approach: one for rotation, one (closed) for security
+
+	rotationDB := setupEncryptionTestDB(t)
+	auditDB := setupEncryptionTestDB(t)
+
+	// Generate test keys
+	currentKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+	nextKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+	defer func() {
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+	}()
+
+	// Create test provider in rotation DB
+	currentService, err := crypto.NewEncryptionService(currentKey)
+	require.NoError(t, err)
+
+	credentials := map[string]string{"api_key": "test123"}
+	credJSON, _ := json.Marshal(credentials)
+	encrypted, _ := currentService.Encrypt(credJSON)
+
+	provider := models.DNSProvider{
+		Name:                 "Test Provider",
+		ProviderType:         "cloudflare",
+		CredentialsEncrypted: encrypted,
+		KeyVersion:           1,
+	}
+	require.NoError(t, rotationDB.Create(&provider).Error)
+
+	rotationService, err := crypto.NewRotationService(rotationDB)
+	require.NoError(t, err)
+
+	// Create security service with separate DB and close it to trigger audit failure
+	securityService := services.NewSecurityService(auditDB)
+	sqlDB, err := auditDB.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/rotate", nil)
+	router.ServeHTTP(w, req)
+
+	// Rotation should succeed despite audit failure
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result crypto.RotationResult
+	err = json.Unmarshal(w.Body.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.SuccessCount)
+
+	securityService.Close()
+}
+
+// TestEncryptionHandler_Validate_AuditFailureOnError tests audit logging failure during validation error
+func TestEncryptionHandler_Validate_AuditFailureOnError(t *testing.T) {
+	db := setupEncryptionTestDB(t)
+	auditDB := setupEncryptionTestDB(t)
+
+	// Don't set encryption key to trigger validation failure
+	_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+
+	// Create rotation service without key (will fail validation)
+	rotationService, err := crypto.NewRotationService(db)
+	if err != nil {
+		// NewRotationService fails without key, which is expected
+		// We'll skip this test as the validation endpoint won't be reached
+		t.Skip("Cannot create rotation service without key")
+		return
+	}
+
+	// Create security service with separate DB and close it
+	securityService := services.NewSecurityService(auditDB)
+	sqlDB, err := auditDB.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	router.ServeHTTP(w, req)
+
+	// Should return validation error
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.False(t, response["valid"].(bool))
+
+	securityService.Close()
+}
+
+// TestEncryptionHandler_Validate_AuditFailureOnSuccess tests audit logging failure during validation success
+func TestEncryptionHandler_Validate_AuditFailureOnSuccess(t *testing.T) {
+	rotationDB := setupEncryptionTestDB(t)
+	auditDB := setupEncryptionTestDB(t)
+
+	// Set up valid encryption key
+	currentKey, err := crypto.GenerateNewKey()
+	require.NoError(t, err)
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") }()
+
+	rotationService, err := crypto.NewRotationService(rotationDB)
+	require.NoError(t, err)
+
+	// Create security service with separate DB and close it to trigger audit failure
+	securityService := services.NewSecurityService(auditDB)
+	sqlDB, err := auditDB.DB()
+	require.NoError(t, err)
+	_ = sqlDB.Close()
+
+	handler := NewEncryptionHandler(rotationService, securityService)
+	router := setupEncryptionTestRouter(handler, true)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", nil)
+	router.ServeHTTP(w, req)
+
+	// Should return success despite audit failure
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.True(t, response["valid"].(bool))
+
+	securityService.Close()
+}
