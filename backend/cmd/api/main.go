@@ -2,11 +2,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -22,6 +24,43 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+// parsePluginSignatures reads the CHARON_PLUGIN_SIGNATURES environment variable
+// and returns the parsed signature allowlist for plugin verification.
+//
+// Modes:
+//   - nil return (permissive): Env var unset/empty — all plugins allowed
+//   - empty map (strict): Env var set to "{}" — no external plugins allowed
+//   - populated map: Only plugins with matching signatures are allowed
+func parsePluginSignatures() map[string]string {
+	envVal := os.Getenv("CHARON_PLUGIN_SIGNATURES")
+	if envVal == "" {
+		logger.Log().Info("Plugin signature verification: PERMISSIVE mode (CHARON_PLUGIN_SIGNATURES not set)")
+		return nil
+	}
+
+	var signatures map[string]string
+	if err := json.Unmarshal([]byte(envVal), &signatures); err != nil {
+		logger.Log().WithError(err).Error("Failed to parse CHARON_PLUGIN_SIGNATURES JSON — falling back to permissive mode")
+		return nil
+	}
+
+	// Validate all signatures have sha256: prefix
+	for name, sig := range signatures {
+		if !strings.HasPrefix(sig, "sha256:") {
+			logger.Log().Errorf("Invalid signature for plugin %q: must have sha256: prefix — falling back to permissive mode", name)
+			return nil
+		}
+	}
+
+	if len(signatures) == 0 {
+		logger.Log().Info("Plugin signature verification: STRICT mode (empty allowlist — no external plugins permitted)")
+	} else {
+		logger.Log().Infof("Plugin signature verification: STRICT mode (%d plugin(s) in allowlist)", len(signatures))
+	}
+
+	return signatures
+}
 
 func main() {
 	// Setup logging with rotation
@@ -185,7 +224,7 @@ func main() {
 	if pluginDir == "" {
 		pluginDir = "/app/plugins"
 	}
-	pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil) // No signature verification for now
+	pluginLoader := services.NewPluginLoaderService(db, pluginDir, parsePluginSignatures())
 	if err := pluginLoader.LoadAllPlugins(); err != nil {
 		logger.Log().WithError(err).Warn("Failed to load external DNS provider plugins")
 	}
