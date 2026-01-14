@@ -664,7 +664,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				if err := h.proxyHostSvc.Update(&host); err != nil {
 					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 					errors = append(errors, errMsg)
-					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", sanitizeForLog(errMsg)).Error("Import Commit Error (update)")
+					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error (update)")
 				} else {
 					updated++
 					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).Info("Import Commit Success: Updated host")

@@ -426,6 +426,24 @@ Charon maintains transparency about security issues and their resolution. Below 
 
 ## Known Security Considerations
 
+### Alpine Base Image Vulnerabilities (2026-01-13)
+
+**Status**: 9 Alpine OS package vulnerabilities identified and accepted pending upstream patches.
+
+**Affected Packages**:
+- **busybox** (3 packages): CVE-2025-60876 (MEDIUM) - Heap buffer overflow
+- **curl** (7 CVEs): CVE-2025-15079, CVE-2025-14819, CVE-2025-14524, CVE-2025-13034, CVE-2025-10966, CVE-2025-14017 (MEDIUM), CVE-2025-15224 (LOW)
+
+**Risk Assessment**: LOW overall risk due to:
+- No upstream patches available from Alpine Security Team
+- Low exploitability in containerized deployment (no shell access, localhost-only curl usage)
+- Multiple layers of defense-in-depth mitigation
+- Active monitoring for patches
+
+**Review Date**: 2026-02-13 (30 days)
+
+**Details**: See [VULNERABILITY_ACCEPTANCE.md](docs/security/VULNERABILITY_ACCEPTANCE.md) for complete risk assessment, mitigation strategies, and monitoring plan.
+
 ### Third-Party Dependencies
 
 **CrowdSec Binaries**: As of December 2025, CrowdSec binaries shipped with Charon contain 4 HIGH-severity CVEs in Go stdlib (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729). These are upstream issues in Go 1.25.1 and will be resolved when CrowdSec releases binaries built with Go 1.25.5+.
