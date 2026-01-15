@@ -34,10 +34,10 @@ jobs:
     name: Verify Supply Chain
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Only run for PRs (workflow_run from PR or manual dispatch with PR number)
+    # Run for: manual dispatch, PR builds, or any push builds from docker-build
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'pull_request' &&
+      ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
        github.event.workflow_run.conclusion == 'success')
 
     steps:
@@ -92,20 +92,32 @@ jobs:
           if [[ -z "${PR_NUMBER}" ]]; then
             echo "⚠️ Could not find PR number for this workflow run"
             echo "pr_number=" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "✅ Found PR number: ${PR_NUMBER}"
           fi
 
-          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "✅ Found PR number: ${PR_NUMBER}"
+          # Check if this is a push event (not a PR)
+          if [[ "${{ github.event.workflow_run.event }}" == "push" ]]; then
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Detected push build from branch: ${{ github.event.workflow_run.head_branch }}"
+          else
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check for PR image artifact
         id: check-artifact
-        if: steps.pr-number.outputs.pr_number != ''
+        if: steps.pr-number.outputs.pr_number != '' || steps.pr-number.outputs.is_push == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER="${{ steps.pr-number.outputs.pr_number }}"
-          ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          # Determine artifact name based on event type
+          if [[ "${{ steps.pr-number.outputs.is_push }}" == "true" ]]; then
+            ARTIFACT_NAME="push-image"
+          else
+            PR_NUMBER="${{ steps.pr-number.outputs.pr_number }}"
+            ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          fi
           RUN_ID="${{ github.event.workflow_run.id }}"
 
           echo "🔍 Looking for artifact: ${ARTIFACT_NAME}"
@@ -140,7 +152,7 @@ jobs:
           echo "✅ Found artifact: ${ARTIFACT_NAME} (ID: ${ARTIFACT_ID})"
 
       - name: Skip if no artifact
-        if: steps.check-artifact.outputs.artifact_found != 'true'
+        if: (steps.pr-number.outputs.pr_number == '' && steps.pr-number.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_found != 'true'
         run: |
           echo "ℹ️ No PR image artifact found - skipping supply chain verification"
           echo "This is expected if the Docker build did not produce an artifact for this PR"
@@ -285,14 +297,14 @@ jobs:
         # actions/upload-artifact v4.6.0
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: supply-chain-pr-${{ steps.pr-number.outputs.pr_number }}
+          name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', github.event.workflow_run.head_branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
           path: |
             sbom.cyclonedx.json
             grype-results.json
           retention-days: 14
 
       - name: Comment on PR
-        if: steps.check-artifact.outputs.artifact_found == 'true'
+        if: steps.check-artifact.outputs.artifact_found == 'true' && steps.pr-number.outputs.is_push != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
