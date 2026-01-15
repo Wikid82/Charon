@@ -13,7 +13,7 @@ require (
 	github.com/oschwald/geoip2-golang/v2 v2.1.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
