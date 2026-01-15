@@ -853,7 +853,7 @@ jobs:
             -p 8080:8080 \
             -e CHARON_ENV=development \
             -e CHARON_DEBUG=1 \
-            -e CHARON_ENCRYPTION_KEY=test-key-for-ci-only-not-production \
+            -e CHARON_ENCRYPTION_KEY=dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMzJieXQ= \
             "${IMAGE_REF}"
 
       - name: Wait for application health
