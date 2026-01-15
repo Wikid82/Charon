@@ -12,13 +12,13 @@ on:
     branches:
       - main
       - development
-      - feature/beta-release
+      - 'feature/**'
     # Note: Tags are handled by release-goreleaser.yml to avoid duplicate builds
   pull_request:
     branches:
       - main
       - development
-      - feature/beta-release
+      - 'feature/**'
   workflow_dispatch:
   workflow_call:
 
@@ -74,12 +74,12 @@ jobs:
           if echo "$HEAD_MSG" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-          # Always build on beta-release branch to ensure artifacts for testing
+          # Always build on feature branches to ensure artifacts for testing
           # For PRs: github.ref is refs/pull/N/merge, so check github.head_ref instead
           # For pushes: github.ref is refs/heads/branch-name
-          if [[ "$REF" == "refs/heads/feature/beta-release" ]] || [[ "$HEAD_REF" == "feature/beta-release" ]]; then
+          if [[ "$REF" == refs/heads/feature/* ]] || [[ "$HEAD_REF" == feature/* ]]; then
             should_skip=false
-            echo "Force building on beta-release branch"
+            echo "Force building on feature branch"
           fi
 
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
@@ -115,7 +115,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
-            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/feature/beta-release' }}
+            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
             type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
       - name: Build and push Docker image
@@ -153,7 +153,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -184,10 +184,10 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: pr-image-${{ github.event.pull_request.number }}
+          name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
           path: /tmp/charon-pr-image.tar
           retention-days: 1  # Only needed for workflow duration
 

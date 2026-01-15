@@ -25,10 +25,11 @@ jobs:
     name: Trivy Binary Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Only run for PRs or manual dispatch
+    # Run for: manual dispatch, PR builds, or any push builds from docker-build
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
+      ((github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'push') &&
+       github.event.workflow_run.conclusion == 'success')
 
     permissions:
       contents: read
@@ -77,14 +78,27 @@ jobs:
             echo "pr_number=" >> "$GITHUB_OUTPUT"
           fi
 
+          # Check if this is a push event (not a PR)
+          if [[ "${{ github.event.workflow_run.event }}" == "push" ]]; then
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Detected push build from branch: ${{ github.event.workflow_run.head_branch }}"
+          else
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check for PR image artifact
         id: check-artifact
-        if: steps.pr-info.outputs.pr_number != ''
+        if: steps.pr-info.outputs.pr_number != '' || steps.pr-info.outputs.is_push == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
-          ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          # Determine artifact name based on event type
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            ARTIFACT_NAME="push-image"
+          else
+            PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+            ARTIFACT_NAME="pr-image-${PR_NUMBER}"
+          fi
           RUN_ID="${{ github.event.workflow_run.id }}"
 
           echo "🔍 Checking for artifact: ${ARTIFACT_NAME}"
@@ -124,7 +138,7 @@ jobs:
           fi
 
       - name: Skip if no artifact
-        if: steps.pr-info.outputs.pr_number == '' || steps.check-artifact.outputs.artifact_exists != 'true'
+        if: (steps.pr-info.outputs.pr_number == '' && steps.pr-info.outputs.is_push != 'true') || steps.check-artifact.outputs.artifact_exists != 'true'
         run: |
           echo "ℹ️ Skipping security scan - no PR image artifact available"
           echo "This is expected for:"
@@ -138,7 +152,7 @@ jobs:
         # actions/download-artifact v4.1.8
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
         with:
-          name: pr-image-${{ steps.pr-info.outputs.pr_number }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
           run-id: ${{ steps.check-artifact.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -156,7 +170,11 @@ jobs:
         run: |
           # Normalize image name for reference
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/charon" | tr '[:upper:]' '[:lower:]')
-          IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:${{ github.event.workflow_run.head_branch }}"
+          else
+            IMAGE_REF="ghcr.io/${IMAGE_NAME}:pr-${{ steps.pr-info.outputs.pr_number }}"
+          fi
 
           echo "🔍 Extracting binary from: ${IMAGE_REF}"
 
@@ -199,7 +217,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89
         with:
           sarif_file: 'trivy-binary-results.sarif'
-          category: security-scan-pr-${{ steps.pr-info.outputs.pr_number }}
+          category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
         continue-on-error: true
 
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
@@ -218,7 +236,7 @@ jobs:
         # actions/upload-artifact v4.4.3
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
-          name: security-scan-pr-${{ steps.pr-info.outputs.pr_number }}
+          name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
             trivy-binary-results.sarif
           retention-days: 14
@@ -226,7 +244,11 @@ jobs:
       - name: Create job summary
         if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
         run: |
-          echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.pr-info.outputs.is_push }}" == "true" ]]; then
+            echo "## 🔒 Security Scan Results - Branch: ${{ github.event.workflow_run.head_branch }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## 🔒 Security Scan Results - PR #${{ steps.pr-info.outputs.pr_number }}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Scan Type**: Trivy Filesystem Scan" >> $GITHUB_STEP_SUMMARY
           echo "**Target**: \`/app/charon\` binary" >> $GITHUB_STEP_SUMMARY
