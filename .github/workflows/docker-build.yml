@@ -345,7 +345,7 @@ jobs:
           echo "==> CrowdSec verification complete"
 
       - name: Run Trivy scan (table output)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
@@ -355,7 +355,7 @@ jobs:
         continue-on-error: true
 
       - name: Run Trivy vulnerability scanner (SARIF)
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # 0.33.1
         with:
@@ -366,7 +366,7 @@ jobs:
         continue-on-error: true
 
       - name: Check Trivy SARIF exists
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         id: trivy-check
         run: |
           if [ -f trivy-results.sarif ]; then
@@ -376,16 +376,17 @@ jobs:
           fi
 
       - name: Upload Trivy results
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.trivy-check.outputs.exists == 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true' && steps.trivy-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
           sarif_file: 'trivy-results.sarif'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate SBOM (Software Bill of Materials) for supply chain security
+      # Only for production builds (main/development) - feature branches use downstream supply-chain-pr.yml
       - name: Generate SBOM
         uses: anchore/sbom-action@0b82b0b1a22399a1c542d4d656f70cd903571b5c # v0.21.1
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: cyclonedx-json
@@ -394,7 +395,7 @@ jobs:
       # Create verifiable attestation for the SBOM
       - name: Attest SBOM
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
-        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true'
+        if: github.event_name != 'pull_request' && steps.skip.outputs.skip_build != 'true' && steps.skip.outputs.is_feature_push != 'true'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
