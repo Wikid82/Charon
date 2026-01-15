@@ -8,7 +8,7 @@
   ],
   "baseBranches": [
     "development",
-    "feature/beta_release"
+    "feature/beta-release"
   ],
   "timezone": "America/New_York",
   "dependencyDashboard": true,
