@@ -40,7 +40,7 @@ jobs:
     steps:
       - name: Checkout repository
         # actions/checkout v4.2.2
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98
 
       - name: Extract PR number from workflow_run
         id: pr-info
@@ -150,7 +150,7 @@ jobs:
       - name: Download PR image artifact
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/download-artifact v4.1.8
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: ${{ steps.pr-info.outputs.is_push == 'true' && 'push-image' || format('pr-image-{0}', steps.pr-info.outputs.pr_number) }}
           run-id: ${{ steps.check-artifact.outputs.run_id }}
@@ -202,7 +202,7 @@ jobs:
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
@@ -214,7 +214,7 @@ jobs:
       - name: Upload Trivy SARIF to GitHub Security
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # github/codeql-action v3.28.10
-        uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89
+        uses: github/codeql-action/upload-sarif@a2d9de63c2916881d0621fdb7e65abe32141606d
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
@@ -223,7 +223,7 @@ jobs:
       - name: Run Trivy filesystem scan (fail on CRITICAL/HIGH)
         if: steps.check-artifact.outputs.artifact_exists == 'true'
         # aquasecurity/trivy-action v0.33.1
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8
+        uses: aquasecurity/trivy-action@22438a435773de8c97dc0958cc0b823c45b064ac
         with:
           scan-type: 'fs'
           scan-ref: ${{ steps.extract.outputs.binary_path }}
@@ -234,7 +234,7 @@ jobs:
       - name: Upload scan artifacts
         if: always() && steps.check-artifact.outputs.artifact_exists == 'true'
         # actions/upload-artifact v4.4.3
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', github.event.workflow_run.head_branch) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
           path: |
