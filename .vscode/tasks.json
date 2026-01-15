@@ -84,6 +84,36 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: E2E Playwright (Chromium)",
+            "type": "shell",
+            "command": "npm run e2e",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (All Browsers)",
+            "type": "shell",
+            "command": "npm run e2e:all",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: E2E Playwright (Headed)",
+            "type": "shell",
+            "command": "npm run e2e:headed",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
             "label": "Lint: Pre-commit (All Files)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",

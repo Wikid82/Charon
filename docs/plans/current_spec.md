@@ -397,33 +397,254 @@ pluginLoader := services.NewPluginLoaderService(db, pluginDir, pluginSignatures)
 
 ## Phase 4 — E2E Coverage + Regression Safety
 
+**Status**: 📋 **Planning Complete** (2026-01-14)
+
+### Current Test Coverage Analysis
+
+**Existing Test Files**:
+| File | Purpose | Coverage Status |
+|------|---------|-----------------|
+| `tests/example.spec.js` | Playwright example (external site) | Not relevant to Charon |
+| `tests/manual-dns-provider.spec.ts` | Manual DNS provider E2E tests | Good foundation, many tests skipped |
+
+**Existing `manual-dns-provider.spec.ts` Coverage**:
+- ✅ Provider Selection Flow (navigation tests)
+- ✅ Manual Challenge UI Display (conditional tests)
+- ✅ Copy to Clipboard functionality
+- ✅ Verify Button Interactions
+- ✅ Accessibility Checks (keyboard navigation, ARIA)
+- ✅ Component Tests (mocked API responses)
+- ✅ Error Handling tests
+
+**Gaps Identified**:
+1. **Types Endpoint Not Tested**: No tests verify `/api/v1/dns-providers/types` returns all provider types (built-in + custom + plugins)
+2. **Provider Creation Flows**: No E2E tests for creating providers of each type
+3. **Provider List Rendering**: No tests verify the provider cards grid renders correctly
+4. **Edit/Delete Provider Flows**: No coverage for provider management operations
+5. **Form Field Validation**: No tests for required field validation errors
+6. **Dynamic Field Rendering**: No tests verify fields render from server-provided definitions
+7. **Plugin Provider Types**: No tests for external plugin types (e.g., `powerdns`)
+
 ### Deliverables
 
-- Playwright coverage for:
-   - DNS provider types rendering and required-field validation (including plugin types)
-   - Manual DNS challenge flow regression (existing spec: `tests/manual-dns-provider.spec.ts`)
-   - Creating a provider for at least one external plugin type (e.g., `powerdns`) when a plugin is present
-- Documented smoke test steps for operators.
+1. **New Test File**: `tests/dns-provider-types.spec.ts` — Types endpoint and selector rendering
+2. **New Test File**: `tests/dns-provider-crud.spec.ts` — Provider creation, edit, delete flows
+3. **Updated Test File**: `tests/manual-dns-provider.spec.ts` — Enable skipped tests, add missing coverage
+4. **Operator Smoke Test Documentation**: `docs/testing/e2e-smoke-tests.md`
+
+### Test File Organization
+
+```
+tests/
+├── example.spec.js              # (Keep as Playwright reference)
+├── manual-dns-provider.spec.ts  # (Existing - Manual DNS challenge flow)
+├── dns-provider-types.spec.ts   # (NEW - Provider types endpoint & selector)
+├── dns-provider-crud.spec.ts    # (NEW - CRUD operations & validation)
+└── dns-provider-a11y.spec.ts    # (NEW - Focused accessibility tests)
+```
+
+### Test Scenarios (Prioritized)
+
+#### Priority 1: Core Functionality (Must Pass Before Merge)
+
+**File: `dns-provider-types.spec.ts`**
+
+| Test Name | Description | API Verified |
+|-----------|-------------|--------------|
+| `GET /dns-providers/types returns all built-in providers` | Verify cloudflare, route53, digitalocean, etc. in response | `GET /api/v1/dns-providers/types` |
+| `GET /dns-providers/types includes custom providers` | Verify manual, webhook, rfc2136, script in response | `GET /api/v1/dns-providers/types` |
+| `Provider selector dropdown shows all types` | Verify dropdown options match API response | UI + API |
+| `Provider selector groups by category` | Built-in vs custom categorization | UI |
+| `Provider type selection updates form fields` | Changing type loads correct credential fields | UI |
+
+**File: `dns-provider-crud.spec.ts`**
+
+| Test Name | Description | API Verified |
+|-----------|-------------|--------------|
+| `Create Cloudflare provider with valid credentials` | Complete create flow for built-in type | `POST /api/v1/dns-providers` |
+| `Create Manual provider successfully` | Complete create flow for custom type | `POST /api/v1/dns-providers` |
+| `Form shows validation errors for missing required fields` | Submit without required fields shows errors | UI validation |
+| `Test Connection button shows success/failure` | Pre-save credential validation | `POST /api/v1/dns-providers/test` |
+| `Edit provider updates name and settings` | Modify existing provider | `PUT /api/v1/dns-providers/:id` |
+| `Delete provider with confirmation` | Delete flow with modal | `DELETE /api/v1/dns-providers/:id` |
+| `Provider list renders all providers as cards` | Grid layout verification | `GET /api/v1/dns-providers` |
+
+#### Priority 2: Regression Safety (Manual DNS Challenge)
+
+**File: `manual-dns-provider.spec.ts`** (Enable and Update)
+
+| Test Name | Status | Action Required |
+|-----------|--------|-----------------|
+| `should navigate to DNS Providers page` | ✅ Active | Keep |
+| `should show Add Provider button on DNS Providers page` | ⏭️ Skipped | **Enable** - requires backend |
+| `should display Manual option in provider selection` | ⏭️ Skipped | **Enable** - requires backend |
+| `should display challenge panel with required elements` | ✅ Conditional | Add mock data fixture |
+| `Copy to clipboard functionality` | ✅ Conditional | Add fixture |
+| `Verify button interactions` | ✅ Conditional | Add fixture |
+| `Accessibility checks` | ✅ Partial | Expand coverage |
+
+**New Tests for Manual Flow**:
+| Test Name | Description |
+|-----------|-------------|
+| `Create manual provider and verify in list` | Full create → list → verify flow |
+| `Manual provider shows "Pending Challenge" state` | Verify UI state when challenge is active |
+| `Manual challenge countdown timer decrements` | Time remaining updates correctly |
+| `Manual challenge verification completes flow` | Success path when DNS propagates |
+
+#### Priority 3: Accessibility Compliance
+
+**File: `dns-provider-a11y.spec.ts`**
+
+| Test Name | WCAG Criteria |
+|-----------|---------------|
+| `Provider form has properly associated labels` | 1.3.1 Info and Relationships |
+| `Error messages are announced to screen readers` | 4.1.3 Status Messages |
+| `Keyboard navigation through form fields` | 2.1.1 Keyboard |
+| `Focus visible on all interactive elements` | 2.4.7 Focus Visible |
+| `Password fields are not autocompleted` | Security best practice |
+| `Dialog trap focus correctly` | 2.4.3 Focus Order |
+| `Form submission button has loading state` | 4.1.2 Name, Role, Value |
+
+#### Priority 4: Plugin Provider Types (Optional - When Plugins Present)
+
+**File: `dns-provider-crud.spec.ts`** (Conditional Tests)
+
+| Test Name | Condition |
+|-----------|-----------|
+| `External plugin types appear in selector` | `CHARON_PLUGINS_DIR` has `.so` files |
+| `Create provider for plugin type (e.g., powerdns)` | Plugin type available in API |
+| `Plugin provider test connection works` | Plugin credentials valid |
+
+### Implementation Guidance
+
+#### Test Data Strategy
+
+```typescript
+// tests/fixtures/dns-providers.ts
+export const mockProviderTypes = {
+  built_in: ['cloudflare', 'route53', 'digitalocean', 'googleclouddns'],
+  custom: ['manual', 'webhook', 'rfc2136', 'script'],
+}
+
+export const mockCloudflareProvider = {
+  name: 'Test Cloudflare',
+  provider_type: 'cloudflare',
+  credentials: {
+    api_token: 'test-token-12345',
+  },
+}
+
+export const mockManualProvider = {
+  name: 'Test Manual',
+  provider_type: 'manual',
+  credentials: {},
+}
+```
+
+#### API Mocking Pattern (From Existing Tests)
+
+```typescript
+// Mock provider types endpoint
+await page.route('**/api/v1/dns-providers/types', async (route) => {
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      types: [
+        { type: 'cloudflare', name: 'Cloudflare', fields: [...] },
+        { type: 'manual', name: 'Manual DNS', fields: [] },
+      ],
+    }),
+  });
+});
+```
+
+#### Test Structure Pattern (Following Existing Conventions)
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3003';
+
+test.describe('DNS Provider Types', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(BASE_URL);
+  });
+
+  test('should display all provider types in selector', async ({ page }) => {
+    await test.step('Navigate to DNS Providers', async () => {
+      await page.goto(`${BASE_URL}/dns-providers`);
+    });
+
+    await test.step('Open Add Provider dialog', async () => {
+      await page.getByRole('button', { name: /add provider/i }).click();
+    });
+
+    await test.step('Verify provider type options', async () => {
+      const providerSelect = page.getByRole('combobox', { name: /provider type/i });
+      await providerSelect.click();
+
+      // Verify built-in providers
+      await expect(page.getByRole('option', { name: /cloudflare/i })).toBeVisible();
+      await expect(page.getByRole('option', { name: /route53/i })).toBeVisible();
+
+      // Verify custom providers
+      await expect(page.getByRole('option', { name: /manual/i })).toBeVisible();
+    });
+  });
+});
+```
 
 ### Tasks & Owners
 
 - **QA_Security**
-   - Add/extend Playwright specs under [tests](tests).
-   - Validate keyboard navigation and form errors are accessible (screen reader friendly) where tests touch UI.
+   - [ ] Create `tests/dns-provider-types.spec.ts` with Priority 1 type tests
+   - [ ] Create `tests/dns-provider-crud.spec.ts` with Priority 1 CRUD tests
+   - [ ] Enable skipped tests in `tests/manual-dns-provider.spec.ts`
+   - [ ] Create `tests/dns-provider-a11y.spec.ts` with Priority 3 accessibility tests
+   - [ ] Create `tests/fixtures/dns-providers.ts` with mock data
+   - [ ] Document smoke test procedures in `docs/testing/e2e-smoke-tests.md`
 - **Frontend_Dev**
-   - Fix any UI issues uncovered by E2E (focus order, error announcements, labels).
+   - [ ] Fix any UI issues uncovered by E2E (focus order, error announcements, labels)
+   - [ ] Ensure form field IDs are stable for test selectors
+   - [ ] Add `data-testid` attributes where role-based selectors are insufficient
 - **Backend_Dev**
-   - Fix any API contract mismatches discovered by E2E.
+   - [ ] Fix any API contract mismatches discovered by E2E
+   - [ ] Ensure `/api/v1/dns-providers/types` returns complete field definitions
+   - [ ] Verify error response format matches frontend expectations
+
+### Potential Issues to Watch
+
+Based on code analysis, these may cause test failures (fix code first, per user directive):
+
+| Potential Issue | Component | Symptom |
+|-----------------|-----------|---------|
+| Types endpoint hardcoded | `dns_provider_handler.go` | Manual/plugin types missing from selector |
+| Missing field definitions | API response | Form renders without credential fields |
+| Dialog not trapping focus | `DNSProviderForm.tsx` | Tab escapes dialog |
+| Select not keyboard accessible | `ui/Select.tsx` | Cannot navigate with arrow keys |
+| Toast not announced | `toast.ts` | Screen readers miss success/error messages |
 
 ### Acceptance Criteria
 
-- E2E passes reliably in Chromium.
-- No regressions to manual challenge flow.
+- [ ] All Priority 1 tests pass reliably in Chromium
+- [ ] All Priority 2 (manual provider regression) tests pass
+- [ ] No skipped tests in `manual-dns-provider.spec.ts` (except documented exclusions)
+- [ ] Priority 3 accessibility tests pass (or issues documented for fix)
+- [ ] Smoke test documentation complete and validated by QA
 
 ### Verification Gates
 
-- Run Playwright E2E first.
-- Run backend + frontend coverage tasks, TypeScript check, pre-commit, and security scans.
+1. **Run Playwright E2E first**: `npx playwright test --project=chromium`
+2. **If tests fail**: Analyze whether failure is test bug or application bug
+   - Application bug → Fix code first, then re-run tests
+   - Test bug → Fix test, document reasoning
+3. **After E2E passes**: Run full verification suite
+   - Backend coverage: `shell: Test: Backend with Coverage`
+   - Frontend coverage: `shell: Test: Frontend with Coverage`
+   - TypeScript check: `shell: Lint: TypeScript Check`
+   - Pre-commit: `shell: Lint: Pre-commit (All Files)`
+   - Security scans: CodeQL + Trivy + Go Vulnerability Check
 
 ---
 
