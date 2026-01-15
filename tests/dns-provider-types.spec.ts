@@ -258,9 +258,9 @@ test.describe('DNS Provider Types', () => {
       });
 
       await test.step('Verify Script path/command field appears', async () => {
-        const scriptField = page
-          .getByLabel(/script|command|path/i)
-          .or(page.getByRole('textbox', { name: /script|command|path/i }));
+        // Script provider shows "Script Path" field with placeholder "/scripts/dns-challenge.sh"
+        const scriptField = page.getByRole('textbox', { name: /script path/i })
+          .or(page.getByPlaceholder(/dns-challenge\.sh/i));
         await expect(scriptField).toBeVisible();
       });
     });
