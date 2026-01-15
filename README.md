@@ -69,6 +69,10 @@ No config files. No terminal commands. Just click, type your domain name, and yo
 
 Free SSL certificates that request, install, and renew themselves. Your sites get the green padlock without you lifting a finger.
 
+### 🌐 **DNS Challenge for Wildcard Certificates**
+
+Secure all your subdomains with a single `*.example.com` certificate. Supports 15+ DNS providers including Cloudflare, Route53, DigitalOcean, and Google Cloud DNS. Credentials are encrypted and automatically rotated.
+
 ### 🛡️ **Enterprise-Grade Security Built In**
 
 Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
