@@ -62,6 +62,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           HEAD_MSG: ${{ github.event.head_commit.message }}
           REF: ${{ github.ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           should_skip=false
           pr_title=""
@@ -74,7 +75,9 @@ jobs:
           if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
           if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
           # Always build on beta-release branch to ensure artifacts for testing
-          if [[ "$REF" == "refs/heads/feature/beta-release" ]]; then
+          # For PRs: github.ref is refs/pull/N/merge, so check github.head_ref instead
+          # For pushes: github.ref is refs/heads/branch-name
+          if [[ "$REF" == "refs/heads/feature/beta-release" ]] || [[ "$HEAD_REF" == "feature/beta-release" ]]; then
             should_skip=false
             echo "Force building on beta-release branch"
           fi
