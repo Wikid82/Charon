@@ -60,7 +60,7 @@ setup('authenticate', async ({ request, baseURL }) => {
 
   if (!loginResponse.ok()) {
     const errorBody = await loginResponse.text();
-    console.error(`Login failed: ${loginResponse.status()} - ${errorBody}`);
+    console.log(`Login failed: ${loginResponse.status()} - ${errorBody}`);
 
     // If login fails and setup wasn't required, the user might already exist with different credentials
     // This can happen in dev environments

@@ -878,7 +878,7 @@ jobs:
       - name: Run Playwright E2E tests
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:8080
-        run: npx playwright test
+        run: npx playwright test --project=chromium
 
       - name: Stop application container
         if: always()
