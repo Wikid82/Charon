@@ -20,9 +20,6 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
-    environment:
-      name: release
-      url: https://github.com/${{ github.repository }}/releases
     env:
       # Use the built-in GITHUB_TOKEN by default for GitHub API operations.
       # If you need to provide a PAT with elevated permissions, add a GITHUB_TOKEN secret
