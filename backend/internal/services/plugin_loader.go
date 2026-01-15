@@ -91,8 +91,8 @@ func (s *PluginLoaderService) LoadAllPlugins() error {
 
 // LoadPlugin loads a single plugin from the specified path.
 func (s *PluginLoaderService) LoadPlugin(path string) error {
-	// Verify signature if signatures are configured
-	if len(s.allowedSigs) > 0 {
+	// Verify signature if allowlist is configured (nil = permissive, non-nil = strict)
+	if s.allowedSigs != nil {
 		pluginName := strings.TrimSuffix(filepath.Base(path), ".so")
 		expectedSig, ok := s.allowedSigs[pluginName]
 		if !ok {

@@ -57,6 +57,7 @@ Container Start
 ```
 
 **Problems:**
+
 - Reconciliation happens AFTER HTTP server starts
 - No protection against concurrent calls
 - Permission issues prevent CrowdSec from writing to data directory
@@ -79,6 +80,7 @@ Container Start
 ```
 
 **Improvements:**
+
 - Reconciliation happens BEFORE HTTP server starts
 - Mutex prevents concurrent reconciliation attempts
 - Permissions fixed in Dockerfile
@@ -93,6 +95,7 @@ Container Start
 **File:** [Dockerfile](../../Dockerfile#L289-L291)
 
 **Change:**
+
 ```dockerfile
 # Create required CrowdSec directories in runtime image
 # NOTE: Do NOT create /etc/crowdsec here - it must be a symlink created at runtime by non-root user
@@ -103,6 +106,7 @@ RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
 ```
 
 **Why This Works:**
+
 - CrowdSec data directory now owned by `charon:charon` user
 - Database files (`crowdsec.db`, `crowdsec.db-shm`, `crowdsec.db-wal`) are writable
 - LAPI can bind to port 8085 without permission errors
@@ -118,6 +122,7 @@ RUN mkdir -p /var/lib/crowdsec/data /var/log/crowdsec /var/log/caddy \
 **File:** [backend/cmd/api/main.go](../../backend/cmd/api/main.go#L174-L186)
 
 **Change:**
+
 ```go
 // Reconcile CrowdSec state after migrations, before HTTP server starts
 // This ensures CrowdSec is running if user preference was to have it enabled
@@ -135,12 +140,14 @@ services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecD
 ```
 
 **Why This Location:**
+
 - **After database migrations** — Security tables are guaranteed to exist
 - **Before HTTP server starts** — Reconciliation completes before accepting requests
 - **Synchronous execution** — No race conditions with route registration
 - **Proper error handling** — Startup fails if critical issues occur
 
 **Impact:**
+
 - CrowdSec starts within 5-10 seconds of container boot
 - No dependency on HTTP server being ready
 - Consistent behavior across restarts
@@ -152,6 +159,7 @@ services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecD
 **File:** [backend/internal/services/crowdsec_startup.go](../../backend/internal/services/crowdsec_startup.go#L17-L33)
 
 **Change:**
+
 ```go
 // reconcileLock prevents concurrent reconciliation calls
 var reconcileLock sync.Mutex
@@ -173,17 +181,20 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 **Why Mutex Is Needed:**
 
 Reconciliation can be called from multiple places:
+
 - **Startup:** `main.go` calls it synchronously during boot
 - **Manual toggle:** User clicks "Start" in Security dashboard
 - **Future auto-restart:** Watchdog could trigger it on crash
 
 Without mutex:
+
 - ❌ Multiple goroutines could start CrowdSec simultaneously
 - ❌ Database race conditions on SecurityConfig table
 - ❌ Duplicate process spawning
 - ❌ Corrupted state in executor
 
 With mutex:
+
 - ✅ Only one reconciliation at a time
 - ✅ Safe database access
 - ✅ Clean process lifecycle
@@ -198,12 +209,14 @@ With mutex:
 **File:** [backend/internal/api/handlers/crowdsec_handler.go](../../backend/internal/api/handlers/crowdsec_handler.go#L244)
 
 **Change:**
+
 ```go
 // Old: maxWait := 30 * time.Second
 maxWait := 60 * time.Second
 ```
 
 **Why 60 Seconds:**
+
 - LAPI initialization involves:
   - Loading parsers and scenarios (5-10s)
   - Initializing database connections (2-5s)
@@ -212,16 +225,19 @@ maxWait := 60 * time.Second
   - Machine registration (2-5s)
 
 **Observed Timings:**
+
 - **Fast systems (SSD, 4+ cores):** 5-10 seconds
 - **Average systems (HDD, 2 cores):** 15-25 seconds
 - **Slow systems (Raspberry Pi, low memory):** 30-45 seconds
 
 **Why Not Higher:**
+
 - 60s provides 2x safety margin for slowest systems
 - Longer timeout = worse UX if actual failure occurs
 - Frontend shows loading overlay with progress messages
 
 **User Experience:**
+
 - User sees: "Starting CrowdSec... This may take up to 30 seconds"
 - Backend polls LAPI every 500ms for up to 60s
 - Success toast when LAPI ready (usually 10-15s)
@@ -234,6 +250,7 @@ maxWait := 60 * time.Second
 **File:** [.docker/docker-entrypoint.sh](../../.docker/docker-entrypoint.sh#L163-L169)
 
 **Existing Code (No Changes Needed):**
+
 ```bash
 # Verify LAPI configuration was applied correctly
 if grep -q "listen_uri:.*:8085" "$CS_CONFIG_DIR/config.yaml"; then
@@ -244,6 +261,7 @@ fi
 ```
 
 **Why This Matters:**
+
 - Validates `sed` commands successfully updated config.yaml
 - Early detection of configuration issues
 - Prevents port conflicts with Charon backend (port 8080)
@@ -280,6 +298,7 @@ fi
 **File:** [backend/internal/services/crowdsec_startup_test.go](../../backend/internal/services/crowdsec_startup_test.go)
 
 **Coverage:** 11 test cases covering:
+
 - ✅ Nil database handling
 - ✅ Nil executor handling
 - ✅ Missing SecurityConfig table auto-creation
@@ -291,6 +310,7 @@ fi
 - ✅ Status check errors
 
 **Run Tests:**
+
 ```bash
 cd backend
 go test ./internal/services/... -v -run TestReconcileCrowdSec
@@ -299,6 +319,7 @@ go test ./internal/services/... -v -run TestReconcileCrowdSec
 ### Integration Tests
 
 **Manual Test Script:**
+
 ```bash
 # 1. Build and start container
 docker compose -f docker-compose.test.yml up -d --build
@@ -329,6 +350,7 @@ docker exec charon cscli lapi status
 ### Automated Tests
 
 **VS Code Task:** "Test: Backend Unit Tests"
+
 ```bash
 cd backend && go test ./internal/services/... -v
 ```
@@ -342,11 +364,13 @@ cd backend && go test ./internal/services/... -v
 ### Container Restart Behavior
 
 **Before:**
+
 ```
 Container Restart → CrowdSec Offline → Manual GUI Start Required
 ```
 
 **After:**
+
 ```
 Container Restart → Auto-Check SecurityConfig → CrowdSec Running (if enabled)
 ```
@@ -359,6 +383,7 @@ CrowdSec automatically starts on container boot if **ANY** of these conditions a
 2. **Settings table:** `security.crowdsec.enabled = "true"`
 
 **Decision Logic:**
+
 ```
 IF SecurityConfig.crowdsec_mode == "local" THEN start
 ELSE IF Settings["security.crowdsec.enabled"] == "true" THEN start
@@ -366,6 +391,7 @@ ELSE skip (user disabled CrowdSec)
 ```
 
 **Why Two Sources:**
+
 - **SecurityConfig:** Primary source (new, structured, strongly typed)
 - **Settings:** Fallback for legacy configs and runtime toggles
 - **Auto-init:** If no SecurityConfig exists, create one based on Settings value
@@ -389,12 +415,14 @@ ELSE skip (user disabled CrowdSec)
 **No Action Required** — CrowdSec state is automatically preserved.
 
 **What Happens:**
+
 1. Container starts with old config
 2. Reconciliation checks Settings table for `security.crowdsec.enabled`
 3. Creates SecurityConfig matching Settings state
 4. CrowdSec starts if it was previously enabled
 
 **Verification:**
+
 ```bash
 # Check CrowdSec status after upgrade
 docker exec charon cscli lapi status
@@ -410,6 +438,7 @@ docker logs charon | grep "CrowdSec reconciliation"
 **Migration Steps:**
 
 1. **Remove from docker-compose.yml:**
+
    ```yaml
    # REMOVE THESE:
    # - SECURITY_CROWDSEC_MODE=local
@@ -422,16 +451,19 @@ docker logs charon | grep "CrowdSec reconciliation"
    - Verify status shows "Active"
 
 3. **Restart container:**
+
    ```bash
    docker compose restart
    ```
 
 4. **Verify auto-start:**
+
    ```bash
    docker exec charon cscli lapi status
    ```
 
 **Why This Change:**
+
 - Consistent with other security features (WAF, ACL, Rate Limiting)
 - Single source of truth (database, not environment)
 - Easier to manage via GUI
@@ -444,11 +476,13 @@ docker logs charon | grep "CrowdSec reconciliation"
 ### CrowdSec Not Starting After Restart
 
 **Symptoms:**
+
 - Container starts successfully
 - CrowdSec status shows "Offline"
 - No LAPI process listening on port 8085
 
 **Diagnosis:**
+
 ```bash
 # 1. Check reconciliation logs
 docker logs charon 2>&1 | grep "CrowdSec reconciliation"
@@ -473,6 +507,7 @@ docker exec charon sqlite3 /app/data/charon.db \
 | "process started but is no longer running" | CrowdSec crashed on startup | Check `/var/log/crowdsec/crowdsec.log` |
 
 **Resolution:**
+
 ```bash
 # Enable CrowdSec manually
 curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
@@ -484,10 +519,12 @@ docker exec charon cscli lapi status
 ### Permission Denied Errors
 
 **Symptoms:**
+
 - Error: "permission denied: /var/lib/crowdsec/data/crowdsec.db"
 - CrowdSec process starts but immediately exits
 
 **Diagnosis:**
+
 ```bash
 # Check directory ownership
 docker exec charon ls -la /var/lib/crowdsec/data/
@@ -497,6 +534,7 @@ docker exec charon ls -la /var/lib/crowdsec/data/
 ```
 
 **Resolution:**
+
 ```bash
 # Fix permissions (requires container rebuild)
 docker compose down
@@ -509,10 +547,12 @@ docker compose up -d
 ### LAPI Timeout (Takes Longer Than 60s)
 
 **Symptoms:**
+
 - Warning toast: "LAPI is still initializing"
 - Status shows "Starting" for 60+ seconds
 
 **Diagnosis:**
+
 ```bash
 # Check LAPI logs for errors
 docker exec charon tail -f /var/log/crowdsec/crowdsec.log
@@ -522,12 +562,14 @@ docker stats charon
 ```
 
 **Common Causes:**
+
 - Low memory (< 512MB available)
 - Slow disk I/O (HDD vs SSD)
 - Network issues (hub update timeout)
 - High CPU usage (other processes)
 
 **Temporary Workaround:**
+
 ```bash
 # Wait 30 more seconds, then manually check
 sleep 30
@@ -535,6 +577,7 @@ docker exec charon cscli lapi status
 ```
 
 **Long-Term Solution:**
+
 - Increase container memory allocation
 - Use faster storage (SSD recommended)
 - Pre-pull hub items during build (reduce runtime initialization)
@@ -542,10 +585,12 @@ docker exec charon cscli lapi status
 ### Race Conditions / Duplicate Processes
 
 **Symptoms:**
+
 - Multiple CrowdSec processes running
 - Error: "address already in use: 127.0.0.1:8085"
 
 **Diagnosis:**
+
 ```bash
 # Check for multiple CrowdSec processes
 docker exec charon ps aux | grep crowdsec | grep -v grep
@@ -557,6 +602,7 @@ docker exec charon ps aux | grep crowdsec | grep -v grep
 **Cause:** Mutex not protecting reconciliation (should not happen after this fix)
 
 **Resolution:**
+
 ```bash
 # Kill all CrowdSec processes
 docker exec charon pkill crowdsec
@@ -609,12 +655,14 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ### Process Isolation
 
 **CrowdSec runs as `charon` user (UID 1000), NOT root:**
+
 - ✅ Limited system access (can't modify system files)
 - ✅ Can't bind to privileged ports (< 1024)
 - ✅ Sandboxed within Docker container
 - ✅ Follows principle of least privilege
 
 **Risk Mitigation:**
+
 - CrowdSec compromise does not grant root access
 - Limited blast radius if vulnerability exploited
 - Docker container provides additional isolation
@@ -622,6 +670,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ### Permission Hardening
 
 **Directory Permissions:**
+
 ```
 /var/lib/crowdsec/data/  → charon:charon (rwxr-xr-x)
 /var/log/crowdsec/       → charon:charon (rwxr-xr-x)
@@ -629,6 +678,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ```
 
 **Why These Permissions:**
+
 - `rwxr-xr-x` (755) allows execution and traversal
 - `charon` user can read/write its own files
 - Other users can read (required for log viewing)
@@ -639,6 +689,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 **Potential Concern:** Auto-starting CrowdSec on boot could be exploited
 
 **Mitigations:**
+
 1. **Explicit Opt-In:** User must enable CrowdSec via GUI (not default)
 2. **Database-Backed:** Start decision based on database, not environment variables
 3. **Validation:** Binary and config paths validated before start
@@ -646,6 +697,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 5. **Audit Logging:** All start/stop events logged to SecurityAudit table
 
 **Threat Model:**
+
 - ❌ **Attacker modifies environment variables** → No effect (not used)
 - ❌ **Attacker modifies SecurityConfig** → Requires database access (already compromised)
 - ✅ **Attacker deletes CrowdSec binary** → Reconciliation fails gracefully
@@ -674,17 +726,17 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 
 ### Phase 2 Enhancements (Future)
 
-4. **Configuration Validation**
+1. **Configuration Validation**
    - Run `crowdsec -c <config> -t` before starting
    - Prevent startup with invalid config
    - Show validation errors in GUI
 
-5. **Performance Metrics**
+2. **Performance Metrics**
    - Expose CrowdSec metrics to Prometheus endpoint
    - Track: LAPI requests/sec, decision count, parser success rate
    - Enable Grafana dashboards
 
-6. **Log Streaming**
+3. **Log Streaming**
    - Add WebSocket endpoint for CrowdSec logs
    - Real-time log viewer in GUI
    - Filter by severity, source, message
@@ -741,6 +793,7 @@ curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ---
 
 **Next Steps:**
+
 1. Merge to main branch
 2. Tag release (e.g., v0.9.0)
 3. Update changelog

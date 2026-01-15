@@ -151,6 +151,47 @@ When running Charon in Docker:
 
 Once a plugin is installed and loaded, it appears in the DNS provider list alongside built-in providers.
 
+### Discovering Loaded Plugins via API
+
+Query available provider types to see all registered providers (built-in and plugins):
+
+```bash
+curl https://charon.example.com/api/v1/dns-providers/types \
+  -H "Authorization: Bearer YOUR-TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "types": [
+    {
+      "type": "cloudflare",
+      "name": "Cloudflare",
+      "description": "Cloudflare DNS provider",
+      "documentation_url": "https://developers.cloudflare.com/api/",
+      "is_built_in": true,
+      "fields": [...]
+    },
+    {
+      "type": "powerdns",
+      "name": "PowerDNS",
+      "description": "PowerDNS Authoritative Server with HTTP API",
+      "documentation_url": "https://doc.powerdns.com/authoritative/http-api/",
+      "is_built_in": false,
+      "fields": [...]
+    }
+  ]
+}
+```
+
+**Key fields:**
+
+| Field | Description |
+|-------|-------------|
+| `is_built_in` | `true` = compiled into Charon, `false` = external plugin |
+| `fields` | Credential field specifications for the UI form |
+
 ### Via Web UI
 
 1. Navigate to **Settings** → **DNS Providers**
@@ -223,6 +264,19 @@ The plugin automatically configures Caddy's DNS challenge for Let's Encrypt:
 ## Plugin Management
 
 ### Listing Loaded Plugins
+
+**Via Types Endpoint (Recommended):**
+
+Filter for plugins using `is_built_in: false`:
+
+```bash
+curl https://charon.example.com/api/v1/dns-providers/types \
+  -H "Authorization: Bearer YOUR-TOKEN" | jq '.types[] | select(.is_built_in == false)'
+```
+
+**Via Plugins Endpoint:**
+
+Get detailed plugin metadata including version and author:
 
 ```bash
 curl https://charon.example.com/api/admin/plugins \
@@ -354,9 +408,9 @@ sudo chmod -R o-w /etc/charon/plugins
 
 ### Getting Help
 
-- **GitHub Discussions:** https://github.com/Wikid82/charon/discussions
-- **Issue Tracker:** https://github.com/Wikid82/charon/issues
-- **Documentation:** https://docs.charon.example.com
+- **GitHub Discussions:** <https://github.com/Wikid82/charon/discussions>
+- **Issue Tracker:** <https://github.com/Wikid82/charon/issues>
+- **Documentation:** <https://docs.charon.example.com>
 
 ### Reporting Issues
 
@@ -370,6 +424,7 @@ When reporting plugin issues, include:
 
 ## See Also
 
+- [Plugin Security Guide](./plugin-security.md)
 - [Plugin Development Guide](../development/plugin-development.md)
 - [DNS Provider Configuration](./dns-providers.md)
 - [Security Best Practices](../../SECURITY.md)

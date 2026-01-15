@@ -15,7 +15,7 @@ The Docker build workflow uses GitHub Container Registry (GHCR) to store your im
 
 ### How It Works
 
-GitHub Actions automatically uses the built-in secret token to authenticate with GHCR. We recommend creating a `GITHUB_TOKEN` secret (preferred); workflows currently still work with `CPMP_TOKEN` for backward compatibility.
+GitHub Actions automatically uses the built-in secret token to authenticate with GHCR. We recommend creating a `GITHUB_TOKEN` secret (preferred); workflows currently still work with `CHARON_TOKEN` for backward compatibility.
 
 - ✅ Push images to `ghcr.io/wikid82/charon`
 - ✅ Link images to your repository
@@ -177,13 +177,13 @@ When you're ready to release a new version:
 
 **Problem**: "Error: denied: requested access to the resource is denied"
 
-- **Fix**: This shouldn't happen with `GITHUB_TOKEN` or `CPMP_TOKEN` - check workflow permissions
+- **Fix**: This shouldn't happen with `GITHUB_TOKEN` or `CHARON_TOKEN` - check workflow permissions
 - **Verify**: Settings → Actions → General → Workflow permissions → "Read and write permissions" enabled
 
 **Problem**: Can't pull the image
 
 - **Fix**: Make the package public (see Step 1 above)
-- **Or**: Authenticate with GitHub: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin` (or `CPMP_TOKEN` for backward compatibility)
+- **Or**: Authenticate with GitHub: `echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin` (or `CHARON_TOKEN` for backward compatibility)
 
 ### Docs Don't Deploy
 

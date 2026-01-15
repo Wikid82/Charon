@@ -22,7 +22,7 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 			TagName: "v1.0.0",
 			HTMLURL: "https://github.com/Wikid82/charon/releases/tag/v1.0.0",
 		}
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer server.Close()
 

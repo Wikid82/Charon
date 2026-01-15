@@ -11,7 +11,7 @@ import (
 func TestDomain_BeforeCreate(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
-	db.AutoMigrate(&Domain{})
+	_ = db.AutoMigrate(&Domain{})
 
 	// Case 1: UUID is empty, should be generated
 	d1 := &Domain{Name: "example.com"}

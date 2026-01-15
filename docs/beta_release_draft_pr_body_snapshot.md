@@ -6,7 +6,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 
 ## Changes Included (Summary)
 
-- Workflow token migration: prefer `GITHUB_TOKEN` (fallback `CPMP_TOKEN`) across release and maintenance workflows.
+- Workflow token migration: prefer `GITHUB_TOKEN` (fallback `CHARON_TOKEN`) across release and maintenance workflows.
 - Stabilized release workflow prerelease detection and artifact publication.
 - Prior (already merged earlier) CI enhancements: pinned action versions, Docker multi-arch debug tooling reliability, dynamic `dlv` binary resolution.
 - Documentation updates enumerating each incremental workflow/token adjustment for auditability.
@@ -21,7 +21,7 @@ Ensures alpha integration branch inherits hardened CI/release pipeline and updat
 
 ## Risk & Mitigation
 
-- Secret Name Change: Prefer `GITHUB_TOKEN` (keep `CPMP_TOKEN` as a fallback). Mitigation: Verify `GITHUB_TOKEN` (or `CPMP_TOKEN`) presence before merge.
+- Secret Name Change: Prefer `GITHUB_TOKEN` (keep `CHARON_TOKEN` as a fallback). Mitigation: Verify `GITHUB_TOKEN` (or `CHARON_TOKEN`) presence before merge.
 - Workflow Fan-out: Reusable workflow path validated locally; CI run (draft) will confirm.
 
 ## Follow-ups (Out of Scope)
@@ -38,9 +38,9 @@ Ensures alpha integration branch inherits hardened CI/release pipeline and updat
 
 ## Requested Review Focus
 
-1. Confirm `GITHUB_TOKEN` (or `CPMP_TOKEN` fallback) availability.
+1. Confirm `GITHUB_TOKEN` (or `CHARON_TOKEN` fallback) availability.
 2. Sanity-check release artifact matrix remains correct.
-3. Spot any residual `GITHUB_TOKEN` or `CPMP_TOKEN` references missed.
+3. Spot any residual `GITHUB_TOKEN` or `CHARON_TOKEN` references missed.
 
 ---
 Generated draft to align branches; will convert to ready-for-review after validation.

@@ -214,7 +214,7 @@ func TestBuildCSPString(t *testing.T) {
 				assert.NoError(t, err)
 				// CSP order can vary, so check parts exist
 				if tt.expected != "" {
-					parts := []string{}
+					var parts []string
 					if tt.expected == "default-src 'self'" {
 						parts = []string{"default-src 'self'"}
 					} else {

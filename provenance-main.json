@@ -1,0 +1,37 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "main",
+      "digest": {
+        "sha256": "c64e409257828deb697fa9316af5e7e78a91459c8456b5aaa007d46c07542900"
+      }
+    }
+  ],
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://github.com/user/local-build",
+      "externalParameters": {
+        "source": {
+          "uri": "git+https://github.com/user/charon@local",
+          "digest": {
+            "sha1": "0000000000000000000000000000000000000000"
+          }
+        }
+      },
+      "internalParameters": {},
+      "resolvedDependencies": []
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/user/local-builder@v1.0.0"
+      },
+      "metadata": {
+        "invocationId": "local-1768015740",
+        "startedOn": "2026-01-10T03:29:00Z",
+        "finishedOn": "2026-01-10T03:29:00Z"
+      }
+    }
+  }
+}

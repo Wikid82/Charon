@@ -47,18 +47,22 @@ docker exec charon cscli lapi status
 ## ⚠️ Troubleshooting (3 Steps)
 
 ### 1. Check Logs
+
 ```bash
 docker logs charon 2>&1 | grep "CrowdSec reconciliation"
 ```
 
 ### 2. Check Mode
+
 ```bash
 docker exec charon sqlite3 /app/data/charon.db \
   "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
 ```
+
 **Expected:** `local`
 
 ### 3. Manual Start
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
 ```

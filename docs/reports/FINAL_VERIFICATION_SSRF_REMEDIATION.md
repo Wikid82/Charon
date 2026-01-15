@@ -19,6 +19,7 @@ All Definition of Done criteria have been successfully met. The complete SSRF re
 ### 1. Code Review ✅
 
 #### Component 1: `settings_handler.go` - TestPublicURL Handler
+
 - **Location**: [backend/internal/api/handlers/settings_handler.go:269-325](../backend/internal/api/handlers/settings_handler.go#L269-L325)
 - **Status**: ✅ VERIFIED CORRECT
 - **Implementation**: Pre-connection SSRF validation using `security.ValidateExternalURL()`
@@ -26,6 +27,7 @@ All Definition of Done criteria have been successfully met. The complete SSRF re
 - **Architecture**: Four-layer defense (admin check, format validation, SSRF validation, connectivity test)
 
 #### Component 2: `url_testing.go` - Conditional Validation + Runtime Protection
+
 - **Location**: [backend/internal/utils/url_testing.go:89-105](../backend/internal/utils/url_testing.go#L89-L105)
 - **Status**: ✅ VERIFIED CORRECT
 - **Implementation**: Conditional validation pattern
@@ -35,6 +37,7 @@ All Definition of Done criteria have been successfully met. The complete SSRF re
 - **Test Preservation**: All 32 TestURLConnectivity tests pass WITHOUT modifications
 
 **Function Options Verification**:
+
 ```go
 security.ValidateExternalURL(rawURL,
     security.WithAllowHTTP(),      // ✅ REQUIRED: TestURLConnectivity tests HTTP
@@ -42,6 +45,7 @@ security.ValidateExternalURL(rawURL,
 ```
 
 **Taint Chain Break Mechanism**:
+
 ```go
 rawURL = validatedURL  // Creates NEW string value, breaks CodeQL taint
 ```
@@ -51,6 +55,7 @@ rawURL = validatedURL  // Creates NEW string value, breaks CodeQL taint
 ### 2. Test Execution ✅
 
 #### Backend Tests
+
 ```bash
 Command: cd /projects/Charon/backend && go test ./... -coverprofile=coverage.out
 Result: PASS
@@ -59,11 +64,13 @@ Duration: ~30 seconds
 ```
 
 **SSRF Module Coverage**:
+
 - `settings_handler.go` TestPublicURL: **100%**
 - `url_testing.go` TestURLConnectivity: **88.2%**
 - `security/url_validator.go` ValidateExternalURL: **90.4%**
 
 #### Frontend Tests
+
 ```bash
 Command: cd /projects/Charon/frontend && npm run test:coverage
 Result: PASS (1 unrelated test failure)
@@ -75,6 +82,7 @@ Tests: 1173 passed, 2 skipped
 **Note**: One failing test (`SecurityNotificationSettingsModal`) is unrelated to SSRF fix and does not block deployment.
 
 #### TestURLConnectivity Validation
+
 ```bash
 Command: cd /projects/Charon/backend && go test ./internal/utils -v -run TestURLConnectivity
 Result: ALL 32 TESTS PASS (100% success rate)
@@ -83,6 +91,7 @@ Modifications Required: ZERO
 ```
 
 **Test Cases Verified**:
+
 - ✅ Success cases (2xx, 3xx status codes)
 - ✅ Redirect handling (limit enforcement)
 - ✅ Invalid URL rejection
@@ -100,30 +109,35 @@ Modifications Required: ZERO
 ### 3. Security Checks ✅
 
 #### Go Vet
+
 ```bash
 Command: cd backend && go vet ./...
 Result: PASS (no issues detected)
 ```
 
 #### govulncheck
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh security-scan-go-vuln
 Result: No vulnerabilities found.
 ```
 
 #### Trivy Scan
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh security-scan-trivy
 Result: PASS (no critical/high/medium issues)
 ```
 
 #### TypeScript Check
+
 ```bash
 Command: cd frontend && npm run type-check
 Result: PASS (no type errors)
 ```
 
 #### Pre-commit Hooks
+
 ```bash
 Command: .github/skills/scripts/skill-runner.sh qa-precommit-all
 Result: PASS (except non-blocking version tag mismatch)
@@ -134,10 +148,12 @@ Result: PASS (except non-blocking version tag mismatch)
 ### 4. CodeQL Expected Impact ✅
 
 **Before Fix**:
+
 - ❌ `go/ssrf` finding in settings_handler.go:301 (TestPublicURL handler)
 - ❌ `go/ssrf` finding in url_testing.go:113 (TestURLConnectivity utility)
 
 **After Fix**:
+
 - ✅ **Taint Break #1**: settings_handler.go:301 - `validatedURL` from `security.ValidateExternalURL()`
 - ✅ **Taint Break #2**: url_testing.go:101 - `rawURL = validatedURL` reassignment
 
@@ -250,18 +266,21 @@ Network Request to Public IP Only
 ## Strengths of Implementation
 
 ### Technical Excellence
+
 - **Conditional Validation Pattern**: Sophisticated solution balancing CodeQL requirements with test isolation
 - **Function Options Correctness**: `WithAllowHTTP()` and `WithAllowLocalhost()` match `TestURLConnectivity` design
 - **Error Message Transformation**: Backward compatibility layer for existing tests
 - **Comprehensive Documentation**: Inline comments explain static analysis, security properties, and design rationale
 
 ### Security Robustness
+
 - **Defense-in-Depth**: Five independent security layers
 - **TOCTOU Protection**: Runtime IP revalidation at connection time
 - **DNS Rebinding Protection**: All IPs validated before connection
 - **Cloud Metadata Protection**: 169.254.0.0/16 explicitly blocked
 
 ### Quality Assurance
+
 - **Test Coverage**: 63 total assertions (31 + 32)
 - **Attack Vector Coverage**: All known SSRF vectors tested and blocked
 - **Zero Regressions**: No test modifications required
@@ -276,6 +295,7 @@ Network Request to Public IP Only
 The complete SSRF remediation is production-ready and meets all security, quality, and testing requirements.
 
 **Authorization**:
+
 - **Security Review**: ✅ Approved
 - **Code Quality**: ✅ Approved
 - **Test Coverage**: ✅ Approved (85.4% backend, 87.56% frontend)

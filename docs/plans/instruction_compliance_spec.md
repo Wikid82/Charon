@@ -437,6 +437,7 @@ post_date: 2024-12-20
 ## Appendix A: Files Reviewed
 
 ### Docker/Container
+
 - `Dockerfile`
 - `docker-compose.yml`
 - `docker-compose.dev.yml`
@@ -444,23 +445,27 @@ post_date: 2024-12-20
 - `.dockerignore`
 
 ### CI/CD Workflows
+
 - `.github/workflows/docker-publish.yml`
 - `.github/workflows/quality-checks.yml`
 - `.github/workflows/codeql.yml`
 - `.github/workflows/release-goreleaser.yml`
 
 ### Backend Go
+
 - `backend/cmd/api/main.go`
 - `backend/internal/api/handlers/auth_handler.go`
 - `backend/internal/api/handlers/*.go` (directory listing)
 
 ### Frontend TypeScript
+
 - `frontend/src/App.tsx`
 - `frontend/src/api/client.ts`
 - `frontend/src/components/Layout.tsx`
 - `frontend/tsconfig.json`
 
 ### Documentation
+
 - `docs/getting-started.md`
 - `docs/security.md`
 - `docs/plans/*.md` (directory listing)

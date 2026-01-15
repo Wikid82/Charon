@@ -13,6 +13,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ## Objectives Achieved
 
 ### Primary Goal: 85%+ Coverage ✅
+
 - **Baseline**: 79.82% (estimated from plan)
 - **Current**: 94.5%
 - **Improvement**: +14.68 percentage points
@@ -37,6 +38,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ## Tests Added (23 New Tests)
 
 ### 1. Access Log Path Configuration (4 tests)
+
 - ✅ `TestGetAccessLogPath_CrowdSecEnabled`: Verifies standard path when CrowdSec enabled
 - ✅ `TestGetAccessLogPath_DockerEnv`: Verifies production path via CHARON_ENV
 - ✅ `TestGetAccessLogPath_Development`: Verifies development fallback path construction
@@ -45,6 +47,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage Impact**: `getAccessLogPath` improved to 88.9%
 
 ### 2. Permissions Policy String Building (5 tests)
+
 - ✅ `TestBuildPermissionsPolicyString_EmptyAllowlist`: Verifies `()` for empty allowlists
 - ✅ `TestBuildPermissionsPolicyString_SelfAndStar`: Verifies special `self` and `*` values
 - ✅ `TestBuildPermissionsPolicyString_DomainValues`: Verifies domain quoting
@@ -54,12 +57,14 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage Impact**: `buildPermissionsPolicyString` improved to 100%
 
 ### 3. CSP String Building (2 tests)
+
 - ✅ `TestBuildCSPString_EmptyDirective`: Verifies empty string handling
 - ✅ `TestBuildCSPString_InvalidJSON`: Verifies error handling
 
 **Coverage Impact**: `buildCSPString` improved to 100%
 
 ### 4. Security Headers Handler (1 comprehensive test)
+
 - ✅ `TestBuildSecurityHeadersHandler_CompleteProfile`: Tests all 13 security headers:
   - HSTS with max-age, includeSubDomains, preload
   - Content-Security-Policy with multiple directives
@@ -71,17 +76,20 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage Impact**: `buildSecurityHeadersHandler` improved to 100%
 
 ### 5. SSL Provider Configuration (2 tests)
+
 - ✅ `TestGenerateConfig_SSLProviderZeroSSL`: Verifies ZeroSSL issuer configuration
 - ✅ `TestGenerateConfig_SSLProviderBoth`: Verifies dual ACME + ZeroSSL issuer setup
 
 **Coverage Impact**: Multi-issuer TLS automation policy generation tested
 
 ### 6. Duplicate Domain Handling (1 test)
+
 - ✅ `TestGenerateConfig_DuplicateDomains`: Verifies Ghost Host detection (duplicate domain filtering)
 
 **Coverage Impact**: Domain deduplication logic fully tested
 
 ### 7. CrowdSec Integration (3 tests)
+
 - ✅ `TestGenerateConfig_WithCrowdSecApp`: Verifies CrowdSec app-level configuration
 - ✅ `TestGenerateConfig_CrowdSecHandlerAdded`: Verifies CrowdSec handler in route pipeline
 - ✅ Existing tests cover CrowdSec API key retrieval
@@ -89,6 +97,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage Impact**: CrowdSec configuration and handler injection fully tested
 
 ### 8. Security Decisions / IP Blocking (1 test)
+
 - ✅ `TestGenerateConfig_WithSecurityDecisions`: Verifies manual IP block rules with admin whitelist exclusion
 
 **Coverage Impact**: Security decision subroute generation tested
@@ -98,7 +107,9 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ## Complex Logic Fully Tested
 
 ### Multi-Credential DNS Challenge ✅
+
 **Existing Integration Tests** (already present in codebase):
+
 - `TestApplyConfig_MultiCredential_ExactMatch`: Zone-specific credential matching
 - `TestApplyConfig_MultiCredential_WildcardMatch`: Wildcard zone matching
 - `TestApplyConfig_MultiCredential_CatchAll`: Catch-all credential fallback
@@ -108,7 +119,9 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage**: Lines 140-230 of config.go (multi-credential logic) already had **100% coverage** via integration tests.
 
 ### WAF Ruleset Selection ✅
+
 **Existing Tests**:
+
 - `TestBuildWAFHandler_ParanoiaLevel`: Paranoia level 1-4 configuration
 - `TestBuildWAFHandler_Exclusions`: SecRuleRemoveById generation
 - `TestBuildWAFHandler_ExclusionsWithTarget`: SecRuleUpdateTargetById generation
@@ -120,7 +133,9 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage**: Lines 850-920 (WAF handler building) had **100% coverage**.
 
 ### Rate Limit Bypass List ✅
+
 **Existing Tests**:
+
 - `TestBuildRateLimitHandler_BypassList`: Subroute structure with bypass CIDRs
 - `TestBuildRateLimitHandler_BypassList_PlainIPs`: Plain IP to /32 CIDR conversion
 - `TestBuildRateLimitHandler_BypassList_InvalidEntries`: Invalid entry filtering
@@ -131,7 +146,9 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Coverage**: Lines 1020-1050 (rate limit handler) had **100% coverage**.
 
 ### ACL Geo-Blocking CEL Expressions ✅
+
 **Existing Tests**:
+
 - `TestBuildACLHandler_WhitelistAndBlacklistAdminMerge`: Admin whitelist merging
 - `TestBuildACLHandler_GeoAndLocalNetwork`: Geo whitelist/blacklist CEL, local network
 - `TestBuildACLHandler_AdminWhitelistParsing`: Admin whitelist parsing with empties
@@ -145,6 +162,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ### Remaining Uncovered Lines (6% total)
 
 #### 1. `getAccessLogPath` - 11.1% uncovered (2 lines)
+
 **Uncovered Line**: `if _, err := os.Stat("/.dockerenv"); err == nil`
 
 **Reason**: Requires actual Docker environment (/.dockerenv file existence check)
@@ -152,6 +170,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Testing Challenge**: Cannot reliably mock `os.Stat` in Go without dependency injection
 
 **Risk Assessment**: LOW
+
 - This is an environment detection helper
 - Fallback logic is tested (CHARON_ENV check + development path)
 - Production Docker builds always have /.dockerenv file
@@ -160,7 +179,9 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 **Mitigation**: Extensive manual testing in Docker containers confirms correct behavior
 
 #### 2. `GenerateConfig` - 6.8% uncovered (45 lines)
+
 **Uncovered Sections**:
+
 1. **DNS Provider Not Found Warning** (1 line): `logger.Log().WithField("provider_id", providerID).Warn("DNS provider not found in decrypted configs")`
    - **Reason**: Requires deliberately corrupted DNS provider state (provider in hosts but not in configs map)
    - **Risk**: LOW - Database integrity constraints prevent this in production
@@ -187,12 +208,14 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ## Test Quality Metrics
 
 ### Test Organization
+
 - ✅ All tests follow table-driven pattern where applicable
 - ✅ Clear test naming: `Test<Function>_<Scenario>`
 - ✅ Comprehensive fixtures for complex configurations
 - ✅ Parallel test execution safe (no shared state)
 
 ### Test Coverage Patterns
+
 - ✅ **Happy Path**: All primary workflows tested
 - ✅ **Error Handling**: Invalid JSON, missing data, nil checks
 - ✅ **Edge Cases**: Empty strings, zero values, boundary conditions
@@ -200,6 +223,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 - ✅ **Regression Prevention**: Duplicate domain handling (Ghost Host fix)
 
 ### Code Quality
+
 - ✅ No breaking changes to existing tests
 - ✅ All 311 existing tests still pass
 - ✅ New tests use existing test helpers and patterns
@@ -210,6 +234,7 @@ Successfully improved test coverage for `backend/internal/caddy/config.go` from 
 ## Performance Metrics
 
 ### Test Execution Speed
+
 ```bash
 $ go test -v ./backend/internal/caddy
 PASS
@@ -226,12 +251,14 @@ ok      github.com/Wikid82/charon/backend/internal/caddy        1.476s
 ## Files Modified
 
 ### Test Files
+
 1. `/projects/Charon/backend/internal/caddy/config_test.go` - Added 23 new tests
    - Added imports: `os`, `path/filepath`
    - Added comprehensive edge case tests
    - Total lines added: ~400
 
 ### Production Files
+
 - ✅ **Zero production code changes** (only tests added)
 
 ---
@@ -239,6 +266,7 @@ ok      github.com/Wikid82/charon/backend/internal/caddy        1.476s
 ## Validation
 
 ### All Tests Pass ✅
+
 ```bash
 $ cd /projects/Charon/backend/internal/caddy && go test -v
 === RUN   TestGenerateConfig_Empty
@@ -251,6 +279,7 @@ ok      github.com/Wikid82/charon/backend/internal/caddy        1.476s
 ```
 
 ### Coverage Reports
+
 - ✅ HTML report: `/tmp/config_final_coverage.html`
 - ✅ Text report: `config_final.out`
 - ✅ Verified with: `go tool cover -func=config_final.out | grep config.go`
@@ -260,9 +289,11 @@ ok      github.com/Wikid82/charon/backend/internal/caddy        1.476s
 ## Recommendations
 
 ### Immediate Actions
+
 - ✅ **None Required** - All objectives achieved
 
 ### Future Enhancements (Optional)
+
 1. **Docker Environment Testing**: Create integration test that runs in actual Docker container to test `/.dockerenv` detection
    - **Effort**: Low (add to CI pipeline)
    - **Value**: Marginal (behavior already verified manually)
@@ -289,6 +320,7 @@ ok      github.com/Wikid82/charon/backend/internal/caddy        1.476s
 - ✅ **Production Ready**: No code changes, only test improvements
 
 **Risk Assessment**: LOW - Remaining 5.5% uncovered code is:
+
 - Environment detection (Docker check) - tested manually
 - Defensive logging and impossible states (database constraints)
 - Minor edge cases that don't affect functionality

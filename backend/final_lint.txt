@@ -1,0 +1,112 @@
+internal/api/handlers/security_handler_audit_test.go:581:18: Error return value of `json.Unmarshal` is not checked (errcheck)
+			json.Unmarshal(w.Body.Bytes(), &resp)
+			              ^
+internal/api/handlers/security_handler_coverage_test.go:525:16: Error return value of `json.Unmarshal` is not checked (errcheck)
+	json.Unmarshal(w.Body.Bytes(), &tokenResp)
+	              ^
+internal/api/handlers/security_handler_coverage_test.go:589:16: Error return value of `json.Unmarshal` is not checked (errcheck)
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	              ^
+internal/caddy/config_test.go:1794:14: Error return value of `os.Unsetenv` is not checked (errcheck)
+		os.Unsetenv(v)
+		           ^
+internal/config/config_test.go:74:11: Error return value of `os.Setenv` is not checked (errcheck)
+	os.Setenv("CPM_DB_PATH", filepath.Join(tempDir, "db", "test.db"))
+	         ^
+internal/config/config_test.go:75:11: Error return value of `os.Setenv` is not checked (errcheck)
+	os.Setenv("CPM_IMPORT_DIR", filepath.Join(tempDir, "imports"))
+	         ^
+internal/config/config_test.go:82:11: Error return value of `os.Setenv` is not checked (errcheck)
+	os.Setenv("CPM_CADDY_CONFIG_DIR", filepath.Join(tempDir, "caddy"))
+	         ^
+internal/config/config_test.go:175:19: Error return value of `os.Unsetenv` is not checked (errcheck)
+	defer os.Unsetenv("CHARON_ACME_STAGING")
+	                 ^
+internal/config/config_test.go:196:19: Error return value of `os.Unsetenv` is not checked (errcheck)
+	defer os.Unsetenv("CHARON_DEBUG")
+	                 ^
+internal/services/dns_provider_service_test.go:1493:13: Error return value of `sqlDB.Close` is not checked (errcheck)
+	sqlDB.Close()
+	           ^
+internal/services/dns_provider_service_test.go:1531:13: Error return value of `sqlDB.Close` is not checked (errcheck)
+	sqlDB.Close()
+	           ^
+internal/services/dns_provider_service_test.go:1549:13: Error return value of `sqlDB.Close` is not checked (errcheck)
+	sqlDB.Close()
+	           ^
+cmd/seed/seed_smoke_test.go:21:12: G301: Expect directory permissions to be 0750 or less (gosec)
+	if err := os.MkdirAll("data", 0o755); err != nil {
+	          ^
+internal/api/handlers/manual_challenge_handler.go:649:15: G115: integer overflow conversion int -> uint (gosec)
+			return uint(v)
+			           ^
+internal/api/handlers/manual_challenge_handler.go:651:15: G115: integer overflow conversion int64 -> uint (gosec)
+			return uint(v)
+			           ^
+internal/api/handlers/security_handler_rules_decisions_test.go:162:92: G115: integer overflow conversion uint -> int (gosec)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/security/rulesets/"+strconv.Itoa(int(rs.ID)), http.NoBody)
+	                                                                                          ^
+internal/caddy/config.go:463:16: G602: slice index out of range (gosec)
+		host := hosts[i]
+		             ^
+internal/config/config.go:68:12: G301: Expect directory permissions to be 0750 or less (gosec)
+	if err := os.MkdirAll(filepath.Dir(cfg.DatabasePath), 0o755); err != nil {
+	          ^
+internal/config/config.go:72:12: G301: Expect directory permissions to be 0750 or less (gosec)
+	if err := os.MkdirAll(cfg.CaddyConfigDir, 0o755); err != nil {
+	          ^
+internal/config/config_test.go:67:12: G304: Potential file inclusion via variable (gosec)
+	f, err := os.Create(filePath)
+	          ^
+internal/config/config_test.go:148:12: G304: Potential file inclusion via variable (gosec)
+	f, err := os.Create(blockingFile)
+	          ^
+internal/crowdsec/hub_cache.go:82:12: G306: Expect WriteFile permissions to be 0600 or less (gosec)
+	if err := os.WriteFile(archivePath, archive, 0o640); err != nil {
+	          ^
+internal/crowdsec/hub_cache.go:86:12: G306: Expect WriteFile permissions to be 0600 or less (gosec)
+	if err := os.WriteFile(previewPath, []byte(preview), 0o640); err != nil {
+	          ^
+internal/crowdsec/hub_cache.go:105:12: G306: Expect WriteFile permissions to be 0600 or less (gosec)
+	if err := os.WriteFile(metaPath, raw, 0o640); err != nil {
+	          ^
+internal/crowdsec/hub_cache.go:127:15: G304: Potential file inclusion via variable (gosec)
+	data, err := os.ReadFile(metaPath)
+	             ^
+internal/crowdsec/hub_sync.go:1016:16: G110: Potential DoS vulnerability via decompression bomb (gosec)
+		if _, err := io.Copy(f, tr); err != nil {
+		             ^
+internal/database/database_test.go:181:12: G302: Expect file permissions to be 0600 or less (gosec)
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	          ^
+internal/database/errors_test.go:187:12: G302: Expect file permissions to be 0600 or less (gosec)
+	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
+	          ^
+internal/services/backup_service.go:316:12: G305: File traversal when extracting zip/tar archive (gosec)
+		fpath := filepath.Join(dest, f.Name)
+		         ^
+internal/services/backup_service.go:345:12: G110: Potential DoS vulnerability via decompression bomb (gosec)
+		_, err = io.Copy(outFile, rc)
+		         ^
+internal/services/backup_service_test.go:469:6: G302: Expect file permissions to be 0600 or less (gosec)
+	_ = os.Chmod(service.BackupDir, 0o444)
+	    ^
+internal/services/uptime_service_test.go:58:13: G112: Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server (gosec)
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+internal/services/uptime_service_test.go:831:14: G112: Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server (gosec)
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			}),
+		}
+internal/util/crypto_test.go:63:2: G101: Potential hardcoded credentials (gosec)
+	secret := "a]3kL9#mP2$vN7@qR5*wX1&yT4^uI8%oE0!"
+	^
+34 issues:
+* errcheck: 12
+* gosec: 22
+exit status 1

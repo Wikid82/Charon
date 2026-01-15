@@ -50,7 +50,7 @@ jobs:
           fetch-depth: 2
 
       - name: Set up Node.js
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -343,7 +343,9 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add docs/issues/
-          git diff --staged --quiet || git commit -m "chore: move processed issue files to created/ [skip ci]"
+          # Removed [skip ci] to allow CI checks to run on PRs
+          # Infinite loop protection: path filter excludes docs/issues/created/** AND github.actor guard prevents bot loops
+          git diff --staged --quiet || git commit -m "chore: move processed issue files to created/"
           git push
 
       - name: Summary

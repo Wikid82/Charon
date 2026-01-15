@@ -69,7 +69,7 @@ func setupBackupTest(t *testing.T) (*gin.Engine, *services.BackupService, string
 
 func TestBackupLifecycle(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. List backups (should be empty)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups", http.NoBody)
@@ -124,7 +124,7 @@ func TestBackupLifecycle(t *testing.T) {
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var list []any
-	json.Unmarshal(resp.Body.Bytes(), &list)
+	_ = json.Unmarshal(resp.Body.Bytes(), &list)
 	require.Empty(t, list)
 
 	// 8. Delete non-existent backup
@@ -148,18 +148,18 @@ func TestBackupLifecycle(t *testing.T) {
 
 func TestBackupHandler_Errors(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. List Error (remove backup dir to cause ReadDir error)
 	// Note: Service now handles missing dir gracefully by returning empty list
-	os.RemoveAll(svc.BackupDir)
+	_ = os.RemoveAll(svc.BackupDir)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var list []any
-	json.Unmarshal(resp.Body.Bytes(), &list)
+	_ = json.Unmarshal(resp.Body.Bytes(), &list)
 	require.Empty(t, list)
 
 	// 4. Delete Error (Not Found)
@@ -171,7 +171,7 @@ func TestBackupHandler_Errors(t *testing.T) {
 
 func TestBackupHandler_List_Success(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a backup first
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
@@ -194,7 +194,7 @@ func TestBackupHandler_List_Success(t *testing.T) {
 
 func TestBackupHandler_Create_Success(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
@@ -202,14 +202,14 @@ func TestBackupHandler_Create_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 
 	var result map[string]string
-	json.Unmarshal(resp.Body.Bytes(), &result)
+	_ = json.Unmarshal(resp.Body.Bytes(), &result)
 	require.NotEmpty(t, result["filename"])
 	require.Contains(t, result["filename"], "backup_")
 }
 
 func TestBackupHandler_Download_Success(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create backup
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
@@ -218,7 +218,7 @@ func TestBackupHandler_Download_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 
 	var result map[string]string
-	json.Unmarshal(resp.Body.Bytes(), &result)
+	_ = json.Unmarshal(resp.Body.Bytes(), &result)
 	filename := result["filename"]
 
 	// Download it
@@ -231,7 +231,7 @@ func TestBackupHandler_Download_Success(t *testing.T) {
 
 func TestBackupHandler_PathTraversal(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Try path traversal in Delete
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/backups/../../../etc/passwd", http.NoBody)
@@ -254,7 +254,7 @@ func TestBackupHandler_PathTraversal(t *testing.T) {
 
 func TestBackupHandler_Download_InvalidPath(t *testing.T) {
 	router, _, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Request with path traversal attempt
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/backups/../invalid/download", http.NoBody)
@@ -266,11 +266,11 @@ func TestBackupHandler_Download_InvalidPath(t *testing.T) {
 
 func TestBackupHandler_Create_ServiceError(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Remove write permissions on backup dir to force create error
-	os.Chmod(svc.BackupDir, 0o444)
-	defer os.Chmod(svc.BackupDir, 0o755)
+	_ = os.Chmod(svc.BackupDir, 0o444)
+	defer func() { _ = os.Chmod(svc.BackupDir, 0o755) }()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
 	resp := httptest.NewRecorder()
@@ -281,7 +281,7 @@ func TestBackupHandler_Create_ServiceError(t *testing.T) {
 
 func TestBackupHandler_Delete_InternalError(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a backup first
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
@@ -290,12 +290,12 @@ func TestBackupHandler_Delete_InternalError(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 
 	var result map[string]string
-	json.Unmarshal(resp.Body.Bytes(), &result)
+	_ = json.Unmarshal(resp.Body.Bytes(), &result)
 	filename := result["filename"]
 
 	// Make backup dir read-only to cause delete error (not NotExist)
-	os.Chmod(svc.BackupDir, 0o444)
-	defer os.Chmod(svc.BackupDir, 0o755)
+	_ = os.Chmod(svc.BackupDir, 0o444)
+	defer func() { _ = os.Chmod(svc.BackupDir, 0o755) }()
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/backups/"+filename, http.NoBody)
 	resp = httptest.NewRecorder()
@@ -306,7 +306,7 @@ func TestBackupHandler_Delete_InternalError(t *testing.T) {
 
 func TestBackupHandler_Restore_InternalError(t *testing.T) {
 	router, svc, tmpDir := setupBackupTest(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a backup first
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backups", http.NoBody)
@@ -315,12 +315,12 @@ func TestBackupHandler_Restore_InternalError(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 
 	var result map[string]string
-	json.Unmarshal(resp.Body.Bytes(), &result)
+	_ = json.Unmarshal(resp.Body.Bytes(), &result)
 	filename := result["filename"]
 
 	// Make data dir read-only to cause restore error
-	os.Chmod(svc.DataDir, 0o444)
-	defer os.Chmod(svc.DataDir, 0o755)
+	_ = os.Chmod(svc.DataDir, 0o444)
+	defer func() { _ = os.Chmod(svc.DataDir, 0o755) }()
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/backups/"+filename+"/restore", http.NoBody)
 	resp = httptest.NewRecorder()

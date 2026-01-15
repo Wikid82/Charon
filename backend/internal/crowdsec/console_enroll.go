@@ -406,35 +406,6 @@ func (s *ConsoleEnrollmentService) encrypt(value string) (string, error) {
 	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// decrypt is only used in tests to validate encryption roundtrips.
-func (s *ConsoleEnrollmentService) decrypt(value string) (string, error) {
-	if value == "" {
-		return "", nil
-	}
-	ciphertext, err := base64.StdEncoding.DecodeString(value)
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(s.key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plain, err := gcm.Open(nil, nonce, ct, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plain), nil
-}
-
 func deriveKey(secret string) []byte {
 	if secret == "" {
 		secret = "charon-console-enroll-default"

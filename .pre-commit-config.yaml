@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
         exclude: '^(frontend/(coverage|dist|node_modules|\.vite)/|.*\.tsbuildinfo$)'
@@ -31,6 +31,14 @@ repos:
         language: system
         files: '\.go$'
         pass_filenames: false
+      - id: golangci-lint-fast
+        name: golangci-lint (Fast Linters - BLOCKING)
+        entry: scripts/pre-commit-hooks/golangci-lint-fast.sh
+        language: script
+        files: '\.go$'
+        exclude: '_test\.go$'
+        pass_filenames: false
+        description: "Runs fast, essential linters (staticcheck, govet, errcheck, ineffassign, unused) - BLOCKS commits on failure"
       - id: check-version-match
         name: Check .version matches latest Git tag
         entry: bash -c 'scripts/check-version-match-tag.sh'
@@ -61,7 +69,7 @@ repos:
 
       # === MANUAL/CI-ONLY HOOKS ===
       # These are slow and should only run on-demand or in CI
-      # Run manually with: pre-commit run golangci-lint --all-files
+      # Run manually with: pre-commit run golangci-lint-full --all-files
       - id: go-test-race
         name: Go Test Race (Manual)
         entry: bash -c 'cd backend && go test -race ./...'
@@ -70,10 +78,10 @@ repos:
         pass_filenames: false
         stages: [manual]  # Only runs when explicitly called
 
-      - id: golangci-lint
-        name: GolangCI-Lint (Manual)
-        entry: bash -c 'cd backend && docker run --rm -v $(pwd):/app:ro -w /app golangci/golangci-lint:latest golangci-lint run -v'
-        language: system
+      - id: golangci-lint-full
+        name: golangci-lint (Full - Manual)
+        entry: scripts/pre-commit-hooks/golangci-lint-full.sh
+        language: script
         files: '\.go$'
         pass_filenames: false
         stages: [manual]  # Only runs when explicitly called
@@ -143,7 +151,7 @@ repos:
         stages: [manual]  # Only runs after CodeQL scans
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.43.0
+    rev: v0.47.0
     hooks:
       - id: markdownlint
         args: ["--fix"]

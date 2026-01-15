@@ -277,22 +277,22 @@ func TestGenerateConfig_SecurityPipeline_OmitWhenDisabled(t *testing.T) {
 func TestGetAccessLogPath(t *testing.T) {
 	// Save and restore env vars
 	origEnv := os.Getenv("CHARON_ENV")
-	defer os.Setenv("CHARON_ENV", origEnv)
+	defer func() { _ = os.Setenv("CHARON_ENV", origEnv) }()
 
 	t.Run("CrowdSecEnabled_UsesStandardPath", func(t *testing.T) {
-		os.Setenv("CHARON_ENV", "development")
+		_ = os.Setenv("CHARON_ENV", "development")
 		path := getAccessLogPath("/data/caddy/data", true)
 		require.Equal(t, "/var/log/caddy/access.log", path)
 	})
 
 	t.Run("Production_UsesStandardPath", func(t *testing.T) {
-		os.Setenv("CHARON_ENV", "production")
+		_ = os.Setenv("CHARON_ENV", "production")
 		path := getAccessLogPath("/data/caddy/data", false)
 		require.Equal(t, "/var/log/caddy/access.log", path)
 	})
 
 	t.Run("Development_UsesRelativePath", func(t *testing.T) {
-		os.Setenv("CHARON_ENV", "development")
+		_ = os.Setenv("CHARON_ENV", "development")
 		path := getAccessLogPath("/data/caddy/data", false)
 		// Only in development without CrowdSec should it use relative path
 		// Note: This test may fail if /.dockerenv exists (e.g., running in CI container)
@@ -307,7 +307,7 @@ func TestGetAccessLogPath(t *testing.T) {
 	})
 
 	t.Run("NoEnv_CrowdSecEnabled_UsesStandardPath", func(t *testing.T) {
-		os.Unsetenv("CHARON_ENV")
+		_ = os.Unsetenv("CHARON_ENV")
 		path := getAccessLogPath("/tmp/caddy-data", true)
 		require.Equal(t, "/var/log/caddy/access.log", path)
 	})

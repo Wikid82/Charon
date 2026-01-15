@@ -196,8 +196,8 @@ func TestGetLAPIKeyLookup(t *testing.T) {
 // TestGetLAPIKeyEmpty tests no env vars set
 func TestGetLAPIKeyEmpty(t *testing.T) {
 	// Ensure no env vars are set
-	os.Unsetenv("CROWDSEC_API_KEY")
-	os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_BOUNCER_API_KEY")
 
 	key := getLAPIKey()
 	require.Equal(t, "", key)

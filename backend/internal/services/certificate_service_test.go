@@ -86,7 +86,7 @@ func TestCertificateService_GetCertificateInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Setup in-memory DB
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
@@ -395,6 +395,7 @@ func TestCertificateService_ListCertificates_EdgeCases(t *testing.T) {
 		domain := "invalid.com"
 		certDir := filepath.Join(tmpDir, "certificates", "acme-v02.api.letsencrypt.org-directory", domain)
 		err = os.MkdirAll(certDir, 0o755)
+		require.NoError(t, err)
 
 		certPath := filepath.Join(certDir, domain+".crt")
 		err = os.WriteFile(certPath, []byte("invalid certificate content"), 0o644)
@@ -502,7 +503,7 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 
 		// Manually remove the file (custom certs stored by numeric ID)
 		certPath := filepath.Join(tmpDir, "certificates", "custom", "cert.crt")
-		os.Remove(certPath)
+		_ = os.Remove(certPath)
 
 		// Delete should still work (DB cleanup)
 		err = cs.DeleteCertificate(cert.ID)

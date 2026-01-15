@@ -5,6 +5,7 @@
 **Date Created:** 2025-12-24
 **Test Environment:** Local Docker / Staging
 **Prerequisites:**
+
 - Charon running with latest build
 - Access to test webhooks (Discord, Slack, Gotify)
 - At least 2 proxy hosts configured
@@ -121,9 +122,9 @@
 }
 ```
 
-4. Click "Validate Template"
-5. Click "Send Test Notification"
-6. Check Discord channel
+1. Click "Validate Template"
+2. Click "Send Test Notification"
+3. Check Discord channel
 
 **Expected Result:**
 
@@ -159,7 +160,7 @@
   ]
 ```
 
-3. Click "Validate Template"
+1. Click "Validate Template"
 
 **Expected Result:**
 
@@ -255,8 +256,8 @@
 }
 ```
 
-4. Click "Send Test Notification"
-5. Check Slack channel
+1. Click "Send Test Notification"
+2. Check Slack channel
 
 **Expected Result:**
 
@@ -334,8 +335,8 @@
 }
 ```
 
-4. Click "Send Test Notification"
-5. Check Gotify notification
+1. Click "Send Test Notification"
+2. Check Gotify notification
 
 **Expected Result:**
 
@@ -386,8 +387,8 @@
 }
 ```
 
-3. Click "Send Test Notification"
-4. Check webhook.site to see received payload
+1. Click "Send Test Notification"
+2. Check webhook.site to see received payload
 
 **Expected Result:**
 
@@ -475,10 +476,10 @@
 docker logs charon 2>&1 | grep "failure_count\|waiting for threshold" | tail -50
 ```
 
-2. Review log output
-3. Temporarily disconnect host (e.g., stop container)
-4. Wait for 2 check cycles (120 seconds)
-5. Check logs again
+1. Review log output
+2. Temporarily disconnect host (e.g., stop container)
+3. Wait for 2 check cycles (120 seconds)
+4. Check logs again
 
 **Expected Result:**
 
@@ -571,7 +572,7 @@ docker logs charon 2>&1 | grep "Host status changed" | tail -10
 docker logs -f charon 2>&1 | grep "Host TCP check"
 ```
 
-2. Briefly pause host container (5 seconds):
+1. Briefly pause host container (5 seconds):
 
 ```bash
 docker pause <container_name>
@@ -579,7 +580,7 @@ sleep 5
 docker unpause <container_name>
 ```
 
-3. Observe logs for next 2 check cycles
+1. Observe logs for next 2 check cycles
 
 **Expected Result:**
 
@@ -619,7 +620,7 @@ for (let i = 0; i < 20; i++) {
 }
 ```
 
-4. Observe console output and UI
+1. Observe console output and UI
 
 **Expected Result:**
 
@@ -649,8 +650,8 @@ for (let i = 0; i < 20; i++) {
 docker logs -f charon 2>&1 | grep "All host checks completed\|Check cycle started"
 ```
 
-2. Observe timing over 5 minutes
-3. Count check cycles
+1. Observe timing over 5 minutes
+2. Count check cycles
 
 **Expected Result:**
 
@@ -810,8 +811,8 @@ docker logs -f charon 2>&1 | grep "All host checks completed\|Check cycle starte
 }
 ```
 
-3. Send test notification to each
-4. Verify all variables are replaced
+1. Send test notification to each
+2. Verify all variables are replaced
 
 **Expected Result:**
 
@@ -842,13 +843,13 @@ docker logs -f charon 2>&1 | grep "All host checks completed\|Check cycle starte
 docker stats charon
 ```
 
-3. Check log timing:
+1. Check log timing:
 
 ```bash
 docker logs charon 2>&1 | grep "All host checks completed" | tail -10
 ```
 
-4. Observe check duration over 5 minutes
+1. Observe check duration over 5 minutes
 
 **Expected Result:**
 
@@ -883,8 +884,8 @@ docker logs charon 2>&1 | grep "All host checks completed" | tail -10
 }
 ```
 
-2. Click "Validate Template"
-3. Attempt to save
+1. Click "Validate Template"
+2. Attempt to save
 
 **Expected Result:**
 
@@ -916,7 +917,7 @@ docker logs charon 2>&1 | grep "All host checks completed" | tail -10
 docker logs charon 2>&1 | grep "Failed to send.*notification"
 ```
 
-4. Verify system continues operating
+1. Verify system continues operating
 
 **Expected Result:**
 
@@ -1047,24 +1048,28 @@ docker logs charon 2>&1 | grep "Failed to send.*notification"
 ### Test Data Setup
 
 **Discord Webhook:**
+
 ```
 URL: https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
 Channel: #charon-test
 ```
 
 **Slack Webhook:**
+
 ```
 URL: https://hooks.slack.com/services/YOUR/WEBHOOK/PATH
 Channel: #charon-test
 ```
 
 **Gotify Instance:**
+
 ```
 URL: https://gotify.example.com
 Token: YOUR_APP_TOKEN
 ```
 
 **Test Proxy Hosts:**
+
 ```
 Host 1: test-app-1.local (port 8081)
 Host 2: test-app-2.local (port 8082)

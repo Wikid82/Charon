@@ -9,6 +9,7 @@
 ## Executive Summary
 
 Successfully implemented conservative security remediation following the Supervisor's tiered approach:
+
 - **Fix first, suppress only when demonstrably safe**
 - **Zero functional code changes** (surgical annotations only)
 - **All existing tests passing**
@@ -21,12 +22,14 @@ Successfully implemented conservative security remediation following the Supervi
 ### Implementation Status: COMPLETE
 
 **Files Modified:**
+
 1. `internal/services/notification_service.go:305`
 2. `internal/utils/url_testing.go:168`
 
 **Action Taken:** Added comprehensive CodeQL suppression annotations
 
 **Annotation Format:**
+
 ```go
 // codeql[go/request-forgery] Safe: URL validated by security.ValidateExternalURL() which:
 // 1. Validates URL format and scheme (HTTPS required in production)
@@ -37,6 +40,7 @@ Successfully implemented conservative security remediation following the Supervi
 ```
 
 **Rationale:** Both findings occur after comprehensive SSRF protection via `security.ValidateExternalURL()`:
+
 - DNS resolution with IP validation
 - RFC 1918 private IP blocking
 - Connection-time revalidation (TOCTOU protection)
@@ -50,6 +54,7 @@ Successfully implemented conservative security remediation following the Supervi
 ### Implementation Status: COMPLETE
 
 **Files Audited:**
+
 1. `internal/api/handlers/backup_handler.go:75` - ✅ Already sanitized
 2. `internal/api/handlers/crowdsec_handler.go:711` - ✅ Already sanitized
 3. `internal/api/handlers/crowdsec_handler.go:717` (4 occurrences) - ✅ System-generated paths
@@ -58,11 +63,13 @@ Successfully implemented conservative security remediation following the Supervi
 6. `internal/api/handlers/crowdsec_handler.go:819` - ✅ Already sanitized
 
 **Findings:**
+
 - **ALL 10 log injection sites were already protected** via `util.SanitizeForLog()`
 - **No code changes required** - only added CodeQL annotations documenting existing protection
 - `util.SanitizeForLog()` removes control characters (0x00-0x1F, 0x7F) including CRLF
 
 **Annotation Format (User Input):**
+
 ```go
 // codeql[go/log-injection] Safe: User input sanitized via util.SanitizeForLog()
 // which removes control characters (0x00-0x1F, 0x7F) including CRLF
@@ -70,12 +77,14 @@ logger.WithField("slug", util.SanitizeForLog(slug)).Warn("message")
 ```
 
 **Annotation Format (System-Generated):**
+
 ```go
 // codeql[go/log-injection] Safe: archive_path is system-generated file path
 logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 ```
 
 **Security Analysis:**
+
 - `backup_handler.go:75` - User filename sanitized via `util.SanitizeForLog(filepath.Base(filename))`
 - `crowdsec_handler.go:711` - Slug sanitized via `util.SanitizeForLog(slug)`
 - `crowdsec_handler.go:717` (4x) - All values are system-generated (cache keys, file paths from Hub responses)
@@ -88,6 +97,7 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 ### Implementation Status: COMPLETE
 
 **Files Modified:**
+
 1. `internal/services/mail_service.go:222` (buildEmail function)
 2. `internal/services/mail_service.go:332` (sendSSL w.Write call)
 3. `internal/services/mail_service.go:383` (sendSTARTTLS w.Write call)
@@ -95,6 +105,7 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 **Action Taken:** Added comprehensive security documentation **WITHOUT CodeQL suppression**
 
 **Documentation Format:**
+
 ```go
 // Security Note: Email injection protection implemented via:
 // - Headers sanitized by sanitizeEmailHeader() removing control chars (0x00-0x1F, 0x7F)
@@ -104,6 +115,7 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 ```
 
 **Rationale:** Per Supervisor directive:
+
 - Email injection protection is complex and multi-layered
 - Keep CodeQL warnings as "architectural guardrails"
 - Multiple validation layers exist (`sanitizeEmailHeader`, `sanitizeEmailBody`, RFC validation)
@@ -114,21 +126,25 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 ## Changes Summary by File
 
 ### 1. internal/services/notification_service.go
+
 - **Line ~305:** Added SSRF suppression annotation (6 lines of documentation)
 - **Functional changes:** None
 - **Behavior changes:** None
 
 ### 2. internal/utils/url_testing.go
+
 - **Line ~168:** Added SSRF suppression annotation (6 lines of documentation)
 - **Functional changes:** None
 - **Behavior changes:** None
 
 ### 3. internal/api/handlers/backup_handler.go
+
 - **Line ~75:** Added log injection annotation (already sanitized)
 - **Functional changes:** None
 - **Behavior changes:** None
 
 ### 4. internal/api/handlers/crowdsec_handler.go
+
 - **Line ~711:** Added log injection annotation (already sanitized)
 - **Line ~717:** Added log injection annotation (system-generated paths)
 - **Line ~721:** Added log injection annotation (system-generated paths)
@@ -138,6 +154,7 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 - **Behavior changes:** None
 
 ### 5. internal/services/mail_service.go
+
 - **Line ~222:** Enhanced buildEmail documentation with security notes
 - **Line ~332:** Added security documentation for sendSSL w.Write
 - **Line ~383:** Added security documentation for sendSTARTTLS w.Write
@@ -149,11 +166,14 @@ logger.WithField("archive_path", res.Meta.ArchivePath).Error("message")
 ## CodeQL Behavior
 
 ### Local Scans (Current)
+
 CodeQL suppressions (`codeql[rule-id]` comments) **do NOT suppress findings** during local scans.
 Output shows all 15 findings still detected - **THIS IS EXPECTED AND CORRECT**.
 
 ### GitHub Code Scanning (After Upload)
+
 When SARIF files are uploaded to GitHub:
+
 - **SSRF (2 findings):** Will be suppressed ✅
 - **Log Injection (10 findings):** Will be suppressed ✅
 - **Email Injection (3 findings):** Will remain visible ⚠️ (intentional architectural guardrail)
@@ -163,6 +183,7 @@ When SARIF files are uploaded to GitHub:
 ## Validation Results
 
 ### ✅ Tests Passing
+
 ```
 Backend Tests: PASS
 Coverage: 85.35% (≥85% required)
@@ -170,12 +191,14 @@ All existing tests passing with zero failures
 ```
 
 ### ✅ Code Integrity
+
 - Zero functional changes
 - Zero behavior modifications
 - Only added documentation and annotations
 - Surgical edits to exact flagged lines
 
 ### ✅ Security Posture
+
 - All SSRF protections documented and validated
 - All log injection sanitization confirmed and annotated
 - Email injection protection documented (warnings intentionally kept)
@@ -199,6 +222,7 @@ All existing tests passing with zero failures
 ## Next Steps
 
 1. **Commit Changes:**
+
    ```bash
    git add -A
    git commit -m "security: Conservative remediation for CodeQL findings

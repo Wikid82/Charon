@@ -42,11 +42,13 @@
 ## What Changed
 
 ### New VS Code Tasks (3)
+
 - `Security: CodeQL Go Scan (CI-Aligned) [~60s]`
 - `Security: CodeQL JS Scan (CI-Aligned) [~90s]`
 - `Security: CodeQL All (CI-Aligned)` (runs both sequentially)
 
 ### New Pre-Commit Hooks (3)
+
 ```yaml
 # Fast automatic check on commit
 - id: security-scan
@@ -62,12 +64,14 @@
 ```
 
 ### Enhanced CI Workflow
+
 - Added step summaries with finding counts
 - HIGH/CRITICAL findings block workflow (exit 1)
 - Clear error messages for security issues
 - Links to SARIF files in workflow logs
 
 ### New Documentation
+
 - `docs/security/codeql-scanning.md` - Comprehensive user guide
 - `docs/plans/current_spec.md` - Implementation specification
 - `docs/reports/qa_codeql_ci_alignment.md` - QA validation report
@@ -75,6 +79,7 @@
 - Updated `.github/instructions/copilot-instructions.md` - Definition of Done
 
 ### Updated Configurations
+
 - `.vscode/tasks.json` - 3 new CI-aligned tasks
 - `.pre-commit-config.yaml` - Security scan hooks
 - `scripts/pre-commit-hooks/` - 3 new hook scripts
@@ -87,6 +92,7 @@
 ### CodeQL Scans ✅
 
 **Go Scan:**
+
 - Queries: 59 (from security-and-quality suite)
 - Findings: 79 total
   - HIGH severity: 15 (Email injection, SSRF, Log injection)
@@ -95,6 +101,7 @@
 - SARIF output: 1.5 MB
 
 **JavaScript Scan:**
+
 - Queries: 202 (from security-and-quality suite)
 - Findings: 105 total
   - HIGH severity: 5 (XSS, incomplete validation)
@@ -105,11 +112,13 @@
 ### Coverage Verification ✅
 
 **Backend:**
+
 - Coverage: **85.35%**
 - Threshold: 85%
 - Status: ✅ **PASS** (+0.35%)
 
 **Frontend:**
+
 - Coverage: **87.74%**
 - Threshold: 85%
 - Status: ✅ **PASS** (+2.74%)
@@ -117,16 +126,19 @@
 ### Code Quality ✅
 
 **TypeScript Check:**
+
 - Errors: 0
 - Status: ✅ **PASS**
 
 **Pre-Commit Hooks:**
+
 - Fast hooks: 12/12 passing
 - Status: ✅ **PASS**
 
 ### CI Alignment ✅
 
 **Local vs CI Comparison:**
+
 - Query suite: ✅ Matches (security-and-quality)
 - Query count: ✅ Matches (Go: 61, JS: 204)
 - SARIF format: ✅ GitHub-compatible
@@ -138,13 +150,16 @@
 ## How to Use
 
 ### Quick Security Check (5 seconds)
+
 ```bash
 # Runs automatically on commit, or manually:
 pre-commit run security-scan --all-files
 ```
+
 Uses `govulncheck` to scan for known vulnerabilities in Go dependencies.
 
 ### Full CodeQL Scan (2-3 minutes)
+
 ```bash
 # Via pre-commit (manual stage):
 pre-commit run --hook-stage manual codeql-go-scan --all-files
@@ -156,6 +171,7 @@ pre-commit run --hook-stage manual codeql-check-findings --all-files
 ```
 
 ### View Results
+
 ```bash
 # Check for HIGH/CRITICAL findings:
 pre-commit run codeql-check-findings --all-files
@@ -169,6 +185,7 @@ jq '.runs[].results[] | select(.level=="error")' codeql-results-go.sarif
 ```
 
 ### Documentation
+
 - **User Guide:** [docs/security/codeql-scanning.md](../security/codeql-scanning.md)
 - **Implementation Plan:** [docs/plans/current_spec.md](../plans/current_spec.md)
 - **QA Report:** [docs/reports/qa_codeql_ci_alignment.md](../reports/qa_codeql_ci_alignment.md)
@@ -179,6 +196,7 @@ jq '.runs[].results[] | select(.level=="error")' codeql-results-go.sarif
 ## Files Changed
 
 ### Configuration Files
+
 ```
 .vscode/tasks.json                           # 3 new CI-aligned CodeQL tasks
 .pre-commit-config.yaml                      # Security scan hooks
@@ -187,6 +205,7 @@ jq '.runs[].results[] | select(.level=="error")' codeql-results-go.sarif
 ```
 
 ### Scripts (New)
+
 ```
 scripts/pre-commit-hooks/security-scan.sh        # Fast govulncheck
 scripts/pre-commit-hooks/codeql-go-scan.sh       # Go CodeQL scan
@@ -195,6 +214,7 @@ scripts/pre-commit-hooks/codeql-check-findings.sh # Severity check
 ```
 
 ### Documentation (New)
+
 ```
 docs/security/codeql-scanning.md                    # User guide
 docs/plans/current_spec.md                          # Implementation plan
@@ -210,12 +230,14 @@ docs/implementation/CODEQL_CI_ALIGNMENT_SUMMARY.md  # This file
 ### CodeQL Query Suites
 
 **security-and-quality Suite:**
+
 - **Go:** 61 queries (security + code quality)
 - **JavaScript:** 204 queries (security + code quality)
 - **Coverage:** CWE Top 25, OWASP Top 10, and additional quality checks
 - **Used by:** GitHub Advanced Security default scans
 
 **Why not security-extended?**
+
 - `security-extended` is deprecated and has fewer queries
 - `security-and-quality` is GitHub's recommended default
 - Includes both security vulnerabilities AND code quality issues
@@ -223,10 +245,12 @@ docs/implementation/CODEQL_CI_ALIGNMENT_SUMMARY.md  # This file
 ### CodeQL Version Resolution
 
 **Issue Encountered:**
+
 - Initial version: v2.16.0
 - Problem: Predicate incompatibility with query packs
 
 **Resolution:**
+
 ```bash
 gh codeql set-version latest
 # Upgraded to: v2.23.8
@@ -237,12 +261,14 @@ gh codeql set-version latest
 ### CI Workflow Enhancements
 
 **Before:**
+
 ```yaml
 - name: Perform CodeQL Analysis
   uses: github/codeql-action/analyze@v4
 ```
 
 **After:**
+
 ```yaml
 - name: Perform CodeQL Analysis
   uses: github/codeql-action/analyze@v4
@@ -264,18 +290,21 @@ gh codeql set-version latest
 ### Performance Characteristics
 
 **Go Scan:**
+
 - Database creation: ~20s
 - Query execution: ~40s
 - Total: ~60s
 - Memory: ~2GB peak
 
 **JavaScript Scan:**
+
 - Database creation: ~30s
 - Query execution: ~60s
 - Total: ~90s
 - Memory: ~2.5GB peak
 
 **Combined:**
+
 - Sequential execution: ~2.5-3 minutes
 - SARIF output: ~2.3 MB total
 
@@ -305,6 +334,7 @@ The scans detected **184 total findings**. These are real issues in the codebase
 | Code Quality | 100 | Various | LOW |
 
 **Triage Status:**
+
 - HIGH severity issues: Documented, to be addressed in security backlog
 - MEDIUM severity: Documented, to be reviewed in next sprint
 - LOW severity: Quality improvements, address as needed
@@ -316,6 +346,7 @@ The scans detected **184 total findings**. These are real issues in the codebase
 ## Next Steps
 
 ### Immediate (This Commit)
+
 - [x] All implementation complete
 - [x] All tests passing
 - [x] Documentation complete
@@ -325,6 +356,7 @@ The scans detected **184 total findings**. These are real issues in the codebase
 - [ ] **Verify CI behavior matches local**
 
 ### Post-Merge
+
 - [ ] Monitor CI workflows on next PRs
 - [ ] Validate manual test plan with team
 - [ ] Triage security findings
@@ -332,6 +364,7 @@ The scans detected **184 total findings**. These are real issues in the codebase
 - [ ] Consider adding CodeQL version check to pre-commit
 
 ### Future Improvements
+
 - [ ] Add GitHub Code Scanning integration for PR comments
 - [ ] Create false positive suppression workflow
 - [ ] Add custom CodeQL queries for Charon-specific patterns
@@ -381,6 +414,7 @@ See: docs/plans/current_spec.md, docs/reports/qa_codeql_ci_alignment.md
 ## Success Metrics
 
 ### Quantitative ✅
+
 - [x] Local scans use security-and-quality suite (100% alignment)
 - [x] Pre-commit security checks < 10s (achieved: ~5s)
 - [x] Full CodeQL scans < 4min (achieved: ~2.5-3min)
@@ -390,6 +424,7 @@ See: docs/plans/current_spec.md, docs/reports/qa_codeql_ci_alignment.md
 - [x] CI alignment verified (100%)
 
 ### Qualitative ✅
+
 - [x] Documentation comprehensive and accurate
 - [x] Developer experience smooth (VS Code + pre-commit)
 - [x] QA approval obtained

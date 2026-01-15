@@ -143,6 +143,7 @@ Webhook URLs configured in security settings are validated to prevent Server-Sid
 - Link-local addresses
 
 **Error Response**:
+
 ```json
 {
   "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"
@@ -150,6 +151,7 @@ Webhook URLs configured in security settings are validated to prevent Server-Sid
 ```
 
 **Example Valid URL**:
+
 ```json
 {
   "webhook_url": "https://webhook.example.com/receive"
@@ -1312,6 +1314,7 @@ Webhook URLs are validated to prevent SSRF attacks. Blocked destinations:
 - Link-local addresses
 
 **Error Response**:
+
 ```json
 {
   "error": "Invalid webhook URL: URL resolves to a private IP address (blocked for security)"

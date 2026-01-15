@@ -1084,7 +1084,68 @@
       "azure": "Azure DNS",
       "hetzner": "Hetzner",
       "vultr": "Vultr",
-      "dnsimple": "DNSimple"
+      "dnsimple": "DNSimple",
+      "manual": "Manual (No Automation)",
+      "webhook": "Webhook (HTTP)",
+      "rfc2136": "RFC 2136 (Dynamic DNS)",
+      "script": "Script (Shell)"
+    },
+    "categories": {
+      "builtIn": "Built-in Providers",
+      "custom": "Custom Integrations"
+    }
+  },
+  "dnsProvider": {
+    "manual": {
+      "title": "Manual DNS Challenge",
+      "instructions": "To obtain a certificate for {{domain}}, create the following TXT record at your DNS provider:",
+      "createRecord": "Create this TXT record at your DNS provider",
+      "recordName": "Record Name",
+      "recordValue": "Record Value",
+      "recordType": "Record Type",
+      "ttl": "TTL",
+      "seconds": "seconds",
+      "minutes": "minutes",
+      "timeRemaining": "Time remaining",
+      "progressPercent": "{{percent}}% time remaining",
+      "challengeProgress": "Challenge timeout progress",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "copyFailed": "Failed to copy to clipboard",
+      "copyRecordName": "Copy record name to clipboard",
+      "copyRecordValue": "Copy record value to clipboard",
+      "checkDnsNow": "Check DNS Now",
+      "checkDnsDescription": "Immediately check if the DNS record has propagated",
+      "verifyButton": "I've Created the Record - Verify",
+      "verifyDescription": "Verify that the DNS record exists and complete the challenge",
+      "cancelChallenge": "Cancel Challenge",
+      "lastCheck": "Last checked",
+      "lastCheckSecondsAgo": "{{seconds}} seconds ago",
+      "lastCheckMinutesAgo": "{{minutes}} minutes ago",
+      "notPropagated": "DNS record not yet propagated",
+      "dnsNotFound": "DNS record not found. Please ensure the TXT record is created correctly.",
+      "verifySuccess": "DNS challenge verified successfully!",
+      "verifyFailed": "DNS verification failed",
+      "challengeExpired": "Challenge expired. Please try again.",
+      "challengeCancelled": "Challenge cancelled",
+      "cancelFailed": "Failed to cancel challenge",
+      "statusChanged": "Challenge status changed to {{status}}",
+      "status": {
+        "created": "Created",
+        "pending": "Pending",
+        "verifying": "Verifying...",
+        "verified": "Verified",
+        "expired": "Expired",
+        "failed": "Failed"
+      },
+      "statusMessage": {
+        "created": "Challenge created. Create the DNS record to continue.",
+        "pending": "Waiting for DNS propagation...",
+        "verifying": "Verifying DNS record...",
+        "verified": "DNS challenge verified successfully!",
+        "expired": "Challenge has expired. Please start a new challenge.",
+        "failed": "DNS verification failed. Please check the record and try again."
+      }
     }
   },
   "dns_detection": {

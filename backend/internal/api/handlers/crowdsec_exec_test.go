@@ -52,10 +52,10 @@ while true; do sleep 1; done
 
 	// Create mock /proc/{pid}/cmdline with "crowdsec" for the started process
 	procPidDir := filepath.Join(mockProc, strconv.Itoa(pid))
-	os.MkdirAll(procPidDir, 0o755)
+	_ = os.MkdirAll(procPidDir, 0o755)
 	// Use a cmdline that contains "crowdsec" to simulate a real CrowdSec process
 	mockCmdline := "/usr/bin/crowdsec\x00-c\x00/etc/crowdsec/config.yaml"
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(mockCmdline), 0o644)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(mockCmdline), 0o644)
 
 	// ensure pid file exists and content matches
 	pidB, err := os.ReadFile(e.pidFile(tmp))
@@ -108,7 +108,7 @@ func TestDefaultCrowdsecExecutor_Status_InvalidPid(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write invalid pid
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
 
 	running, pid, err := exec.Status(context.Background(), tmpDir)
 
@@ -123,7 +123,7 @@ func TestDefaultCrowdsecExecutor_Status_NonExistentProcess(t *testing.T) {
 
 	// Write a pid that doesn't exist
 	// Use a very high PID that's unlikely to exist
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
 
 	running, pid, err := exec.Status(context.Background(), tmpDir)
 
@@ -147,7 +147,7 @@ func TestDefaultCrowdsecExecutor_Stop_InvalidPid(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write invalid pid
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("invalid"), 0o644)
 
 	err := exec.Stop(context.Background(), tmpDir)
 
@@ -164,7 +164,7 @@ func TestDefaultCrowdsecExecutor_Stop_NonExistentProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write a pid that doesn't exist
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("999999999"), 0o644)
 
 	err := exec.Stop(context.Background(), tmpDir)
 
@@ -212,11 +212,11 @@ func TestDefaultCrowdsecExecutor_isCrowdSecProcess_ValidProcess(t *testing.T) {
 	// Create a fake PID directory with crowdsec in cmdline
 	pid := 12345
 	procPidDir := filepath.Join(tmpDir, strconv.Itoa(pid))
-	os.MkdirAll(procPidDir, 0o755)
+	_ = os.MkdirAll(procPidDir, 0o755)
 
 	// Write cmdline with crowdsec (null-separated like real /proc)
 	cmdline := "/usr/bin/crowdsec\x00-c\x00/etc/crowdsec/config.yaml"
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(cmdline), 0o644)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(cmdline), 0o644)
 
 	assert.True(t, exec.isCrowdSecProcess(pid), "Should detect CrowdSec process")
 }
@@ -231,11 +231,11 @@ func TestDefaultCrowdsecExecutor_isCrowdSecProcess_DifferentProcess(t *testing.T
 	// Create a fake PID directory with a different process (like dlv debugger)
 	pid := 12345
 	procPidDir := filepath.Join(tmpDir, strconv.Itoa(pid))
-	os.MkdirAll(procPidDir, 0o755)
+	_ = os.MkdirAll(procPidDir, 0o755)
 
 	// Write cmdline with dlv (the original bug case)
 	cmdline := "/usr/local/bin/dlv\x00--telemetry\x00--headless"
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(cmdline), 0o644)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(cmdline), 0o644)
 
 	assert.False(t, exec.isCrowdSecProcess(pid), "Should NOT detect dlv as CrowdSec")
 }
@@ -261,10 +261,10 @@ func TestDefaultCrowdsecExecutor_isCrowdSecProcess_EmptyCmdline(t *testing.T) {
 	// Create a fake PID directory with empty cmdline
 	pid := 12345
 	procPidDir := filepath.Join(tmpDir, strconv.Itoa(pid))
-	os.MkdirAll(procPidDir, 0o755)
+	_ = os.MkdirAll(procPidDir, 0o755)
 
 	// Write empty cmdline
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(""), 0o644)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte(""), 0o644)
 
 	assert.False(t, exec.isCrowdSecProcess(pid), "Should return false for empty cmdline")
 }
@@ -281,12 +281,12 @@ func TestDefaultCrowdsecExecutor_Status_PIDReuse_DifferentProcess(t *testing.T) 
 	currentPID := os.Getpid()
 
 	// Write current PID to the crowdsec.pid file (simulating stale PID file)
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte(strconv.Itoa(currentPID)), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte(strconv.Itoa(currentPID)), 0o644)
 
 	// Create mock /proc entry for current PID but with a non-crowdsec cmdline
 	procPidDir := filepath.Join(mockProc, strconv.Itoa(currentPID))
-	os.MkdirAll(procPidDir, 0o755)
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte("/usr/local/bin/dlv\x00debug"), 0o644)
+	_ = os.MkdirAll(procPidDir, 0o755)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte("/usr/local/bin/dlv\x00debug"), 0o644)
 
 	// Status should return NOT running because the PID is not CrowdSec
 	running, pid, err := exec.Status(context.Background(), tmpDir)
@@ -308,12 +308,12 @@ func TestDefaultCrowdsecExecutor_Status_PIDReuse_IsCrowdSec(t *testing.T) {
 	currentPID := os.Getpid()
 
 	// Write current PID to the crowdsec.pid file
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte(strconv.Itoa(currentPID)), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte(strconv.Itoa(currentPID)), 0o644)
 
 	// Create mock /proc entry for current PID with crowdsec cmdline
 	procPidDir := filepath.Join(mockProc, strconv.Itoa(currentPID))
-	os.MkdirAll(procPidDir, 0o755)
-	os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte("/usr/bin/crowdsec\x00-c\x00config.yaml"), 0o644)
+	_ = os.MkdirAll(procPidDir, 0o755)
+	_ = os.WriteFile(filepath.Join(procPidDir, "cmdline"), []byte("/usr/bin/crowdsec\x00-c\x00config.yaml"), 0o644)
 
 	// Status should return running because it IS CrowdSec
 	running, pid, err := exec.Status(context.Background(), tmpDir)
@@ -329,7 +329,7 @@ func TestDefaultCrowdsecExecutor_Stop_SignalError(t *testing.T) {
 
 	// Write a pid for a process that exists but we can't signal (e.g., init process or other user's process)
 	// Use PID 1 which exists but typically can't be signaled by non-root
-	os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("1"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "crowdsec.pid"), []byte("1"), 0o644)
 
 	err := exec.Stop(context.Background(), tmpDir)
 

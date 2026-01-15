@@ -67,8 +67,8 @@ func TestCerberusLogsHandler_SuccessfulConnection(t *testing.T) {
 	// Connect WebSocket
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	defer conn.Close()
+	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = conn.Close() }()
 
 	assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 }
@@ -83,7 +83,7 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	// Create the log file
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	watcher := services.NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -102,7 +102,7 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Give the subscription time to register and watcher to seek to end
 	time.Sleep(300 * time.Millisecond)
@@ -124,10 +124,10 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	require.NoError(t, err)
 	_, err = file.WriteString(string(logJSON) + "\n")
 	require.NoError(t, err)
-	file.Sync()
+	_ = file.Sync()
 
 	// Read the entry from WebSocket
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 
@@ -152,7 +152,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	watcher := services.NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -170,7 +170,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=waf"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -188,7 +188,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	normalLog.Request.Host = "example.com"
 
 	normalJSON, _ := json.Marshal(normalLog)
-	file.WriteString(string(normalJSON) + "\n")
+	_, _ = file.WriteString(string(normalJSON) + "\n")
 
 	// Write a WAF blocked request (should pass filter)
 	wafLog := models.CaddyAccessLog{
@@ -205,11 +205,11 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	wafLog.Request.Host = "example.com"
 
 	wafJSON, _ := json.Marshal(wafLog)
-	file.WriteString(string(wafJSON) + "\n")
-	file.Sync()
+	_, _ = file.WriteString(string(wafJSON) + "\n")
+	_ = file.Sync()
 
 	// Read from WebSocket - should only get WAF entry
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	watcher := services.NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -249,7 +249,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?blocked_only=true"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -267,7 +267,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	normalLog.Request.Host = "example.com"
 
 	normalJSON, _ := json.Marshal(normalLog)
-	file.WriteString(string(normalJSON) + "\n")
+	_, _ = file.WriteString(string(normalJSON) + "\n")
 
 	// Write a rate limited request (should pass filter)
 	blockedLog := models.CaddyAccessLog{
@@ -283,11 +283,11 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	blockedLog.Request.Host = "example.com"
 
 	blockedJSON, _ := json.Marshal(blockedLog)
-	file.WriteString(string(blockedJSON) + "\n")
-	file.Sync()
+	_, _ = file.WriteString(string(blockedJSON) + "\n")
+	_ = file.Sync()
 
 	// Read from WebSocket - should only get blocked entry
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 
@@ -308,7 +308,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	watcher := services.NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -326,7 +326,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?ip=192.168"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -344,7 +344,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 	log1.Request.Host = "example.com"
 
 	json1, _ := json.Marshal(log1)
-	file.WriteString(string(json1) + "\n")
+	_, _ = file.WriteString(string(json1) + "\n")
 
 	// Write request from matching IP
 	log2 := models.CaddyAccessLog{
@@ -360,11 +360,11 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 	log2.Request.Host = "example.com"
 
 	json2, _ := json.Marshal(log2)
-	file.WriteString(string(json2) + "\n")
-	file.Sync()
+	_, _ = file.WriteString(string(json2) + "\n")
+	_ = file.Sync()
 
 	// Read from WebSocket - should only get matching IP entry
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, msg, err := conn.ReadMessage()
 	require.NoError(t, err)
 
@@ -402,7 +402,7 @@ func TestCerberusLogsHandler_ClientDisconnect(t *testing.T) {
 	require.NoError(t, err)
 
 	// Close the connection
-	conn.Close()
+	_ = conn.Close()
 
 	// Give time for cleanup
 	time.Sleep(100 * time.Millisecond)
@@ -419,7 +419,7 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 
 	file, err := os.Create(logPath)
 	require.NoError(t, err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	watcher := services.NewLogWatcher(logPath)
 	err = watcher.Start(context.Background())
@@ -441,7 +441,7 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 		// Close all connections after test
 		for _, conn := range conns {
 			if conn != nil {
-				conn.Close()
+				_ = conn.Close()
 			}
 		}
 	}()
@@ -467,12 +467,12 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 	logEntry.Request.Host = "example.com"
 
 	logJSON, _ := json.Marshal(logEntry)
-	file.WriteString(string(logJSON) + "\n")
-	file.Sync()
+	_, _ = file.WriteString(string(logJSON) + "\n")
+	_ = file.Sync()
 
 	// All clients should receive the entry
 	for i, conn := range conns {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err, "Client %d should receive message", i)
 

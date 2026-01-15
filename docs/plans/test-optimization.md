@@ -23,6 +23,7 @@ This plan outlines a four-phase approach to optimize the Charon backend test sui
 **Completed:** January 3, 2026
 
 **Results:**
+
 - ✅ 21 tests now skip in short mode (7 integration + 14 heavy network)
 - ✅ ~12% reduction in test execution time
 - ✅ New VS Code task: "Test: Backend Unit (Quick)"
@@ -31,6 +32,7 @@ This plan outlines a four-phase approach to optimize the Charon backend test sui
 - ✅ Heavy HTTP/network tests identified and skipped
 
 **Files Modified:** 10 files
+
 - 6 integration test files
 - 2 heavy unit test files
 - 1 tasks.json update
@@ -57,7 +59,9 @@ This plan outlines a four-phase approach to optimize the Charon backend test sui
 ## Phase 1: Infrastructure (gotestsum)
 
 ### Objective
+
 Replace raw `go test` output with `gotestsum` for:
+
 - Real-time test progress with pass/fail indicators
 - Better failure summaries
 - JUnit XML output for CI integration
@@ -73,11 +77,12 @@ go install gotest.tools/gotestsum@latest
 ```
 
 **File:** `Makefile`
+
 ```makefile
 # Add to tools target
 .PHONY: install-tools
 install-tools:
-	go install gotest.tools/gotestsum@latest
+ go install gotest.tools/gotestsum@latest
 ```
 
 #### 1.2 Update Backend Test Skill Scripts
@@ -85,11 +90,13 @@ install-tools:
 **File:** `.github/skills/test-backend-unit-scripts/run.sh`
 
 Replace:
+
 ```bash
 if go test "$@" ./...; then
 ```
 
 With:
+
 ```bash
 # Check if gotestsum is available, fallback to go test
 if command -v gotestsum &> /dev/null; then
@@ -115,6 +122,7 @@ Update the legacy script call to use gotestsum when available.
 **File:** `.vscode/tasks.json`
 
 Add new task for verbose test output:
+
 ```jsonc
 {
     "label": "Test: Backend Unit (Verbose)",
@@ -130,11 +138,13 @@ Add new task for verbose test output:
 **File:** `scripts/go-test-coverage.sh` (Line 42)
 
 Replace:
+
 ```bash
 if ! go test -race -v -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
 ```
 
 With:
+
 ```bash
 if command -v gotestsum &> /dev/null; then
     if ! gotestsum --format pkgname -- -race -mod=readonly -coverprofile="$COVERAGE_FILE" ./...; then
@@ -152,6 +162,7 @@ fi
 ## Phase 2: Parallelism (t.Parallel)
 
 ### Objective
+
 Add `t.Parallel()` to test functions that can safely run concurrently.
 
 ### 2.1 Files Already Using t.Parallel() ✅
@@ -215,13 +226,16 @@ These files are already well-parallelized:
 ### 2.3 Tests That CANNOT Be Parallelized
 
 **Environment Variable Tests:**
+
 - `internal/config/config_test.go` - Uses `os.Setenv()` which affects global state
 
 **Singleton/Global State Tests:**
+
 - `internal/api/handlers/testdb_test.go::TestGetTemplateDB` - Tests singleton pattern
 - Any test using global metrics registration
 
 **Sequential Dependency Tests:**
+
 - Integration tests in `backend/integration/` - Require Docker container state
 
 ### 2.4 Table-Driven Test Pattern Fix
@@ -248,6 +262,7 @@ for _, tc := range testCases {
 ```
 
 **Files needing this pattern (search for `for.*range.*testCases`):**
+
 - `internal/security/url_validator_test.go`
 - `internal/network/safeclient_test.go`
 - `internal/crowdsec/hub_sync_test.go`
@@ -257,6 +272,7 @@ for _, tc := range testCases {
 ## Phase 3: Database Optimization
 
 ### Objective
+
 Replace full database setup/teardown with transaction rollbacks for faster test isolation.
 
 ### 3.1 Current Database Test Pattern
@@ -264,6 +280,7 @@ Replace full database setup/teardown with transaction rollbacks for faster test 
 **File:** `internal/api/handlers/testdb_test.go`
 
 Current helper functions:
+
 - `GetTemplateDB()` - Singleton template database
 - `OpenTestDB(t)` - Creates new in-memory SQLite per test
 - `OpenTestDBWithMigrations(t)` - Creates DB with full schema
@@ -321,6 +338,7 @@ func GetTestTx(t *testing.T, db *gorm.DB) *gorm.DB {
 ### 3.4 Migration Pattern
 
 **Before:**
+
 ```go
 func TestSomething(t *testing.T) {
     db := setupTestDB(t) // Creates new in-memory DB
@@ -330,6 +348,7 @@ func TestSomething(t *testing.T) {
 ```
 
 **After:**
+
 ```go
 var sharedTestDB *gorm.DB
 var once sync.Once
@@ -354,6 +373,7 @@ func TestSomething(t *testing.T) {
 ## Phase 4: Short Mode
 
 ### Objective
+
 Enable fast feedback with `-short` flag by skipping heavy integration tests.
 
 ### 4.1 Current Short Mode Usage
@@ -379,6 +399,7 @@ func TestCrowdsecStartup(t *testing.T) {
 ```
 
 Apply to:
+
 - `crowdsec_decisions_integration_test.go` - Both tests
 - `crowdsec_integration_test.go`
 - `coraza_integration_test.go`
@@ -400,6 +421,7 @@ Apply to:
 **File:** `.vscode/tasks.json`
 
 Add quick test task:
+
 ```jsonc
 {
     "label": "Test: Backend Unit (Quick)",
@@ -415,6 +437,7 @@ Add quick test task:
 **File:** `.github/skills/test-backend-unit-scripts/run.sh`
 
 Add `-short` support via environment variable:
+
 ```bash
 SHORT_FLAG=""
 if [[ "${CHARON_TEST_SHORT:-false}" == "true" ]]; then
@@ -430,24 +453,28 @@ if gotestsum --format pkgname -- $SHORT_FLAG "$@" ./...; then
 ## Implementation Order
 
 ### Week 1: Phase 1 (gotestsum)
+
 1. Install gotestsum in development environment
 2. Update skill scripts with gotestsum support
 3. Update legacy scripts
 4. Verify CI compatibility
 
 ### Week 2: Phase 2 (t.Parallel)
+
 1. Add `t.Parallel()` to Priority 1 files (network, security, metrics)
 2. Add `t.Parallel()` to Priority 2 files (cerberus, database)
 3. Fix table-driven test patterns
 4. Run race detector to verify no issues
 
 ### Week 3: Phase 3 (Database)
+
 1. Create `internal/testutil/db.go` helper
 2. Migrate cerberus tests to transaction pattern
 3. Migrate crowdsec tests to transaction pattern
 4. Benchmark before/after
 
 ### Week 4: Phase 4 (Short Mode)
+
 1. Add `-short` skips to integration tests
 2. Add `-short` skips to heavy unit tests
 3. Update VS Code tasks
@@ -491,6 +518,7 @@ if gotestsum --format pkgname -- $SHORT_FLAG "$@" ./...; then
 ## Rollback Plan
 
 If any phase causes issues:
+
 1. Phase 1: Remove gotestsum wrapper, revert to `go test`
 2. Phase 2: Remove `t.Parallel()` calls (can be done file-by-file)
 3. Phase 3: Revert to per-test database creation

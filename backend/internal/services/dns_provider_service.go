@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/google/uuid"
@@ -201,7 +202,7 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		"type":       req.ProviderType,
 		"is_default": req.IsDefault,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "dns_provider_create",
 		EventCategory: "dns_provider",
@@ -210,7 +211,9 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return provider, nil
 }
@@ -319,7 +322,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			"old_values":     oldValues,
 			"new_values":     newValues,
 		})
-		s.securityService.LogAudit(&models.SecurityAudit{
+		if err := s.securityService.LogAudit(&models.SecurityAudit{
 			Actor:         getActorFromContext(ctx),
 			Action:        "dns_provider_update",
 			EventCategory: "dns_provider",
@@ -328,7 +331,9 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 			Details:       string(detailsJSON),
 			IPAddress:     getIPFromContext(ctx),
 			UserAgent:     getUserAgentFromContext(ctx),
-		})
+		}); err != nil {
+			logger.Log().WithError(err).Warn("Failed to log audit event")
+		}
 	}
 
 	return provider, nil
@@ -358,7 +363,7 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 		"type":            provider.ProviderType,
 		"had_credentials": hadCredentials,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "dns_provider_delete",
 		EventCategory: "dns_provider",
@@ -367,7 +372,9 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return nil
 }
@@ -413,7 +420,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		"test_result":   result.Success,
 		"error":         result.Error,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_test",
 		EventCategory: "dns_provider",
@@ -422,7 +429,9 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return result, nil
 }
@@ -490,7 +499,7 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		"success":     true,
 		"key_version": provider.KeyVersion,
 	})
-	s.securityService.LogAudit(&models.SecurityAudit{
+	if err := s.securityService.LogAudit(&models.SecurityAudit{
 		Actor:         getActorFromContext(ctx),
 		Action:        "credential_decrypt",
 		EventCategory: "dns_provider",
@@ -499,7 +508,9 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		Details:       string(detailsJSON),
 		IPAddress:     getIPFromContext(ctx),
 		UserAgent:     getUserAgentFromContext(ctx),
-	})
+	}); err != nil {
+		logger.Log().WithError(err).Warn("Failed to log audit event")
+	}
 
 	return credentials, nil
 }

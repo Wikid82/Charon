@@ -22,7 +22,7 @@ func TestUserLoginAfterEmailChange(t *testing.T) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
 
 	// Setup Services and Handlers
 	cfg := config.Config{}

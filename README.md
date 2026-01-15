@@ -19,6 +19,7 @@ Simply manage multiple websites and self-hosted applications. Click, save, done.
  <a href="https://codecov.io/gh/Wikid82/Charon" ><img src="https://codecov.io/gh/Wikid82/Charon/branch/main/graph/badge.svg?token=RXSINLQTGE" alt="Code Coverage"/></a>
   <a href="https://github.com/Wikid82/charon/releases"><img src="https://img.shields.io/github/v/release/Wikid82/charon?include_prereleases" alt="Release"></a>
  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/Security-Audited-brightgreen.svg" alt="Security: Audited"></a>
 </p>
 
 ---
@@ -41,16 +42,22 @@ You want your apps accessible online. You don't want to become a networking expe
 ## 🐕 Cerberus Security Suite
 
 ### 🕵️‍♂️ **CrowdSec Integration**
-  - Protects your applications from attacks using behavior-based detection and automated remediation.
+
+- Protects your applications from attacks using behavior-based detection and automated remediation.
+
 ### 🔐 **Access Control Lists (ACLs)**
-  - Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+
+- Define fine-grained access rules for your applications, controlling who can access what and under which conditions.
+
 ### 🧱 **Web Application Firewall (WAF)**
-  - Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+
+- Protects your applications from common web vulnerabilities such as SQL injection, XSS, and more using Coraza.
+
 ### ⏱️ **Rate Limiting**
-  - Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
+
+- Protect your applications from abuse by limiting the number of requests a user or IP can make within a certain timeframe.
 
 ---
-
 
 ## ✨ Top 10 Features
 
@@ -62,11 +69,19 @@ No config files. No terminal commands. Just click, type your domain name, and yo
 
 Free SSL certificates that request, install, and renew themselves. Your sites get the green padlock without you lifting a finger.
 
+### 🌐 **DNS Challenge for Wildcard Certificates**
+
+Secure all your subdomains with a single `*.example.com` certificate. Supports 15+ DNS providers including Cloudflare, Route53, DigitalOcean, and Google Cloud DNS. Credentials are encrypted and automatically rotated.
+
 ### 🛡️ **Enterprise-Grade Security Built In**
 
 Web Application Firewall, rate limiting, geographic blocking, access control lists, and intrusion detection via CrowdSec. Protection that "just works."
 
-### 🔗 **Smart Proxy Headers**
+### 🔐 **Supply Chain Security**
+
+Verifiable builds with cryptographic signatures, SLSA provenance attestation, and comprehensive SBOMs. Verify what you run with transparent, tamper-proof evidence.
+
+### 🌐 **Smart Proxy Headers**
 
 Automatically adds standard headers (X-Real-IP, X-Forwarded-Proto, etc.) so your backend applications see real client IPs, enforce HTTPS correctly, and log accurately—with full backward compatibility for existing hosts.
 
@@ -131,6 +146,19 @@ services:
 
 ```
 
+**Using Nightly Builds:**
+
+To test the latest nightly build (automated daily at 02:00 UTC):
+
+```yaml
+services:
+  charon:
+    image: ghcr.io/wikid82/charon:nightly
+    # ... rest of configuration
+```
+
+> **Note:** Nightly builds are for testing and may contain experimental features. Use `latest` for production.
+
 Then run:
 
 ```bash
@@ -138,6 +166,8 @@ docker-compose up -d
 ```
 
 ### Docker Run (One-Liner)
+
+**Stable Release:**
 
 ```bash
 docker run -d \
@@ -152,6 +182,24 @@ docker run -d \
   -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
   ghcr.io/wikid82/charon:latest
 ```
+
+**Nightly Build (Testing):**
+
+```bash
+docker run -d \
+  --name charon \
+  -p 80:80 \
+  -p 443:443 \
+  -p 443:443/udp \
+  -p 8080:8080 \
+  -v ./charon-data:/app/data \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e CHARON_ENV=production \
+  -e CHARON_ENCRYPTION_KEY=your-32-byte-base64-key-here \
+  ghcr.io/wikid82/charon:nightly
+```
+
+> **Note:** Nightly builds include the latest development features and are rebuilt daily at 02:00 UTC. Use for testing only.
 
 ### What Just Happened?
 
@@ -178,6 +226,11 @@ docker run -d \
   - Opera 76+
 
 > **Note:** If you encounter errors after upgrading, try a hard refresh (`Ctrl+Shift+R`) or clearing your browser cache. See [Troubleshooting Guide](docs/troubleshooting/react-production-errors.md) for details.
+
+### Development Setup
+
+**Install golangci-lint** (for contributors): `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for complete development environment setup.
 
 ### Upgrading? Run Migrations
 
@@ -265,8 +318,9 @@ All JSON templates support these variables:
 
 **[📖 Full Documentation](https://wikid82.github.io/charon/)** — Everything explained simply
 **[🚀 5-Minute Guide](https://wikid82.github.io/charon/getting-started)** — Your first website up and running
-**[� Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
-**[�💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
+**[🔐 Supply Chain Security](docs/guides/supply-chain-security-user-guide.md)** — Verify signatures and build provenance
+**[🛠️ Troubleshooting](docs/troubleshooting/)** — Common issues and solutions
+**[💬 Ask Questions](https://github.com/Wikid82/charon/discussions)** — Friendly community help
 **[🐛 Report Problems](https://github.com/Wikid82/charon/issues)** — Something broken? Let us know
 
 ---

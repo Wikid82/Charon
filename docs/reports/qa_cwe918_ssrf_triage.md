@@ -58,6 +58,7 @@ The code already had comprehensive SSRF protection:
 #### Verdict: FALSE POSITIVE
 
 CodeQL was unable to recognize that `validateWebhookURL` breaks the taint chain because:
+
 - The validated `*url.URL` was used directly
 - CodeQL doesn't track that the URL struct's properties are "sanitized"
 
@@ -83,6 +84,7 @@ ips, err := net.LookupIP(validatedURL.Hostname())
 ```
 
 This pattern:
+
 1. Validates the user-provided URL
 2. Extracts a new string value from the validated URL
 3. Re-parses the validated string (creating an untainted value)
@@ -113,6 +115,7 @@ notification_service.go:390 → shoutrrr.Send(url, ...)  (flagged)
 The `TestProvider` function calls `shoutrrr.Send` for non-webhook notification types (discord, slack, etc.) **without** SSRF validation. While `SendExternal` had validation for HTTP/HTTPS URLs before calling shoutrrr, `TestProvider` did not.
 
 **Risk Assessment:**
+
 - Most shoutrrr URLs use protocol-specific schemes (e.g., `discord://`, `slack://`) that don't directly expose SSRF
 - HTTP/HTTPS webhook URLs passed to shoutrrr could theoretically be exploited
 - The normalization step (`normalizeURL`) doesn't validate against private IPs
@@ -161,6 +164,7 @@ $ go test -v ./internal/services/... -run "Notification" -count=1
 ```
 
 Key test cases verified:
+
 - ✅ `TestNotificationService_TestProvider_Webhook`
 - ✅ `TestNotificationService_TestProvider_Errors`
 - ✅ `TestNotificationService_SendExternal`

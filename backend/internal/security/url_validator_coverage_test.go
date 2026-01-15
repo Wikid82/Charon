@@ -9,10 +9,10 @@ import (
 func TestInternalServiceHostAllowlist(t *testing.T) {
 	// Save original env var
 	originalEnv := os.Getenv(InternalServiceHostAllowlistEnvVar)
-	defer os.Setenv(InternalServiceHostAllowlistEnvVar, originalEnv)
+	defer func() { _ = os.Setenv(InternalServiceHostAllowlistEnvVar, originalEnv) }()
 
 	t.Run("DefaultLocalhostOnly", func(t *testing.T) {
-		os.Setenv(InternalServiceHostAllowlistEnvVar, "")
+		_ = os.Setenv(InternalServiceHostAllowlistEnvVar, "")
 		allowlist := InternalServiceHostAllowlist()
 
 		// Should contain localhost entries
@@ -30,7 +30,7 @@ func TestInternalServiceHostAllowlist(t *testing.T) {
 	})
 
 	t.Run("WithAdditionalHosts", func(t *testing.T) {
-		os.Setenv(InternalServiceHostAllowlistEnvVar, "crowdsec,caddy,traefik")
+		_ = os.Setenv(InternalServiceHostAllowlistEnvVar, "crowdsec,caddy,traefik")
 		allowlist := InternalServiceHostAllowlist()
 
 		// Should contain localhost + additional hosts
@@ -47,7 +47,7 @@ func TestInternalServiceHostAllowlist(t *testing.T) {
 	})
 
 	t.Run("WithEmptyAndWhitespaceEntries", func(t *testing.T) {
-		os.Setenv(InternalServiceHostAllowlistEnvVar, "  , crowdsec ,  , caddy , ")
+		_ = os.Setenv(InternalServiceHostAllowlistEnvVar, "  , crowdsec ,  , caddy , ")
 		allowlist := InternalServiceHostAllowlist()
 
 		// Should contain localhost + valid hosts (empty and whitespace ignored)
@@ -64,7 +64,7 @@ func TestInternalServiceHostAllowlist(t *testing.T) {
 	})
 
 	t.Run("WithInvalidEntries", func(t *testing.T) {
-		os.Setenv(InternalServiceHostAllowlistEnvVar, "crowdsec,http://invalid,user@host,/path")
+		_ = os.Setenv(InternalServiceHostAllowlistEnvVar, "crowdsec,http://invalid,user@host,/path")
 		allowlist := InternalServiceHostAllowlist()
 
 		// Should only have localhost + crowdsec (others rejected)

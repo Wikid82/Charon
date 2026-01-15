@@ -562,15 +562,15 @@ func TestGetAccessLogPath_DockerEnv(t *testing.T) {
 
 	// Save original env
 	originalEnv := os.Getenv("CHARON_ENV")
-	defer os.Setenv("CHARON_ENV", originalEnv)
+	defer func() { _ = os.Setenv("CHARON_ENV", originalEnv) }()
 
 	// Set CHARON_ENV=production
-	os.Setenv("CHARON_ENV", "production")
+	_ = os.Setenv("CHARON_ENV", "production")
 	path := getAccessLogPath("/tmp/caddy-data", false)
 	require.Equal(t, "/var/log/caddy/access.log", path)
 
 	// Unset CHARON_ENV - should use development path
-	os.Unsetenv("CHARON_ENV")
+	_ = os.Unsetenv("CHARON_ENV")
 	path = getAccessLogPath("/tmp/storage/caddy/data", false)
 	require.Contains(t, path, "logs/access.log")
 	require.Contains(t, path, "/tmp/storage/logs/access.log")
@@ -582,14 +582,14 @@ func TestGetAccessLogPath_Development(t *testing.T) {
 	originalEnv := os.Getenv("CHARON_ENV")
 	defer func() {
 		if originalEnv != "" {
-			os.Setenv("CHARON_ENV", originalEnv)
+			_ = os.Setenv("CHARON_ENV", originalEnv)
 		} else {
-			os.Unsetenv("CHARON_ENV")
+			_ = os.Unsetenv("CHARON_ENV")
 		}
 	}()
 
 	// Clear CHARON_ENV to simulate dev environment
-	os.Unsetenv("CHARON_ENV")
+	_ = os.Unsetenv("CHARON_ENV")
 
 	// Test with typical dev path
 	storageDir := "/home/user/charon/data/caddy/data"
@@ -839,14 +839,14 @@ func TestGenerateConfig_WithCrowdSecApp(t *testing.T) {
 	originalAPIKey := os.Getenv("CROWDSEC_API_KEY")
 	defer func() {
 		if originalAPIKey != "" {
-			os.Setenv("CROWDSEC_API_KEY", originalAPIKey)
+			_ = os.Setenv("CROWDSEC_API_KEY", originalAPIKey)
 		} else {
-			os.Unsetenv("CROWDSEC_API_KEY")
+			_ = os.Unsetenv("CROWDSEC_API_KEY")
 		}
 	}()
 
 	// Set test API key
-	os.Setenv("CROWDSEC_API_KEY", "test-api-key-12345")
+	_ = os.Setenv("CROWDSEC_API_KEY", "test-api-key-12345")
 
 	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil)
 	require.NoError(t, err)
@@ -1791,14 +1791,14 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 	envVars := []string{"CROWDSEC_API_KEY", "CROWDSEC_BOUNCER_API_KEY", "CERBERUS_SECURITY_CROWDSEC_API_KEY", "CHARON_SECURITY_CROWDSEC_API_KEY", "CPM_SECURITY_CROWDSEC_API_KEY"}
 	for _, v := range envVars {
 		origVars[v] = os.Getenv(v)
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 	defer func() {
 		for k, v := range origVars {
 			if v != "" {
 				os.Setenv(k, v)
 			} else {
-				os.Unsetenv(k)
+				_ = os.Unsetenv(k)
 			}
 		}
 	}()
@@ -1813,7 +1813,7 @@ func TestGetCrowdSecAPIKey(t *testing.T) {
 	require.Equal(t, "primary-key", result)
 
 	// Test fallback priority
-	os.Unsetenv("CROWDSEC_API_KEY")
+	_ = os.Unsetenv("CROWDSEC_API_KEY")
 	os.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer-key")
 	result = getCrowdSecAPIKey()
 	require.Equal(t, "bouncer-key", result)

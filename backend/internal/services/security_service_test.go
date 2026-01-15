@@ -571,6 +571,7 @@ func TestSecurityService_ListAuditLogs(t *testing.T) {
 	audits, total, err = svc.ListAuditLogs(AuditLogFilter{EventCategory: "dns_provider"}, 1, 10)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(3), total)
+	assert.Len(t, audits, 3)
 
 	// Test pagination
 	audits, total, err = svc.ListAuditLogs(AuditLogFilter{}, 1, 2)

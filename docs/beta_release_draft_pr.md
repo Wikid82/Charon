@@ -7,7 +7,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 ## Changes Included
 
 1. Workflow Token Updates
-   - Prefer `GITHUB_TOKEN` with `CPMP_TOKEN` as a fallback to maintain backward compatibility.
+   - Prefer `GITHUB_TOKEN` with `CHARON_TOKEN` as a fallback to maintain backward compatibility.
    - Ensured consistent secret reference across `release.yml` and `renovate_prune.yml`.
 2. Release Workflow Adjustments
    - Fixed environment variable configuration for release publication.
@@ -19,9 +19,9 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 
 ## Commits Ahead of `feature/alpha-completion`
 
-- 6c8ba7b fix: replace CPMP_TOKEN with CPMP_TOKEN in workflows
-- de1160a fix: revert to CPMP_TOKEN
-- 7aee12b fix: use CPMP_TOKEN in release workflow
+- 6c8ba7b fix: replace CHARON_TOKEN with CHARON_TOKEN in workflows
+- de1160a fix: revert to CHARON_TOKEN
+- 7aee12b fix: use CHARON_TOKEN in release workflow
 - 0449681 docs: add beta-release draft PR summary
 - fc08514 docs: update beta-release draft PR summary with new commit
 - 18c3621 docs: update beta-release draft PR summary with second update
@@ -68,7 +68,7 @@ This draft PR merges recent beta preparation changes from `feature/beta-release`
 
 Marking this as a DRAFT to allow review of token changes before merge. Please:
 
-- Confirm `GITHUB_TOKEN` (or `CPMP_TOKEN` fallback) exists in repo secrets.
+- Confirm `GITHUB_TOKEN` (or `CHARON_TOKEN` fallback) exists in repo secrets.
 - Review for any missed workflow references.
 
 ---

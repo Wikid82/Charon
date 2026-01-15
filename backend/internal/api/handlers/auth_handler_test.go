@@ -23,7 +23,7 @@ func setupAuthHandler(t *testing.T) (*AuthHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{}, &models.Setting{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{})
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
@@ -40,7 +40,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
@@ -64,8 +64,8 @@ func TestAuthHandler_Login(t *testing.T) {
 
 func TestSetSecureCookie_HTTPS_Strict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	os.Setenv("CHARON_ENV", "production")
-	defer os.Unsetenv("CHARON_ENV")
+	_ = os.Setenv("CHARON_ENV", "production")
+	defer func() { _ = os.Unsetenv("CHARON_ENV") }()
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest("POST", "https://example.com/login", http.NoBody)
@@ -218,7 +218,7 @@ func TestAuthHandler_Me(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, float64(user.ID), resp["user_id"])
 	assert.Equal(t, "admin", resp["role"])
 	assert.Equal(t, "Me User", resp["name"])
@@ -253,7 +253,7 @@ func TestAuthHandler_ChangePassword(t *testing.T) {
 		Email: "change@example.com",
 		Name:  "Change User",
 	}
-	user.SetPassword("oldpassword")
+	_ = user.SetPassword("oldpassword")
 	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
@@ -288,7 +288,7 @@ func TestAuthHandler_ChangePassword_WrongOld(t *testing.T) {
 	t.Parallel()
 	handler, db := setupAuthHandler(t)
 	user := &models.User{UUID: uuid.NewString(), Email: "wrong@example.com"}
-	user.SetPassword("correct")
+	_ = user.SetPassword("correct")
 	db.Create(user)
 
 	gin.SetMode(gin.TestMode)
@@ -344,7 +344,7 @@ func setupAuthHandlerWithDB(t *testing.T) (*AuthHandler, *gorm.DB) {
 	dbName := "file:" + t.Name() + "?mode=memory&cache=shared"
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
-	db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
+	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.ProxyHost{})
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	authService := services.NewAuthService(db, cfg)
@@ -401,7 +401,7 @@ func TestAuthHandler_Verify_ValidToken(t *testing.T) {
 		Role:    "user",
 		Enabled: true,
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	// Generate token
@@ -432,7 +432,7 @@ func TestAuthHandler_Verify_BearerToken(t *testing.T) {
 		Role:    "admin",
 		Enabled: true,
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	token, _ := handler.authService.GenerateToken(user)
@@ -460,7 +460,7 @@ func TestAuthHandler_Verify_DisabledUser(t *testing.T) {
 		Name:  "Disabled User",
 		Role:  "user",
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 	// Explicitly disable after creation to bypass GORM's default:true behavior
 	db.Model(user).Update("enabled", false)
@@ -502,7 +502,7 @@ func TestAuthHandler_Verify_ForwardAuthDenied(t *testing.T) {
 		Enabled:        true,
 		PermissionMode: models.PermissionModeDenyAll,
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	token, _ := handler.authService.GenerateToken(user)
@@ -533,7 +533,7 @@ func TestAuthHandler_VerifyStatus_NotAuthenticated(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
 
@@ -551,7 +551,7 @@ func TestAuthHandler_VerifyStatus_InvalidToken(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
 
@@ -566,7 +566,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 		Role:    "user",
 		Enabled: true,
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 
 	token, _ := handler.authService.GenerateToken(user)
@@ -582,7 +582,7 @@ func TestAuthHandler_VerifyStatus_Authenticated(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, true, resp["authenticated"])
 	userObj := resp["user"].(map[string]any)
 	assert.Equal(t, "status@example.com", userObj["email"])
@@ -598,7 +598,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 		Name:  "Disabled User 2",
 		Role:  "user",
 	}
-	user.SetPassword("password123")
+	_ = user.SetPassword("password123")
 	db.Create(user)
 	// Explicitly disable after creation to bypass GORM's default:true behavior
 	db.Model(user).Update("enabled", false)
@@ -616,7 +616,7 @@ func TestAuthHandler_VerifyStatus_DisabledUser(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["authenticated"])
 }
 
@@ -668,7 +668,7 @@ func TestAuthHandler_GetAccessibleHosts_AllowAll(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 2)
 }
@@ -705,7 +705,7 @@ func TestAuthHandler_GetAccessibleHosts_DenyAll(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 0)
 }
@@ -745,7 +745,7 @@ func TestAuthHandler_GetAccessibleHosts_PermittedHosts(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	hosts := resp["hosts"].([]any)
 	assert.Len(t, hosts, 1)
 }
@@ -834,7 +834,7 @@ func TestAuthHandler_CheckHostAccess_Allowed(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, true, resp["can_access"])
 }
 
@@ -867,6 +867,6 @@ func TestAuthHandler_CheckHostAccess_Denied(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.Equal(t, false, resp["can_access"])
 }

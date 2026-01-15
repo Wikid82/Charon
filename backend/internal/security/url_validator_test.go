@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Wikid82/charon/backend/internal/network"
 )
 
 func TestValidateExternalURL_BasicValidation(t *testing.T) {
@@ -337,7 +339,7 @@ func TestIsPrivateIP(t *testing.T) {
 				t.Fatalf("Invalid test IP: %s", tt.ip)
 			}
 
-			result := isPrivateIP(ip)
+			result := network.IsPrivateIP(ip)
 			if result != tt.isPrivate {
 				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, result, tt.isPrivate)
 			}
@@ -650,7 +652,7 @@ func TestIsPrivateIP_IPv6Comprehensive(t *testing.T) {
 				t.Fatalf("Failed to parse IP: %s", tt.ip)
 			}
 
-			result := isPrivateIP(ip)
+			result := network.IsPrivateIP(ip)
 			if result != tt.isPrivate {
 				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, result, tt.isPrivate)
 			}

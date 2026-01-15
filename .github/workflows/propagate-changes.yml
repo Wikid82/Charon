@@ -26,7 +26,7 @@ jobs:
     if: github.actor != 'github-actions[bot]' && github.event.pusher != null
     steps:
       - name: Set up Node (for github-script)
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -146,9 +146,10 @@ jobs:
 
             if (currentBranch === 'main') {
               // Main -> Development
-              await createPR('main', 'development', 'nightly');
+              await createPR('main', 'development');
             } else if (currentBranch === 'development') {
               // Development -> Nightly
+              await createPR('development', 'nightly');
             } else if (currentBranch === 'nightly') {
               // Nightly -> Feature branches
               const branches = await github.paginate(github.rest.repos.listBranches, {
@@ -168,4 +169,4 @@ jobs:
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CPMP_TOKEN: ${{ secrets.CPMP_TOKEN }}
+          CHARON_TOKEN: ${{ secrets.CHARON_TOKEN }}

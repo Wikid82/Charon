@@ -1,9 +1,11 @@
 # Frontend Test Hang Fix
 
 ## Problem
+
 Frontend tests took 1972 seconds (33 minutes) instead of the expected 2-3 minutes.
 
 ## Root Cause
+
 1. Missing `frontend/src/setupTests.ts` file that was referenced in vite.config.ts
 2. No test timeout configuration in Vitest
 3. Outdated backend tests referencing non-existent functions
@@ -11,7 +13,9 @@ Frontend tests took 1972 seconds (33 minutes) instead of the expected 2-3 minute
 ## Solutions Applied
 
 ### 1. Created Missing Setup File
+
 **File:** `frontend/src/setupTests.ts`
+
 ```typescript
 import '@testing-library/jest-dom'
 
@@ -19,7 +23,9 @@ import '@testing-library/jest-dom'
 ```
 
 ### 2. Added Test Timeouts
+
 **File:** `frontend/vite.config.ts`
+
 ```typescript
 test: {
   globals: true,
@@ -32,6 +38,7 @@ test: {
 ```
 
 ### 3. Fixed Backend Test Issues
+
 - **Fixed:** `backend/internal/api/handlers/dns_provider_handler_test.go`
   - Updated `MockDNSProviderService.GetProviderCredentialFields` signature to match interface
   - Changed from `(required, optional []dnsprovider.CredentialFieldSpec, err error)` to `([]dnsprovider.CredentialFieldSpec, error)`
@@ -45,10 +52,12 @@ test: {
 ## Results
 
 ### Before Fix
+
 - Frontend tests: **1972 seconds (33 minutes)**
 - Status: Hanging, eventually passing
 
 ### After Fix
+
 - Frontend tests: **88 seconds (1.5 minutes)**  ✅
 - Speed improvement: **22x faster**
 - Status: Passing reliably

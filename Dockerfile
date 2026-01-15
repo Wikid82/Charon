@@ -26,7 +26,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0 AS xx
 
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
-FROM --platform=$BUILDPLATFORM node:24.12.0-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.13.0-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -199,7 +199,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- CrowdSec Builder ----
 # Build CrowdSec from source to ensure we use Go 1.25.5+ and avoid stdlib vulnerabilities
 # (CVE-2025-58183, CVE-2025-58186, CVE-2025-58187, CVE-2025-61729)
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS crowdsec-builder
+# renovate: datasource=docker depName=golang versioning=docker
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS crowdsec-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -219,7 +220,20 @@ RUN xx-apk add --no-cache gcc musl-dev
 # Clone CrowdSec source
 RUN git clone --depth 1 --branch "v${CROWDSEC_VERSION}" https://github.com/crowdsecurity/crowdsec.git .
 
-# Build CrowdSec binaries for target architecture
+# Patch dependencies to fix CVEs in transitive dependencies
+# This follows the same pattern as Caddy's dependency patches
+# renovate: datasource=go depName=github.com/expr-lang/expr
+# renovate: datasource=go depName=golang.org/x/crypto
+RUN go get github.com/expr-lang/expr@v1.17.7 && \
+    go get golang.org/x/crypto@v0.46.0 && \
+    go mod tidy
+
+# Fix compatibility issues with expr-lang v1.17.7
+# In v1.17.7, program.Source() returns file.Source struct instead of string
+# The upstream fix is in main branch but not yet released
+RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
+
+# Build CrowdSec binaries for target architecture with patched dependencies
 # hadolint ignore=DL3059
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
@@ -368,13 +382,19 @@ ENV CHARON_ENV=production \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \
-    CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+    CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec \
+    CHARON_PLUGINS_DIR=/app/plugins
 # Create necessary directories
 RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
 
-# Security: Set ownership of all application directories to non-root charon user
+# Security: Create plugins directory with secure permissions
+# Mode 0755: owner rwx, group rx, other rx (NOT world-writable)
+# This satisfies the PluginLoaderService security check (mode & 0002 == 0)
+RUN mkdir -p /app/plugins && chmod 755 /app/plugins
+
 # Security: Set ownership of all application directories to non-root charon user
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
+# Note: /app/plugins has 755 permissions (NOT world-writable) for security
 RUN chown -R charon:charon /app /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
@@ -408,12 +428,13 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
 # while maintaining the expected /etc/crowdsec path for compatibility
 RUN ln -sf /app/data/crowdsec/config /etc/crowdsec
 
-# Security: Run as non-root user (CIS Docker Benchmark 4.1)
-# NOTE: The entrypoint script starts as root to handle Docker socket permissions,
-# then drops privileges to the charon user before starting applications.
-# This is necessary for Docker integration while maintaining security.
-
-USER charon
+# Security: Container starts as root to handle Docker socket group permissions,
+# then the entrypoint script drops privileges to the charon user before starting
+# applications. This approach:
+#   1. Maintains CIS Docker Benchmark compliance (non-root execution)
+#   2. Enables Docker integration by dynamically adding charon to docker group
+#   3. Ensures proper ownership of mounted volumes
+# The entrypoint script uses su-exec to securely drop privileges after setup.
 
 # Use custom entrypoint to start both Caddy and Charon
 ENTRYPOINT ["/docker-entrypoint.sh"]

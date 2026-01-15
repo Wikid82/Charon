@@ -139,6 +139,7 @@ Expected output:
 **Troubleshooting auto-start:**
 
 See [CrowdSec Startup Fix Documentation](implementation/crowdsec_startup_fix_COMPLETE.md) for detailed troubleshooting including:
+
 - Permission issues
 - Missing SecurityConfig table
 - Binary not found errors
@@ -884,20 +885,24 @@ volumes:
 #### Security Features Explained
 
 **Read-Only Root Filesystem:**
+
 - `read_only: true` prevents unauthorized file modifications
 - Blocks malware from persisting on the container filesystem
 - Requires explicit tmpfs mounts for directories that need write access
 
 **Capability Dropping:**
+
 - `cap_drop: ALL` removes all Linux capabilities
 - `cap_add: NET_BIND_SERVICE` only allows binding to privileged ports 80/443
 - Follows the principle of least privilege
 
 **No Privilege Escalation:**
+
 - `no-new-privileges:true` prevents processes from gaining additional privileges
 - Protects against setuid binary exploits and capability escalation
 
 **Tmpfs Mounts:**
+
 - Ephemeral storage that exists only in memory
 - Automatically cleared on container restart
 - Prevents logs and temporary files from filling disk space
@@ -953,16 +958,19 @@ docker exec charon ls -la /app/data
 #### Troubleshooting
 
 **"read-only filesystem" errors:**
+
 - Verify all tmpfs mounts are configured correctly
 - Check that `/app/data` is mounted as a volume (not tmpfs)
 - Ensure tmpfs sizes are adequate for your log volume
 
 **CrowdSec fails to start:**
+
 - Verify `/var/lib/crowdsec` tmpfs mount exists
 - Check `/app/data/crowdsec` volume is writable
 - Ensure symlink `/etc/crowdsec -> /app/data/crowdsec/config` is preserved
 
 **Certificates not persisting:**
+
 - Verify `charon_data` volume is mounted at `/app/data`
 - Check that `CHARON_CADDY_CONFIG_DIR=/app/data/caddy` is set
 - Ensure `/app/data/caddy` directory exists in the volume
@@ -1028,6 +1036,7 @@ Charon implements four-layer SSRF protection to prevent attacks against internal
 4. **Runtime Re-Validation**: Connection-time IP checks to prevent DNS rebinding (TOCTOU protection)
 
 **Protected Against**:
+
 - Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
 - Loopback addresses (127.0.0.0/8, ::1/128)
 - Link-local addresses (169.254.0.0/16, fe80::/10)
@@ -1035,6 +1044,7 @@ Charon implements four-layer SSRF protection to prevent attacks against internal
 - IPv6 private ranges (fc00::/7)
 
 **Where Applied**:
+
 - Security notification webhooks
 - URL connectivity testing endpoint
 - CrowdSec hub URL validation
@@ -1233,6 +1243,7 @@ From [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html):
 Charon maintains comprehensive test coverage to ensure security features work correctly:
 
 **Backend Coverage**: **86.2%** (exceeds 85% threshold)
+
 - Security handlers: 85.6%
 - Security middleware: 99.1%
 - URL validation utilities: 91.8%
@@ -1240,12 +1251,14 @@ Charon maintains comprehensive test coverage to ensure security features work co
 - IP helpers: 100%
 
 **Frontend Coverage**: **87.27%** (exceeds 85% threshold)
+
 - Security API: 92.19%
 - Security hooks: 96.56%
 - Security pages: 85.61%
 - UI components: 97.35%
 
 **Security-Specific Test Patterns**:
+
 - ✅ SSRF protection for webhook URLs (HTTPS enforcement, private IP blocking)
 - ✅ DNS resolution validation with timeout handling
 - ✅ IPv4/IPv6 private address detection (13+ CIDR ranges)

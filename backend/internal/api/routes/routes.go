@@ -24,6 +24,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+
+	// Import custom DNS providers to register them
+	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/custom"
 )
 
 // Register wires up API routes and performs automatic migrations.
@@ -69,6 +72,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		&models.DNSProvider{},
 		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
 		&models.Plugin{},                // Phase 5: DNS provider plugins
+		&models.ManualChallenge{},       // Phase 1: Manual DNS challenges
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -312,19 +316,21 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 				adminPlugins.POST("/:id/enable", pluginHandler.EnablePlugin)
 				adminPlugins.POST("/:id/disable", pluginHandler.DisablePlugin)
 				adminPlugins.POST("/reload", pluginHandler.ReloadPlugins)
+
+				// Manual DNS Challenges (Phase 1) - For users without automated DNS API access
+				manualChallengeService := services.NewManualChallengeService(db)
+				manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
+				manualChallengeHandler.RegisterRoutes(protected)
 			}
 		} else {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
 		}
 
-		// Docker
-		dockerService, err := services.NewDockerService()
-		if err == nil { // Only register if Docker is available
-			dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
-			dockerHandler.RegisterRoutes(protected)
-		} else {
-			logger.Log().WithError(err).Warn("Docker service unavailable")
-		}
+		// Docker - Always register routes even if Docker is unavailable
+		// The service will return proper error messages when Docker is not accessible
+		dockerService := services.NewDockerService()
+		dockerHandler := handlers.NewDockerHandler(dockerService, remoteServerService)
+		dockerHandler.RegisterRoutes(protected)
 
 		// Uptime Service
 		uptimeService := services.NewUptimeService(db, notificationService)
@@ -484,9 +490,9 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		}
 		if _, err := os.Stat(accessLogPath); os.IsNotExist(err) {
 			if f, err := os.Create(accessLogPath); err == nil {
-				f.Close()
-				logger.Log().WithField("path", accessLogPath).Info("Created empty log file for LogWatcher")
-			} else {
+				if err := f.Close(); err != nil {
+					logger.Log().WithError(err).Warn("Failed to close log file")
+				}
 				logger.Log().WithError(err).WithField("path", accessLogPath).Warn("Failed to create log file for LogWatcher")
 			}
 		}

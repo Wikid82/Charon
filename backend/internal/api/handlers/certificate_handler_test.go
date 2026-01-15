@@ -421,10 +421,10 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 		t.Fatalf("failed to generate cert: %v", err)
 	}
 	part, _ := writer.CreateFormFile("certificate_file", "cert.pem")
-	part.Write([]byte(certPEM))
+	_, _ = part.Write([]byte(certPEM))
 	part2, _ := writer.CreateFormFile("key_file", "key.pem")
-	part2.Write([]byte(keyPEM))
-	writer.Close()
+	_, _ = part2.Write([]byte(keyPEM))
+	_ = writer.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/certificates", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -459,9 +459,9 @@ func generateSelfSignedCertPEM() (certPEM, keyPEM string, err error) {
 		return "", "", err
 	}
 	certBuf := new(bytes.Buffer)
-	pem.Encode(certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	_ = pem.Encode(certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	keyBuf := new(bytes.Buffer)
-	pem.Encode(keyBuf, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
+	_ = pem.Encode(keyBuf, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 	certPEM = certBuf.String()
 	keyPEM = keyBuf.String()
 	return certPEM, keyPEM, nil

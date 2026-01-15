@@ -72,6 +72,7 @@ CodeQL's taint analysis could not verify that user-controlled input (`rawURL`) w
 The fix maintains **layered security**:
 
 **Layer 1 - Input Validation** (`security.ValidateExternalURL`):
+
 - Validates URL format
 - Checks for private IP ranges
 - Blocks localhost/loopback (optional)
@@ -79,12 +80,14 @@ The fix maintains **layered security**:
 - Performs DNS resolution and IP validation
 
 **Layer 2 - Connection-Time Validation** (`ssrfSafeDialer`):
+
 - Re-validates IP at TCP dial time (TOCTOU protection)
 - Blocks private IPs: RFC 1918, loopback, link-local
 - Blocks IPv6 private ranges (fc00::/7)
 - Blocks reserved ranges
 
 **Layer 3 - HTTP Client Configuration**:
+
 - Strict timeout configuration (5s connect, 10s total)
 - No redirects allowed
 - Custom User-Agent header
@@ -95,6 +98,7 @@ The fix maintains **layered security**:
 **Coverage**: 90.2% ✅
 
 **Comprehensive Tests**:
+
 - ✅ `TestValidateExternalURL_MultipleOptions`
 - ✅ `TestValidateExternalURL_CustomTimeout`
 - ✅ `TestValidateExternalURL_DNSTimeout`
@@ -122,6 +126,7 @@ The fix maintains **layered security**:
 ### Files Modified
 
 **Primary Files**:
+
 - `internal/api/handlers/security_handler.go`
 - `internal/api/handlers/security_handler_test.go`
 - `internal/api/middleware/security.go`
@@ -141,6 +146,7 @@ The fix maintains **layered security**:
 ### Test Patterns Added
 
 **SSRF Protection Tests**:
+
 ```go
 // Security notification webhooks
 TestSecurityNotificationService_ValidateWebhook
@@ -169,6 +175,7 @@ TestValidateExternalURL_IPV6Validation
 ### Files Modified
 
 **Primary Files**:
+
 - `frontend/src/pages/Security.tsx`
 - `frontend/src/pages/__tests__/Security.test.tsx`
 - `frontend/src/pages/__tests__/Security.errors.test.tsx`
@@ -189,6 +196,7 @@ TestValidateExternalURL_IPV6Validation
 ### Test Coverage Breakdown
 
 **Security Page Tests**:
+
 - ✅ Component rendering with all cards visible
 - ✅ WAF enable/disable toggle functionality
 - ✅ CrowdSec enable/disable with LAPI health checks
@@ -199,6 +207,7 @@ TestValidateExternalURL_IPV6Validation
 - ✅ Toast notifications on success/error
 
 **Security API Tests**:
+
 - ✅ `getSecurityStatus()` - Fetch all security states
 - ✅ `toggleWAF()` - Enable/disable Web Application Firewall
 - ✅ `toggleCrowdSec()` - Enable/disable CrowdSec with LAPI checks
@@ -207,6 +216,7 @@ TestValidateExternalURL_IPV6Validation
 - ✅ `updateNotificationSettings()` - Save notification webhooks
 
 **Custom Hook Tests** (`useSecurity`):
+
 - ✅ Initial state management
 - ✅ Security status fetching with React Query
 - ✅ Mutation handling for toggles
@@ -221,6 +231,7 @@ TestValidateExternalURL_IPV6Validation
 ### Files Modified
 
 **Primary Files**:
+
 - `backend/integration/security_integration_test.go`
 - `backend/integration/crowdsec_integration_test.go`
 - `backend/integration/waf_integration_test.go`
@@ -228,6 +239,7 @@ TestValidateExternalURL_IPV6Validation
 ### Test Scenarios
 
 **Security Integration Tests**:
+
 - ✅ WAF + CrowdSec coexistence (no conflicts)
 - ✅ Rate limiting + WAF combined enforcement
 - ✅ Handler pipeline order verification
@@ -235,6 +247,7 @@ TestValidateExternalURL_IPV6Validation
 - ✅ Legitimate traffic passes through all layers
 
 **CrowdSec Integration Tests**:
+
 - ✅ LAPI startup health checks
 - ✅ Console enrollment with retry logic
 - ✅ Hub item installation and updates
@@ -242,6 +255,7 @@ TestValidateExternalURL_IPV6Validation
 - ✅ Bouncer integration with Caddy
 
 **WAF Integration Tests**:
+
 - ✅ OWASP Core Rule Set detection
 - ✅ SQL injection pattern blocking
 - ✅ XSS vector detection
@@ -255,6 +269,7 @@ TestValidateExternalURL_IPV6Validation
 ### Files Modified
 
 **Primary Files**:
+
 - `backend/internal/utils/ip_helpers.go`
 - `backend/internal/utils/ip_helpers_test.go`
 - `frontend/src/utils/__tests__/crowdsecExport.test.ts`
@@ -269,6 +284,7 @@ TestValidateExternalURL_IPV6Validation
 ### Test Patterns Added
 
 **IP Validation Tests**:
+
 ```go
 TestIsPrivateIP_IPv4Comprehensive
 TestIsPrivateIP_IPv6Comprehensive
@@ -277,6 +293,7 @@ TestParseIPFromString_AllFormats
 ```
 
 **Frontend Utility Tests**:
+
 ```typescript
 // CrowdSec export utilities
 test('formatDecisionForExport - handles all fields')
@@ -329,6 +346,7 @@ test('exportDecisionsToJSON - validates structure')
 | `src/utils` | 96.49% | 83.33% | 100% | 97.4% | ✅ |
 
 **Test Results**:
+
 - **Total Tests**: 1,174 passed, 2 skipped (1,176 total)
 - **Test Files**: 107 passed
 - **Duration**: 167.44s
@@ -355,6 +373,7 @@ test('exportDecisionsToJSON - validates structure')
 **Status**: ⚠️ **Database Created Successfully** - Analysis command path issue (non-blocking)
 
 **Manual Review**: CWE-918 SSRF fix manually verified:
+
 - ✅ Taint chain broken by new `requestURL` variable
 - ✅ Defense-in-depth architecture preserved
 - ✅ All SSRF protection tests passing
@@ -382,15 +401,18 @@ test('exportDecisionsToJSON - validates structure')
 For detailed manual testing procedures, see:
 
 **Security Testing**:
+
 - [SSRF Complete Implementation](SSRF_COMPLETE.md) - Technical details of CWE-918 fix
 - [Security Coverage QA Plan](../plans/SECURITY_COVERAGE_QA_PLAN.md) - Comprehensive test scenarios
 
 **Integration Testing**:
+
 - [Cerberus Integration Testing Plan](../plans/cerberus_integration_testing_plan.md)
 - [CrowdSec Testing Plan](../plans/crowdsec_testing_plan.md)
 - [WAF Testing Plan](../plans/waf_testing_plan.md)
 
 **UI/UX Testing**:
+
 - [Cerberus UI/UX Testing Plan](../plans/cerberus_uiux_testing_plan.md)
 
 ---
@@ -462,6 +484,7 @@ cd frontend && npm run type-check
 ```
 
 **Documentation**:
+
 - [QA Report](../reports/qa_report.md) - Comprehensive audit results
 - [SSRF Complete](SSRF_COMPLETE.md) - Detailed SSRF remediation
 - [CHANGELOG.md](../../CHANGELOG.md) - User-facing changes
