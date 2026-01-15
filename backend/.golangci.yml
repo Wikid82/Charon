@@ -1,4 +1,5 @@
 # golangci-lint configuration
+version: 2
 run:
   timeout: 5m
   tests: true
@@ -55,13 +56,14 @@ linters-settings:
       - (*database/sql.Rows).Close
       - (gorm.io/gorm.Migrator).DropTable
       - (*net/http.Response.Body).Close
-      - json.Unmarshal
-      - (*github.com/Wikid82/charon/backend/models.User).SetPassword
-      - (*github.com/Wikid82/charon/backend/internal/services.NotificationService).CreateProvider
-      - (*github.com/Wikid82/charon/backend/internal/services.ProxyHostService).Create
 
 issues:
   exclude-rules:
+    # errcheck is strict by design; allow a few intentionally-ignored errors in tests only.
+    - linters:
+        - errcheck
+      path: ".*_test\\.go$"
+      text: "json\\.Unmarshal|SetPassword|CreateProvider|ProxyHostService\\.Create"
     # Exclude gosec file permission warnings - 0644/0755 are intentional for config/data dirs
     - linters:
         - gosec
