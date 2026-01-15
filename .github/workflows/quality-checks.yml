@@ -10,6 +10,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  checks: write
+
 env:
   GO_VERSION: '1.25.5'
   NODE_VERSION: '24.12.0'

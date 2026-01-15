@@ -28,6 +28,7 @@ jobs:
   build:
     name: Build Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       # Step 1: Get the code
@@ -331,6 +332,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: build
 
     steps:

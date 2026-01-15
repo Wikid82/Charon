@@ -23,6 +23,7 @@ jobs:
   playwright:
     name: E2E Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Only run for PRs or manual dispatch
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -31,7 +32,7 @@ jobs:
     env:
       CHARON_ENV: development
       CHARON_DEBUG: "1"
-      CHARON_ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMzJieXQ=
+      CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_CI_ENCRYPTION_KEY }}
 
     steps:
       - name: Checkout repository
