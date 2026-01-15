@@ -77,12 +77,18 @@ jobs:
           # Always build on feature branches to ensure artifacts for testing
           # For PRs: github.ref is refs/pull/N/merge, so check github.head_ref instead
           # For pushes: github.ref is refs/heads/branch-name
-          if [[ "$REF" == refs/heads/feature/* ]] || [[ "$HEAD_REF" == feature/* ]]; then
+          is_feature_push=false
+          if [[ "$REF" == refs/heads/feature/* ]]; then
             should_skip=false
-            echo "Force building on feature branch"
+            is_feature_push=true
+            echo "Force building on feature branch (push)"
+          elif [[ "$HEAD_REF" == feature/* ]]; then
+            should_skip=false
+            echo "Force building on feature branch (PR)"
           fi
 
           echo "skip_build=$should_skip" >> $GITHUB_OUTPUT
+          echo "is_feature_push=$is_feature_push" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         if: steps.skip.outputs.skip_build != 'true'
@@ -118,15 +124,18 @@ jobs:
             type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
             type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
+      # For feature branch pushes: build single-platform so we can load locally for artifact
+      # For main/development pushes: build multi-platform for production
+      # For PRs: build single-platform and load locally
       - name: Build and push Docker image
         if: steps.skip.outputs.skip_build != 'true'
         id: build-and-push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
         with:
           context: .
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ (github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           no-cache: true  # Prevent false positive vulnerabilities from cached layers
@@ -153,7 +162,7 @@ jobs:
       # 2. Image doesn't exist locally after build
       # 3. Artifact creation fails
       - name: Save Docker Image as Artifact
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
         run: |
           # Extract the first tag from metadata action (PR tag)
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
@@ -184,7 +193,7 @@ jobs:
           ls -lh /tmp/charon-pr-image.tar
 
       - name: Upload Image Artifact
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request' || steps.skip.outputs.is_feature_push == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ github.event_name == 'pull_request' && format('pr-image-{0}', github.event.pull_request.number) || 'push-image' }}
