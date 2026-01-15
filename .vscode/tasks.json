@@ -4,14 +4,14 @@
         {
             "label": "Build & Run: Local Docker Image",
             "type": "shell",
-            "command": "docker build -t charon:local . && docker compose -f /projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build -t charon:local . && docker compose -f .docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "Build & Run: Local Docker Image No-Cache",
             "type": "shell",
-            "command": "docker build --no-cache -t charon:local . && docker compose -f /projects/Charon/.docker/compose//projects/Charon/.docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
+            "command": "docker build --no-cache -t charon:local . && docker compose -f .docker/compose/docker-compose.test.yml up -d && echo 'Charon running at http://localhost:8080'",
             "group": "build",
             "problemMatcher": []
         },
@@ -84,6 +84,36 @@
             "problemMatcher": []
         },
         {
+            "label": "Test: E2E Playwright (Chromium)",
+            "type": "shell",
+            "command": "npm run e2e",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (All Browsers)",
+            "type": "shell",
+            "command": "npm run e2e:all",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: E2E Playwright (Headed)",
+            "type": "shell",
+            "command": "npm run e2e:headed",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
             "label": "Lint: Pre-commit (All Files)",
             "type": "shell",
             "command": ".github/skills/scripts/skill-runner.sh qa-precommit-all",
@@ -94,6 +124,24 @@
             "label": "Lint: Go Vet",
             "type": "shell",
             "command": "cd backend && go vet ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Lint: Staticcheck (Fast)",
+            "type": "shell",
+            "command": "cd backend && golangci-lint run --config .golangci-fast.yml ./...",
+            "group": "test",
+            "problemMatcher": ["$go"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Lint: Staticcheck Only",
+            "type": "shell",
+            "command": "cd backend && golangci-lint run --config .golangci-fast.yml --disable-all --enable staticcheck ./...",
             "group": "test",
             "problemMatcher": ["$go"]
         },
@@ -309,6 +357,73 @@
             "command": ".github/skills/scripts/skill-runner.sh utility-db-recovery",
             "group": "none",
             "problemMatcher": []
+        },
+        {
+            "label": "Security: Verify SBOM",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-verify-sbom ${input:dockerImage}",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Sign with Cosign",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Generate SLSA Provenance",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Security: Full Supply Chain Audit",
+            "type": "shell",
+            "dependsOn": [
+                "Security: Verify SBOM",
+                "Security: Sign with Cosign",
+                "Security: Generate SLSA Provenance"
+            ],
+            "dependsOrder": "sequence",
+            "command": "echo '✅ Supply chain audit complete'",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test: E2E Playwright (Skill)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright - View Report",
+            "type": "shell",
+            "command": "npx playwright show-report --port 9323",
+            "group": "none",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "dockerImage",
+            "type": "promptString",
+            "description": "Docker image name or tag to verify",
+            "default": "charon:local"
         }
     ]
 }

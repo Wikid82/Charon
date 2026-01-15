@@ -1,7 +1,7 @@
 # Issue #365: Additional Security Enhancements - Implementation Status
 
 **Research Date**: December 23, 2025
-**Issue**: https://github.com/Wikid82/Charon/issues/365
+**Issue**: <https://github.com/Wikid82/Charon/issues/365>
 **Related PRs**: #436, #437, #438
 **Main Implementation Commit**: `2dfe7ee` (merged via PR #438)
 
@@ -12,6 +12,7 @@
 Issue #365 addressed multiple security enhancements across supply chain security, timing attacks, documentation, and incident response. The implementation is **mostly complete** with one notable rollback and one remaining verification task.
 
 **Status Overview**:
+
 - ✅ **Completed**: 5 of 7 primary objectives
 - ⚠️ **Rolled Back**: 1 item (constant-time token comparison - see details below)
 - 📋 **Verification Pending**: 1 item (CSP header implementation)
@@ -25,6 +26,7 @@ Issue #365 addressed multiple security enhancements across supply chain security
 **Status**: Fully implemented and operational
 
 **Evidence**:
+
 - **File**: `.github/workflows/docker-build.yml` (lines 236-252)
 - **Implementation Details**:
   - Uses `anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a` (v0.17.2)
@@ -35,6 +37,7 @@ Issue #365 addressed multiple security enhancements across supply chain security
   - Permissions configured: `id-token: write`, `attestations: write`
 
 **Verification**:
+
 ```bash
 # Check workflow file
 grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
@@ -53,11 +56,13 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
 **Status**: Complete documentation created
 
 **Evidence**:
+
 - **File**: `docs/security-incident-response.md` (400 lines)
 - **Created**: December 21, 2025
 - **Version**: 1.0
 
 **Contents**:
+
 - Incident classification (P1-P4 severity levels)
 - Detection methods (automated dashboard monitoring, log analysis)
 - Containment procedures with executable commands
@@ -68,6 +73,7 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
 - Quick reference card with key commands
 
 **Integration Points**:
+
 - References Cerberus Dashboard for live monitoring
 - Integrates with CrowdSec decision management
 - Documents Docker container forensics procedures
@@ -80,10 +86,12 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
 **Status**: Comprehensive documentation added to `docs/security.md`
 
 **Evidence**:
+
 - **File**: `docs/security.md` (lines ~755-788)
 - **Section**: "TLS Security"
 
 **Content**:
+
 - TLS 1.2+ enforcement (via Caddy default configuration)
 - Protection against downgrade attacks (BEAST, POODLE)
 - HSTS header configuration with preload
@@ -92,6 +100,7 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
   - `preload` flag for browser preload lists
 
 **Technical Implementation**:
+
 - Caddy enforces TLS 1.2+ by default (no additional configuration needed)
 - HSTS headers automatically added in HTTPS mode
 - Load balancer header forwarding requirements documented
@@ -103,10 +112,12 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
 **Status**: Complete deployment guidance provided
 
 **Evidence**:
+
 - **File**: `docs/security.md` (lines ~790-823)
 - **Section**: "DNS Security"
 
 **Content**:
+
 - DNS hijacking and cache poisoning protection strategies
 - Docker host configuration for encrypted DNS (DoH/DoT)
 - Example systemd-resolved configuration
@@ -115,6 +126,7 @@ grep -A 20 "Generate SBOM" .github/workflows/docker-build.yml
 - CAA record recommendations
 
 **Example Configuration**:
+
 ```bash
 # /etc/systemd/resolved.conf
 [Resolve]
@@ -129,10 +141,12 @@ DNSOverTLS=yes
 **Status**: Production-ready Docker security configuration documented
 
 **Evidence**:
+
 - **File**: `docs/security.md` (lines ~825-860)
 - **Section**: "Container Hardening"
 
 **Content**:
+
 - Read-only root filesystem configuration
 - Capability dropping (cap_drop: ALL, cap_add: NET_BIND_SERVICE)
 - tmpfs mounts for writable directories
@@ -140,6 +154,7 @@ DNSOverTLS=yes
 - Complete docker-compose.yml example
 
 **Example**:
+
 ```yaml
 services:
   charon:
@@ -164,10 +179,12 @@ services:
 **Status**: Multiple notification methods documented
 
 **Evidence**:
+
 - **File**: `docs/getting-started.md` (lines 399-430)
 - **Section**: "Security Update Notifications"
 
 **Content**:
+
 - GitHub Watch configuration for security advisories
 - Watchtower for automatic updates
   - Example docker-compose.yml configuration
@@ -189,6 +206,7 @@ services:
 **Initial Status**: Implemented in commit `2dfe7ee` (December 21, 2025)
 
 **Implementation**:
+
 - **Files Created**:
   - `backend/internal/util/crypto.go` (21 lines)
   - `backend/internal/util/crypto_test.go` (82 lines)
@@ -208,6 +226,7 @@ According to `docs/plans/codecov-acceptinvite-patch-coverage.md`:
 4. **Coverage Impact**: The constant-time comparison branch was unreachable, causing Codecov patch coverage to fail at 66.67%
 
 **Current State**:
+
 - ✅ Utility functions remain available in `backend/internal/util/crypto.go`
 - ✅ Comprehensive test coverage in `backend/internal/util/crypto_test.go`
 - ❌ NOT used in `backend/internal/api/handlers/user_handler.go` (removed from AcceptInvite handler)
@@ -215,12 +234,14 @@ According to `docs/plans/codecov-acceptinvite-patch-coverage.md`:
 
 **Security Analysis**:
 The rollback is **security-neutral** because:
+
 - The DB query already provides the primary defense (token lookup)
 - String comparison timing variance is negligible compared to DB query timing
 - Avoiding different HTTP status codes (401 vs 404) eliminates a potential oracle
 - The utility remains available for scenarios where constant-time comparison is beneficial
 
 **Recommendation**: Keep utility functions but do NOT re-introduce to `AcceptInvite` handler. Consider using for:
+
 - API key validation
 - Webhook signature verification
 - Any scenario where both values are in-memory and timing could leak information
@@ -237,6 +258,7 @@ The rollback is **security-neutral** because:
 According to Issue #365 plan, CSP headers should be implemented in the backend to protect against XSS attacks.
 
 **Evidence Found**:
+
 - **Documentation**: Extensive CSP documentation exists in `docs/features.md` (lines 1167-1583)
   - Interactive CSP builder documentation
   - CSP configuration guidance
@@ -249,6 +271,7 @@ According to Issue #365 plan, CSP headers should be implemented in the backend t
   - `backend/internal/caddy/types*.go` - CSP header application to proxy hosts
 
 **What Needs Verification**:
+
 1. ✅ **Proxy Host Level**: CSP headers ARE applied to individual proxy hosts via security header profiles (confirmed in code)
 2. ❓ **Charon Admin UI**: Are CSP headers applied to Charon's own admin interface?
    - Check: `backend/internal/api/middleware/` for CSP middleware
@@ -256,6 +279,7 @@ According to Issue #365 plan, CSP headers should be implemented in the backend t
 3. ❓ **Default Security Headers**: Does Charon set secure-by-default headers for its own endpoints?
 
 **Verification Commands**:
+
 ```bash
 # Check if CSP middleware exists in backend
 grep -r "Content-Security-Policy" backend/internal/api/middleware/
@@ -268,6 +292,7 @@ grep -A 10 "SecurityHeaders" backend/internal/api/routes.go
 ```
 
 **Expected Outcome**:
+
 - [ ] Confirm CSP headers are applied to Charon's admin UI
 - [ ] Document default CSP policy for admin interface
 - [ ] Verify headers include: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
@@ -304,7 +329,7 @@ These remain **out of scope** and should be tracked as separate issues.
 
 ### Short-Term (Medium Priority)
 
-3. **Security Header Middleware Audit**
+1. **Security Header Middleware Audit**
    - Verify all security headers are applied consistently:
      - Strict-Transport-Security (HSTS)
      - X-Frame-Options
@@ -314,19 +339,19 @@ These remain **out of scope** and should be tracked as separate issues.
      - Content-Security-Policy
    - Check for proper HTTPS detection (X-Forwarded-Proto)
 
-4. **Update Documentation**
+2. **Update Documentation**
    - Add note to `docs/security.md` explaining constant-time comparison utility availability
    - Document why it's not used in AcceptInvite (reference coverage plan)
    - Update Issue #365 to reflect rollback
 
 ### Long-Term (Low Priority)
 
-5. **Consider Re-Using Constant-Time Comparison**
+1. **Consider Re-Using Constant-Time Comparison**
    - Identify endpoints where constant-time comparison would be genuinely beneficial
    - Examples: API key validation, webhook signatures, session token verification
    - Document use cases in crypto utility comments
 
-6. **Security Hardening Testing**
+2. **Security Hardening Testing**
    - Test container hardening configuration in production-like environment
    - Verify read-only filesystem doesn't break functionality
    - Document any tmpfs mount size adjustments needed
@@ -361,6 +386,7 @@ From `docs/issues/created/20251221-issue-365-manual-test-plan.md`:
 ## Files Changed (Summary)
 
 **Original Implementation (commit `2dfe7ee`)**:
+
 - `.dockerignore` - Added SBOM artifacts exclusion
 - `.github/workflows/docker-build.yml` - Added SBOM generation steps
 - `.gitignore` - Added SBOM artifacts exclusion
@@ -373,10 +399,12 @@ From `docs/issues/created/20251221-issue-365-manual-test-plan.md`:
 - `docs/security.md` - Added TLS, DNS, and container hardening sections
 
 **Rollback (commit `8a7b939`)**:
+
 - `backend/internal/api/handlers/user_handler.go` - Removed constant-time comparison usage
 - `docs/plans/codecov-acceptinvite-patch-coverage.md` - Created explanation document
 
 **Current State**:
+
 - ✅ 11 files remain changed (from original implementation)
 - ⚠️ 1 file rolled back (user_handler.go)
 - ✅ Utility functions preserved for future use
@@ -388,12 +416,14 @@ From `docs/issues/created/20251221-issue-365-manual-test-plan.md`:
 Issue #365 achieved **71% completion** (5 of 7 objectives) with high-quality implementation:
 
 **Strengths**:
+
 - Comprehensive documentation (SIRP, TLS, DNS, container hardening)
 - Supply chain security (SBOM + attestation)
 - Security update guidance
 - Reusable cryptographic utilities
 
 **Outstanding**:
+
 - CSP header verification for admin UI (high priority)
 - Manual testing execution
 - Constant-time comparison usage evaluation (find appropriate use cases)

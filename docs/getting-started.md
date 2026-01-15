@@ -134,6 +134,7 @@ CrowdSec will automatically start if it was previously enabled. The reconciliati
 3. **Starts CrowdSec** if either condition is true
 
 **How it works:**
+
 - Reconciliation happens **before** the HTTP server starts (during container boot)
 - Protected by mutex to prevent race conditions
 - Validates binary and config paths before starting
@@ -168,24 +169,30 @@ Expected output:
 If CrowdSec doesn't auto-start:
 
 1. **Check reconciliation logs:**
+
    ```bash
    docker logs charon 2>&1 | grep "CrowdSec reconciliation"
    ```
 
 2. **Verify SecurityConfig mode:**
+
    ```bash
    docker exec charon sqlite3 /app/data/charon.db \
      "SELECT crowdsec_mode FROM security_configs LIMIT 1;"
    ```
+
    Expected: `local`
 
 3. **Check directory permissions:**
+
    ```bash
    docker exec charon ls -la /var/lib/crowdsec/data/
    ```
+
    Expected: `charon:charon` ownership
 
 4. **Manual start:**
+
    ```bash
    curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
    ```

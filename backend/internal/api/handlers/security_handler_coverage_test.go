@@ -522,7 +522,7 @@ func TestSecurityHandler_Enable_WithValidBreakGlassToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var tokenResp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &tokenResp)
+	_ = json.Unmarshal(w.Body.Bytes(), &tokenResp)
 	token := tokenResp["token"]
 
 	// Now try to enable with the token
@@ -586,7 +586,7 @@ func TestSecurityHandler_Disable_FromLocalhost(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	assert.False(t, resp["enabled"].(bool))
 }
 
@@ -612,7 +612,7 @@ func TestSecurityHandler_Disable_FromRemoteWithToken(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/security/breakglass/generate", http.NoBody)
 	router.ServeHTTP(w, req)
 	var tokenResp map[string]string
-	json.Unmarshal(w.Body.Bytes(), &tokenResp)
+	_ = json.Unmarshal(w.Body.Bytes(), &tokenResp)
 	token := tokenResp["token"]
 
 	// Disable with token

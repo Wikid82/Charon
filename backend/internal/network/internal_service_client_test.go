@@ -87,7 +87,7 @@ func TestNewInternalServiceHTTPClient_RedirectsDisabled(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("redirected"))
+		_, _ = w.Write([]byte("redirected"))
 	}))
 	defer server.Close()
 
@@ -97,7 +97,7 @@ func TestNewInternalServiceHTTPClient_RedirectsDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should receive the redirect response, not follow it
 	if resp.StatusCode != http.StatusFound {
@@ -133,7 +133,7 @@ func TestNewInternalServiceHTTPClient_ActualRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -143,7 +143,7 @@ func TestNewInternalServiceHTTPClient_ActualRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -162,7 +162,10 @@ func TestNewInternalServiceHTTPClient_TimeoutEnforced(t *testing.T) {
 	// Use a very short timeout
 	client := NewInternalServiceHTTPClient(100 * time.Millisecond)
 
-	_, err := client.Get(server.URL)
+	resp, err := client.Get(server.URL)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err == nil {
 		t.Error("expected timeout error, got nil")
 	}
@@ -191,7 +194,7 @@ func TestNewInternalServiceHTTPClient_ProxyIgnored(t *testing.T) {
 	// Set up a server to verify no proxy is used
 	directServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("direct"))
+		_, _ = w.Write([]byte("direct"))
 	}))
 	defer directServer.Close()
 
@@ -208,7 +211,7 @@ func TestNewInternalServiceHTTPClient_ProxyIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -231,7 +234,7 @@ func TestNewInternalServiceHTTPClient_PostRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected status 201, got %d", resp.StatusCode)
@@ -258,7 +261,7 @@ func BenchmarkNewInternalServiceHTTPClient_Request(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		resp, err := client.Get(server.URL)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 }

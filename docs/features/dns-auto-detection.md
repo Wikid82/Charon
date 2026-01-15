@@ -14,6 +14,7 @@ DNS Provider Auto-Detection is an intelligent feature that automatically identif
 ### When Detection Occurs
 
 Auto-detection runs automatically when you:
+
 - Enter a wildcard domain (`*.example.com`) in the proxy host creation form
 - The domain requires DNS-01 challenge validation for Let's Encrypt SSL certificates
 
@@ -55,6 +56,7 @@ When creating a new proxy host with a wildcard domain:
 4. If a match is found, the provider is automatically selected
 
 **Visual Indicator**: A detection status badge appears next to the DNS Provider dropdown showing:
+
 - ✓ Provider detected
 - ⚠ No provider detected
 - ℹ Multiple nameservers found
@@ -166,6 +168,7 @@ The system recognizes the following DNS providers by their nameserver patterns:
 ### Provider-Specific Examples
 
 #### Cloudflare
+
 ```
 Nameservers:
   ns1.cloudflare.com
@@ -175,6 +178,7 @@ Detected: cloudflare (High confidence)
 ```
 
 #### AWS Route 53
+
 ```
 Nameservers:
   ns-1234.awsdns-12.com
@@ -184,6 +188,7 @@ Detected: route53 (High confidence)
 ```
 
 #### Google Cloud DNS
+
 ```
 Nameservers:
   ns-cloud-a1.googledomains.com
@@ -193,6 +198,7 @@ Detected: googleclouddns (High confidence)
 ```
 
 #### DigitalOcean
+
 ```
 Nameservers:
   ns1.digitalocean.com
@@ -240,6 +246,7 @@ For custom or internal nameservers:
 4. Configure appropriate API credentials in the DNS Provider settings
 
 Example:
+
 ```
 Domain: *.corp.internal
 Nameservers: ns1.corp.internal, ns2.corp.internal
@@ -255,11 +262,13 @@ Manual selection required: Select compatible provider or configure custom
 **Symptom**: Error message "Failed to detect DNS provider" or "Domain not found"
 
 **Causes**:
+
 - Domain doesn't exist yet
 - Domain not propagated to public DNS
 - DNS resolution blocked by firewall
 
 **Solutions**:
+
 - Verify domain exists and is registered
 - Wait for DNS propagation (up to 48 hours)
 - Check network connectivity and DNS resolution
@@ -270,11 +279,13 @@ Manual selection required: Select compatible provider or configure custom
 **Symptom**: System detects incorrect provider type
 
 **Causes**:
+
 - Domain using DNS proxy/forwarding service
 - Recent nameserver change not yet propagated
 - Multiple providers in nameserver list
 
 **Solutions**:
+
 - Wait for DNS propagation (up to 24 hours)
 - Manually override provider selection
 - Verify nameservers at your domain registrar
@@ -285,11 +296,13 @@ Manual selection required: Select compatible provider or configure custom
 **Symptom**: Detection shows multiple provider types
 
 **Causes**:
+
 - Nameservers from different providers (unusual)
 - DNS migration in progress
 - Misconfigured nameservers
 
 **Solutions**:
+
 - Check nameserver configuration at your registrar
 - Complete DNS migration to single provider
 - Manually select the primary/correct provider
@@ -300,12 +313,14 @@ Manual selection required: Select compatible provider or configure custom
 **Symptom**: Provider detected but no matching provider configured in system
 
 **Example**:
+
 ```
 Detected Provider Type: cloudflare
 Error: No DNS provider of type 'cloudflare' is configured
 ```
 
 **Solutions**:
+
 1. Navigate to **Settings** → **DNS Providers**
 2. Click **Add DNS Provider**
 3. Select the detected provider type (e.g., Cloudflare)
@@ -326,6 +341,7 @@ Error: No DNS provider of type 'cloudflare' is configured
 **This is expected behavior**. Custom DNS servers don't match public provider patterns.
 
 **Solutions**:
+
 1. Manually select a provider that uses a compatible API
 2. If using BIND, PowerDNS, or other custom DNS:
    - Configure acme.sh or certbot direct integration
@@ -342,6 +358,7 @@ Error: No DNS provider of type 'cloudflare' is configured
 **Cause**: Results cached for 1 hour
 
 **Solutions**:
+
 - Wait up to 1 hour for cache to expire
 - Use **Detect Provider** button for manual detection (bypasses cache)
 - DNS propagation may also take additional time (separate from caching)
@@ -375,6 +392,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ```
 
 **Parameters**:
+
 - `domain` (required): Full domain name including wildcard (e.g., `*.example.com`)
 
 #### Response: Success
@@ -395,6 +413,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ```
 
 **Response Fields**:
+
 - `status`: `"detected"` or `"not_detected"`
 - `provider_type`: Detected provider type (string) or `null`
 - `confidence`: `"high"`, `"medium"`, `"low"`, or `"none"`
@@ -430,6 +449,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ```
 
 **HTTP Status Codes**:
+
 - `200 OK`: Detection completed successfully
 - `400 Bad Request`: Invalid domain format
 - `401 Unauthorized`: Missing or invalid API token

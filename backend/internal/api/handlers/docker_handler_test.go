@@ -76,6 +76,9 @@ func TestDockerHandler_ListContainers_DockerUnavailableMappedTo503(t *testing.T)
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Contains(t, w.Body.String(), "Docker daemon unavailable")
+	// Verify the new details field is included in the response
+	assert.Contains(t, w.Body.String(), "details")
+	assert.Contains(t, w.Body.String(), "Docker is running")
 }
 
 func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {

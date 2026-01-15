@@ -32,12 +32,14 @@ Before beginning tests, ensure:
    - Discord webhook: <https://discord.com/developers/docs/resources/webhook>
 
 2. **HTTP Client**:
+
    ```bash
    # Verify curl is available
    curl --version
    ```
 
 3. **Log Access**:
+
    ```bash
    # View Charon logs
    docker logs charon --tail=50 --follow
@@ -65,6 +67,7 @@ Each test case includes:
 **Objective**: Verify legitimate HTTPS webhooks work correctly
 
 **Steps**:
+
 1. Navigate to Security Settings → Notifications
 2. Configure webhook: `https://webhook.site/<your-unique-id>`
 3. Click **Save**
@@ -78,6 +81,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -89,6 +93,7 @@ Each test case includes:
 **Objective**: Verify HTTP webhooks work when explicitly allowed
 
 **Steps**:
+
 1. Navigate to Security Settings → Notifications
 2. Configure webhook: `http://webhook.site/<your-unique-id>`
 3. Click **Save**
@@ -102,6 +107,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -113,6 +119,7 @@ Each test case includes:
 **Objective**: Verify production webhook services work
 
 **Steps**:
+
 1. Create Slack incoming webhook at <https://api.slack.com/messaging/webhooks>
 2. Configure webhook in Charon: `https://hooks.slack.com/services/T00/B00/XXX`
 3. Save configuration
@@ -126,6 +133,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -137,6 +145,7 @@ Each test case includes:
 **Objective**: Verify Discord integration works
 
 **Steps**:
+
 1. Create Discord webhook in server settings
 2. Configure webhook in Charon: `https://discord.com/api/webhooks/123456/abcdef`
 3. Save configuration
@@ -150,6 +159,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -163,6 +173,7 @@ Each test case includes:
 **Objective**: Verify RFC 1918 Class A blocking
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://10.0.0.1/webhook`
 2. Click **Save**
 3. Observe error message
@@ -174,6 +185,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -185,6 +197,7 @@ Each test case includes:
 **Objective**: Verify RFC 1918 Class B blocking
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://172.16.0.1/admin`
 2. Click **Save**
 3. Observe error message
@@ -196,6 +209,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -207,6 +221,7 @@ Each test case includes:
 **Objective**: Verify RFC 1918 Class C blocking
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://192.168.1.1/`
 2. Click **Save**
 3. Observe error message
@@ -218,6 +233,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -229,6 +245,7 @@ Each test case includes:
 **Objective**: Verify port numbers don't bypass protection
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://192.168.1.100:8080/webhook`
 2. Click **Save**
 3. Observe error message
@@ -240,6 +257,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -253,12 +271,14 @@ Each test case includes:
 **Objective**: Verify AWS metadata service is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://169.254.169.254/latest/meta-data/`
 2. Click **Save**
 3. Observe error message
 4. Check logs for HIGH severity SSRF attempt
 
 **Expected Result**:
+
 - ❌ Configuration rejected
 - ✅ Log entry: `severity=HIGH event=ssrf_blocked`
 
@@ -267,6 +287,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -278,6 +299,7 @@ Each test case includes:
 **Objective**: Verify GCP metadata service is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://metadata.google.internal/computeMetadata/v1/`
 2. Click **Save**
 3. Observe error message
@@ -289,6 +311,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -300,6 +323,7 @@ Each test case includes:
 **Objective**: Verify Azure metadata service is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://169.254.169.254/metadata/instance?api-version=2021-02-01`
 2. Click **Save**
 3. Observe error message
@@ -311,6 +335,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -324,6 +349,7 @@ Each test case includes:
 **Objective**: Verify localhost blocking (unless explicitly allowed)
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://127.0.0.1:8080/internal`
 2. Click **Save**
 3. Observe error message
@@ -335,6 +361,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -346,6 +373,7 @@ Each test case includes:
 **Objective**: Verify `localhost` keyword blocking
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://localhost/admin`
 2. Click **Save**
 3. Observe error message
@@ -357,6 +385,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -368,6 +397,7 @@ Each test case includes:
 **Objective**: Verify IPv6 loopback blocking
 
 **Steps**:
+
 1. Attempt to configure webhook: `http://[::1]/webhook`
 2. Click **Save**
 3. Observe error message
@@ -379,6 +409,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -392,6 +423,7 @@ Each test case includes:
 **Objective**: Verify file:// protocol is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `file:///etc/passwd`
 2. Click **Save**
 3. Observe error message
@@ -403,6 +435,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -414,6 +447,7 @@ Each test case includes:
 **Objective**: Verify ftp:// protocol is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `ftp://internal-server.local/upload/`
 2. Click **Save**
 3. Observe error message
@@ -425,6 +459,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -436,6 +471,7 @@ Each test case includes:
 **Objective**: Verify gopher:// protocol is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `gopher://internal:70/`
 2. Click **Save**
 3. Observe error message
@@ -447,6 +483,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -458,6 +495,7 @@ Each test case includes:
 **Objective**: Verify data: scheme is blocked
 
 **Steps**:
+
 1. Attempt to configure webhook: `data:text/html,<script>alert(1)</script>`
 2. Click **Save**
 3. Observe error message
@@ -469,6 +507,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -484,6 +523,7 @@ Each test case includes:
 **Objective**: Verify connection-time IP validation prevents DNS rebinding
 
 **Steps**:
+
 1. Configure a webhook with a domain you control
 2. Initially point the domain to a public IP (passes validation)
 3. After webhook is saved, update DNS to point to `192.168.1.100`
@@ -491,6 +531,7 @@ Each test case includes:
 5. Observe the webhook delivery failure
 
 **Expected Result**:
+
 - ❌ Webhook delivery fails with "connection to private IP blocked"
 - ✅ Log entry shows re-validation caught the attack
 - ✅ No request reaches 192.168.1.100
@@ -500,6 +541,7 @@ Each test case includes:
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 This test requires DNS control. Alternative: use tools like rebinder.it
 ```
@@ -511,6 +553,7 @@ This test requires DNS control. Alternative: use tools like rebinder.it
 **Objective**: Verify IPs are validated at TCP connection time (not just URL parsing)
 
 **Steps**:
+
 1. Use a webhook receiver that logs incoming connections
 2. Configure webhook URL pointing to the receiver
 3. Check that the connection comes from Charon
@@ -523,6 +566,7 @@ This test requires DNS control. Alternative: use tools like rebinder.it
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 Check logs for: "Validating IP for connection"
 ```
@@ -536,12 +580,14 @@ Check logs for: "Validating IP for connection"
 **Objective**: Verify redirects to private IPs are blocked
 
 **Steps**:
+
 1. Set up a redirect server that returns: `HTTP 302 Location: http://192.168.1.100/`
 2. Configure webhook pointing to the redirect server
 3. Trigger webhook delivery
 4. Observe redirect handling
 
 **Expected Result**:
+
 - ❌ "redirect to private IP blocked"
 - ✅ Original request fails, no connection to 192.168.1.100
 
@@ -550,6 +596,7 @@ Check logs for: "Validating IP for connection"
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
 ```
@@ -561,6 +608,7 @@ Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
 **Objective**: Verify redirects to cloud metadata endpoints are blocked
 
 **Steps**:
+
 1. Set up redirect: `HTTP 302 Location: http://169.254.169.254/latest/meta-data/`
 2. Configure webhook pointing to redirect
 3. Trigger webhook delivery
@@ -573,6 +621,7 @@ Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -584,6 +633,7 @@ Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
 **Objective**: Verify excessive redirects are blocked
 
 **Steps**:
+
 1. Set up chain of 5+ redirects (each to a valid public URL)
 2. Configure webhook pointing to first redirect
 3. Trigger webhook delivery
@@ -596,6 +646,7 @@ Alternative: use httpbin.org/redirect-to?url=http://192.168.1.100
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 ```
@@ -607,6 +658,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify redirects to localhost are blocked
 
 **Steps**:
+
 1. Set up redirect: `HTTP 302 Location: http://127.0.0.1:8080/admin`
 2. Configure webhook pointing to redirect
 3. Trigger webhook delivery
@@ -619,6 +671,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -632,6 +685,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify URL test endpoint works for legitimate URLs
 
 **Steps**:
+
 1. Navigate to **System Settings** → **URL Testing** (or use API)
 2. Test URL: `https://api.github.com`
 3. Submit test
@@ -644,6 +698,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -655,6 +710,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify URL test endpoint also has SSRF protection
 
 **Steps**:
+
 1. Navigate to URL Testing
 2. Test URL: `http://192.168.1.1`
 3. Submit test
@@ -667,6 +723,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -678,6 +735,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify DNS resolution failure handling
 
 **Steps**:
+
 1. Test URL: `https://this-domain-does-not-exist-12345.com`
 2. Submit test
 3. Observe error
@@ -689,6 +747,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -702,6 +761,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify CrowdSec hub sync works with official domain
 
 **Steps**:
+
 1. Navigate to **Security** → **CrowdSec**
 2. Enable CrowdSec (if not already enabled)
 3. Trigger hub sync (or wait for automatic sync)
@@ -714,6 +774,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -725,6 +786,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify custom hub URLs are validated
 
 **Steps**:
+
 1. Attempt to configure custom hub URL: `http://malicious-hub.evil.com`
 2. Trigger hub sync
 3. Observe error in logs
@@ -736,6 +798,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 (This test may require configuration file modification)
 ```
@@ -749,6 +812,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify update service uses validated GitHub URLs
 
 **Steps**:
+
 1. Navigate to **System** → **Updates** (if available in UI)
 2. Click **Check for Updates**
 3. Observe success or error
@@ -761,6 +825,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -774,6 +839,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify error messages don't leak internal information
 
 **Steps**:
+
 1. Attempt various blocked URLs from previous tests
 2. Record exact error messages shown to user
 3. Verify no internal IPs, hostnames, or network topology revealed
@@ -785,6 +851,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -796,11 +863,13 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify logs contain more detail than user-facing errors
 
 **Steps**:
+
 1. Attempt blocked URL: `http://192.168.1.100/admin`
 2. Check user-facing error message
 3. Check server logs for detailed information
 
 **Expected Result**:
+
 - User sees: "URL resolves to a private IP address (blocked for security)"
 - Logs show: `severity=HIGH url=http://192.168.1.100/admin resolved_ip=192.168.1.100`
 
@@ -809,6 +878,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -822,12 +892,14 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify complete webhook notification flow with SSRF protection
 
 **Steps**:
+
 1. Configure valid webhook: `https://webhook.site/<unique-id>`
 2. Trigger CrowdSec block event (simulate attack)
 3. Verify notification received at webhook.site
 4. Check logs for successful webhook delivery
 
 **Expected Result**:
+
 - ✅ Webhook configured without errors
 - ✅ Security event triggered
 - ✅ Notification delivered successfully
@@ -838,6 +910,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -849,6 +922,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify webhook validation persists across restarts
 
 **Steps**:
+
 1. Configure valid webhook: `https://webhook.site/<unique-id>`
 2. Restart Charon container: `docker restart charon`
 3. Trigger security event
@@ -861,6 +935,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -872,12 +947,14 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify SSRF protection applies to all webhook types
 
 **Steps**:
+
 1. Configure security notification webhook (valid)
 2. Configure custom webhook notification (valid)
 3. Attempt to add webhook with private IP (blocked)
 4. Verify both valid webhooks work, blocked one rejected
 
 **Expected Result**:
+
 - ✅ Valid webhooks accepted
 - ❌ Private IP webhook rejected
 - ✅ Both valid webhooks receive notifications
@@ -887,6 +964,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -898,6 +976,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Objective**: Verify URL testing requires admin privileges
 
 **Steps**:
+
 1. Log out of admin account
 2. Log in as non-admin user (if available)
 3. Attempt to access URL testing endpoint
@@ -910,6 +989,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Pass/Fail**: [ ] Pass [ ] Fail
 
 **Notes**:
+
 ```
 
 ```
@@ -939,11 +1019,13 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 ### Pass Criteria
 
 **Minimum Requirements**:
+
 - [ ] All 36 test cases passed OR
 - [ ] All critical tests passed (TC-005 through TC-018, TC-021 through TC-024, TC-026) AND
 - [ ] All failures have documented justification
 
 **Critical Tests** (Must Pass):
+
 - [ ] TC-005: Class A Private Network blocking
 - [ ] TC-006: Class B Private Network blocking
 - [ ] TC-007: Class C Private Network blocking
@@ -964,21 +1046,25 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 **Test Case**: TC-___
 **Severity**: [ ] Critical [ ] High [ ] Medium [ ] Low
 **Description**:
+
 ```
 
 ```
 
 **Steps to Reproduce**:
+
 ```
 
 ```
 
 **Expected vs Actual**:
+
 ```
 
 ```
 
 **Workaround** (if applicable):
+
 ```
 
 ```
@@ -990,6 +1076,7 @@ Default max redirects is 0 (no redirects). If enabled, max is typically 2.
 ### Tester Certification
 
 I certify that:
+
 - [ ] All test cases were executed as described
 - [ ] Results are accurate and complete
 - [ ] All issues are documented

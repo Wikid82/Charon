@@ -181,7 +181,7 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T) {
 
 	// Close connection
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Corrupt the database file
 	f, err := os.OpenFile(dbPath, os.O_RDWR, 0o644)
@@ -193,7 +193,7 @@ func TestCheckIntegrity_ActualCorruption(t *testing.T) {
 		_, err = f.WriteAt([]byte("CORRUPTED_DATA"), stat.Size()/2)
 		require.NoError(t, err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	// Reconnect
 	db2, err := Connect(dbPath)
@@ -227,7 +227,7 @@ func TestCheckIntegrity_PRAGMAError(t *testing.T) {
 	// Close the underlying SQL connection
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	// Now CheckIntegrity should fail because connection is closed
 	ok, message := CheckIntegrity(db)

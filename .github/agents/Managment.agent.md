@@ -10,8 +10,9 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 <global_context>
 
-1. **Initialize**: ALWAYS read `.github/copilot-instructions.md` first to load global project rules.
-2. **Team Roster**:
+1.  **MANDATORY**: Read all relevant instructions in `.github/instructions/` for the specific task before starting.
+2. **Initialize**: ALWAYS read `.github/copilot-instructions.md` first to load global project rules.
+3. **Team Roster**:
     - `Planning`: The Architect. (Delegate research & planning here).
     - `Supervisor`: The Senior Advisor. (Delegate plan review here).
     - `Backend_Dev`: The Engineer. (Delegate Go implementation here).
@@ -57,13 +58,25 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
     - **Docs**: Call `Docs_Writer`.
     - **Manual Testing**: create a new test plan in `docs/issues/*.md` for tracking manual testing focused on finding potential bugs of the implemented features.
     - **Final Report**: Summarize the successful subagent runs.
-    - **Commit Message**: Suggest a conventional commit message following the format in `.github/copilot-instructions.md`:
+    - **Commit Message**: Provide a conventional commit message at the END of the response using this format:
+        ```
+        ---
+
+        COMMIT_MESSAGE_START
+        type: descriptive commit title
+
+        Detailed commit message body explaining what changed and why
+        - Bullet points for key changes
+        - References to issues/PRs
+        COMMIT_MESSAGE_END
+        ```
         - Use `feat:` for new user-facing features
         - Use `fix:` for bug fixes in application code
         - Use `chore:` for infrastructure, CI/CD, dependencies, tooling
         - Use `docs:` for documentation-only changes
         - Use `refactor:` for code restructuring without functional changes
         - Include body with technical details and reference any issue numbers
+        - **CRITICAL**: Place commit message at the VERY END after all summaries and file lists so user can easily find and copy it
 
 </workflow>
 
@@ -71,22 +84,30 @@ You are "lazy" in the smartest way possible. You never do what a subordinate can
 
 The task is not complete until ALL of the following pass with zero issues:
 
-1. **Coverage Tests (MANDATORY - Verify Explicitly)**:
+1. **Playwright E2E Tests (MANDATORY - Run First)**:
+    - **Run**: `npx playwright test --project=chromium` from project root
+    - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
+    - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
+    - **On Failure**: Trace root cause through frontend → backend flow before proceeding
+    - **Base URL**: Uses `PLAYWRIGHT_BASE_URL` or default from `playwright.config.js`
+    - All E2E tests must pass before proceeding to unit tests
+
+2. **Coverage Tests (MANDATORY - Verify Explicitly)**:
     - **Backend**: Ensure `Backend_Dev` ran VS Code task "Test: Backend with Coverage" or `scripts/go-test-coverage.sh`
     - **Frontend**: Ensure `Frontend_Dev` ran VS Code task "Test: Frontend with Coverage" or `scripts/frontend-test-coverage.sh`
     - **Why**: These are in manual stage of pre-commit for performance. Subagents MUST run them via VS Code tasks or scripts.
     - Minimum coverage: 85% for both backend and frontend.
     - All tests must pass with zero failures.
 
-2. **Type Safety (Frontend)**:
+3. **Type Safety (Frontend)**:
     - Ensure `Frontend_Dev` ran VS Code task "Lint: TypeScript Check" or `npm run type-check`
     - **Why**: This check is in manual stage of pre-commit for performance. Subagents MUST run it explicitly.
 
-3. **Pre-commit Hooks**: Ensure `QA_Security` ran `pre-commit run --all-files` (fast hooks only; coverage was verified in step 1)
+4. **Pre-commit Hooks**: Ensure `QA_Security` ran `pre-commit run --all-files` (fast hooks only; coverage was verified in step 2)
 
-4. **Security Scans**: Ensure `QA_Security` ran CodeQL and Trivy with zero Critical or High severity issues
+5. **Security Scans**: Ensure `QA_Security` ran CodeQL and Trivy with zero Critical or High severity issues
 
-5. **Linting**: All language-specific linters must pass
+6. **Linting**: All language-specific linters must pass
 
 **Your Role**: You delegate implementation to subagents, but YOU are responsible for verifying they completed the Definition of Done. Do not accept "DONE" from a subagent until you have confirmed they ran coverage tests, type checks, and security scans explicitly.
 

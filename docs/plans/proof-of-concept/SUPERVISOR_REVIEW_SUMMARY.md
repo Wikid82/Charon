@@ -21,6 +21,7 @@
 ### ✅ 1. Complete current_spec.md (Previously 22 lines → Now 800+ lines)
 
 The specification is now **comprehensive and implementation-ready** with:
+
 - Full directory structure (FLAT layout, not categorized)
 - Complete SKILL.md template with validated frontmatter
 - All 24 skills enumerated with details
@@ -48,6 +49,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ```
 
 **Rationale**:
+
 - Maximum AI discoverability (no directory traversal)
 - Simpler skill references in tasks.json and workflows
 - Clear naming convention provides implicit categorization
@@ -58,6 +60,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ### ✅ 3. Concrete SKILL.md Templates
 
 **Provided**:
+
 1. **Complete Template** (lines 141-268 in current_spec.md)
    - All required fields documented
    - Custom metadata fields defined
@@ -79,6 +82,7 @@ The specification is now **comprehensive and implementation-ready** with:
    - ✅ Output: errors and warnings
 
 **Validation Test Result**:
+
 ```
 ✓ test-backend-coverage.SKILL.md is valid
 ```
@@ -96,6 +100,7 @@ The specification is now **comprehensive and implementation-ready** with:
 | repo-health.yml | repo_health_check.sh | P2 |
 
 **Update Pattern**:
+
 ```yaml
 # Before
 - run: scripts/go-test-coverage.sh
@@ -105,6 +110,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ```
 
 **17 Workflows Not Modified** (no script references):
+
 - docker-publish.yml, auto-changelog.yml, renovate.yml, etc.
 
 ### ✅ 5. Validation Strategy Using skills-ref Tool
@@ -112,11 +118,13 @@ The specification is now **comprehensive and implementation-ready** with:
 **Phase 0: Validation & Tooling** includes:
 
 1. **Frontmatter Validator** (validate-skills.py) - ✅ Implemented
+
    ```bash
    python3 .github/skills/scripts/validate-skills.py
    ```
 
 2. **Skills Reference Tool** (external):
+
    ```bash
    npm install -g @agentskills/cli
    skills-ref validate .github/skills/
@@ -124,6 +132,7 @@ The specification is now **comprehensive and implementation-ready** with:
    ```
 
 3. **Skill Runner Tests**:
+
    ```bash
    for skill in .github/skills/*.SKILL.md; do
        skill_name=$(basename "$skill" .SKILL.md)
@@ -132,6 +141,7 @@ The specification is now **comprehensive and implementation-ready** with:
    ```
 
 4. **Coverage Parity Validation**:
+
    ```bash
    LEGACY_COV=$(scripts/go-test-coverage.sh 2>&1 | grep "total:")
    SKILL_COV=$(.github/skills/scripts/skill-runner.sh test-backend-coverage 2>&1 | grep "total:")
@@ -148,16 +158,19 @@ The specification is now **comprehensive and implementation-ready** with:
    - Verify Copilot suggests the skill
 
 2. **Workspace Search Test**:
+
    ```bash
    grep -r "coverage" .github/skills/*.SKILL.md
    ```
 
 3. **Skills Index Generation** (for AI tools):
+
    ```bash
    python3 .github/skills/scripts/generate-index.py > .github/skills/INDEX.json
    ```
 
 **Index Schema** (Appendix B in spec):
+
 ```json
 {
   "schema_version": "1.0",
@@ -204,6 +217,7 @@ The specification is now **comprehensive and implementation-ready** with:
    - Extract larger scripts to `.github/skills/scripts/`
 
 **POC Demonstration**:
+
 - test-backend-coverage.SKILL.md: ~400 lines ✅ (under 500)
 - Well-structured sections with clear hierarchy
 - Links to related skills and documentation
@@ -213,12 +227,14 @@ The specification is now **comprehensive and implementation-ready** with:
 **Explicit Decision**: FLAT structure (lines 52-80)
 
 **Advantages documented**:
+
 - Maximum AI discoverability
 - Simpler references
 - Easier maintenance
 - Aligns with specification
 
 **Naming convention**:
+
 - `{category}-{feature}-{variant}.SKILL.md`
 - Examples provided for all 24 skills
 
@@ -227,16 +243,19 @@ The specification is now **comprehensive and implementation-ready** with:
 **Complete Strategy** (lines 552-590):
 
 **Phase 1 (v1.0-beta.1)**: Dual Support
+
 - Keep legacy scripts functional
 - Add deprecation warnings (2-second delay)
 - Optional symlinks for quick migration
 
 **Phase 2 (v1.1.0)**: Full Migration
+
 - Remove legacy scripts
 - Keep excluded scripts (debug, setup)
 - Update all documentation
 
 **Rollback Procedures**:
+
 1. **Immediate** (< 24 hours): `git revert`
 2. **Partial**: Restore specific scripts
 3. **Triggers**: Coverage drops, CI/CD failures, production blocks
@@ -244,18 +263,21 @@ The specification is now **comprehensive and implementation-ready** with:
 ### ✅ Phase 0 and Phase 5 Added
 
 **Phase 0: Validation & Tooling** (Days 1-2)
+
 - Create validation infrastructure
 - Implement skill-runner.sh
 - Set up CI/CD validation
 - Document procedures
 
 **Phase 5: Documentation & Cleanup** (Days 12-13)
+
 - Complete all documentation
 - Generate skills index
 - Migration announcement
 - Tag v1.0-beta.1
 
 **Phase 6: Full Migration** (Days 14+)
+
 - Monitor beta for 2 weeks
 - Remove legacy scripts
 - Tag v1.1.0
@@ -265,6 +287,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ## Complete Deliverables Checklist
 
 ### ✅ Planning Documents
+
 - [x] current_spec.md (800+ lines, comprehensive)
 - [x] Proof-of-concept SKILL.md (validated)
 - [x] Frontmatter validator (functional)
@@ -273,6 +296,7 @@ The specification is now **comprehensive and implementation-ready** with:
 ### 📋 Implementation Checklist (From Spec)
 
 **Phase 0: Validation & Tooling** (Days 1-2)
+
 - [ ] Create `.github/skills/` directory structure
 - [ ] Implement `skill-runner.sh`
 - [ ] Implement `generate-index.py`
@@ -281,28 +305,33 @@ The specification is now **comprehensive and implementation-ready** with:
 - [ ] Document validation procedures
 
 **Phase 1: Core Testing Skills** (Days 3-4)
+
 - [ ] 4 test SKILL.md files
 - [ ] tasks.json updates (4 tasks)
 - [ ] quality-checks.yml workflow update
 - [ ] Deprecation warnings
 
 **Phase 2: Integration Testing Skills** (Days 5-7)
+
 - [ ] 8 integration SKILL.md files
 - [ ] Docker helpers extracted
 - [ ] tasks.json updates (8 tasks)
 - [ ] waf-integration.yml workflow update
 
 **Phase 3: Security & QA Skills** (Days 8-9)
+
 - [ ] 5 security/QA SKILL.md files
 - [ ] tasks.json updates (5 tasks)
 - [ ] security-weekly-rebuild.yml workflow update
 
 **Phase 4: Utility & Docker Skills** (Days 10-11)
+
 - [ ] 6 utility/Docker SKILL.md files
 - [ ] tasks.json updates (6 tasks)
 - [ ] auto-versioning.yml and repo-health.yml updates
 
 **Phase 5: Documentation & Cleanup** (Days 12-13)
+
 - [ ] .github/skills/README.md
 - [ ] docs/skills/migration-guide.md
 - [ ] docs/skills/skill-development-guide.md
@@ -311,6 +340,7 @@ The specification is now **comprehensive and implementation-ready** with:
 - [ ] Tag v1.0-beta.1
 
 **Phase 6: Full Migration** (Days 14+)
+
 - [ ] Monitor beta (2 weeks)
 - [ ] Remove legacy scripts
 - [ ] Tag v1.1.0

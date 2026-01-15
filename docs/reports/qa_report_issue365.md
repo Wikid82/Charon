@@ -16,6 +16,7 @@
 Issue #365 implementation has been verified and meets all acceptance criteria. The implementation is production-ready with comprehensive security enhancements across multiple domains.
 
 **Completion Status**: 5 of 7 objectives completed (71%)
+
 - ✅ 5 items fully implemented and verified
 - ⚠️ 1 item intentionally rolled back (constant-time comparison - see details below)
 - ❓ 1 item verified with findings (CSP headers - see section 3)
@@ -32,6 +33,7 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 **Status**: ✅ **VERIFIED - FULLY IMPLEMENTED**
 
 **Evidence Found**:
+
 - **File**: [.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml#L236-L252)
 - **Implementation**:
   - Uses `anchore/sbom-action@61119d458adab75f756bc0b9e4bde25725f86a7a` (v0.17.2)
@@ -51,12 +53,14 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 **Status**: ✅ **VERIFIED - COMPLETE DOCUMENTATION**
 
 **Evidence Found**:
+
 - **File**: [docs/security-incident-response.md](../security-incident-response.md)
 - **Size**: 400 lines of comprehensive incident response documentation
 - **Version**: 1.0
 - **Created**: December 21, 2025
 
 **Content Verification**:
+
 - ✅ Incident classification (P1-P4 severity levels)
 - ✅ Detection methods with dashboard integration
 - ✅ Containment procedures with executable commands
@@ -67,6 +71,7 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 - ✅ Quick reference card
 
 **Integration Points**:
+
 - References Cerberus Dashboard for live monitoring
 - Integrates with CrowdSec decision management
 - Documents Docker container forensics procedures
@@ -83,10 +88,12 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 **Status**: ✅ **VERIFIED - COMPREHENSIVE DOCUMENTATION**
 
 **Evidence Found**:
+
 - **File**: [docs/security.md#L627](../security.md#L627) - "TLS Security" section
 - **Lines**: ~34 lines of detailed TLS security guidance
 
 **Content Verification**:
+
 - ✅ TLS 1.2+ enforcement documented (via Caddy default configuration)
 - ✅ Protection against downgrade attacks (BEAST, POODLE)
 - ✅ HSTS header configuration with preload
@@ -107,10 +114,12 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 **Status**: ✅ **VERIFIED - DEPLOYMENT GUIDANCE PROVIDED**
 
 **Evidence Found**:
+
 - **File**: [docs/security.md#L651](../security.md#L651) - "DNS Security" section
 - **Lines**: ~30 lines of DNS security best practices
 
 **Content Verification**:
+
 - ✅ DNS hijacking and cache poisoning protection strategies
 - ✅ Docker host configuration for encrypted DNS (DoH/DoT)
 - ✅ Example systemd-resolved configuration
@@ -129,11 +138,13 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 **Status**: ✅ **VERIFIED - PRODUCTION-READY CONFIGURATION** *(Updated 2025-12-23)*
 
 **Evidence Found**:
+
 - **File**: [docs/security.md#L681](../security.md#L681) - "Container Hardening" section
 - **Research Plan**: [docs/plans/container-hardening-fix.md](../plans/container-hardening-fix.md) - Code analysis research
 - **Lines**: ~200 lines of comprehensive container security configuration
 
 **Content Verification**:
+
 - ✅ Read-only root filesystem configuration (`read_only: true`)
 - ✅ Capability dropping (cap_drop: ALL, cap_add: NET_BIND_SERVICE)
 - ✅ Complete tmpfs mount configuration:
@@ -159,6 +170,7 @@ Issue #365 implementation has been verified and meets all acceptance criteria. T
 
 **Research Validation**:
 The configuration is based on comprehensive code analysis that identified all write locations:
+
 - Database path: `backend/internal/config/config.go:44`
 - Backup service: `backend/internal/services/backup_service.go:35`
 - Caddy config: `backend/internal/caddy/config.go:18`
@@ -176,10 +188,12 @@ The configuration is based on comprehensive code analysis that identified all wr
 **Status**: ✅ **VERIFIED - MULTIPLE METHODS DOCUMENTED**
 
 **Evidence Found**:
+
 - **File**: [docs/getting-started.md#L399](../getting-started.md#L399) - "Security Update Notifications" section
 - **Lines**: ~32 lines of notification configuration guidance
 
 **Content Verification**:
+
 - ✅ GitHub Watch configuration for security advisories
 - ✅ Watchtower for automatic updates
   - Example docker-compose.yml configuration
@@ -203,10 +217,12 @@ The configuration is based on comprehensive code analysis that identified all wr
 **Status**: ⚠️ **INTENTIONALLY ROLLED BACK - SECURITY NEUTRAL**
 
 **Implementation History**:
+
 - **Initial Implementation**: Commit `2dfe7ee` (December 21, 2025)
 - **Rollback**: Commit `8a7b939` (December 22, 2025)
 
 **Utility Functions Created**:
+
 - **File**: [backend/internal/util/crypto.go](../../backend/internal/util/crypto.go) - 21 lines
 - **Test File**: [backend/internal/util/crypto_test.go](../../backend/internal/util/crypto_test.go) - 82 lines
 - **Functions**:
@@ -215,18 +231,21 @@ The configuration is based on comprehensive code analysis that identified all wr
   - Uses Go's `crypto/subtle.ConstantTimeCompare`
 
 **Rollback Reason** (from [docs/plans/codecov-acceptinvite-patch-coverage.md](../plans/codecov-acceptinvite-patch-coverage.md)):
+
 1. **Unreachable Code**: DB query already filters by `WHERE invite_token = req.Token`
 2. **Defense-in-Depth Redundant**: If user found, `user.InviteToken` already equals `req.Token`
 3. **Oracle Risk**: Separate 401 response for token mismatch creates timing oracle
 4. **Coverage Impact**: Branch was unreachable, causing Codecov patch coverage failure (66.67%)
 
 **Current State**:
+
 - ✅ Utility functions remain available for future use
 - ✅ Comprehensive test coverage maintained
 - ❌ NOT used in `AcceptInvite` handler (intentionally removed)
 
 **Security Analysis**:
 The rollback is **security-neutral** because:
+
 - DB query provides primary defense (token lookup)
 - String comparison timing variance negligible compared to DB query timing
 - Avoiding different HTTP status codes (401 vs 404) eliminates potential oracle
@@ -247,6 +266,7 @@ The rollback is **security-neutral** because:
 **Security Middleware File**: [backend/internal/api/middleware/security.go](../../backend/internal/api/middleware/security.go)
 
 **Key Functions**:
+
 - `SecurityHeaders(cfg SecurityHeadersConfig) gin.HandlerFunc` - Main middleware
 - `buildCSP(cfg SecurityHeadersConfig) string` - CSP builder
 - `buildPermissionsPolicy() string` - Permissions-Policy builder
@@ -254,6 +274,7 @@ The rollback is **security-neutral** because:
 ### 2.2 CSP Implementation Details
 
 **Location Applied**: Lines 36-39 of routes.go
+
 ```go
 // Apply security headers middleware globally
 // This sets CSP, HSTS, X-Frame-Options, etc.
@@ -264,6 +285,7 @@ router.Use(middleware.SecurityHeaders(securityHeadersCfg))
 ```
 
 **Application Scope**: ✅ **GLOBAL** - Applied to ALL routes via `router.Use()`
+
 - **File**: [backend/internal/api/routes/routes.go#L36-L39](../../backend/internal/api/routes/routes.go#L36-L39)
 - **Applies to**:
   - Charon Admin UI (port 8080)
@@ -275,6 +297,7 @@ router.Use(middleware.SecurityHeaders(securityHeadersCfg))
 ### 2.3 CSP Directives Configured
 
 **Production Mode** (`IsDevelopment: false`):
+
 ```
 default-src 'self';
 script-src 'self';
@@ -289,6 +312,7 @@ form-action 'self';
 ```
 
 **Development Mode** (`IsDevelopment: true`):
+
 ```
 script-src 'self' 'unsafe-inline' 'unsafe-eval';
 connect-src 'self' ws: wss:;
@@ -298,6 +322,7 @@ connect-src 'self' ws: wss:;
 ### 2.4 Additional Security Headers
 
 **Also Applied by Middleware**:
+
 - ✅ `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` (production only)
 - ✅ `X-Frame-Options: DENY`
 - ✅ `X-Content-Type-Options: nosniff`
@@ -312,6 +337,7 @@ connect-src 'self' ws: wss:;
 **Test File**: [backend/internal/api/middleware/security_test.go](../../backend/internal/api/middleware/security_test.go)
 
 **Tests Verified**:
+
 - ✅ `TestSecurityHeaders` - Verifies all headers are set
 - ✅ `TestSecurityHeadersCustomCSP` - Verifies custom CSP directives
 - ✅ `TestDefaultSecurityHeadersConfig` - Verifies default configuration
@@ -324,6 +350,7 @@ connect-src 'self' ws: wss:;
 ### 2.6 Proxy Host CSP (Separate Feature)
 
 **Additional CSP Feature**: Charon also supports per-proxy-host CSP configuration
+
 - **Models**: [backend/internal/models/security_header_profile.go](../../backend/internal/models/security_header_profile.go)
 - **Services**: `backend/internal/services/security_headers_service*.go`
 - **Scoring**: [backend/internal/services/security_score.go](../../backend/internal/services/security_score.go) - CSP scores 25 points
@@ -336,6 +363,7 @@ connect-src 'self' ws: wss:;
 ✅ **CSP Implementation for Charon Admin UI**: **FULLY VERIFIED**
 
 **What's Covered**:
+
 - ✅ Charon admin interface (port 8080) has CSP headers
 - ✅ All API endpoints have CSP headers
 - ✅ WebSocket endpoints have CSP headers
@@ -345,6 +373,7 @@ connect-src 'self' ws: wss:;
 - ✅ All OWASP recommended security headers included
 
 **What's NOT in Scope** (by design):
+
 - ❌ Individual proxy hosts (use Security Header Profiles feature)
 - ❌ Caddy itself (Caddy handles its own security headers)
 
@@ -360,6 +389,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **PASSED**
 
 **Hooks Executed**:
+
 - ✅ fix end of files
 - ✅ trim trailing whitespace
 - ✅ check yaml
@@ -383,6 +413,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **PASSED**
 
 **Scan Configuration**:
+
 - ✅ Vulnerability scanning enabled
 - ✅ Misconfiguration scanning enabled
 - ✅ Secret scanning enabled
@@ -390,6 +421,7 @@ connect-src 'self' ws: wss:;
 **Result**: ✅ **SCAN COMPLETED - NO ISSUES FOUND**
 
 **Severity Breakdown**:
+
 - 🔴 **Critical**: 0
 - 🟠 **High**: 0
 - 🟡 **Medium**: 0
@@ -403,6 +435,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **PASSED**
 
 **Scan Details**:
+
 - **Format**: text
 - **Mode**: source
 - **Working Directory**: `/projects/Charon/backend`
@@ -419,6 +452,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **ALL TESTS PASSED**
 
 **Test Results**:
+
 - ✅ `github.com/Wikid82/charon/backend/cmd/api` - 0.220s
 - ✅ `github.com/Wikid82/charon/backend/cmd/seed` - cached
 - ✅ `github.com/Wikid82/charon/backend/internal/api/handlers` - 441.480s
@@ -452,6 +486,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **ALL TESTS PASSED**
 
 **Test Summary**:
+
 - **Test Files**: 107 passed (107)
 - **Tests**: 1141 passed | 2 skipped (1143)
 - **Duration**: 91.05s
@@ -462,12 +497,14 @@ connect-src 'self' ws: wss:;
   - Environment: 66.92s
 
 **Coverage Results**:
+
 - **Statements**: 87.01% ✅ (minimum required: 85%)
 - **Branches**: 78.89%
 - **Functions**: 80.72%
 - **Lines**: 87.83%
 
 **Coverage by Module**:
+
 - ✅ `src/api`: 90.73%
 - ✅ `src/components`: 80.64%
 - ✅ `src/components/ui`: 97.35%
@@ -496,6 +533,7 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **VERIFIED VIA CODE INSPECTION**
 
 **Headers Verified in Code**:
+
 - ✅ `Content-Security-Policy` - [security.go#L33](../../backend/internal/api/middleware/security.go#L33)
 - ✅ `Strict-Transport-Security` - [security.go#L40](../../backend/internal/api/middleware/security.go#L40)
 - ✅ `X-Frame-Options: DENY` - [security.go#L47](../../backend/internal/api/middleware/security.go#L47)
@@ -524,11 +562,13 @@ connect-src 'self' ws: wss:;
 **Status**: ✅ **VERIFIED**
 
 **Documents Reviewed**:
+
 - ✅ [docs/security.md](../security.md) - TLS, DNS, Container Hardening sections
 - ✅ [docs/security-incident-response.md](../security-incident-response.md) - SIRP document
 - ✅ [docs/getting-started.md](../getting-started.md) - Security Update Notifications section
 
 **Check Results**:
+
 - ✅ Correct code examples
 - ✅ Working links (internal references verified)
 - ✅ No typos or formatting issues
@@ -543,6 +583,7 @@ connect-src 'self' ws: wss:;
 **Workflow File**: [.github/workflows/docker-build.yml#L236-L252](../../.github/workflows/docker-build.yml#L236-L252)
 
 **Steps Verified**:
+
 - ✅ "Generate SBOM" step configured (line 238)
 - ✅ "Attest SBOM" step configured (line 246)
 - ✅ Only runs on non-PR builds (production releases)
@@ -581,6 +622,7 @@ connect-src 'self' ws: wss:;
 ### 6.5 Documentation/Informational Findings
 
 **Finding 1**: Constant-time comparison utility exists but is not used
+
 - **Severity**: ℹ️ Informational
 - **Impact**: None - this is intentional
 - **Recommendation**: Consider documenting future use cases in utility comments:
@@ -629,6 +671,7 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 ✅ **PASS - READY FOR PRODUCTION**
 
 **Justification**:
+
 1. ✅ All implemented features verified and working correctly
 2. ✅ Zero critical, high, or medium severity security issues
 3. ✅ Zero regression issues in backend and frontend tests
@@ -645,6 +688,7 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 **Can this be merged?** ✅ **YES**
 
 **Checklist**:
+
 - ✅ All automated tests passing
 - ✅ Security scans clean
 - ✅ Documentation complete and accurate
@@ -657,15 +701,19 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 ### 8.3 Deployment Considerations
 
 **Pre-Deployment**:
+
 - ✅ No special deployment steps required
 - ✅ No database migrations needed
 - ✅ No configuration changes required
 
 **Post-Deployment Validation**:
+
 1. **Optional**: Verify security headers in production
+
    ```bash
    curl -I https://your-charon-instance.com/ | grep -i "content-security-policy"
    ```
+
 2. **Optional**: Verify SBOM attestation in GitHub Container Registry after first release
 
 ---
@@ -726,6 +774,7 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 **Verdict**: ✅ **PASS - APPROVED FOR PRODUCTION**
 
 **Signatures**:
+
 - [x] All tests executed and passed
 - [x] All security scans completed with zero critical/high issues
 - [x] All documentation reviewed and verified
@@ -738,6 +787,7 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 ## Appendix A: File Evidence Index
 
 ### Implementation Files
+
 - [backend/internal/api/middleware/security.go](../../backend/internal/api/middleware/security.go) - Security headers middleware
 - [backend/internal/api/middleware/security_test.go](../../backend/internal/api/middleware/security_test.go) - Security headers tests
 - [backend/internal/api/routes/routes.go](../../backend/internal/api/routes/routes.go#L36-L39) - Middleware application
@@ -745,9 +795,11 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 - [backend/internal/util/crypto_test.go](../../backend/internal/util/crypto_test.go) - Crypto utility tests
 
 ### Configuration Files
+
 - [.github/workflows/docker-build.yml](../../.github/workflows/docker-build.yml#L236-L252) - SBOM generation workflow
 
 ### Documentation Files
+
 - [docs/security.md](../security.md) - Main security documentation
 - [docs/security-incident-response.md](../security-incident-response.md) - SIRP document
 - [docs/getting-started.md](../getting-started.md) - Getting started guide
@@ -759,12 +811,14 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 ## Appendix B: Test Execution Logs
 
 ### Pre-commit Hooks Output
+
 ```
 [INFO] Executing skill: qa-precommit-all
 [SUCCESS] All pre-commit hooks passed
 ```
 
 ### Trivy Scan Output
+
 ```
 2025-12-23T06:23:13Z    INFO    [vuln] Vulnerability scanning is enabled
 2025-12-23T06:23:13Z    INFO    [misconfig] Misconfiguration scanning is enabled
@@ -773,6 +827,7 @@ Per the original Issue #365 plan, these were explicitly marked as **Future Issue
 ```
 
 ### Go Vulnerability Check Output
+
 ```
 [INFO] Working directory: /projects/Charon/backend
 No vulnerabilities found.
@@ -780,6 +835,7 @@ No vulnerabilities found.
 ```
 
 ### Backend Test Summary
+
 ```
 19 packages tested
 All tests passed
@@ -787,6 +843,7 @@ Zero failures
 ```
 
 ### Frontend Test Summary
+
 ```
 Test Files  107 passed (107)
 Tests       1141 passed | 2 skipped (1143)

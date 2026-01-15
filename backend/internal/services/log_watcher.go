@@ -145,7 +145,9 @@ func (w *LogWatcher) tailFile() {
 		}
 
 		w.readLoop(file)
-		file.Close()
+		if err := file.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close log file")
+		}
 
 		// Brief pause before reopening (handles log rotation)
 		time.Sleep(time.Second)

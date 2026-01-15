@@ -86,7 +86,7 @@ func TestRegister_AutoMigrateFailure(t *testing.T) {
 	// Close underlying SQL connection to force migration failure
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	cfg := config.Config{
 		JWTSecret: "test-secret",

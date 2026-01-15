@@ -76,9 +76,10 @@ func TestNewDNSDetectionService(t *testing.T) {
 	service := NewDNSDetectionService(db)
 	assert.NotNil(t, service)
 
-	// Verify it implements the interface
-	_, ok := service.(DNSDetectionService)
-	assert.True(t, ok)
+	// Verify it implements the interface by using it
+	// NewDNSDetectionService returns DNSDetectionService, so type is guaranteed
+	patterns := service.GetNameserverPatterns()
+	assert.NotNil(t, patterns)
 }
 
 func TestGetNameserverPatterns(t *testing.T) {
@@ -367,11 +368,9 @@ func TestDetectionResult_Validation(t *testing.T) {
 
 	t.Run("result with error", func(t *testing.T) {
 		result := &DetectionResult{
-			Domain:      "invalid-domain.com",
-			Detected:    false,
-			Nameservers: []string{},
-			Confidence:  "none",
-			Error:       "DNS lookup failed: no such host",
+			Detected:   false,
+			Confidence: "none",
+			Error:      "DNS lookup failed: no such host",
 		}
 
 		assert.False(t, result.Detected)
@@ -452,7 +451,7 @@ func TestConcurrentCacheAccess(t *testing.T) {
 
 	for i := 0; i < goroutines; i++ {
 		go func(id int) {
-			domain := strings.Replace("test-DOMAIN-ID.com", "ID", string(rune(id)), -1)
+			domain := strings.ReplaceAll("test-DOMAIN-ID.com", "ID", string(rune(id)))
 			result := &DetectionResult{
 				Domain:   domain,
 				Detected: true,
@@ -483,7 +482,7 @@ func TestDatabaseError(t *testing.T) {
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	service := NewDNSDetectionService(db)
 

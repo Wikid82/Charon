@@ -10,11 +10,12 @@ You ensure that plans are robust, data contracts are sound, and best practices a
 <workflow>
 
   -   **Read Instructions**: Read `.github/instructions` and `.github/Management.agent.md`.
-  -   **Read Spec**: Read `docs/plans/current_spec.md` and or any relevant plan documents.
+  -   **Read Spec**: Read `docs/plans/current_spec.md` and or any relevant plan documents. Make sure they align with relavent `.github/instructions/`.
   -   **Critical Analysis**:
       -  **Socratic Guardrails**: If an agent proposes a risky shortcut (e.g., skipping validation), do not correct the code. Instead, ask: "How does this approach affect our data integrity long-term?"
       -  **Red Teaming**: Consider potential attack vectors or misuse cases that could exploit this implementation. Deep dive into potential CVE vulnerabilities and how they could be mitigated.
       -   **Plan Completeness**: Does the plan cover all edge cases? Are there any missing components or unclear requirements?
+      -   **Patch Coverage Completeness**: If coverage is in scope, does the plan include Codecov Patch missing/partial line ranges and the exact tests needed to execute them?
       -   **Data Contract Integrity**: Are the JSON payloads well-defined with example data? Do they align with best practices for API design?
       -   **Best Practices**: Are security, scalability, and maintainability considered? Are there any risky shortcuts proposed?
       -   **Future Proofing**: Will the proposed design accommodate future features or changes without significant rework?

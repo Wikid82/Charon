@@ -40,6 +40,7 @@ Implemented comprehensive API client with the following endpoints:
 - `getProviderFields(type)` - Get credential field definitions for a provider type
 
 **TypeScript Interfaces:**
+
 - `PluginInfo` - Plugin metadata and status
 - `CredentialFieldSpec` - Dynamic credential field specification
 - `ProviderFieldsResponse` - Provider metadata with field definitions
@@ -62,6 +63,7 @@ All mutations include automatic query invalidation for cache consistency.
 Full-featured admin page with:
 
 **Features:**
+
 - List all plugins grouped by type (built-in vs external)
 - Status badges showing plugin state (loaded, error, disabled)
 - Enable/disable toggle for external plugins (built-in cannot be disabled)
@@ -74,6 +76,7 @@ Full-featured admin page with:
 - Security warning about external plugins
 
 **UI Components Used:**
+
 - PageShell for consistent layout
 - Cards for plugin display
 - Badges for status indicators
@@ -87,6 +90,7 @@ Full-featured admin page with:
 Enhanced DNS provider form with:
 
 **Features:**
+
 - Dynamic field fetching from backend via `useProviderFields()`
 - Automatic rendering of required and optional fields
 - Field types: text, password, textarea, select
@@ -95,6 +99,7 @@ Enhanced DNS provider form with:
 - Seamless integration with existing form logic
 
 **Benefits:**
+
 - External plugins automatically work in the UI
 - No frontend code changes needed for new providers
 - Consistent field rendering across all provider types
@@ -102,9 +107,11 @@ Enhanced DNS provider form with:
 ### 5. Routing & Navigation
 
 **Route Added:**
+
 - `/admin/plugins` - Plugin management page (admin-only)
 
 **Navigation Changes:**
+
 - Added "Admin" section in sidebar
 - "Plugins" link under Admin section (🔌 icon)
 - New translations for "Admin" and "Plugins"
@@ -114,6 +121,7 @@ Enhanced DNS provider form with:
 Added 30+ translation keys for plugin management:
 
 **Categories:**
+
 - Plugin listing and status
 - Action buttons and modals
 - Error messages
@@ -121,6 +129,7 @@ Added 30+ translation keys for plugin management:
 - Metadata display
 
 **Sample Keys:**
+
 - `plugins.title` - "DNS Provider Plugins"
 - `plugins.reloadPlugins` - "Reload Plugins"
 - `plugins.cannotDisableBuiltIn` - "Built-in plugins cannot be disabled"
@@ -134,6 +143,7 @@ Added 30+ translation keys for plugin management:
 **Coverage:** 19 tests, all passing
 
 **Test Suites:**
+
 1. `usePlugins()` - List fetching and error handling
 2. `usePlugin(id)` - Single plugin fetch with enable/disable logic
 3. `useProviderFields()` - Field definitions fetching with caching
@@ -146,6 +156,7 @@ Added 30+ translation keys for plugin management:
 **Coverage:** 18 tests, all passing
 
 **Test Cases:**
+
 - Page rendering and layout
 - Built-in plugins section display
 - External plugins section display
@@ -202,29 +213,34 @@ Branches:   77.97% (2507/3215)
 ## Key Features
 
 ### 1. **Plugin Discovery**
+
 - Automatic discovery of built-in providers
 - External plugin loading from disk
 - Plugin status tracking (loaded, error, pending)
 
 ### 2. **Plugin Management**
+
 - Enable/disable external plugins
 - Reload plugins without restart
 - View plugin metadata (version, author, description)
 - Access plugin documentation links
 
 ### 3. **Dynamic Form Fields**
+
 - Credential fields fetched from backend
 - Automatic field rendering (text, password, textarea, select)
 - Support for required and optional fields
 - Placeholder and hint text display
 
 ### 4. **Error Handling**
+
 - Display plugin load errors
 - Show signature mismatch warnings
 - Handle API failures gracefully
 - Toast notifications for actions
 
 ### 5. **Security**
+
 - Admin-only access to plugin management
 - Warning about external plugin risks
 - Signature verification (backend)
@@ -237,6 +253,7 @@ Branches:   77.97% (2507/3215)
 The frontend integrates with existing backend endpoints:
 
 **Plugin Management:**
+
 - `GET /api/v1/admin/plugins` - List plugins
 - `GET /api/v1/admin/plugins/:id` - Get plugin details
 - `POST /api/v1/admin/plugins/:id/enable` - Enable plugin
@@ -244,6 +261,7 @@ The frontend integrates with existing backend endpoints:
 - `POST /api/v1/admin/plugins/reload` - Reload plugins
 
 **Dynamic Fields:**
+
 - `GET /api/v1/dns-providers/types/:type/fields` - Get credential fields
 
 All endpoints are already implemented in the backend (Phase 5 backend complete).
@@ -308,27 +326,32 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Design Decisions
 
 ### 1. **Query Caching**
+
 - Plugin list cached with React Query
 - Provider fields cached for 1 hour (rarely change)
 - Automatic invalidation on mutations
 
 ### 2. **Error Boundaries**
+
 - Graceful degradation if API fails
 - Fallback to static provider schemas
 - User-friendly error messages
 
 ### 3. **Loading States**
+
 - Skeleton loaders during fetch
 - Button loading indicators during mutations
 - Empty states with helpful messages
 
 ### 4. **Accessibility**
+
 - Proper semantic HTML
 - ARIA labels where needed
 - Keyboard navigation support
 - Screen reader friendly
 
 ### 5. **Mobile Responsive**
+
 - Cards stack on small screens
 - Touch-friendly switches
 - Readable text sizes
@@ -339,18 +362,21 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Testing Strategy
 
 ### Unit Testing
+
 - All hooks tested in isolation
 - Mocked API responses
 - Query invalidation verified
 - Loading/error states covered
 
 ### Integration Testing
+
 - Page rendering tested
 - User interactions simulated
 - React Query provider setup
 - i18n mocked appropriately
 
 ### Coverage Approach
+
 - Focus on user-facing functionality
 - Critical paths fully covered
 - Error scenarios tested
@@ -361,12 +387,14 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Known Limitations
 
 ### Go Plugin Constraints (Backend)
+
 1. **No Hot Reload:** Plugins cannot be unloaded from memory. Disabling a plugin removes it from the registry but requires restart for full unload.
 2. **Platform Support:** Plugins only work on Linux and macOS (not Windows).
 3. **Version Matching:** Plugin and Charon must use identical Go versions.
 4. **Caddy Dependency:** External plugins require corresponding Caddy DNS module.
 
 ### Frontend Implications
+
 1. **Disable Warning:** Users warned that restart needed after disable.
 2. **No Uninstall:** Frontend only enables/disables (no delete).
 3. **Status Tracking:** Plugin status shows last known state until reload.
@@ -376,11 +404,13 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Security Considerations
 
 ### Frontend
+
 1. **Admin-Only Access:** Plugin management requires admin role
 2. **Warning Display:** Security notice about external plugins
 3. **Error Visibility:** Load errors shown to help debug issues
 
 ### Backend (Already Implemented)
+
 1. **Signature Verification:** SHA-256 hash validation
 2. **Allowlist Enforcement:** Only configured plugins loaded
 3. **Sandbox Limitations:** Go plugins run in-process (no sandbox)
@@ -390,6 +420,7 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Future Enhancements
 
 ### Potential Improvements
+
 1. **Plugin Marketplace:** Browse and install from registry
 2. **Version Management:** Update plugins via UI
 3. **Dependency Checking:** Verify Caddy module compatibility
@@ -404,12 +435,14 @@ All endpoints are already implemented in the backend (Phase 5 backend complete).
 ## Documentation
 
 ### User Documentation
+
 - Plugin management guide in Charon UI
 - Hover tooltips on all actions
 - Inline help text in forms
 - Links to provider documentation
 
 ### Developer Documentation
+
 - API client fully typed with JSDoc
 - Hook usage examples in tests
 - Component props documented
@@ -433,11 +466,13 @@ No database migrations or breaking changes - safe to rollback.
 ## Deployment Notes
 
 ### Prerequisites
+
 - Backend Phase 5 complete
 - Plugin system enabled in backend
 - Admin users have access to /admin/* routes
 
 ### Configuration
+
 - No additional frontend config required
 - Backend env vars control plugin system:
   - `CHARON_PLUGINS_ENABLED=true`
@@ -445,6 +480,7 @@ No database migrations or breaking changes - safe to rollback.
   - `CHARON_PLUGINS_CONFIG=/app/config/plugins.yaml`
 
 ### Monitoring
+
 - Watch for plugin load errors in logs
 - Monitor DNS provider test success rates
 - Track plugin enable/disable actions
@@ -478,6 +514,7 @@ Phase 5 Frontend implementation is **complete and production-ready**. All requir
 External plugins can now be loaded, managed, and configured entirely through the Charon UI without code changes. The dynamic field system ensures that new providers automatically work in the DNS provider form as soon as they are loaded.
 
 **Next Steps:**
+
 1. ✅ Backend testing (already complete)
 2. ✅ Frontend implementation (this document)
 3. 🔄 End-to-end testing with sample plugin

@@ -49,10 +49,12 @@ CrowdSec is trying to write to `/var/log/crowdsec.log` but `/var/log/` is owned 
 ### 1. **Entrypoint Script Runs CrowdSec Commands as Root**
 
 **Finding:** The entrypoint script runs `cscli machines add -a --force` and `envsubst` on config files **while still running as root**. These operations:
+
 - Create `/var/lib/crowdsec/data/crowdsec.db` owned by root
 - Overwrite `config.yaml` and `user.yaml` with root ownership
 
 **Evidence from entrypoint:**
+
 ```bash
 # These run as root BEFORE `su-exec charon` is used
 cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
@@ -64,6 +66,7 @@ envsubst < "$file" > "$file.tmp" && mv "$file.tmp" "$file"
 **Finding:** The distributed `config.yaml` has `log_dir: /var/log/` instead of `log_dir: /var/log/crowdsec/`.
 
 **Evidence:**
+
 ```yaml
 # Current (WRONG):
 log_dir: /var/log/
@@ -75,6 +78,7 @@ log_dir: /var/log/crowdsec/
 ### 3. **ReconcileCrowdSecOnStartup IS Being Called (VERIFIED)**
 
 **Finding:** The reconciliation function is now correctly called in [backend/cmd/api/main.go#L144](backend/cmd/api/main.go#L144) BEFORE the HTTP server starts:
+
 ```go
 crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
 services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir)
@@ -85,6 +89,7 @@ This is CORRECT but CrowdSec still fails due to permission issues.
 ### 4. **CrowdSec Start Method is Correct (VERIFIED)**
 
 **Finding:** The executor's `Start` method correctly uses `os/exec` without context cancellation:
+
 ```go
 cmd := exec.Command(binPath, "-c", configFile)
 cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -124,11 +129,13 @@ fi
 **Change:** All `cscli` commands must run as `charon` user, not root.
 
 **Current (WRONG):**
+
 ```bash
 cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 ```
 
 **Required (CORRECT):**
+
 ```bash
 su-exec charon cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 ```
@@ -139,6 +146,7 @@ su-exec charon cscli machines add -a --force 2>/dev/null || echo "Warning: Machi
 **Change:** The envsubst operations must preserve charon ownership.
 
 **Current (WRONG):**
+
 ```bash
 for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
     if [ -f "$file" ]; then
@@ -148,6 +156,7 @@ done
 ```
 
 **Required (CORRECT):**
+
 ```bash
 for file in /etc/crowdsec/config.yaml /etc/crowdsec/user.yaml; do
     if [ -f "$file" ]; then
@@ -279,23 +288,27 @@ fi
 ## Testing After Fix
 
 1. **Rebuild container:**
+
    ```bash
    docker build -t charon:local . && docker compose -f docker-compose.test.yml up -d
    ```
 
 2. **Verify ownership is correct:**
+
    ```bash
    docker compose -f docker-compose.test.yml exec charon ls -la /var/lib/crowdsec/data/
    # Expected: all files owned by charon:charon
    ```
 
 3. **Check CrowdSec logs for permission errors:**
+
    ```bash
    docker compose -f docker-compose.test.yml logs charon 2>&1 | grep -i "permission\|denied\|FATAL"
    # Expected: no permission errors
    ```
 
 4. **Verify LAPI is listening after manual start:**
+
    ```bash
    curl -X POST http://localhost:8080/api/v1/admin/crowdsec/start
    docker compose -f docker-compose.test.yml exec charon ss -tuln | grep 8085
@@ -322,6 +335,7 @@ fi
 ## Changelog
 
 ### 2025-12-23 - Investigation Update
+
 - **Status:** FAILED - Previous implementation did not fix root cause
 - **Finding:** Permission errors due to entrypoint running cscli as root
 - **Finding:** log_dir config points to wrong path (/var/log/ vs /var/log/crowdsec/)
@@ -329,6 +343,7 @@ fi
 - **Priority:** Escalated to CRITICAL
 
 ### 2025-12-22 - Initial Plan
+
 - Created initial plan based on code review
 - Identified timing issue with goroutine call
 - Proposed moving reconciliation to main.go (implemented)

@@ -182,6 +182,7 @@ Working Directory: /projects/Charon/backend
 #### Specific Attack Vectors Tested
 
 **Private IP Blocking** (All Blocked ✅):
+
 - `10.0.0.0/8` (RFC 1918)
 - `172.16.0.0/12` (RFC 1918)
 - `192.168.0.0/16` (RFC 1918)
@@ -195,16 +196,19 @@ Working Directory: /projects/Charon/backend
 - `::1/128` (IPv6 loopback)
 
 **Protocol Blocking** (All Blocked ✅):
+
 - `file:///etc/passwd`
 - `ftp://internal.server/`
 - `gopher://internal:70/`
 - `data:text/html,...`
 
 **URL Encoding/Obfuscation** (Coverage via DNS resolution):
+
 - Validation performs DNS resolution before IP checks
 - Prevents hostname-to-IP bypass attacks
 
 **Allowlist Testing** (Functioning Correctly ✅):
+
 - Legitimate webhooks (Slack, Discord) pass validation
 - Test domains (`localhost`, `*.example.com`) correctly allowed in test mode
 - Production domains enforce HTTPS
@@ -214,6 +218,7 @@ Working Directory: /projects/Charon/backend
 **Status**: ✅ **SSRF PROTECTION ACTIVE** (59 service tests passing)
 
 #### Security Notification Service
+
 - ✅ Webhook URL validation before sending
 - ✅ High-severity logging for blocked URLs
 - ✅ Timeout protection (context deadline)
@@ -221,11 +226,13 @@ Working Directory: /projects/Charon/backend
 - ✅ Error handling for validation failures
 
 #### Update Service
+
 - ✅ GitHub URL validation (implicitly tested)
 - ✅ Release metadata URL protection
 - ✅ Changelog URL validation
 
 #### CrowdSec Hub Sync
+
 - ✅ Hub URL allowlist enforcement
 - ✅ HTTPS requirement for production
 - ✅ Test domain support (`test.hub`)
@@ -265,6 +272,7 @@ ErrInvalidURL            = errors.New("invalid URL format")
 ### 5.2 Logging Coverage
 
 **Security Notification Service** (`security_notification_service.go`):
+
 ```go
 // High-severity logging for SSRF blocks
 log.WithFields(log.Fields{
@@ -274,6 +282,7 @@ log.WithFields(log.Fields{
 ```
 
 **CrowdSec Hub Sync** (`hub_sync.go`):
+
 ```go
 // Validation errors logged before returning
 if err := validateHubURL(hubURL); err != nil {
@@ -312,6 +321,7 @@ if err := validateHubURL(hubURL); err != nil {
 ### 6.2 Integration Test Results
 
 **CrowdSec Pull & Apply Integration**:
+
 - Before fix: ❌ FAIL (SSRF correctly blocked test URL)
 - After fix: ✅ PASS (Test domain allowlist added)
 - Production behavior: ✅ UNCHANGED (HTTPS requirement enforced)
@@ -332,11 +342,13 @@ if err := validateHubURL(hubURL); err != nil {
 ### 7.1 Validation Overhead
 
 **URL Validator Performance**:
+
 - DNS resolution: ~10-100ms (one-time per URL, cacheable)
 - IP validation: <1ms (in-memory CIDR checks)
 - Regex parsing: <1ms (compiled patterns)
 
 **Test Execution Times**:
+
 - Security package tests: 0.148s (62 tests)
 - Service package tests: 3.2s (87 tests, includes DB operations)
 - Overall test suite: ~8s (255 tests)
@@ -344,17 +356,20 @@ if err := validateHubURL(hubURL); err != nil {
 ### 7.2 Production Impact
 
 **Webhook Notifications**:
+
 - Validation occurs once per config change (not per event)
 - No performance impact on event detection
 - Timeout protection prevents hanging requests
 
 **Update Service**:
+
 - Validation occurs once per version check (typically daily)
 - No impact on application startup or runtime
 
 ### 7.3 Benchmark Recommendations
 
 For high-throughput webhook scenarios, consider:
+
 1. ✅ **Already Implemented**: Validation on config update (not per-event)
 2. 💡 **Optional**: DNS result caching (if webhooks change frequently)
 3. 💡 **Optional**: Background validation with fallback to previous URL
@@ -377,12 +392,14 @@ For high-throughput webhook scenarios, consider:
 ### 8.2 Code Documentation
 
 **URL Validator** (`internal/security/url_validator.go`):
+
 - ✅ Package documentation
 - ✅ Function documentation (godoc style)
 - ✅ Error constant documentation
 - ✅ Usage examples in tests
 
 **Service Integrations**:
+
 - ✅ Inline comments for SSRF validation points
 - ✅ Error handling explanations
 - ✅ Allowlist justification comments
@@ -390,11 +407,13 @@ For high-throughput webhook scenarios, consider:
 ### 8.3 User-Facing Documentation
 
 **Security Settings** (`docs/features.md`):
+
 - ✅ Webhook URL requirements documented
 - ✅ HTTPS enforcement explained
 - ✅ Validation error messages described
 
 **API Endpoints** (`docs/api.md`):
+
 - ✅ Security notification configuration
 - ✅ Webhook URL validation
 - ✅ Error response formats
@@ -436,6 +455,7 @@ For high-throughput webhook scenarios, consider:
 ### 9.3 CVSS Scoring (Pre-Mitigation)
 
 **Original SSRF Vulnerability**:
+
 - CVSS Base Score: **8.6 (HIGH)**
 - Vector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L
 - Attack Vector: Network (AV:N)
@@ -448,6 +468,7 @@ For high-throughput webhook scenarios, consider:
 - Availability Impact: Low (A:L) - DoS via metadata endpoints
 
 **Post-Mitigation**:
+
 - CVSS Base Score: **0.0 (NONE)** - Vulnerability eliminated
 
 ---
@@ -471,6 +492,7 @@ For high-throughput webhook scenarios, consider:
 **Description**: Overall backend coverage is 84.8%, which is 0.2% below the 85% target threshold.
 
 **Analysis**:
+
 - SSRF-critical packages exceed target: `internal/security` (90.4%), `internal/services` (88.3%)
 - Gap is in non-SSRF code paths (e.g., startup logging, CLI utilities)
 - All SSRF-related code has comprehensive test coverage
@@ -589,6 +611,7 @@ go test -v ./internal/services/... -run ".*[Ss]ecurity.*"
 **Summary**: The SSRF remediation implementation meets all security requirements. Comprehensive testing validates protection against all known SSRF attack vectors, with zero critical issues found. The solution is production-ready.
 
 **Key Findings**:
+
 - ✅ 90.4% test coverage in security package (exceeds target)
 - ✅ All 62 SSRF-specific tests passing
 - ✅ Zero vulnerabilities in application code
@@ -599,6 +622,7 @@ go test -v ./internal/services/... -run ".*[Ss]ecurity.*"
 - ✅ OWASP SSRF compliance validated
 
 **Security Posture**:
+
 - Pre-remediation: CVSS 8.6 (HIGH) - Exploitable SSRF vulnerability
 - Post-remediation: CVSS 0.0 (NONE) - Vulnerability eliminated
 
@@ -643,10 +667,12 @@ Duration:    83.44s
 ### Security Scan Results
 
 **Trivy Container Scan**:
+
 - Application code: 0 vulnerabilities
 - CrowdSec binaries: 4 HIGH (third-party, Go stdlib CVEs)
 
 **Go Vulnerability Check**:
+
 - No vulnerabilities found in Go dependencies
 
 ---
@@ -656,6 +682,7 @@ Duration:    83.44s
 ### URL Validator Test Cases (62 total)
 
 #### Basic Validation (15 tests)
+
 - Valid HTTPS URL
 - HTTP without `WithAllowHTTP`
 - HTTP with `WithAllowHTTP`
@@ -673,12 +700,14 @@ Duration:    83.44s
 - Invalid URL format
 
 #### Localhost Handling (4 tests)
+
 - `localhost` without `WithAllowLocalhost`
 - `localhost` with `WithAllowLocalhost`
 - `127.0.0.1` with flags
 - IPv6 loopback (`::1`)
 
 #### Private IP Blocking (19 tests)
+
 - `10.0.0.0` - `10.255.255.255`
 - `172.16.0.0` - `172.31.255.255`
 - `192.168.0.0` - `192.168.255.255`
@@ -694,12 +723,14 @@ Duration:    83.44s
 - Public IPs (Google DNS, Cloudflare DNS) - correctly allowed
 
 #### Options Pattern (4 tests)
+
 - `WithTimeout`
 - Multiple options combined
 - `WithAllowLocalhost`
 - `WithAllowHTTP`
 
 #### Real-world URLs (4 tests)
+
 - Slack webhook format
 - Discord webhook format
 - Generic API endpoint

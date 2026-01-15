@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestClient_Load_Success(t *testing.T) {
 func TestClient_Load_Failure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "invalid config"}`))
+		_, _ = w.Write([]byte(`{"error": "invalid config"}`))
 	}))
 	defer server.Close()
 
@@ -67,7 +68,7 @@ func TestClient_GetConfig_Success(t *testing.T) {
 		require.Equal(t, "/config/", r.URL.Path)
 		require.Equal(t, http.MethodGet, r.Method)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(testConfig)
+		_ = json.NewEncoder(w).Encode(testConfig)
 	}))
 	defer server.Close()
 
@@ -111,7 +112,7 @@ func TestClient_Ping_CreateRequestFailure(t *testing.T) {
 func TestClient_GetConfig_Failure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer server.Close()
 
@@ -124,7 +125,7 @@ func TestClient_GetConfig_Failure(t *testing.T) {
 func TestClient_GetConfig_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("invalid json"))
+		_, _ = w.Write([]byte("invalid json"))
 	}))
 	defer server.Close()
 
@@ -192,4 +193,35 @@ func TestClient_Ping_TransportError(t *testing.T) {
 	err := client.Ping(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "caddy unreachable")
+}
+
+func TestClient_GetConfig_BaseURLNil_ReturnsError(t *testing.T) {
+	client := &Client{
+		baseURL:    nil,
+		httpClient: http.DefaultClient,
+		initErr:    nil,
+	}
+
+	_, err := client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "base URL is not configured")
+}
+
+func TestClient_RequestCreationErrors_FromInvalidResolvedURL(t *testing.T) {
+	client := &Client{
+		baseURL: &url.URL{Scheme: "http", Host: "example.com\n"},
+		initErr: nil,
+	}
+
+	err := client.Load(context.Background(), &Config{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	_, err = client.GetConfig(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
+
+	err = client.Ping(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "create request")
 }

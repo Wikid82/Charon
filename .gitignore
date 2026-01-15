@@ -245,3 +245,12 @@ my-codeql-db/**
 codeql-linux64.zip
 backend/main
 **.out
+docs/plans/supply_chain_security_implementation.md.backup
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+docs/reports/performance_diagnostics.md

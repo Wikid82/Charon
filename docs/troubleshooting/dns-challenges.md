@@ -17,10 +17,12 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### Invalid Credentials
 
 **Symptoms:**
+
 - "Invalid API token" or "Unauthorized" error
 - Connection test fails immediately
 
 **Solutions:**
+
 1. Verify credentials were copied correctly (no extra spaces/newlines)
 2. Check token/key hasn't expired
 3. Ensure token has required permissions:
@@ -33,34 +35,42 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### DNS Provider Unreachable
 
 **Symptoms:**
+
 - "Connection timeout" or "Network error"
 - Test hangs for 30+ seconds
 
 **Solutions:**
+
 1. Check internet connectivity from Charon server
 2. Verify firewall allows outbound HTTPS (port 443)
 3. Test DNS resolution:
+
    ```bash
    # Test DNS provider API endpoint resolution
    nslookup api.cloudflare.com
    curl -I https://api.cloudflare.com
    ```
+
 4. Check provider status page for service outages
 5. Verify proxy settings if using HTTP proxy
 
 ### Zone/Domain Not Found
 
 **Symptoms:**
+
 - "Hosted zone not found"
 - "Domain not configured"
 
 **Solutions:**
+
 1. Verify domain is added to DNS provider account
 2. Ensure domain status is Active (not Pending)
 3. Check nameservers are correctly configured:
+
    ```bash
    dig NS example.com +short
    ```
+
 4. Wait 24-48 hours if nameservers were recently changed
 5. Verify API token is scoped to include the domain (if applicable)
 
@@ -69,6 +79,7 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### DNS Propagation Timeout
 
 **Symptoms:**
+
 - Certificate issuance fails after 2-5 minutes
 - Error: "DNS propagation timeout" or "TXT record not found"
 
@@ -80,6 +91,7 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
    - Save and retry certificate issuance
 
 2. **Verify DNS propagation:**
+
    ```bash
    # Check if TXT record was created
    dig _acme-challenge.example.com TXT +short
@@ -102,6 +114,7 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### ACME Server Errors
 
 **Symptoms:**
+
 - "Too many requests" or "Rate limit exceeded"
 - "Invalid response from ACME server"
 
@@ -112,6 +125,7 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
    - 5 failed validation attempts per hour
    - Wait before retrying if limit hit
    - Use staging environment for testing:
+
      ```bash
      # In Caddy config (for testing only)
      acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
@@ -131,10 +145,12 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### Wildcard Domain Issues
 
 **Symptoms:**
+
 - Wildcard certificate issuance fails
 - Error: "DNS challenge required for wildcard domains"
 
 **Solutions:**
+
 1. Verify DNS provider is configured in Charon
 2. Select DNS provider when creating proxy host
 3. Ensure wildcard syntax is correct: `*.example.com`
@@ -146,10 +162,12 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 ### Slow Global Propagation
 
 **Symptoms:**
+
 - Certificate issuance succeeds locally but fails remotely
 - Inconsistent results from different DNS resolvers
 
 **Diagnostic Commands:**
+
 ```bash
 # Check propagation from multiple locations
 dig _acme-challenge.example.com TXT @8.8.8.8
@@ -161,6 +179,7 @@ dig example.com +noall +answer | grep -i ttl
 ```
 
 **Solutions:**
+
 1. Increase Propagation Timeout to 300-600 seconds
 2. Lower TTL on existing DNS records (set 1 hour before changes)
 3. Wait for previous high-TTL records to expire
@@ -169,12 +188,15 @@ dig example.com +noall +answer | grep -i ttl
 ### Cached DNS Records
 
 **Symptoms:**
+
 - Old TXT records still visible after deletion
 - Certificate renewal fails with "Incorrect TXT record"
 
 **Solutions:**
+
 1. Wait for TTL expiry (default: 300-3600 seconds)
 2. Flush local DNS cache:
+
    ```bash
    # Linux
    sudo systemd-resolve --flush-caches
@@ -182,7 +204,9 @@ dig example.com +noall +answer | grep -i ttl
    # macOS
    sudo dscacheutil -flushcache
    ```
+
 3. Test with authoritative nameservers directly:
+
    ```bash
    dig _acme-challenge.example.com TXT @ns1.your-provider.com
    ```
@@ -192,38 +216,46 @@ dig example.com +noall +answer | grep -i ttl
 ### Cloudflare
 
 **Error:** `Cloudflare API error 6003: Invalid request headers`
+
 - **Cause:** Malformed API token
 - **Solution:** Regenerate token, ensure no invisible characters
 
 **Error:** `Cloudflare API error 10000: Authentication error`
+
 - **Cause:** Token revoked or expired
 - **Solution:** Create new token with correct permissions
 
 **Error:** `Zone is not active`
+
 - **Cause:** Nameservers not updated
 - **Solution:** Update domain nameservers, wait for activation
 
 ### AWS Route 53
 
 **Error:** `AccessDenied: User is not authorized`
+
 - **Cause:** IAM permissions insufficient
 - **Solution:** Attach IAM policy with `route53:ChangeResourceRecordSets`
 
 **Error:** `InvalidChangeBatch: RRSet with duplicate name`
+
 - **Cause:** Conflicting TXT record already exists
 - **Solution:** Remove manual `_acme-challenge` TXT records
 
 **Error:** `Throttling: Rate exceeded`
+
 - **Cause:** Too many API requests
 - **Solution:** Increase polling interval to 15-20 seconds
 
 ### DigitalOcean
 
 **Error:** `The resource you requested could not be found`
+
 - **Cause:** Domain not in DigitalOcean DNS
 - **Solution:** Add domain to Networking → Domains
 
 **Error:** `Unable to authenticate you`
+
 - **Cause:** Token has Read scope instead of Write
 - **Solution:** Regenerate token with Write scope
 
@@ -232,10 +264,12 @@ dig example.com +noall +answer | grep -i ttl
 ### Outbound HTTPS Blocked
 
 **Symptoms:**
+
 - Connection tests timeout
 - "Network unreachable" errors
 
 **Diagnostic Commands:**
+
 ```bash
 # Test connectivity to DNS provider API
 curl -v https://api.cloudflare.com/client/v4/user
@@ -246,9 +280,11 @@ sudo iptables -L OUTPUT -v -n | grep -i drop
 ```
 
 **Solutions:**
+
 1. Allow outbound HTTPS (port 443) in firewall
 2. Whitelist DNS provider API endpoints
 3. Configure HTTP proxy if required:
+
    ```bash
    export HTTP_PROXY=http://proxy.example.com:8080
    export HTTPS_PROXY=http://proxy.example.com:8080
@@ -257,10 +293,12 @@ sudo iptables -L OUTPUT -v -n | grep -i drop
 ### DNS Resolution Failures
 
 **Symptoms:**
+
 - Cannot resolve DNS provider API domains
 - Error: "No such host"
 
 **Diagnostic Commands:**
+
 ```bash
 # Test DNS resolution
 nslookup api.cloudflare.com
@@ -271,6 +309,7 @@ cat /etc/resolv.conf
 ```
 
 **Solutions:**
+
 1. Verify DNS server is configured correctly
 2. Test with public DNS (8.8.8.8, 1.1.1.1)
 3. Check network interface configuration
@@ -281,12 +320,14 @@ cat /etc/resolv.conf
 ### Encryption Key Issues
 
 **Symptoms:**
+
 - "Encryption key not configured"
 - "Failed to decrypt credentials"
 
 **Solutions:**
 
 1. **Set encryption key:**
+
    ```bash
    # Generate new key
    openssl rand -base64 32
@@ -296,12 +337,14 @@ cat /etc/resolv.conf
    ```
 
 2. **Verify key in environment:**
+
    ```bash
    echo $CHARON_ENCRYPTION_KEY
    # Should show 44-character base64 string
    ```
 
 3. **Docker/Docker Compose:**
+
    ```yaml
    # docker-compose.yml
    services:
@@ -315,12 +358,14 @@ cat /etc/resolv.conf
 ### Credentials Lost After Restart
 
 **Symptoms:**
+
 - DNS provider shows "Unconfigured" status after restart
 - Connection test fails with "Invalid credentials"
 
 **Cause:** Encryption key changed or missing
 
 **Solutions:**
+
 1. Ensure `CHARON_ENCRYPTION_KEY` is persistent (not temporary)
 2. Add to systemd service file, docker-compose, or .env file
 3. Never change encryption key (all credentials will be unrecoverable)
@@ -386,6 +431,7 @@ dig _acme-challenge.example.com TXT @$(dig NS example.com +short | head -1)
 ### Common Log Messages
 
 **Success:**
+
 ```
 [INFO] DNS provider test successful
 [INFO] ACME challenge completed
@@ -393,6 +439,7 @@ dig _acme-challenge.example.com TXT @$(dig NS example.com +short | head -1)
 ```
 
 **Errors:**
+
 ```
 [ERROR] Failed to create TXT record: <reason>
 [ERROR] DNS propagation timeout after 120 seconds

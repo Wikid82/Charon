@@ -1,6 +1,4 @@
 
-
-
 # DNS Future Features Implementation Plan
 
 **Version:** 1.0.0
@@ -42,6 +40,7 @@ This document provides a detailed implementation plan for five DNS Challenge enh
 ### Existing Code Patterns to Follow
 
 Based on codebase analysis:
+
 - **Models:** Follow pattern in [backend/internal/models/dns_provider.go](../../backend/internal/models/dns_provider.go)
 - **Services:** Follow pattern in [backend/internal/services/dns_provider_service.go](../../backend/internal/services/dns_provider_service.go)
 - **Handlers:** Follow pattern in [backend/internal/api/handlers/dns_provider_handler.go](../../backend/internal/api/handlers/dns_provider_handler.go)
@@ -266,6 +265,7 @@ CHARON_ENCRYPTION_KEY_V3=<even-older-key>  # If rotating multiple times
 ```
 
 **Rotation Flow:**
+
 1. Set `CHARON_ENCRYPTION_KEY_V2` with new key
 2. Restart application (loads both keys)
 3. Trigger `/api/v1/admin/encryption/rotate` endpoint
@@ -574,6 +574,7 @@ type DetectionResult struct {
 | `POST` | `/api/v1/dns-providers/detect` | `DNSDetectionHandler.Detect` | Detect provider for domain |
 
 **Request:**
+
 ```json
 {
   "domain": "example.com"
@@ -581,6 +582,7 @@ type DetectionResult struct {
 ```
 
 **Response:**
+
 ```json
 {
   "domain": "example.com",

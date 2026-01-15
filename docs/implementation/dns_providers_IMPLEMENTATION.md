@@ -348,6 +348,7 @@ type ProxyHost struct {
 #### Implementation Details
 
 **Encryption Service:**
+
 ```go
 // backend/internal/crypto/encryption.go
 package crypto
@@ -362,6 +363,7 @@ func (s *EncryptionService) Decrypt(ciphertextB64 string) ([]byte, error)
 ```
 
 **Configuration Extension:**
+
 ```go
 // backend/internal/config/config.go (add)
 EncryptionKey string `env:"CHARON_ENCRYPTION_KEY"`
@@ -588,6 +590,7 @@ export CHARON_ENCRYPTION_KEY="<base64-encoded-32-byte-key>"
 **Location:** `docs/guides/dns-providers.md`
 
 **Contents:**
+
 - What are DNS providers and why they're needed
 - Setting up your first DNS provider
 - Managing multiple providers
@@ -610,6 +613,7 @@ export CHARON_ENCRYPTION_KEY="<base64-encoded-32-byte-key>"
 **Location:** `docs/troubleshooting/dns-challenges.md`
 
 **Contents:**
+
 - DNS propagation delays
 - Permission/authentication errors
 - Firewall considerations

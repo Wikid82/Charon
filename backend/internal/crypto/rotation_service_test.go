@@ -37,8 +37,8 @@ func setupTestKeys(t *testing.T) (currentKey, nextKey, legacyKey string) {
 	legacyKey, err = GenerateNewKey()
 	require.NoError(t, err)
 
-	os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
-	t.Cleanup(func() { os.Unsetenv("CHARON_ENCRYPTION_KEY") })
+	_ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+	t.Cleanup(func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY") })
 
 	return currentKey, nextKey, legacyKey
 }
@@ -58,8 +58,8 @@ func TestNewRotationService(t *testing.T) {
 
 	t.Run("successful initialization with next key", func(t *testing.T) {
 		_, nextKey, _ := setupTestKeys(t)
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		assert.NoError(t, err)
@@ -69,8 +69,8 @@ func TestNewRotationService(t *testing.T) {
 
 	t.Run("successful initialization with legacy keys", func(t *testing.T) {
 		_, _, legacyKey := setupTestKeys(t)
-		os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_V1")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_V1", legacyKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_V1") }()
 
 		rs, err := NewRotationService(db)
 		assert.NoError(t, err)
@@ -80,8 +80,8 @@ func TestNewRotationService(t *testing.T) {
 	})
 
 	t.Run("fails without current key", func(t *testing.T) {
-		os.Unsetenv("CHARON_ENCRYPTION_KEY")
-		defer os.Setenv("CHARON_ENCRYPTION_KEY", currentKey)
+		_ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+		defer func() { _ = os.Setenv("CHARON_ENCRYPTION_KEY", currentKey) }()
 
 		rs, err := NewRotationService(db)
 		assert.Error(t, err)
@@ -90,8 +90,8 @@ func TestNewRotationService(t *testing.T) {
 	})
 
 	t.Run("handles invalid next key gracefully", func(t *testing.T) {
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", "invalid_base64")
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", "invalid_base64")
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		assert.Error(t, err)
@@ -117,8 +117,8 @@ func TestEncryptWithCurrentKey(t *testing.T) {
 
 	t.Run("encrypts with next key when configured", func(t *testing.T) {
 		_, nextKey, _ := setupTestKeys(t)
-		os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
-		defer os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT")
+		_ = os.Setenv("CHARON_ENCRYPTION_KEY_NEXT", nextKey)
+		defer func() { _ = os.Unsetenv("CHARON_ENCRYPTION_KEY_NEXT") }()
 
 		rs, err := NewRotationService(db)
 		require.NoError(t, err)

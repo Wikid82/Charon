@@ -19,14 +19,15 @@ import (
 
 func setupCredentialTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) {
 	// Use test name for unique database to avoid test interference
-	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	// Enable WAL mode and busytimeout to prevent locking issues during concurrent tests
+	dbName := fmt.Sprintf("file:%s?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", t.Name())
 	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
 	require.NoError(t, err)
 
 	// Close database connection when test completes
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 	})
 
 	err = db.AutoMigrate(

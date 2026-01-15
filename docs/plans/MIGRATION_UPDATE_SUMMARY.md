@@ -20,7 +20,9 @@ All references to `.agentskills/` have been updated to `.github/skills/` through
 ## Files Updated
 
 ### 1. Main Specification Document
+
 **File**: `docs/plans/current_spec.md` (971 lines)
+
 - ✅ All `.agentskills/` → `.github/skills/` (100+ replacements)
 - ✅ Added clarifying section: "Important: Location vs. Format Specification"
 - ✅ Updated Executive Summary with VS Code Copilot reference
@@ -36,20 +38,26 @@ All references to `.agentskills/` have been updated to `.github/skills/` through
 ### 2. Proof-of-Concept Files
 
 #### README.md
+
 **File**: `docs/plans/proof-of-concept/README.md` (133 lines)
+
 - ✅ Added "Important: Directory Location" section at top
 - ✅ Updated all command examples
 - ✅ Clarified distinction between location and format
 
 #### validate-skills.py
+
 **File**: `docs/plans/proof-of-concept/validate-skills.py` (432 lines)
+
 - ✅ Updated default path: `.github/skills`
 - ✅ Updated usage documentation
 - ✅ Updated help text
 - ✅ Updated all path references in comments
 
 #### test-backend-coverage.SKILL.md
+
 **File**: `docs/plans/proof-of-concept/test-backend-coverage.SKILL.md` (400+ lines)
+
 - ✅ Updated all skill-runner.sh path references (12 instances)
 - ✅ Updated VS Code task examples
 - ✅ Updated CI/CD workflow examples
@@ -57,7 +65,9 @@ All references to `.agentskills/` have been updated to `.github/skills/` through
 - ✅ Updated all command examples
 
 #### SUPERVISOR_REVIEW_SUMMARY.md
+
 **File**: `docs/plans/proof-of-concept/SUPERVISOR_REVIEW_SUMMARY.md`
+
 - ✅ Updated all directory references
 - ✅ Updated all command examples
 - ✅ Updated validation tool paths
@@ -72,16 +82,19 @@ All references to `.agentskills/` have been updated to `.github/skills/` through
 The specification now clearly explains:
 
 **Directory Location**: `.github/skills/`
+
 - This is the **VS Code Copilot standard location** for Agent Skills
 - Required for VS Code's GitHub Copilot to discover and utilize skills
 - Source: [VS Code Copilot Documentation](https://code.visualstudio.com/docs/copilot/customization/agent-skills)
 
 **File Format**: SKILL.md (agentskills.io specification)
+
 - The **format and structure** of SKILL.md files follows [agentskills.io specification](https://agentskills.io/specification)
 - agentskills.io defines the YAML frontmatter schema, markdown structure, and metadata fields
 - The format is platform-agnostic and can be used in any AI-assisted development environment
 
 **Key Distinction**:
+
 - `.github/skills/` = **WHERE** skills are stored (VS Code Copilot location)
 - agentskills.io = **HOW** skills are structured (format specification)
 
@@ -128,12 +141,14 @@ The specification now clearly explains:
 ## Example Path Updates
 
 ### Before (Incorrect)
+
 ```bash
 .agentskills/scripts/skill-runner.sh test-backend-coverage
 python3 .agentskills/scripts/validate-skills.py
 ```
 
 ### After (Correct)
+
 ```bash
 .github/skills/scripts/skill-runner.sh test-backend-coverage
 python3 validate-skills.py --help  # Default: .github/skills
@@ -142,6 +157,7 @@ python3 validate-skills.py --help  # Default: .github/skills
 ### tasks.json Example
 
 **Before**:
+
 ```json
 {
     "label": "Test: Backend with Coverage",
@@ -151,6 +167,7 @@ python3 validate-skills.py --help  # Default: .github/skills
 ```
 
 **After**:
+
 ```json
 {
     "label": "Test: Backend with Coverage",
@@ -162,12 +179,14 @@ python3 validate-skills.py --help  # Default: .github/skills
 ### GitHub Actions Workflow Example
 
 **Before**:
+
 ```yaml
 - name: Run Backend Tests with Coverage
   run: .agentskills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 **After**:
+
 ```yaml
 - name: Run Backend Tests with Coverage
   run: .github/skills/scripts/skill-runner.sh test-backend-coverage
@@ -207,17 +226,21 @@ python3 validate-skills.py --single test-backend-coverage.SKILL.md
 ## Impact Assessment
 
 ### No Breaking Changes
+
 - All changes are **documentation-only** at this stage
 - No actual code or directory structure has been created yet
 - Specification is still in **Planning Phase**
 
 ### Future Implementation
+
 When implementing Phase 0:
+
 1. Create `.github/skills/` directory (not `.agentskills/`)
 2. Follow all updated paths in the specification
 3. All tooling will target `.github/skills/` by default
 
 ### Benefits
+
 - ✅ **VS Code Copilot Compatibility**: Skills will be automatically discovered by GitHub Copilot
 - ✅ **Standard Location**: Follows official VS Code documentation
 - ✅ **Community Alignment**: Uses the same location as other projects
@@ -228,12 +251,14 @@ When implementing Phase 0:
 ## Rationale
 
 ### Why `.github/skills/`?
+
 1. **Official Standard**: Documented by Microsoft/VS Code as the standard location
 2. **Copilot Integration**: GitHub Copilot looks for skills in `.github/skills/` by default
 3. **Convention over Configuration**: No additional setup needed for VS Code discovery
 4. **GitHub Integration**: `.github/` directory is already used for workflows, issue templates, etc.
 
 ### Why Not `.agentskills/`?
+
 - Not recognized by VS Code Copilot
 - Not part of any official standard
 - Would require custom configuration for AI discovery

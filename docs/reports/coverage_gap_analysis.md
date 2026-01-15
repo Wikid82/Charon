@@ -26,6 +26,7 @@ This report analyzes the coverage gaps in 4 frontend files that were modified in
 #### Untested Code Paths
 
 ##### A. Public URL Validation Logic (Lines ~79-94)
+
 ```typescript
 const validatePublicURL = async (url: string) => {
   if (!url) {
@@ -52,6 +53,7 @@ useEffect(() => {
 ```
 
 **Missing Coverage:**
+
 - Empty URL handling
 - Successful validation response
 - Failed validation (catch block)
@@ -59,6 +61,7 @@ useEffect(() => {
 - Cleanup of debounce timer
 
 ##### B. Test Public URL Handler (Lines ~113-131)
+
 ```typescript
 const testPublicURLHandler = async () => {
   if (!publicURL) {
@@ -84,6 +87,7 @@ const testPublicURLHandler = async () => {
 ```
 
 **Missing Coverage:**
+
 - Empty URL validation
 - Successful URL test with latency
 - Successful URL test without message
@@ -92,6 +96,7 @@ const testPublicURLHandler = async () => {
 - Loading state management
 
 ##### C. Application URL Card JSX (Lines ~372-425)
+
 ```tsx
 <Card>
   <CardHeader>
@@ -152,6 +157,7 @@ const testPublicURLHandler = async () => {
 ```
 
 **Missing Coverage:**
+
 - Rendering of Application URL card
 - Info alert display
 - Public URL input field
@@ -205,6 +211,7 @@ const testPublicURLHandler = async () => {
 #### Untested Code Paths
 
 ##### A. URL Preview in InviteModal (Lines ~63-78)
+
 ```typescript
 // Fetch preview when email changes
 useEffect(() => {
@@ -226,6 +233,7 @@ useEffect(() => {
 ```
 
 **Missing Coverage:**
+
 - URL preview API call trigger
 - Successful preview response handling
 - Error handling in preview fetch
@@ -233,6 +241,7 @@ useEffect(() => {
 - Email validation check
 
 ##### B. URL Preview Display in Modal (Lines ~257-275)
+
 ```tsx
 {/* URL Preview */}
 {urlPreview && (
@@ -262,12 +271,14 @@ useEffect(() => {
 ```
 
 **Missing Coverage:**
+
 - URL preview section rendering
 - Preview URL display with token replacement
 - Warning alert display when warning is true
 - Link to system settings in warning
 
 ##### C. PermissionsModal State Update (Lines ~290-295)
+
 ```typescript
 // Update state when user changes
 useState(() => {
@@ -279,6 +290,7 @@ useState(() => {
 ```
 
 **Missing Coverage:**
+
 - State initialization when user prop changes
 - Default values when user data is incomplete
 
@@ -311,6 +323,7 @@ useState(() => {
 #### Untested Functions
 
 ##### A. validatePublicURL (Lines ~26-35)
+
 ```typescript
 export const validatePublicURL = async (url: string): Promise<{
   valid: boolean
@@ -323,12 +336,14 @@ export const validatePublicURL = async (url: string): Promise<{
 ```
 
 **Missing Coverage:**
+
 - Function not tested at all
 - POST request to `/settings/validate-url`
 - Request payload with url parameter
 - Response data structure
 
 ##### B. testPublicURL (Lines ~37-48)
+
 ```typescript
 export const testPublicURL = async (url: string): Promise<{
   reachable: boolean
@@ -342,6 +357,7 @@ export const testPublicURL = async (url: string): Promise<{
 ```
 
 **Missing Coverage:**
+
 - Function not tested at all
 - POST request to `/settings/test-url`
 - Request payload with url parameter
@@ -375,6 +391,7 @@ export const testPublicURL = async (url: string): Promise<{
 #### Untested Function
 
 ##### previewInviteURL (Lines ~115-128)
+
 ```typescript
 export interface PreviewInviteURLResponse {
   preview_url: string
@@ -392,6 +409,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 ```
 
 **Missing Coverage:**
+
 - Function not tested at all
 - POST request to `/users/preview-invite-url`
 - Request payload with email parameter
@@ -426,7 +444,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 
 ### Component Tests (High Priority)
 
-2. **SystemSettings Component Tests**:
+1. **SystemSettings Component Tests**:
    - File: `frontend/src/pages/__tests__/SystemSettings.test.tsx`
    - Add comprehensive tests for Application URL card
    - Test URL validation UI states
@@ -434,7 +452,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
    - Test debounced validation
    - Mock `validatePublicURL()` and `testPublicURL()` API calls
 
-3. **UsersPage Component Tests**:
+2. **UsersPage Component Tests**:
    - File: `frontend/src/pages/__tests__/UsersPage.test.tsx`
    - Add tests for URL preview in InviteModal
    - Test preview debouncing
@@ -443,7 +461,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 
 ### Integration Tests (Lower Priority)
 
-4. **End-to-End Scenarios** (if E2E framework exists):
+1. **End-to-End Scenarios** (if E2E framework exists):
    - Full user invite flow with URL preview
    - Public URL configuration and testing workflow
    - Permission updates with modal interactions
@@ -453,6 +471,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 ## Priority Order for Addressing Gaps
 
 ### Phase 1: Critical API Tests (Estimated: 1-2 hours)
+
 1. Add `validatePublicURL()` tests in `settings.test.ts`
 2. Add `testPublicURL()` tests in `settings.test.ts`
 3. Add `previewInviteURL()` tests in `users.test.ts`
@@ -460,20 +479,22 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 **Expected Coverage Gain:** ~10-12 lines
 
 ### Phase 2: Core Component Tests (Estimated: 3-4 hours)
-4. Add Application URL card tests in `SystemSettings.test.tsx`
+
+1. Add Application URL card tests in `SystemSettings.test.tsx`
    - URL validation UI tests (8-10 test cases)
    - URL test button tests (5-6 test cases)
-5. Add URL preview tests in `UsersPage.test.tsx`
+2. Add URL preview tests in `UsersPage.test.tsx`
    - Preview display tests (4-5 test cases)
    - Debouncing tests (2-3 test cases)
 
 **Expected Coverage Gain:** ~20-25 lines
 
 ### Phase 3: Edge Cases and Integration (Estimated: 2-3 hours)
-6. Add edge case tests for error handling
-7. Add integration tests for debouncing behavior
-8. Add visual state tests for validation icons
-9. Add PermissionsModal initialization tests
+
+1. Add edge case tests for error handling
+2. Add integration tests for debouncing behavior
+3. Add visual state tests for validation icons
+4. Add PermissionsModal initialization tests
 
 **Expected Coverage Gain:** ~8-10 lines
 
@@ -484,6 +505,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 ### Mocking Requirements
 
 1. **For SystemSettings tests:**
+
    ```typescript
    vi.mock('../../api/settings', () => ({
      getSettings: vi.fn(),
@@ -494,6 +516,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
    ```
 
 2. **For UsersPage tests:**
+
    ```typescript
    vi.mock('../../api/users', () => ({
      // ... existing mocks
@@ -502,6 +525,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
    ```
 
 3. **For API tests:**
+
    ```typescript
    vi.mock('../client', () => ({
      default: {
@@ -516,6 +540,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
 ### Test Data Fixtures
 
 1. **Valid URL validation response:**
+
    ```typescript
    const mockValidationSuccess = {
      valid: true,
@@ -524,6 +549,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
    ```
 
 2. **URL test response:**
+
    ```typescript
    const mockTestSuccess = {
      reachable: true,
@@ -533,6 +559,7 @@ export const previewInviteURL = async (email: string): Promise<PreviewInviteURLR
    ```
 
 3. **URL preview response:**
+
    ```typescript
    const mockPreview = {
      preview_url: 'https://example.com/accept-invite?token=SAMPLE_TOKEN_PREVIEW',

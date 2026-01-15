@@ -48,14 +48,14 @@ func (s *SecurityHeadersService) GetPresets() []models.SecurityHeaderProfile {
 			HSTSMaxAge:                31536000, // 1 year
 			HSTSIncludeSubdomains:     false,
 			HSTSPreload:               false,
-			CSPEnabled:                false,         // APIs don't need CSP
-			XFrameOptions:             "",            // Allow WebViews
+			CSPEnabled:                false, // APIs don't need CSP
+			XFrameOptions:             "",    // Allow WebViews
 			XContentTypeOptions:       true,
 			ReferrerPolicy:            "strict-origin-when-cross-origin",
-			PermissionsPolicy:         "",            // Allow all permissions
-			CrossOriginOpenerPolicy:   "",            // Allow OAuth popups
+			PermissionsPolicy:         "",             // Allow all permissions
+			CrossOriginOpenerPolicy:   "",             // Allow OAuth popups
 			CrossOriginResourcePolicy: "cross-origin", // KEY: Allow cross-origin access
-			CrossOriginEmbedderPolicy: "",            // Don't require CORP
+			CrossOriginEmbedderPolicy: "",             // Don't require CORP
 			XSSProtection:             true,
 			CacheControlNoStore:       false,
 			SecurityScore:             70,
@@ -115,14 +115,15 @@ func (s *SecurityHeadersService) EnsurePresetsExist() error {
 		var existing models.SecurityHeaderProfile
 		err := s.db.Where("uuid = ?", preset.UUID).First(&existing).Error
 
-		if err == gorm.ErrRecordNotFound {
+		switch {
+		case err == gorm.ErrRecordNotFound:
 			// Create preset with a fresh UUID for the ID field
 			if err := s.db.Create(&preset).Error; err != nil {
 				return fmt.Errorf("failed to create preset %s: %w", preset.Name, err)
 			}
-		} else if err != nil {
+		case err != nil:
 			return fmt.Errorf("failed to check preset %s: %w", preset.Name, err)
-		} else {
+		default:
 			// Update existing preset to ensure it has latest values
 			preset.ID = existing.ID // Keep the existing ID
 			if err := s.db.Save(&preset).Error; err != nil {

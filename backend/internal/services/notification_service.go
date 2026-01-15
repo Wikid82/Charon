@@ -302,7 +302,7 @@ func (s *NotificationService) sendJSONPayload(ctx context.Context, p models.Noti
 
 	// Normalize scheme to a constant value derived from an allowlisted set.
 	// This avoids propagating the original input string directly into request construction.
-	safeScheme := "https"
+	var safeScheme string
 	switch validatedURL.Scheme {
 	case "http":
 		safeScheme = "http"

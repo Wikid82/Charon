@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
 )
 
@@ -145,7 +146,11 @@ func CheckLAPIHealth(lapiURL string) bool {
 		// Fallback: try the /v1/decisions endpoint with a HEAD request
 		return checkDecisionsEndpoint(ctx, lapiURL)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	// Check content-type to ensure we're getting JSON from actual LAPI (not HTML from frontend)
 	contentType := resp.Header.Get("Content-Type")
@@ -188,7 +193,11 @@ func GetLAPIVersion(ctx context.Context, lapiURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("version request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("version request returned status %d", resp.StatusCode)
@@ -227,7 +236,11 @@ func checkDecisionsEndpoint(ctx context.Context, lapiURL string) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.Log().WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	// Check content-type to avoid false positives from HTML responses
 	contentType := resp.Header.Get("Content-Type")

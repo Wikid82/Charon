@@ -130,7 +130,7 @@ func TestManager_GetCurrentConfig(t *testing.T) {
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/config/" && r.Method == "GET" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"apps": {"http": {}}}`))
+			_, _ = w.Write([]byte(`{"apps": {"http": {}}}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -171,7 +171,7 @@ func TestManager_RotateSnapshots(t *testing.T) {
 		ts := time.Now().Add(-time.Duration(i+1) * time.Minute).Unix()
 		fname := fmt.Sprintf("config-%d.json", ts)
 		f, _ := os.Create(filepath.Join(tmpDir, fname))
-		f.Close()
+		_ = f.Close()
 	}
 
 	// Call ApplyConfig once
@@ -272,7 +272,7 @@ func TestManager_ApplyConfig_DBError(t *testing.T) {
 
 	// Close DB to force error
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	err = manager.ApplyConfig(context.Background())
 	assert.Error(t, err)
@@ -289,7 +289,7 @@ func TestManager_ApplyConfig_ValidationError(t *testing.T) {
 	// Setup Manager with a file as configDir to force saveSnapshot error
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config-file")
-	os.WriteFile(configDir, []byte("not a dir"), 0o644)
+	_ = os.WriteFile(configDir, []byte("not a dir"), 0o644)
 
 	client := NewClient("http://localhost")
 	manager := NewManager(client, db, configDir, "", false, config.SecurityConfig{})
@@ -325,7 +325,7 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	manager := NewManager(client, db, tmpDir, "", false, config.SecurityConfig{})
 
 	// Create a dummy snapshot manually so rollback has something to try
-	os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o644)
 
 	// Apply Config - will fail, try rollback, rollback will fail
 	err = manager.ApplyConfig(context.Background())

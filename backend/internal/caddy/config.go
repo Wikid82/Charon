@@ -1193,11 +1193,12 @@ func buildWAFHandler(host *models.ProxyHost, rulesets []models.SecurityRuleSet, 
 
 	// Second pass: select by priority if not already selected
 	if selected == nil {
-		if hostRulesetMatch != nil {
+		switch {
+		case hostRulesetMatch != nil:
 			selected = hostRulesetMatch
-		} else if appMatch != nil {
+		case appMatch != nil:
 			selected = appMatch
-		} else if owaspFallback != nil {
+		case owaspFallback != nil:
 			selected = owaspFallback
 		}
 	}
@@ -1427,12 +1428,13 @@ func buildSecurityHeadersHandler(host *models.ProxyHost) (Handler, error) {
 
 	// Use profile if configured
 	var cfg *models.SecurityHeaderProfile
-	if host.SecurityHeaderProfile != nil {
+	switch {
+	case host.SecurityHeaderProfile != nil:
 		cfg = host.SecurityHeaderProfile
-	} else if !host.SecurityHeadersEnabled {
+	case !host.SecurityHeadersEnabled:
 		// No profile and headers disabled - skip
 		return nil, nil
-	} else {
+	default:
 		// Use default secure headers
 		cfg = getDefaultSecurityHeaderProfile()
 	}

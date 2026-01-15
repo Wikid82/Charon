@@ -7,11 +7,13 @@
 ## Function Signature Change
 
 **Old signature** (15 parameters):
+
 ```go
 GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig)
 ```
 
 **New signature** (16 parameters):
+
 ```go
 GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir, sslProvider string, acmeStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled bool, adminWhitelist string, rulesets []models.SecurityRuleSet, rulesetPaths map[string]string, decisions []models.SecurityDecision, secCfg *models.SecurityConfig, dnsProviderConfigs []DNSProviderConfig)
 ```
@@ -37,6 +39,7 @@ All 7 test cases need the same fix - append `nil` as the 16th argument:
 For all 7 test cases, append `, nil` as the last argument to the `GenerateConfig` call.
 
 **Example fix** for line 14:
+
 ```go
 // Before
 cfg, err := GenerateConfig([]models.ProxyHost{}, "/tmp/caddy-data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil)

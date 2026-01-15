@@ -63,6 +63,7 @@ Expand **Advanced Settings** to customize:
 3. Verify you see: ✅ **Connection successful**
 
 The test verifies:
+
 - Token is valid and active
 - Account has DNS write permissions
 - DigitalOcean API is accessible
@@ -129,9 +130,11 @@ The Personal Access Token needs **Write** scope, which includes:
 
 - DigitalOcean DNS typically propagates in <60 seconds
 - Verify nameservers are correctly configured:
+
   ```bash
   dig NS example.com +short
   ```
+
 - Check DigitalOcean Status page for service issues
 - Increase Propagation Timeout to 120 seconds as a workaround
 

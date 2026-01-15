@@ -1,0 +1,8 @@
+internal/api/handlers/access_list_handler.go:1: : # github.com/Wikid82/charon/backend/internal/api/handlers [github.com/Wikid82/charon/backend/internal/api/handlers.test]
+internal/api/handlers/encryption_handler_test.go:468:10: syntax error: unexpected = at end of statement (typecheck)
+package handlers
+internal/api/handlers/encryption_handler_test.go:468:10: expected '==', found '=' (typecheck)
+	defer _ = os.Unsetenv("CHARON_ENCRYPTION_KEY")
+	        ^
+2 issues:
+* typecheck: 2

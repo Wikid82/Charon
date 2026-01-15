@@ -28,6 +28,7 @@ This document provides a comprehensive assessment of Server-Side Request Forgery
 ### 1.1 CRITICAL Vulnerabilities (Immediate Action Required)
 
 #### ❌ VULN-001: Security Notification Webhook (Unvalidated)
+
 **Location:** `/backend/internal/services/security_notification_service.go`
 **Lines:** 95-112
 **Risk Level:** 🔴 **CRITICAL**
@@ -36,6 +37,7 @@ This document provides a comprehensive assessment of Server-Side Request Forgery
 The `sendWebhook` function directly uses user-provided `webhookURL` from the database without any validation or SSRF protection. This is a direct request forgery vulnerability.
 
 **Vulnerable Code:**
+
 ```go
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
     // ... marshal payload ...
@@ -45,11 +47,13 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 ```
 
 **Attack Scenarios:**
+
 1. Admin configures webhook URL as `http://169.254.169.254/latest/meta-data/` (AWS metadata)
 2. Attacker with admin access sets webhook to internal network resources
 3. Security events trigger automated requests to internal services
 
 **Impact:**
+
 - Access to cloud metadata endpoints (AWS, GCP, Azure)
 - Internal network scanning
 - Access to internal services without authentication
@@ -58,6 +62,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 ---
 
 #### ❌ VULN-002: GitHub API URL in Update Service (Configurable)
+
 **Location:** `/backend/internal/services/update_service.go`
 **Lines:** 33, 42, 67-71
 **Risk Level:** 🔴 **CRITICAL** (if exposed) / 🟡 **MEDIUM** (currently internal-only)
@@ -66,6 +71,7 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 The `UpdateService` allows setting a custom API URL via `SetAPIURL()` for testing. While this is currently only used in test files, if this functionality is ever exposed to users, it becomes a critical SSRF vector.
 
 **Vulnerable Code:**
+
 ```go
 func (s *UpdateService) SetAPIURL(url string) {
     s.apiURL = url  // NO VALIDATION
@@ -84,6 +90,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 ---
 
 #### ❌ VULN-003: CrowdSec Hub URL Configuration (Potentially User-Controlled)
+
 **Location:** `/backend/internal/crowdsec/hub_sync.go`
 **Lines:** 378-390, 667-680
 **Risk Level:** 🔴 **HIGH** (if user-configurable)
@@ -92,6 +99,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 The `HubService` allows custom hub base URLs and makes HTTP requests to construct hub index URLs. If users can configure custom hub URLs, this becomes an SSRF vector.
 
 **Vulnerable Code:**
+
 ```go
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
     req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
@@ -106,6 +114,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 ```
 
 **Required Investigation:**
+
 - Determine if hub base URLs can be user-configured
 - Check if custom hub mirrors can be specified via API or configuration
 
@@ -114,6 +123,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string) ([]b
 ### 1.2 MEDIUM-Risk Areas (Security Enhancement Required)
 
 #### ⚠️ MEDIUM-001: CrowdSec LAPI URL
+
 **Location:** `/backend/internal/crowdsec/registration.go`
 **Lines:** 42-85, 109-130
 **Risk Level:** 🟡 **MEDIUM**
@@ -126,6 +136,7 @@ The `EnsureBouncerRegistered` and `GetLAPIVersion` functions accept a `lapiURL` 
 ---
 
 #### ⚠️ MEDIUM-002: CrowdSec Handler Direct API Requests
+
 **Location:** `/backend/internal/api/handlers/crowdsec_handler.go`
 **Lines:** 1080-1130 (and similar patterns elsewhere)
 **Risk Level:** 🟡 **MEDIUM**
@@ -140,11 +151,13 @@ The `ListDecisionsViaAPI` handler constructs and executes HTTP requests to Crowd
 ### 1.3 ✅ SECURE Implementations (Reference Examples)
 
 #### ✅ SECURE-001: Settings URL Test Endpoint
+
 **Location:** `/backend/internal/api/handlers/settings_handler.go`
 **Lines:** 272-310
 **Function:** `TestPublicURL`
 
 **Security Features:**
+
 - ✅ URL format validation via `utils.ValidateURL`
 - ✅ DNS resolution with timeout
 - ✅ Private IP blocking via `isPrivateIP`
@@ -153,6 +166,7 @@ The `ListDecisionsViaAPI` handler constructs and executes HTTP requests to Crowd
 - ✅ Request timeout (5 seconds)
 
 **Reference Code:**
+
 ```go
 func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
     // Admin check
@@ -173,11 +187,13 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 ---
 
 #### ✅ SECURE-002: Custom Webhook Notification
+
 **Location:** `/backend/internal/services/notification_service.go`
 **Lines:** 188-290
 **Function:** `sendCustomWebhook`
 
 **Security Features:**
+
 - ✅ URL validation via `validateWebhookURL` (lines 324-352)
 - ✅ DNS resolution and private IP checking
 - ✅ Explicit IP resolution to prevent DNS rebinding
@@ -186,6 +202,7 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 - ✅ Localhost explicitly allowed for testing
 
 **Reference Code:**
+
 ```go
 func validateWebhookURL(raw string) (*neturl.URL, error) {
     u, err := neturl.Parse(raw)
@@ -214,11 +231,13 @@ func validateWebhookURL(raw string) (*neturl.URL, error) {
 ---
 
 #### ✅ SECURE-003: URL Testing Utility
+
 **Location:** `/backend/internal/utils/url_testing.go`
 **Lines:** 1-170
 **Functions:** `TestURLConnectivity`, `isPrivateIP`
 
 **Security Features:**
+
 - ✅ Comprehensive private IP blocking (13+ CIDR ranges)
 - ✅ DNS resolution with 3-second timeout
 - ✅ Blocks RFC 1918 private networks
@@ -229,6 +248,7 @@ func validateWebhookURL(raw string) (*neturl.URL, error) {
 - ✅ Excellent test coverage (see `url_connectivity_test.go`)
 
 **Blocked IP Ranges:**
+
 ```go
 privateBlocks := []string{
     // IPv4 Private Networks (RFC 1918)
@@ -263,6 +283,7 @@ privateBlocks := []string{
 All HTTP requests based on user input MUST implement the following validations:
 
 #### Phase 1: URL Format Validation
+
 1. ✅ Parse URL using `net/url.Parse()`
 2. ✅ Validate scheme: ONLY `http` or `https`
 3. ✅ Validate hostname is present and not empty
@@ -270,6 +291,7 @@ All HTTP requests based on user input MUST implement the following validations:
 5. ✅ Normalize URL (trim trailing slashes, lowercase host)
 
 #### Phase 2: DNS Resolution & IP Validation
+
 1. ✅ Resolve hostname with timeout (3 seconds max)
 2. ✅ Check ALL resolved IPs against blocklist
 3. ✅ Block private IP ranges (RFC 1918)
@@ -280,6 +302,7 @@ All HTTP requests based on user input MUST implement the following validations:
 8. ✅ Handle both IPv4 and IPv6
 
 #### Phase 3: HTTP Client Configuration
+
 1. ✅ Set strict timeout (5-10 seconds)
 2. ✅ Disable automatic redirects OR limit to 2 max
 3. ✅ Use explicit IP from DNS resolution
@@ -288,6 +311,7 @@ All HTTP requests based on user input MUST implement the following validations:
 6. ✅ Use context with timeout
 
 #### Exception: Local Testing
+
 - Allow explicit localhost addresses for development/testing
 - Document this exception clearly
 - Consider environment-based toggle
@@ -326,6 +350,7 @@ All HTTP requests based on user input MUST implement the following validations:
 ✅ **GOOD:** `"Access to cloud metadata endpoints is blocked for security"`
 
 **Error Handling Principles:**
+
 1. Never expose internal IP addresses in error messages
 2. Don't reveal network topology or internal service names
 3. Log detailed errors server-side, return generic errors to users
@@ -341,13 +366,16 @@ All HTTP requests based on user input MUST implement the following validations:
 **Files to Create/Update:**
 
 #### ✅ Already Exists (Reuse)
+
 - `/backend/internal/utils/url_testing.go` - Comprehensive SSRF protection
 - `/backend/internal/utils/url.go` - URL validation utilities
 
 #### 🔨 New Utilities Needed
+
 - `/backend/internal/security/url_validator.go` - Centralized validation
 
 **Tasks:**
+
 1. ✅ Review existing `isPrivateIP` function (already excellent)
 2. ✅ Review existing `TestURLConnectivity` (already secure)
 3. 🔨 Create `ValidateWebhookURL` function (extract from notification_service.go)
@@ -355,6 +383,7 @@ All HTTP requests based on user input MUST implement the following validations:
 5. 🔨 Add function documentation with security notes
 
 **Proposed Utility Structure:**
+
 ```go
 package security
 
@@ -388,9 +417,11 @@ func WithAllowHTTP() ValidationOption
 **Priority Order:** Critical → High → Medium
 
 #### 🔴 CRITICAL-001: Fix Security Notification Webhook
+
 **File:** `/backend/internal/services/security_notification_service.go`
 
 **Changes Required:**
+
 ```go
 // ADD: Import security package
 import "github.com/Wikid82/charon/backend/internal/security"
@@ -417,12 +448,14 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 ```
 
 **Additional Changes:**
+
 - ✅ **HIGH-PRIORITY ENHANCEMENT**: Add validation when webhook URL is saved (fail-fast principle)
 - Add migration to validate existing webhook URLs in database
 - Add admin UI warning for webhook URL configuration
 - Update API documentation
 
 **Validation on Save Implementation:**
+
 ```go
 // In settings_handler.go or wherever webhook URLs are configured
 func (h *SettingsHandler) SaveWebhookConfig(c *gin.Context) {
@@ -447,6 +480,7 @@ func (h *SettingsHandler) SaveWebhookConfig(c *gin.Context) {
 ```
 
 **Benefits:**
+
 - Fail-fast: Invalid URLs rejected at configuration time, not at use time
 - Better UX: Immediate feedback to administrator
 - Prevents invalid configurations in database
@@ -454,9 +488,11 @@ func (h *SettingsHandler) SaveWebhookConfig(c *gin.Context) {
 ---
 
 #### 🔴 CRITICAL-002: Secure Update Service URL Configuration
+
 **File:** `/backend/internal/services/update_service.go`
 
 **Changes Required:**
+
 ```go
 // MODIFY: SetAPIURL function (line 42)
 func (s *UpdateService) SetAPIURL(url string) error {  // Return error
@@ -487,6 +523,7 @@ func (s *UpdateService) SetAPIURL(url string) error {  // Return error
 ```
 
 **Note:** Since this is only used in tests, consider:
+
 1. Making this test-only (build tag)
 2. Adding clear documentation that this is NOT for production use
 3. Panic if called in production build
@@ -494,13 +531,16 @@ func (s *UpdateService) SetAPIURL(url string) error {  // Return error
 ---
 
 #### 🔴 HIGH-001: Validate CrowdSec Hub URLs
+
 **File:** `/backend/internal/crowdsec/hub_sync.go`
 
 **Investigation Required:**
+
 1. Determine if hub URLs can be user-configured
 2. Check configuration files and API endpoints
 
 **If User-Configurable, Apply:**
+
 ```go
 // ADD: Validation before HTTP requests
 func (s *HubService) fetchIndexHTTPFromURL(ctx context.Context, target string) (HubIndex, error) {
@@ -540,9 +580,11 @@ func validateHubURL(rawURL string) error {
 ---
 
 #### 🟡 MEDIUM: CrowdSec LAPI URL Validation
+
 **File:** `/backend/internal/crowdsec/registration.go`
 
 **Changes Required:**
+
 ```go
 // ADD: Validation function
 func validateLAPIURL(lapiURL string) error {
@@ -591,11 +633,13 @@ func EnsureBouncerRegistered(ctx context.Context, lapiURL string) (string, error
 #### ✅ Existing Test Coverage (Excellent)
 
 **Files:**
+
 - `/backend/internal/utils/url_connectivity_test.go` (305 lines)
 - `/backend/internal/services/notification_service_test.go` (542+ lines)
 - `/backend/internal/api/handlers/settings_handler_test.go` (606+ lines)
 
 **Existing Test Cases:**
+
 - ✅ Private IP blocking (10.0.0.0/8, 192.168.0.0/16, etc.)
 - ✅ Localhost handling
 - ✅ AWS metadata endpoint blocking
@@ -610,6 +654,7 @@ func EnsureBouncerRegistered(ctx context.Context, lapiURL string) (string, error
 **New Test File:** `/backend/internal/security/url_validator_test.go`
 
 **Test Cases to Add:**
+
 ```go
 func TestValidateExternalURL_SSRFVectors(t *testing.T) {
     vectors := []struct {
@@ -715,6 +760,7 @@ func TestSSRFProtection_SecondOrderAttacks(t *testing.T) {
 **Implementation:**
 
 1. **Log All Rejected SSRF Attempts**
+
 ```go
 func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookURL string, event models.SecurityEvent) error {
     validatedURL, err := security.ValidateExternalURL(webhookURL,
@@ -741,7 +787,8 @@ func (s *SecurityNotificationService) sendWebhook(ctx context.Context, webhookUR
 }
 ```
 
-2. **Alert on Multiple SSRF Attempts**
+1. **Alert on Multiple SSRF Attempts**
+
 ```go
 // In security monitoring service
 func (s *SecurityMonitor) checkSSRFAttempts(userID string) {
@@ -758,13 +805,15 @@ func (s *SecurityMonitor) checkSSRFAttempts(userID string) {
 }
 ```
 
-3. **Dashboard Metrics**
+1. **Dashboard Metrics**
+
 - Total SSRF blocks per day
 - SSRF attempts by user
 - Most frequently blocked IP ranges
 - SSRF attempts by endpoint
 
 **Files to Create/Update:**
+
 - `/backend/internal/monitoring/ssrf_monitor.go` (NEW)
 - `/backend/internal/metrics/security_metrics.go` (UPDATE)
 - Dashboard configuration for SSRF metrics
@@ -866,17 +915,21 @@ disabled in production builds.
 
 ### ✅ Safe Webhook URLs
 ```
-https://webhook.example.com/receive
-https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX
-https://discord.com/api/webhooks/123456/abcdef
+
+<https://webhook.example.com/receive>
+<https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX>
+<https://discord.com/api/webhooks/123456/abcdef>
+
 ```
 
 ### ❌ Blocked Webhook URLs
 ```
-http://localhost/admin              # Loopback
-http://192.168.1.1/internal         # Private IP
-http://169.254.169.254/metadata     # Cloud metadata
-http://internal.company.local       # Internal hostname
+
+<http://localhost/admin>              # Loopback
+<http://192.168.1.1/internal>         # Private IP
+<http://169.254.169.254/metadata>     # Cloud metadata
+<http://internal.company.local>       # Internal hostname
+
 ```
 
 ## Security Considerations
@@ -899,7 +952,8 @@ go test -v ./internal/services -run TestValidateWebhookURL
 ## Reporting Security Issues
 
 If you discover a bypass or vulnerability in SSRF protection, please
-report it responsibly to security@example.com.
+report it responsibly to <security@example.com>.
+
 ```
 
 ---
@@ -994,6 +1048,7 @@ func TestSecurityNotification_SSRFAttempt(t *testing.T) {
 ```
 
 #### Scenario 2: DNS Rebinding Attack
+
 ```go
 func TestWebhook_DNSRebindingProtection(t *testing.T) {
     // Setup: Mock DNS that changes resolution
@@ -1004,6 +1059,7 @@ func TestWebhook_DNSRebindingProtection(t *testing.T) {
 ```
 
 #### Scenario 3: Redirect-Based SSRF
+
 ```go
 func TestWebhook_RedirectToPrivateIP(t *testing.T) {
     // Setup: Valid external URL that redirects to private IP
@@ -1012,6 +1068,7 @@ func TestWebhook_RedirectToPrivateIP(t *testing.T) {
 ```
 
 #### Scenario 4: Time-of-Check-Time-of-Use
+
 ```go
 func TestWebhook_TOCTOU(t *testing.T) {
     // Setup: URL validated at time T1
@@ -1132,17 +1189,20 @@ The remediation is complete when:
 ## 7. Implementation Timeline (SUPERVISOR-APPROVED)
 
 ### Week 1: Critical Fixes (5.5 days)
+
 - **Days 1-2:** Create security utility package
 - **Days 3-4:** Fix CRITICAL vulnerabilities (VULN-001, VULN-002, VULN-003)
 - **Day 4.5:** ✅ **ENHANCEMENT**: Add validation-on-save for webhooks
 - **Day 5:** Initial testing and validation
 
 ### Week 2: Enhancement & Testing (5 days)
+
 - **Days 1-2:** Fix HIGH/MEDIUM vulnerabilities (LAPI URL, handler validation)
 - **Days 3-4:** Comprehensive test coverage expansion
 - **Day 5:** Integration testing and penetration testing
 
 ### Week 3: Documentation, Monitoring & Review (6 days)
+
 - **Day 1:** ✅ **ENHANCEMENT**: Implement SSRF monitoring & alerting
 - **Days 2-3:** Documentation updates (API, security guide, code docs)
 - **Days 4-5:** Security review and final penetration testing
@@ -1151,6 +1211,7 @@ The remediation is complete when:
 **Total Duration:** 3.5 weeks (16.5 days)
 
 **Enhanced Features Included:**
+
 - ✅ Validation on save (fail-fast principle)
 - ✅ SSRF monitoring and alerting (operational visibility)
 - ✅ Comprehensive logging for audit trail
@@ -1162,6 +1223,7 @@ The remediation is complete when:
 ### 8.1 Current Risk Level
 
 **Without Remediation:**
+
 - Security Notification Webhook: 🔴 **CRITICAL** (Direct SSRF)
 - Update Service: 🔴 **HIGH** (If exposed)
 - Hub Service: 🔴 **HIGH** (If user-configurable)
@@ -1171,6 +1233,7 @@ The remediation is complete when:
 ### 8.2 Post-Remediation Risk Level
 
 **With Full Remediation:**
+
 - All endpoints: 🟢 **LOW** (Protected with defense-in-depth)
 
 **Overall Risk:** 🟢 **LOW**
@@ -1262,6 +1325,7 @@ The Charon codebase demonstrates **strong security awareness** with excellent SS
 ### Expected Outcomes
 
 With full implementation of this plan:
+
 - ✅ All SSRF vulnerabilities eliminated
 - ✅ Defense-in-depth protection implemented
 - ✅ Comprehensive test coverage achieved
@@ -1275,28 +1339,34 @@ With full implementation of this plan:
 ### Common SSRF Validation Errors
 
 #### Error: "invalid webhook URL: disallowed host IP: 10.0.0.1"
+
 **Cause:** Webhook URL resolves to a private IP address (RFC 1918 range)
 **Solution:** Use a publicly accessible webhook endpoint. Private IPs are blocked for security.
 **Example Valid URL:** `https://webhook.example.com/receive`
 
 #### Error: "invalid webhook URL: disallowed host IP: 169.254.169.254"
+
 **Cause:** Webhook URL resolves to cloud metadata endpoint (AWS/Azure)
 **Solution:** This IP range is explicitly blocked to prevent cloud metadata access. Use public endpoint.
 **Security Note:** This is a common SSRF attack vector.
 
 #### Error: "invalid webhook URL: dns lookup failed"
+
 **Cause:** Hostname cannot be resolved via DNS
 **Solution:**
+
 - Verify the domain exists and is publicly accessible
 - Check DNS configuration
 - Ensure DNS server is reachable
 
 #### Error: "invalid webhook URL: unsupported scheme: ftp"
+
 **Cause:** URL uses a protocol other than http/https
 **Solution:** Only `http://` and `https://` schemes are allowed. Change to supported protocol.
 **Security Note:** Other protocols (ftp, file, gopher) are blocked to prevent protocol smuggling.
 
 #### Error: "webhook rate limit exceeded"
+
 **Cause:** Too many webhook requests to the same destination in short time
 **Solution:** Wait before retrying. Maximum 10 requests/minute per destination.
 **Note:** This is an anti-abuse protection.
@@ -1304,6 +1374,7 @@ With full implementation of this plan:
 ### Localhost Exception (Development Only)
 
 **Allowed for Testing:**
+
 - `http://localhost/webhook`
 - `http://127.0.0.1:8080/receive`
 - `http://[::1]:3000/test`
@@ -1313,12 +1384,14 @@ With full implementation of this plan:
 ### Debugging Tips
 
 #### Enable Detailed Logging
+
 ```bash
 # Set log level to debug
 export LOG_LEVEL=debug
 ```
 
 #### Test URL Validation Directly
+
 ```go
 // In test file or debugging
 import "github.com/Wikid82/charon/backend/internal/security"
@@ -1335,6 +1408,7 @@ func TestMyWebhookURL() {
 ```
 
 #### Check DNS Resolution
+
 ```bash
 # Check what IPs a domain resolves to
 nslookup webhook.example.com
@@ -1355,6 +1429,7 @@ whois 10.0.0.1  # Will show "Private Use"
 ### Security Notes for Administrators
 
 **Blocked Destination Categories:**
+
 - **Private Networks**: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 - **Loopback**: 127.0.0.0/8, ::1/128
 - **Link-Local**: 169.254.0.0/16, fe80::/10
@@ -1362,6 +1437,7 @@ whois 10.0.0.1  # Will show "Private Use"
 - **Broadcast**: 255.255.255.255
 
 **If You Need to Webhook to Internal Service:**
+
 - ❌ Don't expose Charon to internal network
 - ✅ Use a public gateway/proxy for internal webhooks
 - ✅ Configure VPN or secure tunnel if needed
@@ -1377,6 +1453,7 @@ whois 10.0.0.1  # Will show "Private Use"
 > **Validate All Incoming URLs for SSRF:** When the server needs to make a request to a URL provided by a user (e.g., webhooks), you must treat it as untrusted. Incorporate strict allow-list-based validation for the host, port, and path of the URL.
 
 **Our Implementation Exceeds These Guidelines:**
+
 - ✅ Strict validation (not just allowlist)
 - ✅ DNS resolution validation
 - ✅ Private IP blocking
@@ -1470,24 +1547,28 @@ func isPrivateIP(ip net.IP) bool {
 ## Appendix D: Testing Checklist
 
 ### Pre-Implementation Testing
+
 - [ ] Identify all HTTP client usage
 - [ ] Map all user-input to URL paths
 - [ ] Review existing validation logic
 - [ ] Document current security posture
 
 ### During Implementation Testing
+
 - [ ] Unit tests pass for each function
 - [ ] Integration tests pass
 - [ ] Manual testing of edge cases
 - [ ] Code review by security team
 
 ### Post-Implementation Testing
+
 - [ ] Full penetration testing
 - [ ] Automated security scanning
 - [ ] Performance impact assessment
 - [ ] Documentation accuracy review
 
 ### Ongoing Testing
+
 - [ ] Regular security audits
 - [ ] Dependency vulnerability scans
 - [ ] Incident response drills
@@ -1527,6 +1608,7 @@ This SSRF remediation plan has been thoroughly reviewed and is approved for impl
 ### Enhancements Included
 
 **High-Priority Additions:**
+
 1. ✅ Validate webhook URLs on save (fail-fast, +0.5 day)
 2. ✅ SSRF monitoring and alerting (operational visibility, +1 day)
 3. ✅ Troubleshooting guide for developers (+0.5 day)
@@ -1545,6 +1627,7 @@ This SSRF remediation plan has been thoroughly reviewed and is approved for impl
 **Success Probability:** 95%
 
 **Risk Factors:**
+
 - ⚠️ CrowdSec hub investigation (VULN-003) may reveal additional complexity
   - *Mitigation*: Buffer time allocated in Week 2
 - ⚠️ Integration testing may uncover edge cases

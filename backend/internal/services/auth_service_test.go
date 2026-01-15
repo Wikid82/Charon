@@ -74,7 +74,7 @@ func TestAuthService_Login(t *testing.T) {
 	assert.True(t, user.LockedUntil.After(time.Now()))
 
 	// Try login with correct password while locked
-	token, err = service.Login("test@example.com", "password123")
+	_, err = service.Login("test@example.com", "password123")
 	assert.Error(t, err)
 	assert.Equal(t, "account locked", err.Error())
 }

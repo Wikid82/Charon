@@ -37,7 +37,7 @@ func TestGetTemplateDB_HasTables(t *testing.T) {
 	var tables []string
 	rows, err := tmpl.Raw("SELECT name FROM sqlite_master WHERE type='table'").Rows()
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var name string
@@ -95,7 +95,7 @@ func TestOpenTestDBWithMigrations(t *testing.T) {
 	var tables []string
 	rows, err := db.Raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Rows()
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var name string

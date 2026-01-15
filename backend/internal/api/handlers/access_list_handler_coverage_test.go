@@ -16,7 +16,7 @@ import (
 
 func TestAccessListHandler_SetGeoIPService(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	handler := NewAccessListHandler(db)
 
@@ -30,7 +30,7 @@ func TestAccessListHandler_SetGeoIPService(t *testing.T) {
 
 func TestAccessListHandler_SetGeoIPService_Nil(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	handler := NewAccessListHandler(db)
 
@@ -151,7 +151,7 @@ func TestAccessListHandler_Get_DBError(t *testing.T) {
 func TestAccessListHandler_Delete_InternalError(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	// Migrate AccessList but not ProxyHost to cause internal error on delete
-	db.AutoMigrate(&models.AccessList{})
+	_ = db.AutoMigrate(&models.AccessList{})
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

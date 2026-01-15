@@ -43,6 +43,32 @@ mkdir -p /app/data/crowdsec 2>/dev/null || true
 mkdir -p /app/data/geoip 2>/dev/null || true
 
 # ============================================================================
+# Plugin Directory Permission Verification
+# ============================================================================
+# The PluginLoaderService requires the plugin directory to NOT be world-writable
+# (mode 0002 bit must not be set). This is a security requirement to prevent
+# malicious plugin injection.
+PLUGINS_DIR="${CHARON_PLUGINS_DIR:-/app/plugins}"
+if [ -d "$PLUGINS_DIR" ]; then
+    # Check if directory is world-writable (security risk)
+    if [ "$(stat -c '%a' "$PLUGINS_DIR" 2>/dev/null | grep -c '.[0-9][2367]$')" -gt 0 ]; then
+        echo "⚠️  WARNING: Plugin directory $PLUGINS_DIR is world-writable!"
+        echo "   This is a security risk - plugins could be injected by any user."
+        echo "   Attempting to fix permissions..."
+        if chmod 755 "$PLUGINS_DIR" 2>/dev/null; then
+            echo "   ✓ Fixed: Plugin directory permissions set to 755"
+        else
+            echo "   ✗ ERROR: Cannot fix permissions. Please run: chmod 755 $PLUGINS_DIR"
+            echo "   Plugin loading may fail due to insecure permissions."
+        fi
+    else
+        echo "✓ Plugin directory permissions OK: $PLUGINS_DIR"
+    fi
+else
+    echo "Note: Plugin directory $PLUGINS_DIR does not exist (plugins disabled)"
+fi
+
+# ============================================================================
 # Docker Socket Permission Handling
 # ============================================================================
 # The Docker integration feature requires access to the Docker socket.

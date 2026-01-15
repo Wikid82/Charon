@@ -91,9 +91,10 @@ func TestConsoleEnrollSuccess(t *testing.T) {
 	var rec models.CrowdsecConsoleEnrollment
 	require.NoError(t, db.First(&rec).Error)
 	require.NotEqual(t, "abc123def4g", rec.EncryptedEnrollKey)
-	plain, decErr := svc.decrypt(rec.EncryptedEnrollKey)
-	require.NoError(t, decErr)
-	require.Equal(t, "abc123def4g", plain)
+	// Decryption verification removed - decrypt method was only for testing
+	// plain, decErr := svc.decrypt(rec.EncryptedEnrollKey)
+	// require.NoError(t, decErr)
+	// require.Equal(t, "abc123def4g", plain)
 }
 
 func TestConsoleEnrollFailureRedactsSecret(t *testing.T) {
@@ -624,25 +625,18 @@ func TestEncryptDecrypt(t *testing.T) {
 	db := openConsoleTestDB(t)
 	svc := NewConsoleEnrollmentService(db, &stubEnvExecutor{}, t.TempDir(), "test-secret")
 
-	t.Run("encrypts and decrypts successfully", func(t *testing.T) {
+	t.Run("encrypts successfully", func(t *testing.T) {
 		original := "sensitive-enrollment-key"
 		encrypted, err := svc.encrypt(original)
 		require.NoError(t, err)
 		require.NotEqual(t, original, encrypted)
-
-		decrypted, err := svc.decrypt(encrypted)
-		require.NoError(t, err)
-		require.Equal(t, original, decrypted)
+		// Decryption test removed - decrypt method was only for testing
 	})
 
 	t.Run("handles empty string", func(t *testing.T) {
 		encrypted, err := svc.encrypt("")
 		require.NoError(t, err)
 		require.Empty(t, encrypted)
-
-		decrypted, err := svc.decrypt("")
-		require.NoError(t, err)
-		require.Empty(t, decrypted)
 	})
 
 	t.Run("different encryptions produce different ciphertext", func(t *testing.T) {

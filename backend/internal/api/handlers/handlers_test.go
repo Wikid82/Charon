@@ -22,7 +22,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	db := handlers.OpenTestDB(t)
 
 	// Auto migrate all models that handlers depend on
-	db.AutoMigrate(
+	_ = db.AutoMigrate(
 		&models.ProxyHost{},
 		&models.Location{},
 		&models.RemoteServer{},

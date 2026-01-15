@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **CRITICAL**: Fixed CVE-2025-68156 by upgrading expr-lang/expr to v1.17.7
+  - **Component**: expr-lang/expr (used by CrowdSec for expression evaluation in scenarios and parsers)
+  - **Vulnerability**: Regular Expression Denial of Service (ReDoS)
+  - **Severity**: HIGH (CVSS score: 7.5)
+  - **Impact**: Malicious regular expressions in CrowdSec configurations could cause CPU exhaustion
+  - **Resolution Date**: January 11, 2026
+  - **Verification Methods**:
+    - Binary inspection: `go version -m ./cscli` confirms v1.17.7 in production artifacts
+    - Trivy scan: 0 HIGH/CRITICAL vulnerabilities in Charon application code
+    - Source build: Custom Dockerfile builds CrowdSec from patched source
+  - **Test Coverage**: Backend 86.2%, Frontend 85.64% (all tests passing)
+  - **Status**: ✅ Patched and verified in production build
+  - See [CrowdSec Source Build Documentation](docs/plans/crowdsec_source_build.md) for technical details
+
+### Added
+
+- **Pre-commit hook for fast Go linters (staticcheck, govet, errcheck, ineffassign, unused)**
+  - New config file: `backend/.golangci-fast.yml` (lightweight for pre-commit)
+  - VS Code tasks: "Lint: Staticcheck (Fast)" and "Lint: Staticcheck Only"
+  - Makefile targets: `lint-fast` and `lint-staticcheck-only`
+  - Comprehensive troubleshooting guide for staticcheck failures in copilot-instructions.md
+- **golangci-lint installation instructions** in CONTRIBUTING.md
+- Implementation summary: docs/implementation/STATICCHECK_BLOCKING_INTEGRATION_COMPLETE.md
+
+### Changed
+
+- **BREAKING:** Commits are now BLOCKED if staticcheck or other fast linters find issues
+  - Pre-commit hooks now run golangci-lint with essential linters (~11s runtime)
+  - Test files (`_test.go`) excluded from staticcheck (matches CI behavior)
+  - Emergency bypass available with `git commit --no-verify` (use sparingly)
+
+### Fixed
+
+- **CI**: Fixed Docker image artifact save failing with "reference does not exist" error in PR builds
+  - Root cause: Manual image tag reconstruction did not match actual tag applied by docker/build-push-action
+  - Solution: Use exact tag from docker/metadata-action output instead of reconstructing
+  - Impact: PR builds now successfully save image artifacts for supply chain verification
+  - Downstream fix: Enables verify-supply-chain-pr job to run correctly on all PRs
+- **Docs-to-Issues Workflow**: Resolved issue where PR status checks didn't appear when workflow ran (PR #461)
+  - Removed `[skip ci]` flag from workflow commit message to enable CI validation on PRs
+  - Maintained infinite loop protection via path filters (`!docs/issues/created/**`) and bot guard
+  - All CI checks now run properly on PRs created by automated issue processing
+  - Zero security risks, comprehensive validation completed
+  - See [Docs-to-Issues Fix Implementation Summary](docs/implementation/DOCS_TO_ISSUES_FIX_2026-01-11.md)
+- **CI Workflow Documentation**: Resolved GitHub Advanced Security false positive warnings and clarified supply chain verification behavior (PR #461)
+  - Documented workflow migration from `docker-publish.yml` to `docker-build.yml` (Dec 21, 2025)
+  - Added explanatory comments to all security scanning workflows
+  - Fixed `supply-chain-verify.yml` to trigger on ALL branches (removed GitHub Actions branch filter limitation)
+  - Updated SECURITY.md with comprehensive scanning coverage documentation
+  - All security scanning verified as active with zero gaps
+  - See [CI Workflow Fixes Implementation Summary](docs/implementation/CI_WORKFLOW_FIXES_2026-01-11.md)
+
+### Added
+
+- **Supply Chain Security**: Comprehensive supply chain security implementation with cryptographic verification (PR #XXX)
+  - **Cosign Signatures**: All container images cryptographically signed with keyless Sigstore Cosign
+  - **SLSA Provenance**: SLSA Level 3 compliant build provenance attestation for verifiable builds
+  - **SBOM Generation**: Software Bill of Materials in SPDX format for all releases
+  - **Transparency Log**: All signatures recorded in public Rekor transparency log
+  - **VS Code Integration**: Three new agent skills for developers:
+    - `security-verify-sbom`: Verify SBOM contents and check for vulnerabilities
+    - `security-sign-cosign`: Sign container images with Cosign
+    - `security-slsa-provenance`: Generate SLSA provenance attestation
+  - **Automated Verification**: Tasks integrated into development workflow
+  - **Documentation**: Complete user and developer guides for verification and usage
+  - See [Supply Chain Security User Guide](docs/guides/supply-chain-security-user-guide.md) for verification instructions
+  - See [Supply Chain Security Developer Guide](docs/guides/supply-chain-security-developer-guide.md) for development workflow
+
 ### Verified
 
 - **React 19 Compatibility:** Confirmed React 19.2.3 works correctly with lucide-react@0.562.0
