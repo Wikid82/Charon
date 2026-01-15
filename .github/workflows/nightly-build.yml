@@ -193,7 +193,7 @@ jobs:
           name: sbom-nightly
 
       - name: Scan with Grype
-        uses: anchore/scan-action@869c549e657a088dc0441b08ce4fc0ecdac2bb65  # v5.3.0
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e  # v6.5.1
         with:
           sbom: sbom-nightly.json
           fail-build: false
