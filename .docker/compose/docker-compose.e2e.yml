@@ -1,0 +1,46 @@
+# Docker Compose for E2E Testing
+#
+# This configuration runs Charon with a fresh, isolated database specifically for
+# Playwright E2E tests. Use this to ensure tests start with a clean state.
+#
+# Usage:
+#   docker compose -f .docker/compose/docker-compose.e2e.yml up -d
+#
+# The setup API will be available since no users exist in the fresh database.
+# The auth.setup.ts fixture will create a test admin user automatically.
+
+services:
+  charon-e2e:
+    image: charon:local
+    container_name: charon-e2e
+    restart: "no"
+    ports:
+      - "8080:8080"    # Management UI (Charon)
+    environment:
+      - CHARON_ENV=development
+      - CHARON_DEBUG=1
+      - TZ=UTC
+      # E2E testing encryption key - 32 bytes base64 encoded (not for production!)
+      # Generated with: openssl rand -base64 32
+      - CHARON_ENCRYPTION_KEY=ucDWy5ScLubd3QwCHhQa2SY7wL2OF48p/c9nZhyW1mA=
+      - CHARON_HTTP_PORT=8080
+      - CHARON_DB_PATH=/app/data/charon.db
+      - CHARON_FRONTEND_DIR=/app/frontend/dist
+      - CHARON_CADDY_ADMIN_API=http://localhost:2019
+      - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
+      - CHARON_CADDY_BINARY=caddy
+      - CHARON_ACME_STAGING=true
+      - FEATURE_CERBERUS_ENABLED=false
+    volumes:
+      # Use tmpfs for E2E test data - fresh on every run
+      - e2e_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  e2e_data:
+    driver: local

@@ -187,7 +187,7 @@ export default function DNSProviderForm({
               onValueChange={setProviderType}
               disabled={!!provider} // Can't change type when editing
             >
-              <SelectTrigger id="provider-type">
+              <SelectTrigger id="provider-type" aria-label={t('dnsProviders.providerType')}>
                 <SelectValue placeholder={t('dnsProviders.selectProviderType')} />
               </SelectTrigger>
               <SelectContent>
@@ -208,11 +208,13 @@ export default function DNSProviderForm({
 
           {/* Provider Name */}
           <Input
+            id="provider-name"
             label={t('dnsProviders.providerName')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t('dnsProviders.providerNamePlaceholder')}
             required
+            aria-label={t('dnsProviders.providerName')}
           />
 
           {/* Dynamic Credential Fields */}
