@@ -6,7 +6,7 @@
     ":separateMultipleMajorReleases",
     "helpers:pinGitHubActionDigests"
   ],
-  "baseBranchPatterns": [
+  "baseBranches": [
     "development",
     "feature/**"
   ],
