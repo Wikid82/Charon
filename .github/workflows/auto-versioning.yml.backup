@@ -6,10 +6,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Don't cancel in-progress releases
+  cancel-in-progress: false
 
 permissions:
-  contents: write  # Required for creating releases via API (removed unused pull-requests: write)
+  contents: write  # Required for creating releases via API
 
 jobs:
   version:
