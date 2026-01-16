@@ -119,11 +119,16 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
             type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feature/') }}
             type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }}
             type=sha,format=short,enable=${{ github.event_name != 'pull_request' }}
+          flavor: |
+            latest=false
       # For feature branch pushes: build single-platform so we can load locally for artifact
       # For main/development pushes: build multi-platform for production
       # For PRs: build single-platform and load locally

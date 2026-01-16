@@ -1,5 +1,13 @@
 name: Auto Versioning and Release
 
+# SEMANTIC VERSIONING RULES:
+# - PATCH (0.14.1 → 0.14.2): fix:, perf:, refactor:, docs:, style:, test:, build:, ci:
+# - MINOR (0.14.1 → 0.15.0): feat:, feat(...):
+# - MAJOR (0.14.1 → 1.0.0): feat!:, fix!:, or "BREAKING CHANGE: <description>" (NOT "BREAKING CHANGE: None")
+#
+# ⚠️  IMPORTANT: Do NOT use "BREAKING CHANGE: None" in commit messages - it triggers a major bump!
+#    Instead, omit the BREAKING CHANGE line entirely if there are no breaking changes.
+
 on:
   push:
     branches: [ main ]
@@ -27,11 +35,15 @@ jobs:
           # The prefix to use to create tags
           tag_prefix: "v"
           # Regex pattern for major version bump (breaking changes)
-          # Matches: "feat!:", "fix!:", "BREAKING CHANGE:" in commit messages
-          major_pattern: "/!:|BREAKING CHANGE:/"
+          # Matches ONLY actual breaking changes, not "BREAKING CHANGE: None"
+          # Pattern: !: in commit type OR "BREAKING CHANGE:" followed by non-None text
+          major_pattern: "/(feat|fix|chore|refactor|perf|test|docs|style|build|ci)!:|BREAKING CHANGE:(?!\\s*None)/"
           # Regex pattern for minor version bump (new features)
           # Matches: "feat:" prefix in commit messages (Conventional Commits)
-          minor_pattern: "/feat:/"
+          minor_pattern: "/(feat|feat\\()/"
+          # Regex pattern for patch version bump (bug fixes)
+          # Matches: "fix:" prefix in commit messages
+          patch_pattern: "/(fix|fix\\()/"
           # Pattern to determine formatting
           version_format: "${major}.${minor}.${patch}"
           # If no tags are found, this version is used
