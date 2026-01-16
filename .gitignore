@@ -241,7 +241,13 @@ grype-results*.sarif
 # Docker Overrides (new location)
 # -----------------------------------------------------------------------------
 .docker/compose/docker-compose.override.yml
+
+# Personal test compose file (contains local paths - user-specific)
 docker-compose.test.yml
+.docker/compose/docker-compose.test.yml
+
+# Note: docker-compose.playwright.yml is NOT ignored - it must be committed
+# for CI/CD E2E testing workflows
 .github/agents/prompt_template/
 my-codeql-db/**
 codeql-linux64.zip
