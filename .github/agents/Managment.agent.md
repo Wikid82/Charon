@@ -105,7 +105,19 @@ The task is not complete until ALL of the following pass with zero issues:
 
 4. **Pre-commit Hooks**: Ensure `QA_Security` ran `pre-commit run --all-files` (fast hooks only; coverage was verified in step 2)
 
-5. **Security Scans**: Ensure `QA_Security` ran CodeQL and Trivy with zero Critical or High severity issues
+5. **Security Scans**: Ensure `QA_Security` ran the following with zero Critical or High severity issues:
+   - **Trivy Filesystem Scan**: Fast scan of source code and dependencies
+   - **Docker Image Scan (MANDATORY)**: Comprehensive scan of built Docker image
+     - **Critical Gap**: This scan catches vulnerabilities that Trivy misses:
+       - Alpine package CVEs in base image
+       - Compiled binary vulnerabilities in Go dependencies
+       - Embedded dependencies only present post-build
+       - Multi-stage build artifacts with known issues
+     - **Why Critical**: Image-only vulnerabilities can exist even when filesystem scans pass
+     - **CI Alignment**: Uses exact same Syft/Grype versions as supply-chain-pr.yml workflow
+     - **Run**: `.github/skills/scripts/skill-runner.sh security-scan-docker-image`
+   - **CodeQL Scans**: Static analysis for Go and JavaScript
+   - **QA_Security Requirements**: Must run BOTH Trivy and Docker Image scans, compare results, and block approval if image scan reveals additional vulnerabilities not caught by Trivy
 
 6. **Linting**: All language-specific linters must pass
 

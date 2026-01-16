@@ -231,9 +231,11 @@ test-results/local.har
 /trivy-*.txt
 
 # -----------------------------------------------------------------------------
-# SBOM artifacts
+# SBOM and vulnerability scan artifacts
 # -----------------------------------------------------------------------------
 sbom*.json
+grype-results*.json
+grype-results*.sarif
 
 # -----------------------------------------------------------------------------
 # Docker Overrides (new location)
