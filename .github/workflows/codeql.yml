@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
 
 permissions:
   contents: read
@@ -56,8 +56,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: backend/go.sum
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4
+      - name: Build Go code
+        if: matrix.language == 'go'
+        run: |
+          cd backend
+          go build -v ./...
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4
