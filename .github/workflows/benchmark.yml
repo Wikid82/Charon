@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.25.5'
+  GO_VERSION: '1.25.6'
 
 # Minimal permissions at workflow level; write permissions granted at job level for push only
 permissions:
