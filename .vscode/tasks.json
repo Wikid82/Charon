@@ -202,6 +202,18 @@
             "problemMatcher": []
         },
         {
+            "label": "Security: Scan Docker Image (Local)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh security-scan-docker-image",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Security: CodeQL Go Scan (DEPRECATED)",
             "type": "shell",
             "command": "codeql database create codeql-db-go --language=go --source-root=backend --overwrite && codeql database analyze codeql-db-go /projects/codeql/codeql/go/ql/src/codeql-suites/go-security-extended.qls --format=sarif-latest --output=codeql-results-go.sarif",
