@@ -12,9 +12,9 @@
  *
  * test('admin can access settings', async ({ page, adminUser }) => {
  *   await page.goto('/login');
- *   await page.getByLabel('Email').fill(adminUser.email);
- *   await page.getByLabel('Password').fill('TestPass123!');
- *   await page.getByRole('button', { name: 'Login' }).click();
+ *   await page.locator('input[type="email"]').fill(adminUser.email);
+ *   await page.locator('input[type="password"]').fill('TestPass123!');
+ *   await page.getByRole('button', { name: /sign in/i }).click();
  *   await page.waitForURL('/');
  *   await page.goto('/settings');
  *   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
@@ -81,6 +81,7 @@ export const test = base.extend<AuthFixtures>({
    */
   authenticatedUser: async ({ testData }, use) => {
     const user = await testData.createUser({
+      name: `Test Admin ${Date.now()}`,
       email: `admin-${Date.now()}@test.local`,
       password: TEST_PASSWORD,
       role: 'admin',
@@ -97,6 +98,7 @@ export const test = base.extend<AuthFixtures>({
    */
   adminUser: async ({ testData }, use) => {
     const user = await testData.createUser({
+      name: `Test Admin ${Date.now()}`,
       email: `admin-${Date.now()}@test.local`,
       password: TEST_PASSWORD,
       role: 'admin',
@@ -113,6 +115,7 @@ export const test = base.extend<AuthFixtures>({
    */
   regularUser: async ({ testData }, use) => {
     const user = await testData.createUser({
+      name: `Test User ${Date.now()}`,
       email: `user-${Date.now()}@test.local`,
       password: TEST_PASSWORD,
       role: 'user',
@@ -129,6 +132,7 @@ export const test = base.extend<AuthFixtures>({
    */
   guestUser: async ({ testData }, use) => {
     const user = await testData.createUser({
+      name: `Test Guest ${Date.now()}`,
       email: `guest-${Date.now()}@test.local`,
       password: TEST_PASSWORD,
       role: 'guest',
@@ -150,9 +154,9 @@ export async function loginUser(
   user: TestUser
 ): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(user.email);
-  await page.getByLabel('Password').fill(TEST_PASSWORD);
-  await page.getByRole('button', { name: /login|sign in/i }).click();
+  await page.locator('input[type="email"]').fill(user.email);
+  await page.locator('input[type="password"]').fill(TEST_PASSWORD);
+  await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL('/');
 }
 
