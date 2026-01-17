@@ -29,7 +29,7 @@
  */
 
 import { APIRequestContext } from '@playwright/test';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 
 /**
  * Represents a managed resource created during tests
@@ -87,6 +87,7 @@ export interface DNSProviderData {
  * Data required to create a user
  */
 export interface UserData {
+  name: string;
   email: string;
   password: string;
   role: 'admin' | 'user' | 'guest';
@@ -294,8 +295,10 @@ export class TestDataManager {
   async createUser(data: UserData): Promise<UserResult> {
     const namespacedEmail = `${this.namespace}+${data.email}`;
     const namespaced = {
-      ...data,
+      name: data.name,
       email: namespacedEmail,
+      password: data.password,
+      role: data.role,
     };
 
     const response = await this.request.post('/api/v1/users', {
