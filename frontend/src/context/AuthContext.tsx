@@ -1,10 +1,27 @@
-import { useState, useEffect, type ReactNode, type FC } from 'react';
-import client, { setAuthToken } from '../api/client';
+import { useState, useEffect, useCallback, type ReactNode, type FC } from 'react';
+import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
 import { AuthContext, User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Handle session expiry by clearing auth state and redirecting to login
+  const handleAuthError = useCallback(() => {
+    console.log('Session expired, redirecting to login');
+    localStorage.removeItem('charon_auth_token');
+    setAuthToken(null);
+    setUser(null);
+    // Use window.location for full page redirect to clear any stale state
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+  }, []);
+
+  // Register auth error handler on mount
+  useEffect(() => {
+    setAuthErrorHandler(handleAuthError);
+  }, [handleAuthError]);
 
   useEffect(() => {
     const checkAuth = async () => {
