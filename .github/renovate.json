@@ -45,6 +45,16 @@
       ],
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Debian base image in Dockerfile",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": [
+        "ARG CADDY_IMAGE=debian:(?<currentValue>[\\w.-]+)"
+      ],
+      "depNameTemplate": "debian",
+      "datasourceTemplate": "docker"
     }
   ],
 

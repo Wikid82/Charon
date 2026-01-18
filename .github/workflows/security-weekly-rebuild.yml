@@ -47,11 +47,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Resolve Caddy base digest
+      - name: Resolve Debian base image digest
         id: caddy
         run: |
-          docker pull caddy:2-alpine
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine)
+          docker pull debian:bookworm-slim
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' debian:bookworm-slim)
           echo "image=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Log in to Container Registry
@@ -124,14 +124,14 @@ jobs:
           path: trivy-weekly-results.json
           retention-days: 90
 
-      - name: Check Alpine package versions
+      - name: Check Debian package versions
         run: |
           echo "## 📦 Installed Package Versions" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Checking key security packages:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           docker run --rm --entrypoint "" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} \
-            sh -c "apk update >/dev/null 2>&1 && apk info c-ares curl libcurl openssl" >> $GITHUB_STEP_SUMMARY
+            sh -c "dpkg -l | grep -E 'libc-ares|curl|libcurl|openssl|libssl'" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Create security scan summary
