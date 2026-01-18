@@ -22,12 +22,32 @@ export const setAuthToken = (token: string | null) => {
   }
 };
 
-// Global 401 error logging for debugging
+/**
+ * Callback function invoked when a 401 authentication error occurs.
+ * Set via setAuthErrorHandler to allow AuthContext to handle session expiry.
+ */
+let onAuthError: (() => void) | null = null;
+
+/**
+ * Registers a callback to handle authentication errors (401 responses).
+ * @param handler - Function to call when authentication fails
+ */
+export const setAuthErrorHandler = (handler: () => void) => {
+  onAuthError = handler;
+};
+
+// Global 401 error handling - triggers auth error callback for session expiry
 client.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       console.warn('Authentication failed:', error.config?.url);
+      // Skip auth error handling for login/auth endpoints to avoid redirect loops
+      const url = error.config?.url || '';
+      const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/me');
+      if (onAuthError && !isAuthEndpoint) {
+        onAuthError();
+      }
     }
     return Promise.reject(error);
   }

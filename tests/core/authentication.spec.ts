@@ -316,6 +316,7 @@ test.describe('Authentication Flows', () => {
         await page.evaluate(() => {
           localStorage.removeItem('token');
           localStorage.removeItem('authToken');
+          localStorage.removeItem('charon_auth_token');
           sessionStorage.clear();
         });
       });
