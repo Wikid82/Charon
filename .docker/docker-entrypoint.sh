@@ -12,7 +12,7 @@ is_root() {
 
 run_as_charon() {
     if is_root; then
-        su-exec charon "$@"
+        gosu charon "$@"
     else
         "$@"
     fi
@@ -83,15 +83,15 @@ if [ -S "/var/run/docker.sock" ] && is_root; then
         if ! getent group "$DOCKER_SOCK_GID" >/dev/null 2>&1; then
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID) - creating docker group and adding charon user..."
             # Create docker group with the socket's GID
-            addgroup -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
+            groupadd -g "$DOCKER_SOCK_GID" docker 2>/dev/null || true
             # Add charon user to the docker group
-            addgroup charon docker 2>/dev/null || true
+            usermod -aG docker charon 2>/dev/null || true
             echo "Docker integration enabled for charon user"
         else
             # Group exists, just add charon to it
             GROUP_NAME=$(getent group "$DOCKER_SOCK_GID" | cut -d: -f1)
             echo "Docker socket detected (gid=$DOCKER_SOCK_GID, group=$GROUP_NAME) - adding charon user..."
-            addgroup charon "$GROUP_NAME" 2>/dev/null || true
+            usermod -aG "$GROUP_NAME" charon 2>/dev/null || true
             echo "Docker integration enabled for charon user"
         fi
     fi
@@ -270,7 +270,7 @@ echo "Caddy started (PID: $CADDY_PID)"
 echo "Waiting for Caddy admin API..."
 i=1
 while [ "$i" -le 30 ]; do
-    if wget -q -O- http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:2019/config/ > /dev/null 2>&1; then
         echo "Caddy is ready!"
         break
     fi
@@ -281,7 +281,7 @@ done
 # Start Charon management application
 # Drop privileges to charon user before starting the application
 # This maintains security while allowing Docker socket access via group membership
-# Note: When running as root, we use su-exec; otherwise we run directly.
+# Note: When running as root, we use gosu; otherwise we run directly.
 echo "Starting Charon management application..."
 DEBUG_FLAG=${CHARON_DEBUG:-$CPMP_DEBUG}
 DEBUG_PORT=${CHARON_DEBUG_PORT:-$CPMP_DEBUG_PORT}
