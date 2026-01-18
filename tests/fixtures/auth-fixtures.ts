@@ -165,24 +165,16 @@ export async function loginUser(
  * @param page - Playwright Page instance
  */
 export async function logoutUser(page: import('@playwright/test').Page): Promise<void> {
-  // Try common logout patterns
-  const logoutButton = page.getByRole('button', { name: /logout|sign out/i });
-  const logoutLink = page.getByRole('link', { name: /logout|sign out/i });
-  const userMenu = page.getByRole('button', { name: /user|profile|account/i });
+  // Use text-based selector that handles emoji prefix (🚪 Logout)
+  // The button text contains "Logout" - use case-insensitive text matching
+  const logoutButton = page.getByText(/logout/i).first();
 
-  // If there's a user menu, click it first
-  if (await userMenu.isVisible()) {
-    await userMenu.click();
-  }
+  // Wait for the logout button to be visible and click it
+  await logoutButton.waitFor({ state: 'visible', timeout: 10000 });
+  await logoutButton.click();
 
-  // Click logout
-  if (await logoutButton.isVisible()) {
-    await logoutButton.click();
-  } else if (await logoutLink.isVisible()) {
-    await logoutLink.click();
-  }
-
-  await page.waitForURL('/login');
+  // Wait for redirect to login page
+  await page.waitForURL(/\/login/, { timeout: 15000 });
 }
 
 /**

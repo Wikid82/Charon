@@ -21,6 +21,19 @@ import {
   generateProxyHost,
   type ProxyHostConfig,
 } from '../fixtures/proxy-hosts';
+import type { Page } from '@playwright/test';
+
+/**
+ * Helper to dismiss the "New Base Domain Detected" dialog if it appears.
+ * This dialog asks if the user wants to save the domain to their domain list.
+ */
+async function dismissDomainDialog(page: Page): Promise<void> {
+  const noThanksBtn = page.getByRole('button', { name: /No, thanks/i });
+  if (await noThanksBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await noThanksBtn.click();
+    await page.waitForTimeout(300);
+  }
+}
 
 test.describe('Proxy Hosts - CRUD Operations', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -254,6 +267,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         const domainInput = page.locator('#domain-names');
         await domainInput.fill(hostConfig.domain);
 
+        // Dismiss the "New Base Domain Detected" dialog if it appears after domain input
+        await dismissDomainDialog(page);
+
         // Forward Host
         const forwardHostInput = page.locator('#forward-host');
         await forwardHostInput.fill(hostConfig.forwardHost);
@@ -265,8 +281,14 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Submit form', async () => {
+        // Dismiss the "New Base Domain Detected" dialog if it appears
+        await dismissDomainDialog(page);
+
         const saveButton = getSaveButton(page);
         await saveButton.click();
+
+        // Dismiss domain dialog again in case it appeared after Save click
+        await dismissDomainDialog(page);
 
         // Handle "Unsaved changes" confirmation dialog if it appears
         const confirmDialog = page.getByRole('button', { name: /yes.*save/i });
@@ -319,6 +341,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Submit and verify', async () => {
+        // Dismiss the "New Base Domain Detected" dialog if it appears
+        await dismissDomainDialog(page);
+
         await getSaveButton(page).click();
 
         // Handle "Unsaved changes" confirmation dialog if it appears
@@ -358,6 +383,9 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Submit and verify', async () => {
+        // Dismiss the "New Base Domain Detected" dialog if it appears
+        await dismissDomainDialog(page);
+
         await getSaveButton(page).click();
 
         // Handle "Unsaved changes" confirmation dialog if it appears

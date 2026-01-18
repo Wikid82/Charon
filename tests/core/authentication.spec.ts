@@ -352,9 +352,18 @@ test.describe('Authentication Flows', () => {
 
       await test.step('Trigger an API call by navigating', async () => {
         await page.goto('/proxy-hosts');
+        // Wait for the 401 response to be processed and UI to react
+        await page.waitForTimeout(2000);
       });
 
       await test.step('Verify redirect to login or error message', async () => {
+        // Wait for potential redirect to login page
+        try {
+          await page.waitForURL(/\/login/, { timeout: 5000 });
+        } catch {
+          // If no redirect, check for session expired message
+        }
+
         // Should either redirect to login or show session expired message
         const isLoginPage = page.url().includes('/login');
         const hasSessionExpiredMessage = await page
