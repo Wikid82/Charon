@@ -417,6 +417,18 @@
             }
         },
         {
+            "label": "Test: E2E Playwright with Coverage",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
             "label": "Test: E2E Playwright - View Report",
             "type": "shell",
             "command": "npx playwright show-report --port 9323",

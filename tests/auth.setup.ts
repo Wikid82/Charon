@@ -1,4 +1,4 @@
-import { test as setup, expect } from '@playwright/test';
+import { test as setup, expect } from '@bgotink/playwright-coverage';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 

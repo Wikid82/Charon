@@ -15,7 +15,8 @@
  * ```
  */
 
-import { Page, Locator, expect, Response } from '@playwright/test';
+import { expect } from '@bgotink/playwright-coverage';
+import type { Page, Locator, Response } from '@playwright/test';
 
 /**
  * Options for waitForToast

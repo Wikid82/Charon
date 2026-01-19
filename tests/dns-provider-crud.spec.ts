@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@bgotink/playwright-coverage';
 
 /**
  * DNS Provider CRUD Operations E2E Tests

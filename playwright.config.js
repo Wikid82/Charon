@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig, devices } from '@playwright/test';
+import { defineCoverageReporterConfig } from '@bgotink/playwright-coverage';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -16,6 +17,73 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const STORAGE_STATE = join(__dirname, 'playwright/.auth/user.json');
+
+/**
+ * Coverage reporter configuration for E2E tests
+ * Tracks V8 coverage during Playwright test execution
+ */
+const coverageReporterConfig = defineCoverageReporterConfig({
+  // Root directory for source file resolution
+  sourceRoot: __dirname,
+
+  // Exclude non-application code from coverage
+  exclude: [
+    '**/node_modules/**',
+    '**/playwright/**',
+    '**/tests/**',
+    '**/*.spec.ts',
+    '**/*.spec.js',
+    '**/*.test.ts',
+    '**/coverage/**',
+    '**/dist/**',
+    '**/build/**',
+  ],
+
+  // Output directory for coverage reports
+  resultDir: join(__dirname, 'coverage/e2e'),
+
+  // Generate multiple report formats
+  reports: [
+    // HTML report for visual inspection
+    ['html'],
+    // LCOV for Codecov upload
+    ['lcovonly', { file: 'lcov.info' }],
+    // JSON for programmatic access
+    ['json', { file: 'coverage.json' }],
+    // Text summary in console
+    ['text-summary', { file: null }],
+  ],
+
+  // Coverage watermarks (visual thresholds in HTML report)
+  watermarks: {
+    statements: [50, 80],
+    branches: [50, 80],
+    functions: [50, 80],
+    lines: [50, 80],
+  },
+
+  // Path rewriting for source file resolution
+  rewritePath: ({ absolutePath, relativePath }) => {
+    // Handle paths from Docker container
+    if (absolutePath.startsWith('/app/')) {
+      return absolutePath.replace('/app/', `${__dirname}/`);
+    }
+
+    // Handle Vite dev server paths (relative to frontend/src)
+    // Vite serves files like "/src/components/Button.tsx"
+    if (absolutePath.startsWith('/src/')) {
+      return join(__dirname, 'frontend', absolutePath);
+    }
+
+    // If path doesn't start with /, prepend frontend/src
+    if (!absolutePath.startsWith('/') && !absolutePath.includes('/')) {
+      // Bare filenames like "Button.tsx" - try to resolve to frontend/src
+      return join(__dirname, 'frontend/src', absolutePath);
+    }
+
+    return absolutePath;
+  },
+});
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -38,8 +106,16 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: process.env.CI
-    ? [['github'], ['html', { open: 'never' }]]
-    : [['list'], ['html', { open: 'on-failure' }]],
+    ? [
+        ['github'],
+        ['html', { open: 'never' }],
+        ['@bgotink/playwright-coverage', coverageReporterConfig],
+      ]
+    : [
+        ['list'],
+        ['html', { open: 'on-failure' }],
+        ['@bgotink/playwright-coverage', coverageReporterConfig],
+      ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */

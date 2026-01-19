@@ -1,5 +1,12 @@
 # E2E Tests Workflow
 # Runs Playwright E2E tests with sharding for faster execution
+# and collects frontend code coverage via @bgotink/playwright-coverage
+#
+# Coverage Architecture:
+#   - Backend: Docker container at localhost:8080 (API)
+#   - Frontend: Vite dev server at localhost:3000 (serves source files)
+#   - Tests hit Vite, which proxies API calls to Docker
+#   - V8 coverage maps directly to source files for accurate reporting
 #
 # Triggers:
 #   - Pull requests to main/develop (with path filters)
@@ -8,10 +15,11 @@
 #
 # Jobs:
 #   1. build: Build Docker image and upload as artifact
-#   2. e2e-tests: Run tests in parallel shards
+#   2. e2e-tests: Run tests in parallel shards with coverage
 #   3. merge-reports: Combine HTML reports from all shards
 #   4. comment-results: Post test results as PR comment
-#   5. e2e-results: Status check to block merge on failure
+#   5. upload-coverage: Merge and upload E2E coverage to Codecov
+#   6. e2e-results: Status check to block merge on failure
 
 name: E2E Tests
 
@@ -197,6 +205,35 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
+      - name: Start Vite dev server for coverage
+        run: |
+          echo "🚀 Starting Vite dev server for E2E coverage..."
+          cd frontend
+
+          # Use port 5173 (Vite default) with --strictPort to fail if busy
+          VITE_PORT=5173
+          npx vite --port ${VITE_PORT} --strictPort > /tmp/vite.log 2>&1 &
+          VITE_PID=$!
+          echo "VITE_PID=${VITE_PID}" >> $GITHUB_ENV
+          echo "VITE_PORT=${VITE_PORT}" >> $GITHUB_ENV
+
+          # Wait for Vite to be ready
+          echo "⏳ Waiting for Vite to start on port ${VITE_PORT}..."
+          MAX_WAIT=60
+          WAITED=0
+          while [[ ${WAITED} -lt ${MAX_WAIT} ]]; do
+            if curl -sf http://localhost:${VITE_PORT} > /dev/null 2>&1; then
+              echo "✅ Vite dev server ready at http://localhost:${VITE_PORT}"
+              exit 0
+            fi
+            sleep 1
+            WAITED=$((WAITED + 1))
+          done
+
+          echo "❌ Vite failed to start"
+          cat /tmp/vite.log
+          exit 1
+
       - name: Run E2E tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           npx playwright test \
@@ -204,9 +241,17 @@ jobs:
             --shard=${{ matrix.shard }}/${{ matrix.total-shards }} \
             --reporter=html,json,github
         env:
-          PLAYWRIGHT_BASE_URL: http://localhost:8080
+          # Use Vite dev server for coverage (proxies API to Docker at 8080)
+          PLAYWRIGHT_BASE_URL: http://localhost:${{ env.VITE_PORT }}
           CI: true
           TEST_WORKER_INDEX: ${{ matrix.shard }}
+
+      - name: Stop Vite dev server
+        if: always()
+        run: |
+          if [[ -n "${VITE_PID}" ]]; then
+            kill ${VITE_PID} 2>/dev/null || true
+          fi
 
       - name: Upload test results
         if: always()
@@ -216,6 +261,14 @@ jobs:
           path: |
             playwright-report/
             test-results/
+          retention-days: 7
+
+      - name: Upload E2E coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-shard-${{ matrix.shard }}
+          path: coverage/e2e/
           retention-days: 7
 
       - name: Upload test traces on failure
@@ -411,6 +464,71 @@ jobs:
                 body: body
               });
             }
+
+  # Upload merged E2E coverage to Codecov
+  upload-coverage:
+    name: Upload E2E Coverage
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    if: always() && needs.e2e-tests.result == 'success'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-coverage-*
+          path: all-coverage
+          merge-multiple: false
+
+      - name: Merge LCOV coverage files
+        run: |
+          # Install lcov for merging
+          sudo apt-get update && sudo apt-get install -y lcov
+
+          # Create merged coverage directory
+          mkdir -p coverage/e2e-merged
+
+          # Find all lcov.info files and merge them
+          LCOV_FILES=$(find all-coverage -name "lcov.info" -type f)
+
+          if [[ -n "$LCOV_FILES" ]]; then
+            # Build merge command
+            MERGE_ARGS=""
+            for file in $LCOV_FILES; do
+              MERGE_ARGS="$MERGE_ARGS -a $file"
+            done
+
+            lcov $MERGE_ARGS -o coverage/e2e-merged/lcov.info
+            echo "✅ Merged $(echo "$LCOV_FILES" | wc -w) coverage files"
+          else
+            echo "⚠️ No coverage files found to merge"
+            exit 0
+          fi
+
+      - name: Upload E2E coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/e2e-merged/lcov.info
+          flags: e2e
+          name: e2e-coverage
+          fail_ci_if_error: false
+
+      - name: Upload merged coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-merged
+          path: coverage/e2e-merged/
+          retention-days: 30
 
   # Final status check - blocks merge if tests fail
   e2e-results:

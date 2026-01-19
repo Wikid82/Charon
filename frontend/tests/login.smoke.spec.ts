@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from '@bgotink/playwright-coverage'
 
 test.describe('Login - smoke', () => {
   test('renders and has no console errors on load', async ({ page }) => {

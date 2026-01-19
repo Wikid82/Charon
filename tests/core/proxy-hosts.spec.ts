@@ -301,14 +301,50 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
       });
 
       await test.step('Verify host was created', async () => {
-        // Either toast notification or host appears in list
+        // Wait for either success toast OR host appearing in list
+        // Use Promise.race with proper Playwright auto-waiting for reliability
         const successToast = page.getByText(/success|created|saved/i);
         const hostInList = page.getByText(hostConfig.domain);
 
-        const hasSuccess = await successToast.isVisible({ timeout: 5000 }).catch(() => false);
-        const hasHostInList = await hostInList.isVisible({ timeout: 5000 }).catch(() => false);
+        // First, wait for any modal to close (form submission complete)
+        await page.waitForTimeout(1000);
 
-        expect(hasSuccess || hasHostInList).toBeTruthy();
+        // Try waiting for success indicators with proper retry logic
+        let verified = false;
+
+        // Check 1: Wait for toast (may have already disappeared)
+        const hasSuccess = await successToast.isVisible({ timeout: 2000 }).catch(() => false);
+        if (hasSuccess) {
+          verified = true;
+        }
+
+        // Check 2: If no toast, check if we're back on list page with the host visible
+        if (!verified) {
+          // Wait for navigation back to list
+          await page.waitForURL(/\/proxy-hosts(?!\/)/, { timeout: 5000 }).catch(() => {});
+          await waitForLoadingComplete(page);
+
+          // Now check for the host in the list
+          const hasHostInList = await hostInList.isVisible({ timeout: 5000 }).catch(() => false);
+          if (hasHostInList) {
+            verified = true;
+          }
+        }
+
+        // Check 3: If still not verified, the form might still be open - check for no error
+        if (!verified) {
+          const errorMessage = page.getByText(/error|failed|invalid/i);
+          const hasError = await errorMessage.isVisible({ timeout: 1000 }).catch(() => false);
+          // If no error is shown and we're past the form, consider it a pass
+          if (!hasError) {
+            // Refresh and check list
+            await page.goto('/proxy-hosts');
+            await waitForLoadingComplete(page);
+            verified = await hostInList.isVisible({ timeout: 5000 }).catch(() => false);
+          }
+        }
+
+        expect(verified).toBeTruthy();
       });
     });
 
