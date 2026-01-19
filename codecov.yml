@@ -1,0 +1,41 @@
+# Codecov Configuration
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 100%
+
+flags:
+  backend:
+    paths:
+      - backend/
+    carryforward: true
+
+  frontend:
+    paths:
+      - frontend/
+    carryforward: true
+
+  # E2E coverage flag - tracks frontend code exercised by Playwright tests
+  e2e:
+    paths:
+      - frontend/
+    carryforward: true
+
+component_management:
+  individual_components:
+    - component_id: backend
+      paths:
+        - backend/**
+    - component_id: frontend
+      paths:
+        - frontend/**
+    - component_id: e2e
+      paths:
+        - frontend/**

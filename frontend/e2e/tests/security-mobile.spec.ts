@@ -5,7 +5,7 @@
  * Tests mobile viewport (375x667), tablet viewport (768x1024),
  * touch targets, scrolling, and layout responsiveness.
  */
-import { test, expect } from '@playwright/test'
+import { test, expect } from '@bgotink/playwright-coverage'
 
 const base = process.env.CHARON_BASE_URL || 'http://localhost:8080'
 
