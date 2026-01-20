@@ -137,14 +137,14 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="invite-modal-title">
       <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 id="invite-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
             {t('users.inviteUser')}
           </h3>
-          <button onClick={handleClose} className="text-gray-400 hover:text-white">
+          <button onClick={handleClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -372,14 +372,14 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   if (!isOpen || !user) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" role="dialog" aria-modal="true" aria-labelledby="permissions-modal-title">
       <div className="bg-dark-card border border-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 id="permissions-modal-title" className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="h-5 w-5" />
             {t('users.editPermissions')} - {user.name || user.email}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -529,12 +529,12 @@ export default function UsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-800">
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnUser')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnRole')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.status')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnPermissions')}</th>
-                <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.enabled')}</th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">{t('common.actions')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnUser')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnRole')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.status')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('users.columnPermissions')}</th>
+                <th scope="col" className="text-left py-3 px-4 text-sm font-medium text-gray-400">{t('common.enabled')}</th>
+                <th scope="col" className="text-right py-3 px-4 text-sm font-medium text-gray-400">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -599,6 +599,7 @@ export default function UsersPage() {
                           onClick={() => openPermissions(user)}
                           className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded"
                           title={t('users.editPermissions')}
+                          aria-label={t('users.editPermissions')}
                         >
                           <Settings className="h-4 w-4" />
                         </button>
@@ -611,6 +612,7 @@ export default function UsersPage() {
                         }}
                         className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded"
                         title={t('users.deleteUser')}
+                        aria-label={t('users.deleteUser')}
                         disabled={user.role === 'admin'}
                       >
                         <Trash2 className="h-4 w-4" />

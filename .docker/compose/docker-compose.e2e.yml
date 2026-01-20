@@ -18,7 +18,7 @@ services:
       - "8080:8080"    # Management UI (Charon)
     environment:
       - CHARON_ENV=development
-      - CHARON_DEBUG=1
+      - CHARON_DEBUG=0
       - TZ=UTC
       # E2E testing encryption key - 32 bytes base64 encoded (not for production!)
       # Generated with: openssl rand -base64 32

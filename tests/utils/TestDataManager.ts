@@ -378,7 +378,13 @@ export class TestDataManager {
 
     // 404 is acceptable - resource may have been deleted by another test
     if (!response.ok() && response.status() !== 404) {
-      throw new Error(`Failed to delete ${resource.type}: ${await response.text()}`);
+      const errorText = await response.text();
+      // Skip "Cannot delete your own account" errors - the test user is logged in
+      // and will be cleaned up when the auth session ends or by admin cleanup
+      if (resource.type === 'user' && errorText.includes('Cannot delete your own account')) {
+        return; // Silently skip - this is expected for the authenticated test user
+      }
+      throw new Error(`Failed to delete ${resource.type}: ${errorText}`);
     }
   }
 
