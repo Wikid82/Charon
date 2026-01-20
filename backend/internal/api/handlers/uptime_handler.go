@@ -27,6 +27,34 @@ func (h *UptimeHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, monitors)
 }
 
+// CreateMonitorRequest represents the JSON payload for creating a new monitor
+type CreateMonitorRequest struct {
+	Name       string `json:"name" binding:"required"`
+	URL        string `json:"url" binding:"required"`
+	Type       string `json:"type" binding:"required,oneof=http tcp https"`
+	Interval   int    `json:"interval"`
+	MaxRetries int    `json:"max_retries"`
+}
+
+// Create creates a new uptime monitor
+func (h *UptimeHandler) Create(c *gin.Context) {
+	var req CreateMonitorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Log().WithError(err).Warn("Invalid JSON payload for monitor creation")
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	monitor, err := h.service.CreateMonitor(req.Name, req.URL, req.Type, req.Interval, req.MaxRetries)
+	if err != nil {
+		logger.Log().WithError(err).Error("Failed to create uptime monitor")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, monitor)
+}
+
 func (h *UptimeHandler) GetHistory(c *gin.Context) {
 	id := c.Param("id")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))

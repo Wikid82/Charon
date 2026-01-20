@@ -72,7 +72,7 @@ const Logs: FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Log File List */}
         <div className="md:col-span-1 space-y-4">
-          <Card className="p-4">
+          <Card className="p-4" data-testid="log-file-list">
             <h2 className="text-lg font-semibold mb-4 text-content-primary">{t('logs.logFiles')}</h2>
             {isLoadingLogs ? (
               <SkeletonList items={4} showAvatar={false} />
@@ -148,13 +148,15 @@ const Logs: FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <LogTable logs={logData?.logs || []} isLoading={isLoadingContent} />
+                  <div data-testid="log-table">
+                    <LogTable logs={logData?.logs || []} isLoading={isLoadingContent} />
+                  </div>
                 )}
 
                 {/* Pagination */}
                 {logData && logData.total > 0 && (
                   <div className="px-6 py-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-sm text-content-muted">
+                    <div className="text-sm text-content-muted" data-testid="page-info">
                       {t('logs.showingEntries', { from: logData.offset + 1, to: Math.min(logData.offset + limit, logData.total), total: logData.total })}
                     </div>
 

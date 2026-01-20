@@ -322,18 +322,19 @@ export function LiveLogViewer({
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
               isConnected ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
             }`}
+            data-testid="connection-status"
           >
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
           {connectionError && (
-            <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">
+            <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded" data-testid="connection-error">
               {connectionError}
             </div>
           )}
         </div>
         <div className="flex items-center gap-2">
           {/* Mode toggle */}
-          <div className="flex bg-gray-800 rounded-md p-0.5">
+          <div className="flex bg-gray-800 rounded-md p-0.5" data-testid="mode-toggle">
             <button
               onClick={() => handleModeChange('application')}
               className={`px-2 py-1 text-xs rounded flex items-center gap-1 transition-colors ${
@@ -444,6 +445,7 @@ export function LiveLogViewer({
           <div
             key={index}
             className={`mb-1 hover:bg-gray-900 px-1 -mx-1 rounded ${getEntryStyle(log)}`}
+            data-testid="log-entry"
           >
             <span className="text-gray-500">{formatTimestamp(log.timestamp)}</span>
 
@@ -504,7 +506,7 @@ export function LiveLogViewer({
       </div>
 
       {/* Footer with log count */}
-      <div className="p-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-400 flex items-center justify-between">
+      <div className="p-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-400 flex items-center justify-between" data-testid="log-count">
         <span>
           Showing {filteredLogs.length} of {logs.length} logs
         </span>

@@ -336,6 +336,7 @@ func Register(router *gin.Engine, db *gorm.DB, cfg config.Config) error {
 		uptimeService := services.NewUptimeService(db, notificationService)
 		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
 		protected.GET("/uptime/monitors", uptimeHandler.List)
+		protected.POST("/uptime/monitors", uptimeHandler.Create)
 		protected.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
 		protected.PUT("/uptime/monitors/:id", uptimeHandler.Update)
 		protected.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)

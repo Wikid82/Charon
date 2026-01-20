@@ -462,7 +462,18 @@
     "failedToDeleteMonitor": "Failed to delete monitor",
     "failedToUpdateMonitor": "Failed to update monitor",
     "failedToTriggerCheck": "Failed to trigger health check",
-    "noHistoryAvailable": "No history available"
+    "noHistoryAvailable": "No history available",
+    "addMonitor": "Add Monitor",
+    "syncWithHosts": "Sync with Hosts",
+    "createMonitor": "Create Monitor",
+    "monitorCreated": "Monitor created successfully",
+    "syncComplete": "Sync complete",
+    "syncing": "Syncing...",
+    "monitorType": "Type",
+    "monitorUrl": "URL",
+    "monitorTypeHttp": "HTTP",
+    "monitorTypeTcp": "TCP",
+    "urlPlaceholder": "https://example.com or tcp://host:port"
   },
   "domains": {
     "title": "Domains",
