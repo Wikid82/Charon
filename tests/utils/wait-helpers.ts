@@ -41,9 +41,12 @@ export async function waitForToast(
 ): Promise<void> {
   const { timeout = 10000, type } = options;
 
+  // Match the actual ToastContainer implementation:
+  // - Uses data-testid="toast-{type}" for type-specific toasts
+  // - Uses role="status" with aria-live="polite"
   const toastSelector = type
-    ? `[role="alert"][data-type="${type}"], [role="status"][data-type="${type}"], .toast.${type}, .toast-${type}`
-    : '[role="alert"], [role="status"], .toast, .Toastify__toast';
+    ? `[data-testid="toast-${type}"], [role="status"][data-testid="toast-${type}"]`
+    : '[data-testid^="toast-"], [role="status"][aria-live="polite"], [data-testid="toast-container"] > div';
 
   const toast = page.locator(toastSelector);
   await expect(toast).toContainText(text, { timeout });
