@@ -262,3 +262,4 @@ docs/plans/supply_chain_security_implementation.md.backup
 /playwright/.cache/
 /playwright/.auth/
 docs/reports/performance_diagnostics.md
+docs/plans/chores.md
