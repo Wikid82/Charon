@@ -156,12 +156,13 @@ export default function Backups() {
       key: 'actions',
       header: t('common.actions'),
       cell: (backup) => (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2" data-testid="backup-row">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => handleDownload(backup.filename)}
             title={t('backups.download')}
+            data-testid="backup-download-btn"
           >
             <Download className="w-4 h-4" />
           </Button>
@@ -171,6 +172,7 @@ export default function Backups() {
             onClick={() => setRestoreConfirm(backup)}
             title={t('backups.restore')}
             disabled={restoreMutation.isPending}
+            data-testid="backup-restore-btn"
           >
             <RotateCcw className="w-4 h-4" />
           </Button>
@@ -180,6 +182,7 @@ export default function Backups() {
             onClick={() => setDeleteConfirm(backup)}
             title={t('common.delete')}
             disabled={deleteMutation.isPending}
+            data-testid="backup-delete-btn"
           >
             <Trash2 className="w-4 h-4 text-error" />
           </Button>
@@ -236,7 +239,7 @@ export default function Backups() {
 
       {/* Backup List */}
       {isLoadingBackups ? (
-        <SkeletonTable rows={5} columns={5} />
+        <SkeletonTable rows={5} columns={5} data-testid="loading-skeleton" />
       ) : !backups || backups.length === 0 ? (
         <EmptyState
           icon={<Archive className="h-12 w-12" />}
@@ -246,12 +249,14 @@ export default function Backups() {
             label: t('backups.createBackup'),
             onClick: () => createMutation.mutate(),
           }}
+          data-testid="empty-state"
         />
       ) : (
         <DataTable
           data={backups}
           columns={columns}
           rowKey={(backup) => backup.filename}
+          data-testid="backup-table"
           emptyState={
             <EmptyState
               icon={<Archive className="h-12 w-12" />}

@@ -2736,29 +2736,568 @@ Test Scenarios:
 - Encryption management (key rotation, backup)
 - Account settings (profile, password, 2FA)
 
-### Phase 5: Tasks (Week 9)
+### Phase 5: Tasks & Monitoring (Week 9)
 
-**Goal:** Cover backup, logs, and monitoring features
+**Status:** 🔄 IN PROGRESS
+**Detailed Plan:** [phase5-implementation.md](phase5-implementation.md)
+
+**Goal:** Cover backup, logs, import, and monitoring features
 
 **Estimated Effort:** 5 days
+**Total Estimated Tests:** 92-114 (updated per Supervisor review)
 
-**Test Files:**
-- `tests/tasks/backups-create.spec.ts` - Backup creation
-- `tests/tasks/backups-restore.spec.ts` - Backup restoration
-- `tests/tasks/logs-viewing.spec.ts` - Log viewer functionality
-- `tests/tasks/import-caddyfile.spec.ts` - Caddyfile import
-- `tests/tasks/import-crowdsec.spec.ts` - CrowdSec config import
-- `tests/monitoring/uptime-monitoring.spec.ts` - Uptime checks
-- `tests/monitoring/real-time-logs.spec.ts` - WebSocket log streaming
+> **Supervisor Approved:** Plan reviewed and approved with 3 recommendations incorporated:
+> - ✅ Added backup download test (P1) to section 5.1
+> - ✅ Added import session timeout tests (P2) to section 5.4
+> - ✅ Added WebSocket reconnection mock utility note to section 5.7
 
-**Key Features:**
-- Backup creation (manual, scheduled)
-- Backup restoration (full, selective)
-- Log viewing (filtering, search, export)
-- Caddyfile import (validation, migration)
-- CrowdSec import (scenarios, decisions)
-- Uptime monitoring (HTTP checks, alerts)
-- Real-time logs (WebSocket, filtering)
+**Directory Structure:**
+```
+tests/
+├── tasks/
+│   ├── backups-create.spec.ts      # Backup creation workflows
+│   ├── backups-restore.spec.ts     # Backup restoration workflows
+│   ├── logs-viewing.spec.ts        # Log viewer functionality
+│   ├── import-caddyfile.spec.ts    # Caddyfile import wizard
+│   └── import-crowdsec.spec.ts     # CrowdSec config import
+└── monitoring/
+    ├── uptime-monitoring.spec.ts   # Uptime monitor CRUD
+    └── real-time-logs.spec.ts      # WebSocket log streaming
+```
+
+---
+
+#### 5.1 Backups - Create (`tests/tasks/backups-create.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/backups` | `Backups.tsx` | `GET /api/v1/backups`, `POST /api/v1/backups`, `DELETE /api/v1/backups/:filename` |
+
+**Test Scenarios (12-15 tests):**
+
+**Page Layout & Navigation:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should display backups page with correct heading and navigation | P0 |
+| 2 | should show Create Backup button for admin users | P0 |
+| 3 | should hide Create Backup button for guest users | P1 |
+
+**Backup List Display:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 4 | should display empty state when no backups exist | P0 |
+| 5 | should display list of existing backups with filename, size, and timestamp | P0 |
+| 6 | should sort backups by date (newest first) | P1 |
+| 7 | should show loading skeleton while fetching backups | P2 |
+
+**Create Backup Flow:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 8 | should create a new backup successfully | P0 |
+| 9 | should show success toast after backup creation | P0 |
+| 10 | should update backup list with new backup | P0 |
+| 11 | should disable create button while backup is in progress | P1 |
+| 12 | should handle backup creation failure gracefully | P1 |
+
+**Delete Backup Flow:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 13 | should show confirmation dialog before deleting | P0 |
+| 14 | should delete backup after confirmation | P0 |
+| 15 | should show success toast after deletion | P1 |
+
+**Download Backup Flow:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 16 | should download backup file successfully | P0 |
+| 17 | should show error toast when download fails | P1 |
+
+> **Supervisor Note (P1):** Explicit backup download test added per review - verifies the `/api/v1/backups/:filename/download` endpoint functions correctly.
+
+**API Endpoints:**
+```typescript
+GET  /api/v1/backups                    // List backups
+POST /api/v1/backups                    // Create backup
+DELETE /api/v1/backups/:filename        // Delete backup
+GET  /api/v1/backups/:filename/download // Download backup
+```
+
+---
+
+#### 5.2 Backups - Restore (`tests/tasks/backups-restore.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/backups` | `Backups.tsx` | `POST /api/v1/backups/:filename/restore` |
+
+**Test Scenarios (6-8 tests):**
+
+**Restore Flow:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should show warning dialog before restore | P0 |
+| 2 | should require explicit confirmation for restore action | P0 |
+| 3 | should restore backup successfully | P0 |
+| 4 | should show success toast after restoration | P0 |
+| 5 | should show progress indicator during restore | P1 |
+| 6 | should handle restore failure gracefully | P1 |
+
+**Post-Restore Verification:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 7 | should reload application state after restore | P1 |
+| 8 | should preserve user session after restore | P2 |
+
+**API Endpoints:**
+```typescript
+POST /api/v1/backups/:filename/restore  // Restore from backup
+```
+
+**Mock Data Requirements:**
+- Valid backup file for restoration testing
+- Corrupt/invalid backup file for error handling
+
+---
+
+#### 5.3 Log Viewer (`tests/tasks/logs-viewing.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/logs` | `Logs.tsx`, `LogTable.tsx`, `LogFilters.tsx` | `GET /api/v1/logs`, `GET /api/v1/logs/:filename` |
+
+**Test Scenarios (15-18 tests):**
+
+**Page Layout:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should display logs page with file selector | P0 |
+| 2 | should show list of available log files | P0 |
+| 3 | should display log filters (search, level, host, status) | P0 |
+
+**Log File Selection:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 4 | should list all available log files | P0 |
+| 5 | should display file size and modification time | P1 |
+| 6 | should load log content when file is selected | P0 |
+| 7 | should show empty state for empty log files | P1 |
+
+**Log Content Display:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 8 | should display log entries in table format | P0 |
+| 9 | should show timestamp, level, message, and request details | P0 |
+| 10 | should paginate large log files | P1 |
+| 11 | should sort logs by timestamp | P1 |
+| 12 | should highlight error and warning entries | P2 |
+
+**Log Filtering:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 13 | should filter logs by search text | P0 |
+| 14 | should filter logs by log level | P0 |
+| 15 | should filter logs by host | P1 |
+| 16 | should filter logs by status code range | P1 |
+| 17 | should combine multiple filters | P1 |
+| 18 | should clear all filters | P1 |
+
+**API Endpoints:**
+```typescript
+GET /api/v1/logs                       // List log files
+GET /api/v1/logs/:filename             // Read log file with filters
+GET /api/v1/logs/:filename/download    // Download log file
+```
+
+**Log Entry Interface:**
+```typescript
+interface CaddyAccessLog {
+  level: string;
+  ts: number;
+  logger: string;
+  msg: string;
+  request: {
+    remote_ip: string;
+    method: string;
+    host: string;
+    uri: string;
+    proto: string;
+  };
+  status: number;
+  duration: number;
+  size: number;
+}
+```
+
+---
+
+#### 5.4 Caddyfile Import (`tests/tasks/import-caddyfile.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/import/caddyfile` | `ImportCaddy.tsx`, `ImportReviewTable.tsx`, `ImportSitesModal.tsx` | `POST /api/v1/import/upload`, `GET /api/v1/import/preview`, `POST /api/v1/import/commit` |
+
+**Test Scenarios (14-16 tests):**
+
+**Upload Interface:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should display file upload dropzone | P0 |
+| 2 | should accept valid Caddyfile | P0 |
+| 3 | should reject invalid file types | P0 |
+| 4 | should show upload progress | P1 |
+| 5 | should handle multi-file upload | P1 |
+| 6 | should detect import directives in Caddyfile | P1 |
+
+**Preview & Review:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 7 | should show parsed hosts from Caddyfile | P0 |
+| 8 | should display host configuration details | P0 |
+| 9 | should allow selection/deselection of hosts | P0 |
+| 10 | should show validation warnings for problematic configs | P1 |
+| 11 | should highlight conflicts with existing hosts | P1 |
+
+**Commit Import:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 12 | should commit selected hosts | P0 |
+| 13 | should skip deselected hosts | P1 |
+| 14 | should show success toast after import | P0 |
+| 15 | should navigate to proxy hosts after import | P1 |
+| 16 | should handle partial import failures | P1 |
+
+**Session Management:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 17 | should handle import session timeout/expiry | P2 |
+| 18 | should show warning when session is about to expire | P2 |
+
+> **Supervisor Note (P2):** Session timeout tests added per review - import sessions have server-side TTL and should gracefully handle expiration.
+
+**API Endpoints:**
+```typescript
+POST   /api/v1/import/upload         // Upload Caddyfile
+POST   /api/v1/import/upload-multi   // Upload multiple files
+GET    /api/v1/import/status         // Get import session status
+GET    /api/v1/import/preview        // Get parsed hosts preview
+POST   /api/v1/import/detect-imports // Detect import directives
+POST   /api/v1/import/commit         // Commit import
+DELETE /api/v1/import/cancel         // Cancel import session
+```
+
+---
+
+#### 5.5 CrowdSec Import (`tests/tasks/import-crowdsec.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/import/crowdsec` | `ImportCrowdSec.tsx` | `POST /api/v1/crowdsec/import` |
+
+**Test Scenarios (6-8 tests):**
+
+**Upload Interface:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should display file upload interface | P0 |
+| 2 | should accept YAML configuration files | P0 |
+| 3 | should reject invalid file types | P0 |
+| 4 | should create backup before import | P0 |
+
+**Import Flow:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 5 | should import CrowdSec configuration | P0 |
+| 6 | should show success toast after import | P0 |
+| 7 | should validate configuration format | P1 |
+| 8 | should handle import errors gracefully | P1 |
+
+**Component Behavior (from `ImportCrowdSec.tsx`):**
+```typescript
+// Import triggers backup creation first
+const backupResult = await createBackup();
+// Then imports CrowdSec config
+await importCrowdsecConfig(file);
+```
+
+---
+
+#### 5.6 Uptime Monitoring (`tests/monitoring/uptime-monitoring.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/uptime` | `Uptime.tsx`, `UptimeWidget.tsx` | `GET /api/v1/uptime/monitors`, `POST /api/v1/uptime/monitors`, `PUT /api/v1/uptime/monitors/:id` |
+
+**Test Scenarios (18-22 tests):**
+
+**Page Layout:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should display uptime monitoring page | P0 |
+| 2 | should show monitor list or empty state | P0 |
+| 3 | should display overall uptime summary | P1 |
+
+**Monitor List Display:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 4 | should display all monitors with status indicators | P0 |
+| 5 | should show uptime percentage for each monitor | P0 |
+| 6 | should show last check timestamp | P1 |
+| 7 | should differentiate between up/down/unknown states | P0 |
+| 8 | should group monitors by category if configured | P2 |
+
+**Monitor CRUD:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 9 | should create new HTTP monitor | P0 |
+| 10 | should create new TCP monitor | P1 |
+| 11 | should update existing monitor | P0 |
+| 12 | should delete monitor with confirmation | P0 |
+| 13 | should validate monitor URL format | P0 |
+| 14 | should validate check interval | P1 |
+
+**Manual Check:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 15 | should trigger manual health check | P0 |
+| 16 | should update status after manual check | P0 |
+| 17 | should show check in progress indicator | P1 |
+
+**Monitor History:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 18 | should display uptime history chart | P1 |
+| 19 | should show incident timeline | P2 |
+| 20 | should filter history by date range | P2 |
+
+**Sync with Proxy Hosts:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 21 | should sync monitors from proxy hosts | P1 |
+| 22 | should preserve manually added monitors | P1 |
+
+**API Endpoints:**
+```typescript
+GET    /api/v1/uptime/monitors           // List monitors
+POST   /api/v1/uptime/monitors           // Create monitor
+PUT    /api/v1/uptime/monitors/:id       // Update monitor
+DELETE /api/v1/uptime/monitors/:id       // Delete monitor
+GET    /api/v1/uptime/monitors/:id/history // Get history
+POST   /api/v1/uptime/monitors/:id/check // Trigger check
+POST   /api/v1/uptime/sync               // Sync with proxy hosts
+```
+
+---
+
+#### 5.7 Real-time Logs (`tests/monitoring/real-time-logs.spec.ts`)
+
+**Routes & Components:**
+
+| Route | Component | API Endpoints |
+|-------|-----------|---------------|
+| `/tasks/logs` (Live tab) | `LiveLogViewer.tsx` | `WS /api/v1/logs/live`, `WS /api/v1/cerberus/logs/ws` |
+
+**Test Scenarios (16-20 tests):**
+
+**WebSocket Connection:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 1 | should establish WebSocket connection | P0 |
+| 2 | should show connected status indicator | P0 |
+| 3 | should handle connection failure gracefully | P0 |
+| 4 | should auto-reconnect on connection loss | P1 |
+| 5 | should authenticate via HttpOnly cookies | P1 |
+| 6 | should recover from network interruption | P1 |
+
+> **Supervisor Note:** Add `simulateNetworkInterruption()` utility to `tests/utils/wait-helpers.ts` for testing WebSocket reconnection scenarios. This mock should temporarily close the WebSocket and verify the component reconnects automatically.
+
+**Log Streaming:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 6 | should display incoming log entries in real-time | P0 |
+| 7 | should auto-scroll to latest logs | P1 |
+| 8 | should respect max log limit (500 entries) | P1 |
+| 9 | should format timestamps correctly | P1 |
+| 10 | should colorize log levels appropriately | P2 |
+
+**Mode Switching:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 11 | should toggle between Application and Security modes | P0 |
+| 12 | should clear logs when switching modes | P1 |
+| 13 | should reconnect to correct WebSocket endpoint | P0 |
+
+**Live Filters:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 14 | should filter by text search | P0 |
+| 15 | should filter by log level | P0 |
+| 16 | should filter by source (security mode) | P1 |
+| 17 | should filter blocked requests only (security mode) | P1 |
+
+**Playback Controls:**
+| # | Test Name | Priority |
+|---|-----------|----------|
+| 18 | should pause log streaming | P0 |
+| 19 | should resume log streaming | P0 |
+| 20 | should clear all logs | P1 |
+
+**WebSocket Interfaces:**
+```typescript
+// Application logs
+interface LiveLogEntry {
+  level: string;
+  timestamp: string;
+  message: string;
+  source?: string;
+  data?: Record<string, unknown>;
+}
+
+// Security logs (Cerberus)
+interface SecurityLogEntry {
+  timestamp: string;
+  level: string;
+  logger: string;
+  client_ip: string;
+  method: string;
+  uri: string;
+  status: number;
+  duration: number;
+  size: number;
+  user_agent: string;
+  host: string;
+  source: 'waf' | 'crowdsec' | 'ratelimit' | 'acl' | 'normal';
+  blocked: boolean;
+  block_reason?: string;
+  details?: Record<string, unknown>;
+}
+```
+
+**WebSocket Testing Strategy:**
+```typescript
+// Use Playwright's WebSocket interception
+test('should display incoming log entries in real-time', async ({ page }) => {
+  await page.goto('/tasks/logs');
+
+  // Wait for WebSocket connection
+  await waitForWebSocketConnection(page);
+
+  // Verify connection indicator shows "Connected"
+  await expect(page.locator('[data-testid="connection-status"]'))
+    .toContainText('Connected');
+
+  // Intercept WebSocket messages
+  page.on('websocket', ws => {
+    ws.on('framereceived', event => {
+      const log = JSON.parse(event.payload);
+      // Verify log entry structure
+      expect(log).toHaveProperty('timestamp');
+      expect(log).toHaveProperty('level');
+    });
+  });
+});
+```
+
+---
+
+#### Phase 5 Implementation Priority
+
+| Priority | Test File | Reason | Est. Tests |
+|----------|-----------|--------|------------|
+| 1 | `backups-create.spec.ts` | Core data protection feature | 12-15 |
+| 2 | `backups-restore.spec.ts` | Critical recovery workflow | 6-8 |
+| 3 | `logs-viewing.spec.ts` | Essential debugging tool | 15-18 |
+| 4 | `uptime-monitoring.spec.ts` | Key operational feature | 18-22 |
+| 5 | `real-time-logs.spec.ts` | WebSocket testing complexity | 16-20 |
+| 6 | `import-caddyfile.spec.ts` | Multi-step wizard | 14-16 |
+| 7 | `import-crowdsec.spec.ts` | Simpler import flow | 6-8 |
+| **Total** | | | **87-107** |
+
+---
+
+#### Phase 5 Test Utilities
+
+**Wait Helpers (from `tests/utils/wait-helpers.ts`):**
+```typescript
+// Key utilities to use:
+await waitForToast(page, /success|created|deleted/i);
+await waitForLoadingComplete(page);
+await waitForAPIResponse(page, '/api/v1/backups', 200);
+await waitForWebSocketConnection(page);
+await waitForWebSocketMessage(page, (msg) => msg.level === 'error');
+await waitForTableLoad(page, locator);
+await retryAction(page, async () => { /* action */ }, { maxAttempts: 3 });
+```
+
+**Test Data Manager (from `tests/utils/TestDataManager.ts`):**
+```typescript
+// For creating test data with automatic cleanup:
+const manager = new TestDataManager(page, 'backups-test');
+const host = await manager.createProxyHost({ domain: 'test.example.com' });
+// ... test
+await manager.cleanup(); // Auto-cleanup in reverse order
+```
+
+**Authentication (from `tests/fixtures/auth-fixtures.ts`):**
+```typescript
+// Use admin fixture for full access:
+test.use({ ...adminUser });
+
+// Or regular user for permission testing:
+test.use({ ...regularUser });
+
+// Or guest for read-only testing:
+test.use({ ...guestUser });
+```
+
+---
+
+#### Phase 5 Acceptance Criteria
+
+**Backups (18-23 tests minimum):**
+- [ ] All CRUD operations covered
+- [ ] Restore workflow with confirmation
+- [ ] Download functionality works
+- [ ] Error handling for failures
+- [ ] Role-based access verified
+
+**Logs (31-38 tests minimum):**
+- [ ] Static log viewing works
+- [ ] All filters functional
+- [ ] WebSocket streaming works
+- [ ] Mode switching (App/Security)
+- [ ] Pause/Resume controls
+
+**Imports (20-24 tests minimum):**
+- [ ] File upload works
+- [ ] Preview shows parsed data
+- [ ] Commit creates resources
+- [ ] Error handling for invalid files
+
+**Uptime (18-22 tests minimum):**
+- [ ] Monitor CRUD operations
+- [ ] Status indicators correct
+- [ ] Manual check works
+- [ ] Sync with proxy hosts
+
+**Overall Phase 5:**
+- [ ] 87+ tests passing
+- [ ] <5% flaky test rate
+- [ ] All P0 tests complete
+- [ ] 90%+ P1 tests complete
+- [ ] No hardcoded waits (use wait-helpers)
+- [ ] All tests use TestDataManager for cleanup
 
 ### Phase 6: Integration & Buffer (Week 10)
 

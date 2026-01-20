@@ -31,6 +31,7 @@ func setupUptimeHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB) {
 	api := r.Group("/api/v1")
 	uptime := api.Group("/uptime")
 	uptime.GET("", handler.List)
+	uptime.POST("", handler.Create)
 	uptime.GET(":id/history", handler.GetHistory)
 	uptime.PUT(":id", handler.Update)
 	uptime.DELETE(":id", handler.Delete)
@@ -62,6 +63,194 @@ func TestUptimeHandler_List(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, "Test Monitor", list[0].Name)
+}
+
+func TestUptimeHandler_Create(t *testing.T) {
+	t.Run("success_http", func(t *testing.T) {
+		r, db := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name":        "New HTTP Monitor",
+			"url":         "https://example.com",
+			"type":        "http",
+			"interval":    120,
+			"max_retries": 5,
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		var result models.UptimeMonitor
+		err := json.Unmarshal(w.Body.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "New HTTP Monitor", result.Name)
+		assert.Equal(t, "https://example.com", result.URL)
+		assert.Equal(t, "http", result.Type)
+		assert.Equal(t, 120, result.Interval)
+		assert.Equal(t, 5, result.MaxRetries)
+		assert.True(t, result.Enabled)
+		assert.Equal(t, "pending", result.Status)
+		assert.NotEmpty(t, result.ID)
+
+		// Verify it's in the database
+		var dbMonitor models.UptimeMonitor
+		require.NoError(t, db.First(&dbMonitor, "id = ?", result.ID).Error)
+		assert.Equal(t, "New HTTP Monitor", dbMonitor.Name)
+	})
+
+	t.Run("success_tcp", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "New TCP Monitor",
+			"url":  "example.com:8080",
+			"type": "tcp",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		var result models.UptimeMonitor
+		err := json.Unmarshal(w.Body.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "New TCP Monitor", result.Name)
+		assert.Equal(t, "example.com:8080", result.URL)
+		assert.Equal(t, "tcp", result.Type)
+		assert.Equal(t, 60, result.Interval)  // Default
+		assert.Equal(t, 3, result.MaxRetries) // Default
+	})
+
+	t.Run("success_defaults", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "Default Monitor",
+			"url":  "https://example.com/health",
+			"type": "https",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		var result models.UptimeMonitor
+		err := json.Unmarshal(w.Body.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, 60, result.Interval)  // Default
+		assert.Equal(t, 3, result.MaxRetries) // Default
+	})
+
+	t.Run("missing_name", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"url":  "https://example.com",
+			"type": "http",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("missing_url", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "No URL Monitor",
+			"type": "http",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("missing_type", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "No Type Monitor",
+			"url":  "https://example.com",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid_type", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "Invalid Type Monitor",
+			"url":  "https://example.com",
+			"type": "invalid",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid_json", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer([]byte("invalid")))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid_tcp_url", func(t *testing.T) {
+		r, _ := setupUptimeHandlerTest(t)
+
+		payload := map[string]any{
+			"name": "Bad TCP Monitor",
+			"url":  "not-host-port",
+			"type": "tcp",
+		}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", "/api/v1/uptime", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
 }
 
 func TestUptimeHandler_GetHistory(t *testing.T) {
