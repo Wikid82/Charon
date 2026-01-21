@@ -32,6 +32,8 @@ export interface ProxyHostConfig {
   forwardHost: string;
   /** Target port */
   forwardPort: number;
+  /** Friendly name for the proxy host */
+  name?: string;
   /** Protocol scheme */
   scheme: 'http' | 'https';
   /** Enable WebSocket support */
@@ -301,10 +303,12 @@ export const invalidProxyHosts = {
 export function generateProxyHost(
   overrides: Partial<ProxyHostConfig> = {}
 ): ProxyHostConfig {
+  const domain = generateDomain('proxy');
   return {
-    domain: generateDomain('proxy'),
+    domain,
     forwardHost: generateIPAddress(),
     forwardPort: generatePort({ min: 3000, max: 9000 }),
+    name: `Test Host ${Date.now()}`,
     scheme: 'http',
     websocketSupport: false,
     ...overrides,

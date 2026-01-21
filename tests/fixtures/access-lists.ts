@@ -5,6 +5,11 @@
  * Provides various ACL configurations for testing CRUD operations,
  * rule management, and validation scenarios.
  *
+ * The backend expects AccessList with:
+ * - type: 'whitelist' | 'blacklist' | 'geo_whitelist' | 'geo_blacklist'
+ * - ip_rules: JSON string of {cidr, description} objects
+ * - country_codes: comma-separated ISO country codes (for geo types)
+ *
  * @example
  * ```typescript
  * import { emptyAccessList, allowOnlyAccessList, invalidACLConfigs } from './fixtures/access-lists';
@@ -16,140 +21,147 @@
  */
 
 import { generateUniqueId, generateIPAddress, generateCIDR } from './test-data';
+import type { AccessListData } from '../utils/TestDataManager';
 
 /**
- * ACL rule types
+ * ACL type - matches backend ValidAccessListTypes
  */
-export type ACLRuleType = 'allow' | 'deny';
+export type ACLType = 'whitelist' | 'blacklist' | 'geo_whitelist' | 'geo_blacklist';
 
 /**
- * Single ACL rule configuration
+ * Single ACL IP rule configuration (matches backend AccessListRule)
  */
 export interface ACLRule {
-  /** Rule type: allow or deny */
-  type: ACLRuleType;
-  /** Value: IP, CIDR range, or special value */
-  value: string;
+  /** CIDR notation IP or range */
+  cidr: string;
   /** Optional description */
   description?: string;
 }
 
 /**
- * Complete access list configuration
+ * Complete access list configuration (matches backend AccessList model)
  */
-export interface AccessListConfig {
-  /** Access list name */
-  name: string;
-  /** List of rules */
-  rules: ACLRule[];
+export interface AccessListConfig extends AccessListData {
   /** Optional description */
   description?: string;
-  /** Enable/disable authentication */
-  authEnabled?: boolean;
-  /** Authentication users (if authEnabled) */
-  authUsers?: Array<{ username: string; password: string }>;
-  /** Enable/disable the access list */
-  enabled?: boolean;
 }
 
 /**
- * Empty access list
- * No rules defined - useful for testing empty state
+ * Empty access list (whitelist with no rules)
+ * Useful for testing empty state
  */
 export const emptyAccessList: AccessListConfig = {
   name: 'Empty ACL',
-  rules: [],
+  type: 'whitelist',
+  ipRules: [],
   description: 'Access list with no rules',
 };
 
 /**
- * Allow-only access list
- * Only contains allow rules
+ * Allow-only access list (whitelist)
+ * Contains CIDR ranges for private networks
  */
 export const allowOnlyAccessList: AccessListConfig = {
   name: 'Allow Only ACL',
-  rules: [
-    { type: 'allow', value: '192.168.1.0/24', description: 'Local network' },
-    { type: 'allow', value: '10.0.0.0/8', description: 'Private network' },
-    { type: 'allow', value: '172.16.0.0/12', description: 'Docker network' },
+  type: 'whitelist',
+  ipRules: [
+    { cidr: '192.168.1.0/24', description: 'Local network' },
+    { cidr: '10.0.0.0/8', description: 'Private network' },
+    { cidr: '172.16.0.0/12', description: 'Docker network' },
   ],
   description: 'Access list with only allow rules',
 };
 
 /**
- * Deny-only access list
- * Only contains deny rules (blacklist)
+ * Deny-only access list (blacklist)
+ * Blocks specific IP ranges
  */
 export const denyOnlyAccessList: AccessListConfig = {
   name: 'Deny Only ACL',
-  rules: [
-    { type: 'deny', value: '192.168.100.0/24', description: 'Blocked subnet' },
-    { type: 'deny', value: '10.255.0.1', description: 'Specific blocked IP' },
-    { type: 'deny', value: '203.0.113.0/24', description: 'TEST-NET-3' },
+  type: 'blacklist',
+  ipRules: [
+    { cidr: '192.168.100.0/24', description: 'Blocked subnet' },
+    { cidr: '10.255.0.1/32', description: 'Specific blocked IP' },
+    { cidr: '203.0.113.0/24', description: 'TEST-NET-3' },
   ],
-  description: 'Access list with only deny rules',
+  description: 'Access list with deny rules (blacklist)',
 };
 
 /**
- * Mixed rules access list
- * Contains both allow and deny rules - order matters
+ * Whitelist for specific IPs
+ * Only allows traffic from specific IP ranges
  */
 export const mixedRulesAccessList: AccessListConfig = {
   name: 'Mixed Rules ACL',
-  rules: [
-    { type: 'allow', value: '192.168.1.100', description: 'Allowed specific IP' },
-    { type: 'deny', value: '192.168.1.0/24', description: 'Deny rest of subnet' },
-    { type: 'allow', value: '10.0.0.0/8', description: 'Allow internal' },
-    { type: 'deny', value: '0.0.0.0/0', description: 'Deny all others' },
+  type: 'whitelist',
+  ipRules: [
+    { cidr: '192.168.1.100/32', description: 'Allowed specific IP' },
+    { cidr: '10.0.0.0/8', description: 'Allow internal' },
   ],
-  description: 'Access list with mixed allow/deny rules',
+  description: 'Access list with whitelisted IPs',
 };
 
 /**
- * Allow all access list
- * Single rule to allow all traffic
+ * Allow all access list (whitelist with 0.0.0.0/0)
  */
 export const allowAllAccessList: AccessListConfig = {
   name: 'Allow All ACL',
-  rules: [{ type: 'allow', value: '0.0.0.0/0', description: 'Allow all' }],
+  type: 'whitelist',
+  ipRules: [{ cidr: '0.0.0.0/0', description: 'Allow all' }],
   description: 'Access list that allows all traffic',
 };
 
 /**
- * Deny all access list
- * Single rule to deny all traffic
+ * Deny all access list (blacklist with 0.0.0.0/0)
  */
 export const denyAllAccessList: AccessListConfig = {
   name: 'Deny All ACL',
-  rules: [{ type: 'deny', value: '0.0.0.0/0', description: 'Deny all' }],
+  type: 'blacklist',
+  ipRules: [{ cidr: '0.0.0.0/0', description: 'Deny all' }],
   description: 'Access list that denies all traffic',
 };
 
 /**
- * Access list with basic authentication
- * Requires username/password
+ * Geo whitelist with country codes
+ * Only allows traffic from specific countries
  */
-export const authEnabledAccessList: AccessListConfig = {
-  name: 'Auth Enabled ACL',
-  rules: [{ type: 'allow', value: '0.0.0.0/0' }],
-  description: 'Access list with basic auth requirement',
-  authEnabled: true,
-  authUsers: [
-    { username: 'testuser', password: 'TestPass123!' },
-    { username: 'admin', password: 'AdminPass456!' },
-  ],
+export const geoWhitelistAccessList: AccessListConfig = {
+  name: 'Geo Whitelist ACL',
+  type: 'geo_whitelist',
+  countryCodes: 'US,CA,GB',
+  description: 'Access list allowing only US, Canada, and UK',
 };
 
 /**
- * Access list with single IP
+ * Geo blacklist with country codes
+ * Blocks traffic from specific countries
+ */
+export const geoBlacklistAccessList: AccessListConfig = {
+  name: 'Geo Blacklist ACL',
+  type: 'geo_blacklist',
+  countryCodes: 'CN,RU,KP',
+  description: 'Access list blocking China, Russia, and North Korea',
+};
+
+/**
+ * Local network only access list
+ * Restricts to RFC1918 private networks
+ */
+export const localNetworkAccessList: AccessListConfig = {
+  name: 'Local Network ACL',
+  type: 'whitelist',
+  localNetworkOnly: true,
+  description: 'Access list restricted to local/private networks',
+};
+
+/**
+ * Single IP access list
  * Most restrictive - only one IP allowed
  */
 export const singleIPAccessList: AccessListConfig = {
   name: 'Single IP ACL',
-  rules: [
-    { type: 'allow', value: '192.168.1.50', description: 'Only allowed IP' },
-    { type: 'deny', value: '0.0.0.0/0', description: 'Block all others' },
-  ],
+  type: 'whitelist',
+  ipRules: [{ cidr: '192.168.1.50/32', description: 'Only allowed IP' }],
   description: 'Access list for single IP address',
 };
 
@@ -159,9 +171,9 @@ export const singleIPAccessList: AccessListConfig = {
  */
 export const manyRulesAccessList: AccessListConfig = {
   name: 'Many Rules ACL',
-  rules: Array.from({ length: 50 }, (_, i) => ({
-    type: (i % 2 === 0 ? 'allow' : 'deny') as ACLRuleType,
-    value: `10.${Math.floor(i / 256)}.${i % 256}.0/24`,
+  type: 'whitelist',
+  ipRules: Array.from({ length: 50 }, (_, i) => ({
+    cidr: `10.${Math.floor(i / 256)}.${i % 256}.0/24`,
     description: `Rule ${i + 1}`,
   })),
   description: 'Access list with many rules for stress testing',
@@ -173,11 +185,11 @@ export const manyRulesAccessList: AccessListConfig = {
  */
 export const ipv6AccessList: AccessListConfig = {
   name: 'IPv6 ACL',
-  rules: [
-    { type: 'allow', value: '::1', description: 'Localhost IPv6' },
-    { type: 'allow', value: 'fe80::/10', description: 'Link-local' },
-    { type: 'allow', value: '2001:db8::/32', description: 'Documentation range' },
-    { type: 'deny', value: '::/0', description: 'Deny all IPv6' },
+  type: 'whitelist',
+  ipRules: [
+    { cidr: '::1/128', description: 'Localhost IPv6' },
+    { cidr: 'fe80::/10', description: 'Link-local' },
+    { cidr: '2001:db8::/32', description: 'Documentation range' },
   ],
   description: 'Access list with IPv6 rules',
 };
@@ -188,7 +200,8 @@ export const ipv6AccessList: AccessListConfig = {
  */
 export const disabledAccessList: AccessListConfig = {
   name: 'Disabled ACL',
-  rules: [{ type: 'deny', value: '0.0.0.0/0' }],
+  type: 'blacklist',
+  ipRules: [{ cidr: '0.0.0.0/0' }],
   description: 'Disabled access list',
   enabled: false,
 };
@@ -200,73 +213,71 @@ export const invalidACLConfigs = {
   /** Empty name */
   emptyName: {
     name: '',
-    rules: [{ type: 'allow' as const, value: '192.168.1.0/24' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '192.168.1.0/24' }],
   },
 
   /** Name too long */
   nameTooLong: {
     name: 'A'.repeat(256),
-    rules: [{ type: 'allow' as const, value: '192.168.1.0/24' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '192.168.1.0/24' }],
   },
 
-  /** Invalid rule type */
-  invalidRuleType: {
+  /** Invalid type */
+  invalidType: {
     name: 'Invalid Type ACL',
-    rules: [{ type: 'maybe' as ACLRuleType, value: '192.168.1.0/24' }],
+    type: 'invalid_type' as ACLType,
+    ipRules: [{ cidr: '192.168.1.0/24' }],
   },
 
   /** Invalid IP address */
   invalidIP: {
     name: 'Invalid IP ACL',
-    rules: [{ type: 'allow' as const, value: '999.999.999.999' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '999.999.999.999' }],
   },
 
   /** Invalid CIDR */
   invalidCIDR: {
     name: 'Invalid CIDR ACL',
-    rules: [{ type: 'allow' as const, value: '192.168.1.0/99' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '192.168.1.0/99' }],
   },
 
-  /** Empty rule value */
-  emptyRuleValue: {
-    name: 'Empty Value ACL',
-    rules: [{ type: 'allow' as const, value: '' }],
+  /** Empty CIDR value */
+  emptyCIDR: {
+    name: 'Empty CIDR ACL',
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '' }],
   },
 
   /** XSS in name */
   xssInName: {
     name: '<script>alert(1)</script>',
-    rules: [{ type: 'allow' as const, value: '192.168.1.0/24' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '192.168.1.0/24' }],
   },
 
   /** SQL injection in name */
   sqlInjectionInName: {
     name: "'; DROP TABLE access_lists; --",
-    rules: [{ type: 'allow' as const, value: '192.168.1.0/24' }],
+    type: 'whitelist' as const,
+    ipRules: [{ cidr: '192.168.1.0/24' }],
   },
 
-  /** XSS in rule value */
-  xssInRuleValue: {
-    name: 'XSS Rule ACL',
-    rules: [{ type: 'allow' as const, value: '<img src=x onerror=alert(1)>' }],
+  /** Geo type without country codes */
+  geoWithoutCountryCodes: {
+    name: 'Geo No Countries ACL',
+    type: 'geo_whitelist' as const,
+    countryCodes: '',
   },
 
-  /** Duplicate rules */
-  duplicateRules: {
-    name: 'Duplicate Rules ACL',
-    rules: [
-      { type: 'allow' as const, value: '192.168.1.0/24' },
-      { type: 'allow' as const, value: '192.168.1.0/24' },
-    ],
-  },
-
-  /** Conflicting rules */
-  conflictingRules: {
-    name: 'Conflicting Rules ACL',
-    rules: [
-      { type: 'allow' as const, value: '192.168.1.100' },
-      { type: 'deny' as const, value: '192.168.1.100' },
-    ],
+  /** Invalid country code */
+  invalidCountryCode: {
+    name: 'Invalid Country ACL',
+    type: 'geo_whitelist' as const,
+    countryCodes: 'XX,YY,ZZ',
   },
 };
 
@@ -278,7 +289,7 @@ export const invalidACLConfigs = {
  *
  * @example
  * ```typescript
- * const acl = generateAccessList({ authEnabled: true });
+ * const acl = generateAccessList({ type: 'blacklist' });
  * ```
  */
 export function generateAccessList(
@@ -287,9 +298,9 @@ export function generateAccessList(
   const id = generateUniqueId();
   return {
     name: `ACL-${id}`,
-    rules: [
-      { type: 'allow', value: generateCIDR(24) },
-      { type: 'deny', value: '0.0.0.0/0' },
+    type: 'whitelist',
+    ipRules: [
+      { cidr: generateCIDR(24) },
     ],
     description: `Generated access list ${id}`,
     ...overrides,
@@ -297,54 +308,34 @@ export function generateAccessList(
 }
 
 /**
- * Generate access list with specific IPs allowed
- * @param allowedIPs - Array of IP addresses to allow
- * @param denyOthers - Whether to add a deny-all rule at the end
+ * Generate whitelist for specific IPs
+ * @param allowedIPs - Array of IP/CIDR addresses to whitelist
  * @returns AccessListConfig
  */
-export function generateAllowListForIPs(
-  allowedIPs: string[],
-  denyOthers: boolean = true
-): AccessListConfig {
-  const rules: ACLRule[] = allowedIPs.map((ip) => ({
-    type: 'allow' as const,
-    value: ip,
-  }));
-
-  if (denyOthers) {
-    rules.push({ type: 'deny', value: '0.0.0.0/0' });
-  }
-
+export function generateAllowListForIPs(allowedIPs: string[]): AccessListConfig {
   return {
     name: `AllowList-${generateUniqueId()}`,
-    rules,
-    description: `Allow list for ${allowedIPs.length} IPs`,
+    type: 'whitelist',
+    ipRules: allowedIPs.map((ip) => ({
+      cidr: ip.includes('/') ? ip : `${ip}/32`,
+    })),
+    description: `Whitelist for ${allowedIPs.length} IPs`,
   };
 }
 
 /**
- * Generate access list with specific IPs denied
- * @param deniedIPs - Array of IP addresses to deny
- * @param allowOthers - Whether to add an allow-all rule at the end
+ * Generate blacklist for specific IPs
+ * @param deniedIPs - Array of IP/CIDR addresses to blacklist
  * @returns AccessListConfig
  */
-export function generateDenyListForIPs(
-  deniedIPs: string[],
-  allowOthers: boolean = true
-): AccessListConfig {
-  const rules: ACLRule[] = deniedIPs.map((ip) => ({
-    type: 'deny' as const,
-    value: ip,
-  }));
-
-  if (allowOthers) {
-    rules.push({ type: 'allow', value: '0.0.0.0/0' });
-  }
-
+export function generateDenyListForIPs(deniedIPs: string[]): AccessListConfig {
   return {
     name: `DenyList-${generateUniqueId()}`,
-    rules,
-    description: `Deny list for ${deniedIPs.length} IPs`,
+    type: 'blacklist',
+    ipRules: deniedIPs.map((ip) => ({
+      cidr: ip.includes('/') ? ip : `${ip}/32`,
+    })),
+    description: `Blacklist for ${deniedIPs.length} IPs`,
   };
 }
 
@@ -362,15 +353,18 @@ export function generateAccessLists(
 }
 
 /**
- * Expected API response for access list creation
+ * Expected API response for access list (matches backend AccessList model)
  */
 export interface AccessListAPIResponse {
-  id: string;
+  id: number;
+  uuid: string;
   name: string;
-  rules: ACLRule[];
-  description?: string;
-  auth_enabled: boolean;
+  type: ACLType;
+  ip_rules: string;
+  country_codes: string;
+  local_network_only: boolean;
   enabled: boolean;
+  description: string;
   created_at: string;
   updated_at: string;
 }
@@ -383,12 +377,15 @@ export function mockAccessListResponse(
 ): AccessListAPIResponse {
   const id = generateUniqueId();
   return {
-    id,
+    id: parseInt(id) || Math.floor(Math.random() * 10000),
+    uuid: `acl-${id}`,
     name: config.name || `ACL-${id}`,
-    rules: config.rules || [],
-    description: config.description,
-    auth_enabled: config.authEnabled || false,
+    type: config.type || 'whitelist',
+    ip_rules: config.ipRules ? JSON.stringify(config.ipRules) : '[]',
+    country_codes: config.countryCodes || '',
+    local_network_only: config.localNetworkOnly || false,
     enabled: config.enabled !== false,
+    description: config.description || '',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };

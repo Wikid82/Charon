@@ -3299,29 +3299,930 @@ test.use({ ...guestUser });
 - [ ] No hardcoded waits (use wait-helpers)
 - [ ] All tests use TestDataManager for cleanup
 
-### Phase 6: Integration & Buffer (Week 10)
+### Phase 6: Integration Testing (Week 10)
 
-**Goal:** Test cross-feature interactions, edge cases, and provide buffer for overruns
+**Status:** 📋 PLANNED
+**Goal:** Verify cross-feature interactions, system-level workflows, and end-to-end data integrity
+**Estimated Effort:** 5 days (3 days integration tests + 2 days buffer/stabilization)
+**Total Estimated Tests:** 85-105 tests
 
-**Estimated Effort:** 5 days (3 days testing + 2 days buffer)
+> **Planning Note:** Integration tests verify that multiple features work correctly together.
+> Unlike unit or feature tests that isolate functionality, integration tests exercise
+> realistic user workflows that span multiple components and data relationships.
 
-**Test Files:**
-- `tests/integration/proxy-acl-integration.spec.ts` - Proxy + ACL
-- `tests/integration/proxy-certificate.spec.ts` - Proxy + SSL
-- `tests/integration/security-suite-integration.spec.ts` - Full security stack
-- `tests/integration/backup-restore-e2e.spec.ts` - Full backup cycle
+> **Prerequisites (Supervisor Requirement):**
+> - ✅ Phase 5 complete with Backup/Restore and Import tests passing
+> - ✅ All Phase 7 remediation fixes applied (toast detection, API path corrections)
+> - ✅ CI pipeline stable with <5% flaky test rate
+> - ✅ All API endpoints verified against actual backend routes (see API Path Verification below)
 
-**Key Scenarios:**
-- Create proxy host with ACL and SSL certificate
-- Test security stack: WAF + CrowdSec + Rate Limiting
-- Full backup → Restore → Verify all data intact
-- Multi-feature workflows (e.g., import Caddyfile + enable security)
+---
 
-**Buffer Time:**
-- Address flaky tests discovered in previous phases
-- Fix any infrastructure issues
-- Improve test stability and reliability
-- Documentation updates
+#### 6.0 Phase 6 Overview & Objectives
+
+**Primary Objectives:**
+1. **Cross-Feature Validation:** Verify that interconnected features (Proxy + ACL + Certificate + Security) function correctly when combined
+2. **Data Integrity Verification:** Ensure backup/restore preserves all data relationships and configurations
+3. **Security Stack Integration:** Validate the complete Cerberus security suite working as a unified system
+4. **Real-World Workflow Testing:** Test complex user journeys that span multiple features
+5. **System Resilience:** Verify graceful handling of edge cases, failures, and recovery scenarios
+
+**API Path Verification (Supervisor Requirement):**
+
+> ⚠️ **CRITICAL:** Before implementing any Phase 6 test, cross-reference all API endpoints against actual backend routes.
+> Phase 7 documented API path mismatches (`/api/v1/crowdsec/import` vs `/api/v1/admin/crowdsec/import`).
+> Tests may fail due to undocumented API path changes.
+
+| Endpoint Category | Verification File | Status |
+|-------------------|-------------------|--------|
+| Access Lists | `backend/api/access_list_handler.go` | ⏳ Pending |
+| Certificates | `backend/api/certificate_handler.go` | ⏳ Pending |
+| Security/Cerberus | `backend/api/cerberus_handler.go` | ⏳ Pending |
+| Backups | `backend/api/backup_handler.go` | ⏳ Pending |
+| CrowdSec | `backend/api/crowdsec_handler.go` | ⏳ Pending |
+
+**Directory Structure:**
+```
+tests/
+└── integration/
+    ├── proxy-acl-integration.spec.ts       # Proxy + ACL integration
+    ├── proxy-certificate.spec.ts           # Proxy + SSL certificate integration
+    ├── proxy-dns-integration.spec.ts       # Proxy + DNS challenge integration
+    ├── security-suite-integration.spec.ts  # Full security stack (WAF + CrowdSec + Rate Limiting)
+    ├── backup-restore-e2e.spec.ts          # Complete backup/restore cycle with verification
+    ├── import-to-production.spec.ts        # Import → Configure → Deploy workflows
+    └── multi-feature-workflows.spec.ts     # Complex real-world scenarios
+```
+
+**Feature Dependency Map:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          ProxyHost                               │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────────┐ │
+│  │ CertificateID│  │ AccessListID │  │ SecurityHeaderProfileID │ │
+│  └──────┬──────┘  └──────┬───────┘  └────────────┬────────────┘ │
+│         │                │                       │               │
+│         ▼                ▼                       ▼               │
+│  SSLCertificate     AccessList          SecurityHeaderProfile   │
+│         │                │                       │               │
+│         │                │                       │               │
+│         ▼                ▼                       ▼               │
+│    DNSProvider      GeoIP Rules            WAF Integration      │
+│         │                │                       │               │
+│         └────────────────┴───────────┬───────────┘               │
+│                                      │                           │
+│                                      ▼                           │
+│                              Cerberus Security                   │
+│                    ┌─────────────────────────────┐               │
+│                    │  CrowdSec  │  WAF  │  Rate  │               │
+│                    └─────────────────────────────┘               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+#### 6.1 Proxy + Access List Integration (`tests/integration/proxy-acl-integration.spec.ts`)
+
+**Objective:** Verify that Access Lists correctly protect Proxy Hosts and that ACL changes propagate immediately.
+
+**Routes & Components:**
+
+| Route | Components | API Endpoints |
+|-------|------------|---------------|
+| `/proxy-hosts/:uuid/edit` | `ProxyHostForm.tsx`, `AccessListSelector.tsx` | `PUT /api/v1/proxy-hosts/:uuid` |
+| `/access-lists` | `AccessLists.tsx`, `AccessListForm.tsx` | `GET/POST/PUT/DELETE /api/v1/access-lists` |
+| `/access-lists/:id/test` | `TestIPDialog.tsx` | `POST /api/v1/access-lists/:id/test` |
+
+**Test Scenarios (18-22 tests):**
+
+**Scenario Group A: Basic ACL Assignment**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should assign IP whitelist to proxy host | P0 | Create ACL with allowed IPs → Assign to proxy host → Verify configuration saved |
+| 2 | should assign IP blacklist to proxy host | P0 | Create ACL with blocked IPs → Assign to proxy host → Verify configuration saved |
+| 3 | should assign geo-whitelist to proxy host | P1 | Create geo ACL (US, CA, GB) → Assign to proxy host → Verify country rules applied |
+| 4 | should assign geo-blacklist to proxy host | P1 | Create geo ACL blocking countries → Assign to proxy host → Verify blocking |
+| 5 | should unassign ACL from proxy host | P0 | Remove ACL from proxy host → Verify "No Access Control" state |
+
+**Scenario Group B: ACL Rule Enforcement**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 6 | should block request from denied IP | P0 | Assign blacklist ACL → Test request from blocked IP → Verify 403 response |
+| 7 | should allow request from whitelisted IP | P0 | Assign whitelist ACL → Test request from allowed IP → Verify 200 response |
+| 8 | should block request from non-whitelisted IP | P0 | Assign whitelist ACL → Test request from unlisted IP → Verify 403 response |
+| 9 | should enforce CIDR range correctly | P1 | Add CIDR range to ACL → Test IPs within and outside range → Verify enforcement |
+| 10 | should enforce RFC1918 local network only | P1 | Enable local network only → Test private/public IPs → Verify enforcement |
+
+**Scenario Group C: Dynamic ACL Updates**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 11 | should apply ACL changes immediately | P0 | Update ACL rules → Test access instantly → Verify new rules active |
+| 12 | should disable ACL without deleting | P1 | Disable ACL → Verify proxy host accessible to all → Re-enable → Verify blocking |
+| 13 | should handle ACL deletion with active assignments | P0 | Delete ACL with assigned hosts → Verify warning shown → Verify hosts become public |
+| 14 | should bulk update ACL on multiple hosts | P1 | Select 3+ hosts → Bulk assign ACL → Verify all hosts protected |
+
+**Scenario Group D: Edge Cases & Error Handling**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 15 | should handle IPv6 addresses correctly | P2 | Add IPv6 to ACL → Test IPv6 request → Verify correct allow/block |
+| 16 | should preserve ACL on proxy host update | P0 | Edit proxy host (change domain) → Verify ACL still assigned |
+| 17 | should handle conflicting ACL rules gracefully | P2 | Create overlapping IP/CIDR rules → Verify deterministic behavior |
+| 18 | should log ACL enforcement in audit log | P1 | Trigger ACL block → Verify audit entry created with details |
+
+**Key User Flow:**
+```typescript
+test('complete ACL protection workflow', async ({ page, testData }) => {
+  await test.step('Create proxy host', async () => {
+    const host = await testData.createProxyHost({
+      domain: 'protected-app.example.com',
+      forwardHost: '192.168.1.100',
+      forwardPort: 8080
+    });
+  });
+
+  await test.step('Create IP whitelist ACL', async () => {
+    const acl = await testData.createAccessList({
+      name: 'Office IPs Only',
+      type: 'whitelist',
+      rules: [
+        { type: 'allow', value: '10.0.0.0/8' },
+        { type: 'allow', value: '192.168.1.0/24' }
+      ]
+    });
+  });
+
+  await test.step('Assign ACL to proxy host', async () => {
+    await page.goto('/proxy-hosts');
+    await page.getByRole('row', { name: /protected-app/ }).getByRole('button', { name: /edit/i }).click();
+    await page.getByLabel('Access Control').selectOption({ label: /Office IPs Only/ });
+    await page.getByRole('button', { name: /save/i }).click();
+    await waitForToast(page, /updated|saved/i);
+  });
+
+  await test.step('Verify ACL protection active', async () => {
+    // Via API test endpoint
+    const testResponse = await page.request.post('/api/v1/access-lists/:id/test', {
+      data: { ip: '8.8.8.8' } // External IP
+    });
+    expect(testResponse.status()).toBe(200);
+    const result = await testResponse.json();
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toMatch(/not in whitelist/i);
+  });
+});
+```
+
+**Critical Assertions:**
+- ACL assignment persists after page reload
+- ACL rules enforce immediately without restart
+- Correct HTTP status codes returned (200 for allowed, 403 for blocked)
+- Audit log entries created for ACL enforcement events
+- Bulk operations apply consistently to all selected hosts
+
+---
+
+#### 6.2 Proxy + SSL Certificate Integration (`tests/integration/proxy-certificate.spec.ts`)
+
+**Objective:** Verify SSL certificate assignment to proxy hosts and HTTPS enforcement.
+
+**Routes & Components:**
+
+| Route | Components | API Endpoints |
+|-------|------------|---------------|
+| `/proxy-hosts/:uuid/edit` | `ProxyHostForm.tsx`, `CertificateSelector.tsx` | `PUT /api/v1/proxy-hosts/:uuid` |
+| `/certificates` | `Certificates.tsx`, `CertificateForm.tsx` | `GET/POST/DELETE /api/v1/certificates` |
+| `/certificates/:id` | `CertificateDetails.tsx` | `GET /api/v1/certificates/:id` |
+
+**Test Scenarios (15-18 tests):**
+
+**Scenario Group A: Certificate Assignment**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should assign custom certificate to proxy host | P0 | Upload cert → Assign to host → Verify HTTPS configuration |
+| 2 | should assign Let's Encrypt certificate | P1 | Request ACME cert → Assign to host → Verify auto-renewal configured |
+| 3 | should assign wildcard certificate to multiple hosts | P0 | Create *.example.com cert → Assign to subdomain hosts → Verify all work |
+| 4 | should show only matching certificates in selector | P1 | Create certs for different domains → Verify selector filters correctly |
+| 5 | should remove certificate from proxy host | P0 | Unassign cert → Verify HTTP-only mode |
+
+**Scenario Group B: HTTPS Enforcement**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 6 | should enforce SSL redirect when enabled | P0 | Enable SSL forced → Access via HTTP → Verify 301 redirect to HTTPS |
+| 7 | should serve HTTP when SSL not forced | P1 | Disable SSL forced → Access via HTTP → Verify 200 response |
+| 8 | should enable HSTS when configured | P1 | Enable HSTS → Verify Strict-Transport-Security header |
+| 9 | should include subdomains in HSTS when enabled | P2 | Enable HSTS subdomains → Verify header includes subdomain directive |
+| 10 | should enable HTTP/2 with certificate | P1 | Assign cert with HTTP/2 enabled → Verify protocol negotiation |
+
+**Scenario Group C: Certificate Lifecycle**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 11 | should warn when certificate expires soon | P0 | Create cert expiring in 25 days → Verify warning badge on proxy host |
+| 12 | should prevent deletion of certificate in use | P0 | Attempt delete cert with assigned hosts → Verify warning with host list |
+| 13 | should offer cleanup options on host deletion | P1 | Delete host with orphan cert → Verify cleanup dialog appears |
+| 14 | should update certificate without downtime | P1 | Replace cert on active host → Verify no request failures during switch |
+
+**Scenario Group D: Multi-Domain & SAN Certificates**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 15 | should support SAN certificates for multiple domains | P1 | Create SAN cert → Assign to host with multiple domain names → Verify all domains work |
+| 16 | should validate certificate matches domain names | P0 | Assign mismatched cert → Verify validation error shown |
+| 17 | should prefer specific cert over wildcard | P2 | Create specific and wildcard certs → Verify specific cert selected first |
+
+**Key User Flow:**
+```typescript
+test('complete HTTPS setup workflow', async ({ page, testData }) => {
+  await test.step('Create proxy host', async () => {
+    const host = await testData.createProxyHost({
+      domain: 'secure-app.example.com',
+      forwardHost: '192.168.1.100',
+      forwardPort: 8080,
+      sslForced: true,
+      http2Support: true
+    });
+  });
+
+  await test.step('Upload custom certificate', async () => {
+    const cert = await testData.createCertificate({
+      domains: ['secure-app.example.com'],
+      type: 'custom',
+      privateKey: MOCK_PRIVATE_KEY,
+      certificate: MOCK_CERTIFICATE
+    });
+  });
+
+  await test.step('Assign certificate to proxy host', async () => {
+    await page.goto('/proxy-hosts');
+    await page.getByRole('row', { name: /secure-app/ }).getByRole('button', { name: /edit/i }).click();
+    await page.getByLabel('SSL Certificate').selectOption({ label: /secure-app/ });
+    await page.getByRole('button', { name: /save/i }).click();
+    await waitForToast(page, /updated|saved/i);
+  });
+
+  await test.step('Verify HTTPS enforcement', async () => {
+    // Verify SSL redirect configured
+    await page.goto('/proxy-hosts');
+    const row = page.getByRole('row', { name: /secure-app/ });
+    await expect(row.getByTestId('ssl-badge')).toContainText(/HTTPS/i);
+  });
+});
+```
+
+---
+
+#### 6.3 Proxy + DNS Challenge Integration (`tests/integration/proxy-dns-integration.spec.ts`)
+
+**Objective:** Verify DNS-01 challenge configuration for SSL certificates with DNS providers.
+
+**Test Scenarios (10-12 tests):**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should configure proxy host with DNS challenge | P0 | Create host → Assign DNS provider → Enable DNS challenge → Verify config |
+| 2 | should request wildcard certificate via DNS-01 | P1 | Enable DNS challenge → Request *.domain.com → Verify challenge type |
+| 3 | should propagate DNS provider credentials to Caddy | P1 | Configure DNS provider → Verify Caddy config includes provider module |
+| 4 | should fall back to HTTP-01 when DNS not configured | P1 | Create host without DNS provider → Request cert → Verify HTTP-01 used |
+| 5 | should validate DNS provider before certificate request | P0 | Configure invalid DNS credentials → Attempt cert → Verify clear error |
+| 6 | should use correct DNS provider for multi-domain cert | P2 | Different domains with different DNS providers → Verify correct provider used |
+| 7 | should handle DNS propagation timeout gracefully | P2 | Mock slow DNS propagation → Verify retry mechanism |
+| 8 | should preserve DNS config on proxy host update | P1 | Edit host domain → Verify DNS challenge config preserved |
+
+---
+
+#### 6.4 Security Suite Integration (`tests/integration/security-suite-integration.spec.ts`)
+
+**Objective:** Verify the complete Cerberus security stack (WAF + CrowdSec + Rate Limiting + ACL) working together.
+
+**Routes & Components:**
+
+| Route | Components | API Endpoints |
+|-------|------------|---------------|
+| `/security` | `SecurityDashboard.tsx` | `GET /api/v1/cerberus/status` |
+| `/security/crowdsec` | `CrowdSecConfig.tsx`, `CrowdSecDecisions.tsx` | `GET/POST /api/v1/crowdsec/*` |
+| `/security/waf` | `WAFConfig.tsx` | `GET/PUT /api/v1/cerberus/waf` |
+| `/security/rate-limiting` | `RateLimitConfig.tsx` | `GET/PUT /api/v1/cerberus/ratelimit` |
+
+**Test Scenarios (20-25 tests):**
+
+**Scenario Group A: Security Stack Initialization**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should display unified security dashboard | P0 | Navigate to /security → Verify all security components shown |
+| 2 | should show status of all security features | P0 | Verify CrowdSec, WAF, Rate Limiting status indicators |
+| 3 | should enable all security features together | P1 | Enable CrowdSec + WAF + Rate Limiting → Verify all active |
+| 4 | should disable individual features independently | P1 | Disable WAF only → Verify CrowdSec and Rate Limiting still active |
+
+**Scenario Group B: Multi-Layer Attack Prevention**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 5 | should block SQL injection at WAF layer | P0 | Send SQLi payload → Verify blocked by WAF → Verify logged |
+| 6 | should block XSS at WAF layer | P0 | Send XSS payload → Verify blocked by WAF → Verify logged |
+| 7 | should rate limit after threshold exceeded | P0 | Send 50+ requests rapidly → Verify rate limit triggered |
+| 8 | should ban IP via CrowdSec after repeated attacks | P1 | Trigger WAF blocks → Verify CrowdSec decision created |
+| 9 | should allow legitimate traffic through all layers | P0 | Send normal requests → Verify 200 response through full stack |
+
+**Scenario Group C: Security Rule Precedence**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 10 | should apply ACL before WAF inspection | P1 | Block IP via ACL → Send attack payload → Verify ACL blocks first |
+| 11 | should apply WAF before rate limiting | P1 | Verify attack blocked before rate limit counter increments |
+| 12 | should apply CrowdSec decisions globally | P0 | Ban IP in CrowdSec → Verify blocked on all proxy hosts |
+| 13 | should allow CrowdSec allow-list to override bans | P1 | Add IP to allow decision → Verify access despite previous ban |
+
+**Scenario Group D: Security Logging & Audit**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 14 | should log all security events to security log | P0 | Trigger various security events → Verify all appear in /security/logs |
+| 15 | should include attack details in security log | P1 | Trigger WAF block → Verify log contains rule ID, payload snippet |
+| 16 | should include source IP and user agent | P0 | Trigger security event → Verify client details logged |
+| 17 | should stream security events via WebSocket | P1 | Open live log viewer → Trigger event → Verify real-time display |
+
+**Scenario Group D.1: WebSocket Stability (Supervisor Recommendation)**
+
+> **Note:** Added per Supervisor review - WebSocket real-time features are a known flaky area.
+> These tests ensure robust WebSocket handling in security log streaming.
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 17a | should reconnect WebSocket after network interruption | P1 | Simulate network drop → Verify auto-reconnect → Verify no event loss |
+| 17b | should maintain event ordering under rapid-fire events | P1 | Send 50+ security events rapidly → Verify correct chronological order |
+| 17c | should handle WebSocket connection timeout gracefully | P2 | Mock slow connection → Verify timeout message → Verify retry mechanism |
+
+**Scenario Group E: Security Configuration Persistence**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 18 | should persist WAF configuration after restart | P1 | Configure WAF → Restart app → Verify settings preserved |
+| 19 | should persist CrowdSec decisions after restart | P0 | Create ban decision → Restart → Verify decision still active |
+| 20 | should persist rate limit configuration | P1 | Configure rate limits → Restart → Verify limits active |
+
+**Scenario Group F: Per-Host Security Overrides**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 21 | should allow WAF disable per proxy host | P1 | Enable global WAF → Disable for specific host → Verify host unprotected |
+| 22 | should apply host-specific rate limits | P2 | Set global rate limit → Override for specific host → Verify override |
+| 23 | should combine host ACL with global CrowdSec | P1 | Assign ACL to host → Verify both ACL and CrowdSec enforce |
+
+**Key Integration Flow:**
+```typescript
+test('complete security stack protection', async ({ page, testData }) => {
+  await test.step('Create protected proxy host', async () => {
+    const host = await testData.createProxyHost({
+      domain: 'secure-app.example.com',
+      forwardHost: '192.168.1.100',
+      forwardPort: 8080
+    });
+  });
+
+  await test.step('Enable all security features', async () => {
+    await page.goto('/security');
+
+    // Enable WAF
+    await page.getByRole('switch', { name: /waf/i }).click();
+    await waitForToast(page, /waf enabled/i);
+
+    // Enable Rate Limiting
+    await page.getByRole('switch', { name: /rate limit/i }).click();
+    await waitForToast(page, /rate limiting enabled/i);
+
+    // Verify CrowdSec connected
+    await expect(page.getByTestId('crowdsec-status')).toContainText(/connected/i);
+  });
+
+  await test.step('Test WAF blocks SQL injection', async () => {
+    // Attempt SQL injection
+    const response = await page.request.get(
+      'https://secure-app.example.com/search?q=\' OR 1=1--'
+    );
+    expect(response.status()).toBe(403);
+  });
+
+  await test.step('Verify security event logged', async () => {
+    await page.goto('/security/logs');
+    await expect(page.getByRole('row').first()).toContainText(/sql injection/i);
+  });
+
+  await test.step('Verify CrowdSec decision created after repeated attacks', async () => {
+    // Trigger multiple WAF blocks
+    for (let i = 0; i < 5; i++) {
+      await page.request.get('https://secure-app.example.com/admin?cmd=whoami');
+    }
+
+    await page.goto('/security/crowdsec/decisions');
+    await expect(page.getByRole('table')).toContainText(/automatic ban/i);
+  });
+});
+```
+
+---
+
+#### 6.5 Backup & Restore E2E (`tests/integration/backup-restore-e2e.spec.ts`)
+
+**Objective:** Verify complete backup/restore cycle with full data integrity verification.
+
+**Routes & Components:**
+
+| Route | Components | API Endpoints |
+|-------|------------|---------------|
+| `/tasks/backups` | `Backups.tsx` | `GET/POST/DELETE /api/v1/backups`, `POST /api/v1/backups/:filename/restore` |
+
+**Test Scenarios (18-22 tests):**
+
+**Scenario Group A: Complete Data Backup**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should create backup containing all proxy hosts | P0 | Create hosts → Backup → Verify hosts in backup manifest |
+| 2 | should include certificates in backup | P0 | Create certs → Backup → Verify certs archived |
+| 3 | should include access lists in backup | P0 | Create ACLs → Backup → Verify ACLs in backup |
+| 4 | should include DNS providers in backup | P1 | Create DNS providers → Backup → Verify providers included |
+| 5 | should include user accounts in backup | P1 | Create users → Backup → Verify users included |
+| 6 | should include security configuration in backup | P1 | Configure security → Backup → Verify config included |
+| 7 | should include uptime monitors in backup | P2 | Create monitors → Backup → Verify monitors included |
+| 8 | should encrypt sensitive data in backup | P0 | Create backup with encryption key → Verify credentials encrypted |
+
+**Scenario Group B: Full Restore Cycle**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 9 | should restore all proxy hosts from backup | P0 | Restore → Verify all hosts exist with correct config |
+| 10 | should restore certificates and assignments | P0 | Restore → Verify certs exist and assigned to correct hosts |
+| 11 | should restore access lists and assignments | P0 | Restore → Verify ACLs exist and assigned correctly |
+| 12 | should restore user accounts with password hashes | P1 | Restore → Verify users can log in with original passwords |
+| 13 | should restore security configuration | P1 | Restore → Verify WAF/CrowdSec/Rate Limit settings restored |
+| 14 | should handle restore to empty database | P0 | Clear DB → Restore → Verify all data recovered |
+| 15 | should handle restore to existing database | P1 | Have existing data → Restore → Verify merge behavior |
+
+**Scenario Group C: Data Integrity Verification**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 16 | should preserve foreign key relationships | P0 | Restore → Verify host-cert, host-acl, host-dnsProvider relations |
+| 17 | should preserve timestamps (created_at, updated_at) | P1 | Restore → Verify original timestamps preserved |
+| 18 | should preserve UUIDs for all entities | P0 | Restore → Verify UUIDs match original values |
+| 19 | should verify backup checksum before restore | P1 | Corrupt backup file → Attempt restore → Verify rejection |
+
+**Scenario Group D: Edge Cases & Recovery**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 20 | should handle partial backup (missing components) | P2 | Create backup with only hosts → Restore → Verify no errors |
+| 21 | should roll back on restore failure | P1 | Inject failure mid-restore → Verify original data preserved |
+| 22 | should support backup from older Charon version | P2 | Restore v1.x backup to v2.x → Verify migration applied |
+
+**Scenario Group E: Encryption Handling (Supervisor Recommendation)**
+
+> **Note:** Added per Supervisor review - Section 6.5 Test #8 mentions encryption but restoration decryption wasn't explicitly tested.
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 23 | should restore with correct encryption key | P1 | Create encrypted backup → Restore with correct key → Verify all data decrypted |
+| 24 | should show clear error with wrong encryption key | P1 | Create encrypted backup → Restore with wrong key → Verify clear error message |
+
+**Key Integration Flow:**
+```typescript
+test('complete backup and restore cycle with verification', async ({ page, testData }) => {
+  // Step 1: Create comprehensive test data
+  const hostData = await test.step('Create test data', async () => {
+    const dnsProvider = await testData.createDNSProvider({
+      type: 'manual',
+      name: 'Test DNS'
+    });
+
+    const certificate = await testData.createCertificate({
+      domains: ['app.example.com'],
+      type: 'custom',
+      privateKey: MOCK_KEY,
+      certificate: MOCK_CERT
+    });
+
+    const accessList = await testData.createAccessList({
+      name: 'Test ACL',
+      type: 'whitelist',
+      rules: [{ type: 'allow', value: '10.0.0.0/8' }]
+    });
+
+    const proxyHost = await testData.createProxyHost({
+      domain: 'app.example.com',
+      forwardHost: '192.168.1.100',
+      forwardPort: 8080,
+      certificateId: certificate.id,
+      accessListId: accessList.id,
+      dnsProviderId: dnsProvider.id
+    });
+
+    return { dnsProvider, certificate, accessList, proxyHost };
+  });
+
+  // Step 2: Create backup
+  let backupFilename: string;
+  await test.step('Create backup', async () => {
+    await page.goto('/tasks/backups');
+
+    const responsePromise = waitForAPIResponse(page, '/api/v1/backups', { status: 201 });
+    await page.getByRole('button', { name: /create backup/i }).click();
+    const response = await responsePromise;
+    const result = await response.json();
+    backupFilename = result.filename;
+
+    await waitForToast(page, /backup created/i);
+  });
+
+  // Step 3: Delete all data (simulate disaster)
+  await test.step('Clear database', async () => {
+    // Delete via API to simulate clean slate
+    await page.request.delete(`/api/v1/proxy-hosts/${hostData.proxyHost.id}`);
+    await page.request.delete(`/api/v1/access-lists/${hostData.accessList.id}`);
+    await page.request.delete(`/api/v1/certificates/${hostData.certificate.id}`);
+    await page.request.delete(`/api/v1/dns-providers/${hostData.dnsProvider.id}`);
+
+    // Verify data deleted
+    await page.goto('/proxy-hosts');
+    await expect(page.getByTestId('empty-state')).toBeVisible();
+  });
+
+  // Step 4: Restore from backup
+  await test.step('Restore from backup', async () => {
+    await page.goto('/tasks/backups');
+    await page.getByRole('row', { name: new RegExp(backupFilename) })
+      .getByRole('button', { name: /restore/i }).click();
+
+    // Confirm restore
+    await page.getByRole('button', { name: /confirm|restore/i }).click();
+    await waitForToast(page, /restored|complete/i, { timeout: 60000 });
+  });
+
+  // Step 5: Verify all data restored with relationships
+  await test.step('Verify data integrity', async () => {
+    // Verify proxy host exists
+    await page.goto('/proxy-hosts');
+    await expect(page.getByRole('row', { name: /app.example.com/ })).toBeVisible();
+
+    // Verify proxy host has certificate assigned
+    await page.getByRole('row', { name: /app.example.com/ }).getByRole('button', { name: /edit/i }).click();
+    await expect(page.getByLabel('SSL Certificate')).toHaveValue(hostData.certificate.id);
+
+    // Verify proxy host has ACL assigned
+    await expect(page.getByLabel('Access Control')).toHaveValue(hostData.accessList.id);
+
+    // Verify proxy host has DNS provider assigned
+    await expect(page.getByLabel('DNS Provider')).toHaveValue(hostData.dnsProvider.id);
+  });
+});
+```
+
+---
+
+#### 6.6 Import to Production Workflows (`tests/integration/import-to-production.spec.ts`)
+
+**Objective:** Verify end-to-end import workflows from Caddyfile/CrowdSec config to production deployment.
+
+**Test Scenarios (12-15 tests):**
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should import Caddyfile and create working proxy hosts | P0 | Upload Caddyfile → Review → Commit → Verify hosts work |
+| 2 | should import and enable security on imported hosts | P1 | Import hosts → Assign ACLs → Enable WAF → Verify protection |
+| 3 | should import Caddyfile with SSL configuration | P1 | Import hosts with tls directives → Verify certificates created |
+| 4 | should import CrowdSec config and verify decisions | P1 | Import CrowdSec YAML → Verify scenarios active → Test enforcement |
+| 5 | should handle import conflict with existing hosts | P0 | Import duplicate domain → Verify conflict resolution options |
+| 6 | should preserve advanced config during import | P2 | Import with custom Caddy snippets → Verify preserved |
+| 7 | should create backup before import | P0 | Start import → Verify backup created automatically |
+| 8 | should allow rollback after import | P1 | Complete import → Click rollback → Verify original state restored |
+| 9 | should import and assign DNS providers | P2 | Import with dns challenge directives → Verify provider configured |
+| 10 | should validate imported hosts before commit | P0 | Import with invalid config → Verify validation errors shown |
+
+---
+
+#### 6.7 Multi-Feature Workflows (`tests/integration/multi-feature-workflows.spec.ts`)
+
+**Objective:** Test complex real-world user journeys that span multiple features.
+
+**Test Scenarios (15-18 tests):**
+
+**Scenario A: New Application Deployment**
+```
+Create Proxy Host → Upload Certificate → Assign ACL → Enable WAF → Test Access
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 1 | should complete new app deployment workflow | P0 | Full workflow from host creation to verified access |
+| 2 | should handle app deployment with ACME certificate | P1 | Request Let's Encrypt cert during host creation |
+| 3 | should configure monitoring after deployment | P1 | Create host → Add uptime monitor → Verify checks running |
+
+**Scenario B: Security Hardening**
+```
+Audit Existing Host → Add ACL → Enable WAF → Configure Rate Limiting → Verify Protection
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 4 | should complete security hardening workflow | P0 | Add all security layers to existing host |
+| 5 | should test security configuration without downtime | P1 | Enable security → Verify no request failures |
+
+**Scenario C: Migration & Cutover**
+```
+Import from Caddyfile → Verify Configuration → Update DNS → Test Production
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 6 | should complete migration from standalone Caddy | P0 | Import → Configure → Cutover workflow |
+| 7 | should support staged migration (one host at a time) | P2 | Import all → Enable one by one |
+
+**Scenario D: Disaster Recovery**
+```
+Simulate Failure → Restore Backup → Verify All Services → Confirm Monitoring
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 8 | should complete disaster recovery workflow | P0 | Clear DB → Restore → Verify all features working |
+| 9 | should verify no data loss after recovery | P0 | Compare pre/post restore entity counts |
+
+**Scenario E: Multi-Tenant Setup**
+```
+Create Users → Assign Roles → Create User-Specific Resources → Verify Isolation
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 10 | should support multi-user resource management | P1 | Multiple users creating hosts → Verify proper access control |
+| 11 | should audit all user actions | P1 | Create resources as different users → Verify audit trail |
+
+**Scenario F: Certificate Lifecycle**
+```
+Upload Cert → Assign to Hosts → Receive Expiry Warning → Renew → Verify Seamless Transition
+```
+
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| 12 | should handle certificate renewal workflow | P1 | Mock expiring cert → Renew → Verify no downtime |
+| 13 | should alert on certificate expiration | P0 | Create expiring cert → Verify notification sent |
+
+---
+
+#### 6.8 Phase 6 Test Utilities & Fixtures
+
+**New Fixtures Required:**
+
+```typescript
+// tests/fixtures/integration-fixtures.ts
+
+import { test as base, expect } from '@bgotink/playwright-coverage';
+import { TestDataManager } from '../utils/TestDataManager';
+
+interface IntegrationFixtures {
+  // Full environment with all features configured
+  fullEnvironment: {
+    proxyHost: ProxyHostData;
+    certificate: CertificateData;
+    accessList: AccessListData;
+    dnsProvider: DNSProviderData;
+  };
+
+  // Security stack enabled and configured
+  securityStack: {
+    wafEnabled: boolean;
+    crowdsecConnected: boolean;
+    rateLimitEnabled: boolean;
+  };
+
+  // Backup with known contents for restore testing
+  knownBackup: {
+    filename: string;
+    contents: BackupManifest;
+  };
+}
+
+export const test = base.extend<IntegrationFixtures>({
+  fullEnvironment: async ({ testData }, use) => {
+    const dnsProvider = await testData.createDNSProvider({
+      type: 'manual',
+      name: 'Integration Test DNS'
+    });
+
+    const certificate = await testData.createCertificate({
+      domains: ['integration-test.example.com'],
+      type: 'custom'
+    });
+
+    const accessList = await testData.createAccessList({
+      name: 'Integration Test ACL',
+      type: 'whitelist',
+      rules: [{ type: 'allow', value: '10.0.0.0/8' }]
+    });
+
+    const proxyHost = await testData.createProxyHost({
+      domain: 'integration-test.example.com',
+      forwardHost: '192.168.1.100',
+      forwardPort: 8080,
+      certificateId: certificate.id,
+      accessListId: accessList.id,
+      dnsProviderId: dnsProvider.id
+    });
+
+    await use({ proxyHost, certificate, accessList, dnsProvider });
+  },
+
+  securityStack: async ({ page, request }, use) => {
+    // Enable all security features via API
+    await request.put('/api/v1/cerberus/waf', {
+      data: { enabled: true, mode: 'blocking' }
+    });
+    await request.put('/api/v1/cerberus/ratelimit', {
+      data: { enabled: true, requests: 100, windowSec: 60 }
+    });
+
+    // Verify CrowdSec connected
+    const crowdsecStatus = await request.get('/api/v1/crowdsec/status');
+    const status = await crowdsecStatus.json();
+
+    await use({
+      wafEnabled: true,
+      crowdsecConnected: status.connected,
+      rateLimitEnabled: true
+    });
+  }
+});
+```
+
+**Wait Helpers Extension:**
+
+```typescript
+// Add to tests/utils/wait-helpers.ts
+
+/**
+ * Wait for security event to appear in security logs
+ */
+export async function waitForSecurityEvent(
+  page: Page,
+  eventType: 'waf_block' | 'crowdsec_ban' | 'rate_limit' | 'acl_block',
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 10000 } = options;
+
+  await page.goto('/security/logs');
+  await expect(page.getByRole('row').filter({ hasText: new RegExp(eventType, 'i') }))
+    .toBeVisible({ timeout });
+}
+
+/**
+ * Wait for backup operation to complete
+ */
+export async function waitForBackupComplete(
+  page: Page,
+  options: { timeout?: number } = {}
+): Promise<string> {
+  const { timeout = 60000 } = options;
+
+  const response = await page.waitForResponse(
+    resp => resp.url().includes('/api/v1/backups') && resp.status() === 201,
+    { timeout }
+  );
+
+  const result = await response.json();
+  return result.filename;
+}
+
+/**
+ * Wait for restore operation to complete
+ */
+export async function waitForRestoreComplete(
+  page: Page,
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 120000 } = options;
+
+  await page.waitForResponse(
+    resp => resp.url().includes('/restore') && resp.status() === 200,
+    { timeout }
+  );
+
+  // Wait for page reload after restore
+  await page.waitForLoadState('networkidle');
+}
+```
+
+---
+
+#### 6.8.1 Optional Enhancements (Supervisor Suggestions)
+
+> **Note:** These are non-blocking suggestions from Supervisor review. Implement if time permits or defer to future phases.
+
+**Performance Baseline Tests (2-3 tests):**
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| O1 | should measure security stack latency impact | P3 | WAF + CrowdSec + Rate Limit adds < 50ms overhead |
+| O2 | should complete backup creation within time limit | P3 | Backup 100+ proxy hosts in < 30 seconds |
+| O3 | should complete restore within time limit | P3 | Restore benchmark for planning capacity |
+
+**Multi-Tenant Isolation (2 tests):**
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| O4 | should isolate User A resources from User B | P2 | User A cannot see/modify User B's proxy hosts |
+| O5 | should allow admin to see all user resources | P2 | Admin has visibility into all users' resources |
+
+**Certificate Chain Validation (2 tests):**
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| O6 | should validate full certificate chain | P2 | Upload cert with intermediate + root → Verify chain validated |
+| O7 | should warn on incomplete certificate chain | P2 | Upload cert missing intermediate → Verify warning shown |
+
+**Geo-IP Database Integration (2 tests):**
+| # | Test Name | Priority | Description |
+|---|-----------|----------|-------------|
+| O8 | should propagate Geo-IP database updates | P3 | Update GeoIP DB → Verify new country codes recognized |
+| O9 | should validate country codes in ACL | P3 | Enter invalid country code → Verify validation error |
+
+---
+
+#### 6.9 Phase 6 Acceptance Criteria
+
+**Proxy + ACL Integration (18-22 tests minimum):**
+- [ ] ACL assignment and removal works correctly
+- [ ] ACL enforcement verified (block/allow behavior)
+- [ ] Dynamic ACL updates apply immediately
+- [ ] Bulk ACL operations work correctly
+- [ ] Audit logging captures ACL enforcement events
+
+**Proxy + Certificate Integration (15-18 tests minimum):**
+- [ ] Certificate assignment and HTTPS enforcement
+- [ ] Wildcard and SAN certificates supported
+- [ ] Certificate lifecycle management (expiry warnings, renewal)
+- [ ] Certificate cleanup on host deletion
+
+**Security Suite Integration (20-25 tests minimum):**
+- [ ] All security components work together
+- [ ] Attack detection and blocking verified
+- [ ] Security event logging complete
+- [ ] Rule precedence correct (ACL → WAF → Rate Limit → CrowdSec)
+- [ ] Per-host security overrides work
+
+**Backup/Restore (18-22 tests minimum):**
+- [ ] All data types included in backup
+- [ ] Complete restore with foreign key preservation
+- [ ] Data integrity verification passes
+- [ ] Encrypted backup/restore works
+
+**Overall Phase 6:**
+- [ ] 85+ tests passing
+- [ ] <5% flaky test rate
+- [ ] All P0 integration scenarios complete
+- [ ] 90%+ P1 scenarios complete
+- [ ] Cross-feature workflows verified
+- [ ] No hardcoded waits (use wait-helpers)
+
+---
+
+#### 6.10 Phase 6 Implementation Schedule
+
+| Day | Focus | Test Files | Est. Tests |
+|-----|-------|------------|------------|
+| **Day 1** | Proxy + ACL Integration | `proxy-acl-integration.spec.ts` | 18-22 |
+| **Day 2** | Proxy + Certificate, DNS Integration | `proxy-certificate.spec.ts`, `proxy-dns-integration.spec.ts` | 22-27 |
+| **Day 3** | Security Suite Integration + WebSocket | `security-suite-integration.spec.ts` | 23-28 |
+| **Day 4** | Backup/Restore E2E + Encryption | `backup-restore-e2e.spec.ts` | 20-24 |
+| **Day 5** | Multi-Feature Workflows + Buffer | `import-to-production.spec.ts`, `multi-feature-workflows.spec.ts` | 12-15 |
+
+**Total Estimated:** 90-110 tests (+ 9 optional enhancement tests)
+
+> **Supervisor Note:** Day 3 includes 3 additional WebSocket stability tests. Day 4 includes 2 additional encryption handling tests.
+
+---
+
+#### 6.11 Buffer Time Allocation
+
+**Buffer Usage (2 days included):**
+- **Day 1 Buffer:** Address flaky tests from Phase 1-5, fix any CI pipeline issues
+- **Day 2 Buffer:** Improve test stability, add missing edge cases, documentation updates
+
+**Buffer Triggers:**
+- If any phase overruns by >20%
+- If flaky test rate exceeds 5%
+- If critical infrastructure issues discovered
+- If new integration scenarios identified during testing
+
+**Buffer Activities:**
+1. Stabilize flaky tests (identify root cause, implement fixes)
+2. Add retry logic where appropriate
+3. Improve wait helper utilities
+4. Update CI configuration for reliability
+5. Document discovered edge cases for future phases
 
 ---
 

@@ -37,6 +37,9 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 | [test-backend-unit](./test-backend-unit.SKILL.md) | test | Run fast Go unit tests without coverage | ✅ Active |
 | [test-frontend-coverage](./test-frontend-coverage.SKILL.md) | test | Run frontend tests with coverage reporting | ✅ Active |
 | [test-frontend-unit](./test-frontend-unit.SKILL.md) | test | Run fast frontend unit tests without coverage | ✅ Active |
+| [test-e2e-playwright](./test-e2e-playwright.SKILL.md) | test | Run Playwright E2E tests with browser selection | ✅ Active |
+| [test-e2e-playwright-debug](./test-e2e-playwright-debug.SKILL.md) | test | Run E2E tests in headed/debug mode for troubleshooting | ✅ Active |
+| [test-e2e-playwright-coverage](./test-e2e-playwright-coverage.SKILL.md) | test | Run E2E tests with coverage collection | ✅ Active |
 
 ### Integration Testing Skills
 
@@ -76,6 +79,7 @@ Agent Skills are self-documenting, AI-discoverable task definitions that combine
 |------------|----------|-------------|--------|
 | [docker-start-dev](./docker-start-dev.SKILL.md) | docker | Start development Docker Compose environment | ✅ Active |
 | [docker-stop-dev](./docker-stop-dev.SKILL.md) | docker | Stop development Docker Compose environment | ✅ Active |
+| [docker-rebuild-e2e](./docker-rebuild-e2e.SKILL.md) | docker | Rebuild Docker image and restart E2E Playwright container | ✅ Active |
 | [docker-prune](./docker-prune.SKILL.md) | docker | Clean up unused Docker resources | ✅ Active |
 
 ## Usage

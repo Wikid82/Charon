@@ -52,6 +52,7 @@ export interface ProxyHostData {
   domain: string;
   forwardHost: string;
   forwardPort: number;
+  name?: string;
   scheme?: 'http' | 'https';
   websocketSupport?: boolean;
 }
@@ -61,7 +62,18 @@ export interface ProxyHostData {
  */
 export interface AccessListData {
   name: string;
-  rules: Array<{ type: 'allow' | 'deny'; value: string }>;
+  /** Access list type - determines allow/deny behavior */
+  type: 'whitelist' | 'blacklist' | 'geo_whitelist' | 'geo_blacklist';
+  /** Optional description */
+  description?: string;
+  /** IP/CIDR rules for whitelist/blacklist types */
+  ipRules?: Array<{ cidr: string; description?: string }>;
+  /** Comma-separated country codes for geo types */
+  countryCodes?: string;
+  /** Restrict to local RFC1918 networks */
+  localNetworkOnly?: boolean;
+  /** Whether the access list is enabled */
+  enabled?: boolean;
 }
 
 /**
@@ -78,9 +90,18 @@ export interface CertificateData {
  * Data required to create a DNS provider
  */
 export interface DNSProviderData {
-  type: 'manual' | 'cloudflare' | 'route53' | 'webhook' | 'rfc2136';
+  /** Provider type identifier from backend registry */
+  providerType: 'manual' | 'cloudflare' | 'route53' | 'webhook' | 'rfc2136' | string;
+  /** Display name for the provider */
   name: string;
-  credentials?: Record<string, string>;
+  /** Provider-specific credentials */
+  credentials: Record<string, string>;
+  /** Propagation timeout in seconds */
+  propagationTimeout?: number;
+  /** Polling interval in seconds */
+  pollingInterval?: number;
+  /** Whether this is the default provider */
+  isDefault?: boolean;
 }
 
 /**
@@ -157,12 +178,14 @@ export class TestDataManager {
 
   /**
    * Sanitizes a test name for use in identifiers
+   * Keeps it short to avoid overly long domain names
    */
   private sanitize(name: string): string {
     return name
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '-')
-      .substring(0, 30);
+      .replace(/-+/g, '-')  // Collapse multiple dashes
+      .substring(0, 15);  // Keep short to avoid long domains
   }
 
   /**
@@ -171,13 +194,27 @@ export class TestDataManager {
    * @returns Created proxy host details
    */
   async createProxyHost(data: ProxyHostData): Promise<ProxyHostResult> {
-    const namespaced = {
-      ...data,
-      domain: `${this.namespace}.${data.domain}`, // Ensure unique domain
+    // Domain already contains uniqueness from generateDomain() in fixtures
+    // Only add namespace prefix for test identification/cleanup purposes
+    const namespacedDomain = `${this.namespace}.${data.domain}`;
+
+    // Build payload matching backend ProxyHost model field names
+    const payload: Record<string, unknown> = {
+      domain_names: namespacedDomain,  // API expects domain_names, not domain
+      forward_host: data.forwardHost,
+      forward_port: data.forwardPort,
+      forward_scheme: data.scheme ?? 'http',
+      websocket_support: data.websocketSupport ?? false,
+      enabled: true,
     };
 
+    // Include name if provided (required for UI edits)
+    if (data.name) {
+      payload.name = data.name;
+    }
+
     const response = await this.request.post('/api/v1/proxy-hosts', {
-      data: namespaced,
+      data: payload,
     });
 
     if (!response.ok()) {
@@ -192,7 +229,7 @@ export class TestDataManager {
       createdAt: new Date(),
     });
 
-    return { id: result.uuid || result.id, domain: namespaced.domain };
+    return { id: result.uuid || result.id, domain: namespacedDomain };
   }
 
   /**
@@ -201,13 +238,29 @@ export class TestDataManager {
    * @returns Created access list details
    */
   async createAccessList(data: AccessListData): Promise<AccessListResult> {
-    const namespaced = {
-      ...data,
-      name: `${this.namespace}-${data.name}`,
+    const namespacedName = `${this.namespace}-${data.name}`;
+
+    // Build payload matching backend AccessList model
+    const payload: Record<string, unknown> = {
+      name: namespacedName,
+      type: data.type,
+      description: data.description ?? '',
+      enabled: data.enabled ?? true,
+      local_network_only: data.localNetworkOnly ?? false,
     };
 
+    // Convert ipRules array to JSON string for ip_rules field
+    if (data.ipRules && data.ipRules.length > 0) {
+      payload.ip_rules = JSON.stringify(data.ipRules);
+    }
+
+    // Add country codes for geo types
+    if (data.countryCodes) {
+      payload.country_codes = data.countryCodes;
+    }
+
     const response = await this.request.post('/api/v1/access-lists', {
-      data: namespaced,
+      data: payload,
     });
 
     if (!response.ok()) {
@@ -216,13 +269,13 @@ export class TestDataManager {
 
     const result = await response.json();
     this.resources.push({
-      id: result.id,
+      id: result.id?.toString() ?? result.uuid,
       type: 'access-list',
       namespace: this.namespace,
       createdAt: new Date(),
     });
 
-    return { id: result.id, name: namespaced.name };
+    return { id: result.id?.toString() ?? result.uuid, name: namespacedName };
   }
 
   /**
@@ -263,13 +316,27 @@ export class TestDataManager {
    */
   async createDNSProvider(data: DNSProviderData): Promise<DNSProviderResult> {
     const namespacedName = `${this.namespace}-${data.name}`;
-    const namespaced = {
-      ...data,
+
+    // Build payload matching backend CreateDNSProviderRequest struct
+    const payload: Record<string, unknown> = {
       name: namespacedName,
+      provider_type: data.providerType,
+      credentials: data.credentials,
     };
 
+    // Add optional fields if provided
+    if (data.propagationTimeout !== undefined) {
+      payload.propagation_timeout = data.propagationTimeout;
+    }
+    if (data.pollingInterval !== undefined) {
+      payload.polling_interval = data.pollingInterval;
+    }
+    if (data.isDefault !== undefined) {
+      payload.is_default = data.isDefault;
+    }
+
     const response = await this.request.post('/api/v1/dns-providers', {
-      data: namespaced,
+      data: payload,
     });
 
     if (!response.ok()) {
@@ -278,13 +345,13 @@ export class TestDataManager {
 
     const result = await response.json();
     this.resources.push({
-      id: result.id || result.uuid,
+      id: result.id?.toString() ?? result.uuid,
       type: 'dns-provider',
       namespace: this.namespace,
       createdAt: new Date(),
     });
 
-    return { id: result.id || result.uuid, name: namespacedName };
+    return { id: result.id?.toString() ?? result.uuid, name: namespacedName };
   }
 
   /**
@@ -402,5 +469,97 @@ export class TestDataManager {
    */
   getNamespace(): string {
     return this.namespace;
+  }
+
+  /**
+   * Force cleanup all test-created resources by pattern matching.
+   * This is a nuclear option for cleaning up orphaned test data from previous runs.
+   * Use sparingly - prefer the regular cleanup() method.
+   *
+   * @param request - Playwright API request context
+   * @returns Object with counts of deleted resources
+   */
+  static async forceCleanupAll(request: APIRequestContext): Promise<{
+    proxyHosts: number;
+    accessLists: number;
+    dnsProviders: number;
+    certificates: number;
+  }> {
+    const results = {
+      proxyHosts: 0,
+      accessLists: 0,
+      dnsProviders: 0,
+      certificates: 0,
+    };
+
+    // Pattern to match test-created resources (namespace starts with 'test-')
+    const testPattern = /^test-/;
+
+    try {
+      // Clean up proxy hosts
+      const hostsResponse = await request.get('/api/v1/proxy-hosts');
+      if (hostsResponse.ok()) {
+        const hosts = await hostsResponse.json();
+        for (const host of hosts) {
+          // Match domains that contain test namespace pattern
+          if (host.domain && testPattern.test(host.domain)) {
+            const deleteResponse = await request.delete(`/api/v1/proxy-hosts/${host.uuid || host.id}`);
+            if (deleteResponse.ok() || deleteResponse.status() === 404) {
+              results.proxyHosts++;
+            }
+          }
+        }
+      }
+
+      // Clean up access lists
+      const aclResponse = await request.get('/api/v1/access-lists');
+      if (aclResponse.ok()) {
+        const acls = await aclResponse.json();
+        for (const acl of acls) {
+          if (acl.name && testPattern.test(acl.name)) {
+            const deleteResponse = await request.delete(`/api/v1/access-lists/${acl.id}`);
+            if (deleteResponse.ok() || deleteResponse.status() === 404) {
+              results.accessLists++;
+            }
+          }
+        }
+      }
+
+      // Clean up DNS providers
+      const dnsResponse = await request.get('/api/v1/dns-providers');
+      if (dnsResponse.ok()) {
+        const providers = await dnsResponse.json();
+        for (const provider of providers) {
+          if (provider.name && testPattern.test(provider.name)) {
+            const deleteResponse = await request.delete(`/api/v1/dns-providers/${provider.id}`);
+            if (deleteResponse.ok() || deleteResponse.status() === 404) {
+              results.dnsProviders++;
+            }
+          }
+        }
+      }
+
+      // Clean up certificates
+      const certResponse = await request.get('/api/v1/certificates');
+      if (certResponse.ok()) {
+        const certs = await certResponse.json();
+        for (const cert of certs) {
+          // Check if any domain matches test pattern
+          const domains = cert.domains || [];
+          const isTestCert = domains.some((d: string) => testPattern.test(d));
+          if (isTestCert) {
+            const deleteResponse = await request.delete(`/api/v1/certificates/${cert.id}`);
+            if (deleteResponse.ok() || deleteResponse.status() === 404) {
+              results.certificates++;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error during force cleanup:', error);
+    }
+
+    console.log(`Force cleanup completed: ${JSON.stringify(results)}`);
+    return results;
   }
 }

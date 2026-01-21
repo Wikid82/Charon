@@ -19,19 +19,22 @@ import * as crypto from 'crypto';
 
 /**
  * Generate a unique identifier with optional prefix
+ * Uses timestamp + high-resolution time + random bytes for maximum uniqueness
  * @param prefix - Optional prefix for the ID
  * @returns Unique identifier string
  *
  * @example
  * ```typescript
  * const id = generateUniqueId('test');
- * // Returns: "test-m1abc123-deadbeef"
+ * // Returns: "test-m1abc123-0042-deadbeef"
  * ```
  */
 export function generateUniqueId(prefix = ''): string {
   const timestamp = Date.now().toString(36);
+  // Add high-resolution time component for nanosecond-level uniqueness
+  const hrTime = process.hrtime.bigint().toString(36).slice(-4);
   const random = crypto.randomBytes(4).toString('hex');
-  return prefix ? `${prefix}-${timestamp}-${random}` : `${timestamp}-${random}`;
+  return prefix ? `${prefix}-${timestamp}-${hrTime}-${random}` : `${timestamp}-${hrTime}-${random}`;
 }
 
 /**
@@ -197,13 +200,25 @@ export const testPasswords = {
 } as const;
 
 /**
+ * Counter for additional uniqueness within same millisecond
+ */
+let domainCounter = 0;
+
+/**
  * Generate a unique domain name for testing
+ * Uses timestamp + counter for uniqueness while keeping length reasonable
  * @param subdomain - Optional subdomain prefix
- * @returns Unique domain string
+ * @returns Unique domain string guaranteed to be unique even in rapid calls
  */
 export function generateDomain(subdomain = 'app'): string {
-  const id = generateUniqueId();
-  return `${subdomain}-${id}.test.local`;
+  // Increment counter and wrap at 9999 to keep domain lengths reasonable
+  domainCounter = (domainCounter + 1) % 10000;
+  // Use shorter ID format: base36 timestamp (7 chars) + random (4 chars)
+  const timestamp = Date.now().toString(36).slice(-7);
+  const random = crypto.randomBytes(2).toString('hex');
+  // Format: subdomain-timestamp-random-counter.test.local
+  // Example: proxy-1abc123-a1b2-1.test.local (max ~35 chars)
+  return `${subdomain}-${timestamp}-${random}-${domainCounter}.test.local`;
 }
 
 /**
