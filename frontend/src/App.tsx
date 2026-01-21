@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { Navigate } from 'react-router-dom'
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
 import { ToastContainer } from './components/Toast'
 import { SetupGuard } from './components/SetupGuard'
@@ -115,6 +116,20 @@ export default function App() {
           </Routes>
         </Suspense>
         <ToastContainer />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 5000,
+            success: {
+              style: { background: '#16a34a', color: 'white' },
+              ariaProps: { role: 'status', 'aria-live': 'polite' },
+            },
+            error: {
+              style: { background: '#dc2626', color: 'white' },
+              ariaProps: { role: 'alert', 'aria-live': 'assertive' },
+            },
+          }}
+        />
       </Router>
     </AuthProvider>
   )

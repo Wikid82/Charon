@@ -61,7 +61,8 @@ test.describe('Dashboard', () => {
     test('should display dashboard header with navigation', async ({ page }) => {
       await page.goto('/');
       await waitForLoadingComplete(page);
-      await page.waitForTimeout(300); // Allow content to fully render
+      // Wait for network idle to ensure all assets are loaded in parallel runs
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
       await test.step('Verify header/navigation exists', async () => {
         // Check for visible page structure elements

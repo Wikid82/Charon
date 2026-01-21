@@ -36,9 +36,9 @@ const SELECTORS = {
   dialogTitle: '[role="dialog"] h2, [role="dialog"] [class*="DialogTitle"]',
   dialogMessage: '[role="dialog"] p',
 
-  // Dialog action buttons
-  confirmRestoreButton: '[role="dialog"] button:has-text("Restore")',
-  cancelButton: '[role="dialog"] button:has-text("Cancel")',
+  // Dialog action buttons - use direct button selector, not nested within dialog selector
+  confirmRestoreButton: 'button:has-text("Restore")',
+  cancelButton: 'button:has-text("Cancel")',
 
   // Progress indicator
   progressBar: '[role="progressbar"]',
@@ -195,8 +195,8 @@ test.describe('Backups Page - Restore', () => {
       const confirmButton = dialog.locator(SELECTORS.confirmRestoreButton);
       await confirmButton.click();
 
-      // Wait for API response
-      await waitForAPIResponse(page, `/api/v1/backups/${filename}/restore`, { status: 200 });
+      // Wait for success toast (API response is already fulfilled by mock)
+      await waitForToast(page, /restore|success|completed/i, { type: 'success' });
 
       // Verify restore was requested
       expect(restoreRequested).toBe(true);

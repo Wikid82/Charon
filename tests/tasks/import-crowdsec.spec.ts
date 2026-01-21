@@ -105,7 +105,7 @@ test.describe('Import CrowdSec Configuration', () => {
           await route.continue();
         }
       });
-      await page.route('**/api/v1/crowdsec/import', async (route) => {
+      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
         await route.fulfill({
           status: 200,
           json: { message: 'Import successful' },
@@ -141,7 +141,7 @@ test.describe('Import CrowdSec Configuration', () => {
           await route.continue();
         }
       });
-      await page.route('**/api/v1/crowdsec/import', async (route) => {
+      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
         await route.fulfill({
           status: 200,
           json: { message: 'Import successful' },
@@ -199,7 +199,7 @@ test.describe('Import CrowdSec Configuration', () => {
       });
 
       // Mock import API
-      await page.route('**/api/v1/crowdsec/import', async (route) => {
+      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
         importCalled = true;
         callOrder.push('import');
         await route.fulfill({
@@ -219,19 +219,19 @@ test.describe('Import CrowdSec Configuration', () => {
         buffer: createMockTarGzBuffer(),
       });
 
-      // Click import button
-      await page.locator(SELECTORS.importButton).click();
-
-      // Wait for both API calls
-      await waitForAPIResponse(page, '/api/v1/crowdsec/import', { status: 200 });
+      // Click import button and wait for import API response concurrently
+      await Promise.all([
+        page.waitForResponse(r => r.url().includes('/api/v1/admin/crowdsec/import') && r.status() === 200),
+        page.locator(SELECTORS.importButton).click(),
+      ]);
 
       // Verify backup was called FIRST, then import
       expect(backupCalled).toBe(true);
       expect(importCalled).toBe(true);
       expect(callOrder).toEqual(['backup', 'import']);
 
-      // Verify success toast
-      await waitForToast(page, /success|imported/i);
+      // Verify success toast - use specific text match
+      await expect(page.getByText('CrowdSec config imported')).toBeVisible({ timeout: 10000 });
     });
 
     test('should handle import errors gracefully', async ({ page, adminUser }) => {
@@ -250,7 +250,7 @@ test.describe('Import CrowdSec Configuration', () => {
       });
 
       // Mock import API (failure)
-      await page.route('**/api/v1/crowdsec/import', async (route) => {
+      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
         await route.fulfill({
           status: 400,
           json: { error: 'Invalid configuration format: missing required field "lapi_url"' },
@@ -268,14 +268,14 @@ test.describe('Import CrowdSec Configuration', () => {
         buffer: createMockTarGzBuffer(),
       });
 
-      // Click import button
-      await page.locator(SELECTORS.importButton).click();
+      // Click import button and wait for import API response concurrently
+      await Promise.all([
+        page.waitForResponse(r => r.url().includes('/api/v1/admin/crowdsec/import') && r.status() === 400),
+        page.locator(SELECTORS.importButton).click(),
+      ]);
 
-      // Wait for import API call
-      await waitForAPIResponse(page, '/api/v1/crowdsec/import', { status: 400 });
-
-      // Verify error toast
-      await waitForToast(page, /error|failed|invalid/i);
+      // Verify error toast - use specific text match
+      await expect(page.getByText(/Import failed/i)).toBeVisible({ timeout: 10000 });
     });
 
     test('should show loading state during import', async ({ page, adminUser }) => {
@@ -295,7 +295,7 @@ test.describe('Import CrowdSec Configuration', () => {
       });
 
       // Mock import API with delay
-      await page.route('**/api/v1/crowdsec/import', async (route) => {
+      await page.route('**/api/v1/admin/crowdsec/import', async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 500));
         await route.fulfill({
           status: 200,
@@ -314,6 +314,9 @@ test.describe('Import CrowdSec Configuration', () => {
         buffer: createMockTarGzBuffer(),
       });
 
+      // Set up response promise before clicking to capture loading state
+      const importResponsePromise = page.waitForResponse(r => r.url().includes('/api/v1/admin/crowdsec/import') && r.status() === 200);
+
       // Click import button
       const importButton = page.locator(SELECTORS.importButton);
       await importButton.click();
@@ -322,7 +325,7 @@ test.describe('Import CrowdSec Configuration', () => {
       await expect(importButton).toBeDisabled();
 
       // Wait for import to complete
-      await waitForAPIResponse(page, '/api/v1/crowdsec/import', { status: 200 });
+      await importResponsePromise;
 
       // Button should be enabled again after completion
       await expect(importButton).toBeEnabled();

@@ -178,7 +178,7 @@ export async function completeRestoreFlow(page: Page, filename?: string): Promis
   }
 
   // Confirm restore
-  await page.locator('[role="alertdialog"] button:has-text("Restore")').click();
+  await page.locator('[role="dialog"] button:has-text("Restore")').click();
   await waitForAPIResponse(page, `/api/v1/backups/${targetFilename}/restore`, 200);
 }
 
@@ -587,7 +587,7 @@ export const UPTIME_SELECTORS = {
   createButton: 'button:has-text("Add Monitor")',
   syncButton: 'button:has-text("Sync")',
   emptyState: '[data-testid="empty-state"]',
-  confirmDialog: '[role="alertdialog"]',
+  confirmDialog: '[role="dialog"]',
   confirmDelete: 'button:has-text("Delete")',
   heartbeatBar: '[data-testid="heartbeat-bar"]',
 } as const;

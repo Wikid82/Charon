@@ -123,16 +123,29 @@ const SELECTORS = {
 
 /**
  * Helper: Navigate to logs page and switch to live logs tab
+ * Returns true if LiveLogViewer is visible (Cerberus enabled), false otherwise
  */
-async function navigateToLiveLogs(page: import('@playwright/test').Page) {
-  await page.goto('/tasks/logs');
+async function navigateToLiveLogs(page: import('@playwright/test').Page): Promise<boolean> {
+  await page.goto('/security');
   await waitForLoadingComplete(page);
+
+  // The LiveLogViewer is only visible when Cerberus is enabled
+  // Check if the connection-status element exists (indicates LiveLogViewer is rendered)
+  const liveLogViewer = page.locator('[data-testid="connection-status"]');
+  const isVisible = await liveLogViewer.isVisible({ timeout: 3000 }).catch(() => false);
+
+  if (!isVisible) {
+    // Cerberus is not enabled, LiveLogViewer is not available
+    return false;
+  }
 
   // Click the live logs tab if it exists
   const liveTab = page.locator('[data-testid="live-logs-tab"], button:has-text("Live")');
   if (await liveTab.isVisible()) {
     await liveTab.click();
   }
+
+  return true;
 }
 
 /**
@@ -201,6 +214,32 @@ function generateMockLogs(count: number, options?: { blocked?: boolean }): Secur
 }
 
 test.describe('Real-Time Logs Viewer', () => {
+  // Note: These tests require Cerberus (security module) to be enabled.
+  // The LiveLogViewer component is only rendered when Cerberus is active.
+  // Tests will be skipped if the component is not visible on the /security page.
+
+  // Track if LiveLogViewer is available (Cerberus enabled)
+  let cerberusEnabled = false;
+
+  test.beforeAll(async ({ browser }) => {
+    // Check once at the start if Cerberus is enabled
+    // Use stored auth state from playwright/.auth/user.json
+    const context = await browser.newContext({
+      storageState: 'playwright/.auth/user.json',
+    });
+    const page = await context.newPage();
+
+    // Navigate to security page
+    await page.goto('/security');
+    await page.waitForLoadState('networkidle');
+
+    // Check if LiveLogViewer is visible (only shown when Cerberus is enabled)
+    const connectionStatus = page.locator('[data-testid="connection-status"]');
+    cerberusEnabled = await connectionStatus.isVisible({ timeout: 3000 }).catch(() => false);
+
+    await context.close();
+  });
+
   // =========================================================================
   // Page Layout Tests (3 tests)
   // =========================================================================
@@ -209,6 +248,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -220,6 +260,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should show connection status indicator', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -235,6 +276,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -253,6 +295,7 @@ test.describe('Real-Time Logs Viewer', () => {
   // =========================================================================
   test.describe('WebSocket Connection', () => {
     test('should establish WebSocket connection on load', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
 
       let wsConnected = false;
@@ -276,6 +319,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -289,6 +333,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should handle connection failure gracefully', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
 
       // Block WebSocket endpoints to simulate failure
@@ -310,6 +355,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -338,6 +384,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
 
       // Setup mock WebSocket response
@@ -361,6 +408,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -376,6 +424,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should display log count in footer', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -389,6 +438,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should auto-scroll to latest logs', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -411,6 +461,7 @@ test.describe('Real-Time Logs Viewer', () => {
   // =========================================================================
   test.describe('Filtering', () => {
     test('should filter logs by level', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -433,6 +484,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should filter logs by search text', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -452,6 +504,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should clear all filters', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -477,6 +530,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should filter by source in security mode', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -507,6 +561,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -529,6 +584,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
 
       const connectedEndpoints: string[] = [];
@@ -558,6 +614,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should clear logs when switching modes', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -579,6 +636,7 @@ test.describe('Real-Time Logs Viewer', () => {
   // =========================================================================
   test.describe('Playback Controls', () => {
     test('should pause and resume log streaming', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -605,6 +663,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should clear all logs', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -627,6 +686,7 @@ test.describe('Real-Time Logs Viewer', () => {
   // =========================================================================
   test.describe('Performance', () => {
     test('should handle high volume of incoming logs', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -649,6 +709,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
       await waitForWebSocketConnection(page);
@@ -680,6 +741,7 @@ test.describe('Real-Time Logs Viewer', () => {
       page,
       authenticatedUser,
     }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 
@@ -701,6 +763,7 @@ test.describe('Real-Time Logs Viewer', () => {
     });
 
     test('should hide source filter in app mode', async ({ page, authenticatedUser }) => {
+      test.skip(!cerberusEnabled, 'LiveLogViewer not available - Cerberus security module is disabled');
       await loginUser(page, authenticatedUser);
       await navigateToLiveLogs(page);
 

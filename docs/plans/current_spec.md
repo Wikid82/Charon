@@ -3372,8 +3372,221 @@ test.use({ ...guestUser });
 
 ---
 
+## Phase 7: Failing Test Remediation
+
+**Date Added:** January 2026
+**Status:** Research Complete - Remediation Pending
+**Priority:** High - Unblocks CI Pipeline Stability
+
+### 7.1 Current Test Run Status
+
+**Latest Run Statistics:**
+- ✅ **533 passed** - Core functionality verified
+- ⏭️ **90 skipped** - Feature flags/dependencies not met
+- ❌ **4 unexpected failures** - Require immediate attention
+
+### 7.2 Failing Test Analysis
+
+#### Test 1: Uptime Monitoring - Manual Check Status Update
+- **File:** `tests/monitoring/uptime-monitoring.spec.ts:640`
+- **Test Name:** `should update status after manual check`
+- **Status:** Marked as `test.skip` due to flakiness
+- **Error:** `page.waitForResponse: Test timeout of 30000ms exceeded` (13.2s actual)
+- **Root Cause:** Race condition + async backend design
+  - `CheckMonitor()` in `uptime_handler.go` uses `go h.service.CheckMonitor(*monitor)` (goroutine)
+  - Backend returns `{"message": "Check triggered"}` immediately
+  - Frontend toast fires before status actually updates
+  - `waitForToast()` unreliable with mocked API routes
+- **Skip Comment:** "Flaky test - toast detection unreliable with mocked routes"
+
+#### Test 2: Uptime Monitoring - Sync from Proxy Hosts
+- **File:** `tests/monitoring/uptime-monitoring.spec.ts:783`
+- **Test Name:** `should sync monitors from proxy hosts`
+- **Status:** Marked as `test.skip` due to flakiness
+- **Error:** `page.waitForResponse: Test timeout of 30000ms exceeded` (13.4s actual)
+- **Root Cause:** Same race condition pattern as Test 1
+  - Sync button triggers API call
+  - `waitForAPIResponse()` called AFTER action completes
+  - Response already fulfilled before wait starts
+- **Skip Comment:** "Flaky test - toast detection unreliable with mocked routes"
+
+#### Test 3: Account Settings - Save Certificate Email
+- **File:** `tests/settings/account-settings.spec.ts:314`
+- **Test Name:** `should save certificate email`
+- **Status:** Active (NOT skipped) - Failing
+- **Error:** `waitForToast: Test timeout` (8.2s actual)
+- **Root Cause:** Toast detection failure
+  - Test unchecks `#useUserEmail`, fills custom email, clicks save
+  - Expects success toast matching `/updated|saved|success/i`
+  - Frontend uses `updateSettingMutation` with key `caddy.email`
+  - Toast fires via `toast.success(t('account.certEmailUpdated'))`
+  - Selector `[data-testid="toast-success"]` may not be present on toast component
+- **Fix Required:** Verify `data-testid` attribute exists on toast component
+
+#### Test 4: Related Pattern (from PHASE5_E2E_REMEDIATION.md)
+Additional tests sharing the same failure pattern identified in prior remediation docs:
+- `backups-create.spec.ts:186` - Create backup
+- `backups-restore.spec.ts:157` - Restore backup
+- `import-crowdsec.spec.ts:180/237/281` - CrowdSec import (also has API path mismatch)
+- `logs-viewing.spec.ts:418` - Log pagination
+
+### 7.3 Root Cause Summary
+
+| Root Cause | Affected Tests | Pattern |
+|------------|----------------|---------|
+| Race Condition: `waitForAPIResponse()` after action | 6+ tests | Response completes before wait starts |
+| Async Backend: Goroutine execution | 2 tests | Status check runs in background |
+| Toast `data-testid` Missing/Incorrect | 3+ tests | `[data-testid="toast-success"]` not found |
+| API Path Mismatch | 3 tests | `/api/v1/crowdsec/import` vs `/api/v1/admin/crowdsec/import` |
+
+### 7.4 Remediation Fixes
+
+#### Fix A: Race Condition Resolution (All Timeout Failures)
+
+**Pattern to Fix:**
+```typescript
+// ❌ BROKEN: Race condition - response may complete before wait starts
+await page.click(SELECTORS.actionButton);
+await waitForAPIResponse(page, '/api/v1/endpoint', { status: 200 });
+```
+
+**Fixed Pattern:**
+```typescript
+// ✅ FIXED: Set up listener before triggering action
+await Promise.all([
+  page.waitForResponse(
+    resp => resp.url().includes('/api/v1/endpoint') && resp.status() === 200
+  ),
+  page.click(SELECTORS.actionButton),
+]);
+```
+
+**Alternative - Pre-register Promise:**
+```typescript
+const responsePromise = page.waitForResponse(
+  resp => resp.url().includes('/api/v1/endpoint') && resp.status() === 200
+);
+await page.click(SELECTORS.actionButton);
+await responsePromise;
+```
+
+#### Fix B: CrowdSec API Path Correction
+
+**File:** `tests/tasks/import-crowdsec.spec.ts`
+
+| Line | Current | Corrected |
+|------|---------|-----------|
+| 108 | `**/api/v1/crowdsec/import` | `**/api/v1/admin/crowdsec/import` |
+| 144 | Same | Same |
+| 202 | Same | Same |
+| 226-325 | All waitForAPIResponse calls | Update path pattern |
+
+#### Fix C: Toast Component `data-testid` Verification
+
+**Investigate:**
+1. Check toast library configuration (likely `react-hot-toast` or similar)
+2. Ensure success toasts have `data-testid="toast-success"`
+3. Verify toast container has `data-testid="toast-container"`
+
+**Frontend Location:** Check component that wraps `<Toaster />` in layout
+
+#### Fix D: New Helper Function (Infrastructure)
+
+Add to `tests/utils/wait-helpers.ts`:
+
+```typescript
+/**
+ * Click an element and wait for an API response atomically.
+ * Prevents race condition where response completes before wait starts.
+ */
+export async function clickAndWaitForResponse(
+  page: Page,
+  clickTarget: Locator | string,
+  urlPattern: string | RegExp,
+  options: { status?: number; timeout?: number } = {}
+): Promise<Response> {
+  const { status = 200, timeout = 30000 } = options;
+
+  const locator = typeof clickTarget === 'string'
+    ? page.locator(clickTarget)
+    : clickTarget;
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      resp => {
+        const urlMatch = typeof urlPattern === 'string'
+          ? resp.url().includes(urlPattern)
+          : urlPattern.test(resp.url());
+        return urlMatch && resp.status() === status;
+      },
+      { timeout }
+    ),
+    locator.click(),
+  ]);
+
+  return response;
+}
+```
+
+### 7.5 Skipped Test Categorization (90 Tests)
+
+| Category | Count | Reason | Status |
+|----------|-------|--------|--------|
+| Cerberus/LiveLogViewer Disabled | 24 | `cerberusEnabled` flag false | Expected - feature flag |
+| User Management Features | 15+ | Admin-only features, fixture issues | Needs review |
+| DNS Provider Advanced | 6 | Provider-specific validation | Needs provider credentials |
+| Notifications | 8+ | SMTP/external service mocks | Needs mock infrastructure |
+| Encryption Management | 6 | Encryption key handling | Security-sensitive |
+| Account Settings | 3 | Checkbox toggle behavior | Fix UI interactions |
+| SMTP Settings | 2 | External service dependency | Needs mock |
+| System Settings | 4 | Admin privileges required | Fixture enhancement |
+| Security Dashboard | 6 | CrowdSec/WAF integration | Integration dependencies |
+| Rate Limiting | 2 | Timing-sensitive | Needs stable mocks |
+
+### 7.6 Implementation Priority
+
+| Priority | Task | Effort | Tests Fixed |
+|----------|------|--------|-------------|
+| 1 - Critical | Add `clickAndWaitForResponse` helper | 30 min | 0 (infrastructure) |
+| 2 - Critical | Apply Promise.all pattern to failing tests | 45 min | 6 tests |
+| 3 - High | Fix CrowdSec API paths | 10 min | 3 tests |
+| 4 - High | Verify toast `data-testid` in frontend | 20 min | 3+ tests |
+| 5 - Medium | Unskip and fix uptime monitoring tests | 30 min | 2 tests |
+| 6 - Low | Review and categorize remaining skipped tests | 1 hour | Documentation |
+
+**Total Estimated Effort:** ~3 hours
+
+### 7.7 Verification Commands
+
+```bash
+# After applying fixes, run targeted tests:
+npx playwright test \
+  tests/monitoring/uptime-monitoring.spec.ts \
+  tests/settings/account-settings.spec.ts \
+  tests/tasks/backups-create.spec.ts \
+  tests/tasks/backups-restore.spec.ts \
+  tests/tasks/import-crowdsec.spec.ts \
+  tests/tasks/logs-viewing.spec.ts \
+  --project=chromium
+
+# Expected result: All previously failing tests should pass
+# Skipped tests remain skipped until feature flags enabled
+```
+
+### 7.8 Success Criteria
+
+- [ ] All 4 previously failing tests now pass
+- [ ] No new test failures introduced
+- [ ] `clickAndWaitForResponse` helper added to `wait-helpers.ts`
+- [ ] CrowdSec API paths corrected
+- [ ] Toast `data-testid` attributes verified
+- [ ] Skipped test inventory documented for future phases
+
+---
+
 **Document Status:** In Progress - Phase 1 Complete
-**Last Updated:** January 17, 2026
+**Last Updated:** January 2026
 **Phase 1 Completed:** January 17, 2026 (112/119 tests passing - 94%)
+**Phase 7 Added:** January 2026 - Failing Test Remediation Plan
 **Next Review:** Upon Phase 2 completion (estimated Jan 31, 2026)
 **Owner:** Planning Agent / QA Team

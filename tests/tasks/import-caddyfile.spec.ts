@@ -54,8 +54,8 @@ const SELECTORS = {
   successModal: '[data-testid="import-success-modal"]',
 
   // Error display
-  errorMessage: '.bg-red-900',
-  warningMessage: '.bg-yellow-900',
+  errorMessage: '.bg-red-900, .bg-red-900\\/20',
+  warningMessage: '.bg-yellow-900, .bg-yellow-900\\/20',
 
   // Source view
   sourceToggle: 'text=Source Caddyfile Content',
@@ -153,6 +153,75 @@ const mockPreviewWithWarnings: ImportPreview = {
   },
 };
 
+/**
+ * Helper to set up all import API mocks with the specified preview response
+ * Handles the full flow: initial status (no session) → upload → status (with session) → preview
+ */
+async function setupImportMocks(
+  page: import('@playwright/test').Page,
+  preview: ImportPreview,
+  options?: { uploadError?: boolean; commitError?: boolean }
+) {
+  let hasSession = false;
+
+  // Mock status endpoint - initially no session, then has session after upload
+  await page.route('**/api/v1/import/status', async (route) => {
+    if (hasSession) {
+      await route.fulfill({
+        status: 200,
+        json: { has_pending: true, session: preview.session },
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        json: { has_pending: false },
+      });
+    }
+  });
+
+  // Mock upload endpoint - sets hasSession to true on success
+  await page.route('**/api/v1/import/upload', async (route) => {
+    if (options?.uploadError) {
+      await route.fulfill({ status: 400, json: { error: 'Invalid Caddyfile syntax' } });
+    } else {
+      hasSession = true;
+      await route.fulfill({ status: 200, json: preview });
+    }
+  });
+
+  // Mock preview endpoint
+  await page.route('**/api/v1/import/preview', async (route) => {
+    await route.fulfill({ status: 200, json: preview });
+  });
+
+  // Mock commit endpoint
+  await page.route('**/api/v1/import/commit', async (route) => {
+    if (options?.commitError) {
+      await route.fulfill({ status: 500, json: { error: 'Commit failed' } });
+    } else {
+      await route.fulfill({ status: 200, json: { created: preview.preview.hosts.length, updated: 0, skipped: 0, errors: [] } });
+    }
+  });
+
+  // Mock cancel endpoint
+  await page.route('**/api/v1/import/cancel', async (route) => {
+    hasSession = false;
+    await route.fulfill({ status: 200, json: {} });
+  });
+
+  // Mock backups endpoint for pre-import backup
+  await page.route('**/api/v1/backups', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
+      });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
 test.describe('Import Caddyfile - Wizard', () => {
   // =========================================================================
   // Page Layout Tests (2 tests)
@@ -240,20 +309,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should accept valid Caddyfile via paste', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Mock all import API endpoints using the helper
+      await setupImportMocks(page, mockPreviewSuccess);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -269,11 +326,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       const parseButton = page.getByRole('button', { name: /parse|review/i });
       await parseButton.click();
 
-      // Wait for API response
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-
-      // Should show review table
-      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 5000 });
+      // Should show review table after API completes
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
     });
 
     test('should show error for empty content submission', async ({ page, adminUser }) => {
@@ -298,20 +352,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should show parsed hosts from Caddyfile', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Use the complete mock helper to avoid missing endpoints
+      await setupImportMocks(page, mockPreviewSuccess);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -320,11 +362,12 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
+      // Wait for the review table to appear
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Verify both hosts are shown
-      await expect(page.getByText('example.com')).toBeVisible();
-      await expect(page.getByText('api.example.com')).toBeVisible();
+      await expect(page.getByText('example.com', { exact: true })).toBeVisible();
+      await expect(page.getByText('api.example.com', { exact: true })).toBeVisible();
     });
 
     test('should show validation errors for invalid Caddyfile syntax', async ({ page, adminUser }) => {
@@ -352,20 +395,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should display source Caddyfile content in preview', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -374,8 +405,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible();
+      // Wait for review table to appear after API completes
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Click to show source content
       const sourceToggle = page.locator(SELECTORS.sourceToggle);
@@ -390,20 +421,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should show warnings for parsing issues', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API with warnings
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewWithWarnings });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up import mocks with warnings response
+      await setupImportMocks(page, mockPreviewWithWarnings);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -412,11 +431,9 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill('test { invalid }');
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-
-      // Should show warning messages
-      await expect(page.locator(SELECTORS.warningMessage)).toBeVisible({ timeout: 5000 });
-      await expect(page.getByText(/invalid directive|unsupported/i)).toBeVisible();
+      // Should show warning messages - check for error display in review table
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText('Line 10: Invalid directive').first()).toBeVisible();
     });
   });
 
@@ -427,20 +444,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should display server list with configuration details', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -449,15 +454,13 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-
       // Verify review table is displayed
       const reviewTable = page.locator(SELECTORS.reviewTable);
-      await expect(reviewTable).toBeVisible();
+      await expect(reviewTable).toBeVisible({ timeout: 10000 });
 
       // Verify domain names are shown
-      await expect(page.getByText('example.com')).toBeVisible();
-      await expect(page.getByText('api.example.com')).toBeVisible();
+      await expect(page.getByText('example.com', { exact: true })).toBeVisible();
+      await expect(page.getByText('api.example.com', { exact: true })).toBeVisible();
 
       // Verify "New" status indicators for non-conflicting hosts
       await expect(page.locator(SELECTORS.newIndicator)).toHaveCount(2);
@@ -466,20 +469,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should highlight conflicts with existing hosts', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API with conflicts
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewWithConflicts });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up import mocks with conflicts response
+      await setupImportMocks(page, mockPreviewWithConflicts);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -488,30 +479,16 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill('existing.example.com { reverse_proxy new-server:8080 }');
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-
       // Verify conflict indicator is shown
-      await expect(page.locator(SELECTORS.conflictIndicator)).toBeVisible();
-      await expect(page.getByText(/conflict/i)).toBeVisible();
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText('Conflict', { exact: true })).toBeVisible();
     });
 
     test('should allow conflict resolution selection', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API with conflicts
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewWithConflicts });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up import mocks with conflicts response
+      await setupImportMocks(page, mockPreviewWithConflicts);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -520,7 +497,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill('existing.example.com { reverse_proxy new-server:8080 }');
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
+      // Wait for review table to appear after API completes
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Verify resolution dropdown exists
       const resolutionSelect = page.locator('select').first();
@@ -534,20 +512,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should require name for each host before commit', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -556,8 +522,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible();
+      // Wait for review table
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Verify name inputs are present
       const nameInputs = page.locator('input[type="text"]');
@@ -583,26 +549,16 @@ test.describe('Import Caddyfile - Wizard', () => {
 
       let commitCalled = false;
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
+
+      // Override commit to track if called
       await page.route('**/api/v1/import/commit', async (route) => {
         commitCalled = true;
         await route.fulfill({
           status: 200,
           json: { created: 2, updated: 0, skipped: 0, errors: [] },
         });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
       });
 
       await page.goto('/tasks/import/caddyfile');
@@ -612,46 +568,32 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible();
+      // Wait for review table to appear
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Click commit button
       await page.locator(SELECTORS.commitButton).click();
 
-      // Wait for commit API call
-      await waitForAPIResponse(page, '/api/v1/import/commit', { status: 200 });
+      // Success modal should appear
+      await expect(page.locator(SELECTORS.successModal)).toBeVisible({ timeout: 10000 });
 
       // Verify commit was called
       expect(commitCalled).toBe(true);
-
-      // Success modal should appear
-      await expect(page.locator(SELECTORS.successModal)).toBeVisible({ timeout: 5000 });
     });
 
     test('should show progress during import', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API with delay
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
+
+      // Override commit with delay to simulate slow operation
       await page.route('**/api/v1/import/commit', async (route) => {
         await new Promise((resolve) => setTimeout(resolve, 500));
         await route.fulfill({
           status: 200,
           json: { created: 2, updated: 0, skipped: 0, errors: [] },
         });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
       });
 
       await page.goto('/tasks/import/caddyfile');
@@ -661,7 +603,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
+      // Wait for review table
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Click commit and verify button shows loading state
       const commitButton = page.locator(SELECTORS.commitButton);
@@ -677,26 +620,8 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should handle import errors gracefully', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
-      await page.route('**/api/v1/import/commit', async (route) => {
-        await route.fulfill({
-          status: 500,
-          json: { error: 'Database error during import' },
-        });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
+      // Set up import mocks with commit error
+      await setupImportMocks(page, mockPreviewSuccess, { commitError: true });
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -705,7 +630,8 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
+      // Wait for review table
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Click commit
       await page.locator(SELECTORS.commitButton).click();
@@ -717,10 +643,10 @@ test.describe('Import Caddyfile - Wizard', () => {
     test('should handle partial import with some failures', async ({ page, adminUser }) => {
       await loginUser(page, adminUser);
 
-      // Mock import API with partial success
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
+
+      // Override commit to return partial success with errors
       await page.route('**/api/v1/import/commit', async (route) => {
         await route.fulfill({
           status: 200,
@@ -732,16 +658,6 @@ test.describe('Import Caddyfile - Wizard', () => {
           },
         });
       });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
-      });
 
       await page.goto('/tasks/import/caddyfile');
       await waitForLoadingComplete(page);
@@ -750,20 +666,18 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
+      // Wait for review table to appear
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
       // Click commit
       await page.locator(SELECTORS.commitButton).click();
 
-      // Wait for commit to complete
-      await waitForAPIResponse(page, '/api/v1/import/commit', { status: 200 });
-
       // Success modal should appear (partial success is still success)
-      await expect(page.locator(SELECTORS.successModal)).toBeVisible({ timeout: 5000 });
+      await expect(page.locator(SELECTORS.successModal)).toBeVisible({ timeout: 10000 });
 
       // The modal should show the partial results
       // Check for error indicator in success modal
-      await expect(page.getByText(/1.*created|error/i)).toBeVisible();
+      await expect(page.getByText('1 error encountered')).toBeVisible();
     });
   });
 
@@ -805,23 +719,13 @@ test.describe('Import Caddyfile - Wizard', () => {
 
       let cancelCalled = false;
 
-      // Mock import API with session
-      await page.route('**/api/v1/import/upload', async (route) => {
-        await route.fulfill({ status: 200, json: mockPreviewSuccess });
-      });
+      // Set up all import mocks
+      await setupImportMocks(page, mockPreviewSuccess);
+
+      // Override cancel to track if called
       await page.route('**/api/v1/import/cancel', async (route) => {
         cancelCalled = true;
         await route.fulfill({ status: 204 });
-      });
-      await page.route('**/api/v1/backups', async (route) => {
-        if (route.request().method() === 'POST') {
-          await route.fulfill({
-            status: 201,
-            json: { filename: 'pre-import-backup.tar.gz', size: 1000, time: new Date().toISOString() },
-          });
-        } else {
-          await route.continue();
-        }
       });
 
       await page.goto('/tasks/import/caddyfile');
@@ -831,16 +735,16 @@ test.describe('Import Caddyfile - Wizard', () => {
       await page.locator(SELECTORS.pasteTextarea).fill(mockCaddyfile);
       await page.getByRole('button', { name: /parse|review/i }).click();
 
-      await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
-      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible();
+      // Wait for review table
+      await expect(page.locator(SELECTORS.reviewTable)).toBeVisible({ timeout: 10000 });
 
-      // Click back/cancel button and confirm in dialog
-      await page.locator(SELECTORS.backButton).click();
-
-      // Handle browser confirm dialog (the component uses confirm())
+      // Handle browser confirm dialog (the component uses confirm()) - must register BEFORE clicking
       page.on('dialog', async (dialog) => {
         await dialog.accept();
       });
+
+      // Click back/cancel button and confirm in dialog
+      await page.locator(SELECTORS.backButton).click();
 
       // Verify cancel was called or review table is hidden
       await expect(page.locator(SELECTORS.reviewTable)).not.toBeVisible({ timeout: 5000 });
