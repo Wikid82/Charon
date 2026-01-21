@@ -27,7 +27,7 @@ export default function ImportSuccessModal({
   const totalProcessed = created + updated + skipped
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="import-success-modal">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative bg-dark-card rounded-lg p-6 w-[500px] max-w-full mx-4 border border-gray-800">
         {/* Header */}

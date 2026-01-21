@@ -60,7 +60,7 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      const createButton = page.locator(SELECTORS.createBackupButton);
+      const createButton = page.locator(SELECTORS.createBackupButton).first();
       await expect(createButton).toBeVisible();
       await expect(createButton).toBeEnabled();
     });
@@ -70,9 +70,9 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Guest users should not see the Create Backup button
+      // Guest users should not see any Create Backup button
       const createButton = page.locator(SELECTORS.createBackupButton);
-      await expect(createButton).not.toBeVisible();
+      await expect(createButton).toHaveCount(0);
     });
   });
 
@@ -208,11 +208,11 @@ test.describe('Backups Page - Creation and List', () => {
       await page.goto('/tasks/backups');
       await waitForLoadingComplete(page);
 
-      // Click create backup button
-      await page.click(SELECTORS.createBackupButton);
-
-      // Wait for API response
-      await waitForAPIResponse(page, '/api/v1/backups', { status: 201 });
+      // Click create backup button and wait for API response concurrently
+      await Promise.all([
+        page.waitForResponse(r => r.url().includes('/api/v1/backups') && r.request().method() === 'POST' && r.status() === 201),
+        page.click(SELECTORS.createBackupButton),
+      ]);
 
       // Verify POST was called
       expect(postCalled).toBe(true);
@@ -280,8 +280,8 @@ test.describe('Backups Page - Creation and List', () => {
       // Click create backup button
       await page.click(SELECTORS.createBackupButton);
 
-      // Wait for list refresh
-      await waitForAPIResponse(page, '/api/v1/backups', { status: 201 });
+      // Wait for success toast (which indicates the backup was created)
+      await waitForToast(page, /success|created/i, { type: 'success' });
 
       // New backup should now be visible after list refresh
       await expect(page.getByText('backup_2024-01-16_120000.tar.gz')).toBeVisible({ timeout: 5000 });
@@ -414,12 +414,12 @@ test.describe('Backups Page - Creation and List', () => {
       const dialog = page.locator(SELECTORS.confirmDialog);
       await expect(dialog).toBeVisible();
 
-      // Click confirm button
+      // Click confirm button and wait for DELETE request concurrently
       const confirmButton = dialog.locator(SELECTORS.confirmButton);
-      await confirmButton.click();
-
-      // Wait for DELETE request
-      await waitForAPIResponse(page, `/api/v1/backups/${filename}`, { status: 204 });
+      await Promise.all([
+        page.waitForResponse(r => r.url().includes(`/api/v1/backups/${filename}`) && r.request().method() === 'DELETE' && r.status() === 204),
+        confirmButton.click(),
+      ]);
 
       // Verify DELETE was called
       expect(deleteRequested).toBe(true);

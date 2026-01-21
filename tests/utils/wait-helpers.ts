@@ -19,6 +19,43 @@ import { expect } from '@bgotink/playwright-coverage';
 import type { Page, Locator, Response } from '@playwright/test';
 
 /**
+ * Click an element and wait for an API response atomically.
+ * Prevents race condition where response completes before wait starts.
+ * @param page - Playwright Page instance
+ * @param clickTarget - Locator or selector string for element to click
+ * @param urlPattern - URL string or RegExp to match
+ * @param options - Configuration options
+ * @returns The matched response
+ */
+export async function clickAndWaitForResponse(
+  page: Page,
+  clickTarget: Locator | string,
+  urlPattern: string | RegExp,
+  options: { status?: number; timeout?: number } = {}
+): Promise<Response> {
+  const { status = 200, timeout = 30000 } = options;
+
+  const locator =
+    typeof clickTarget === 'string' ? page.locator(clickTarget) : clickTarget;
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (resp) => {
+        const urlMatch =
+          typeof urlPattern === 'string'
+            ? resp.url().includes(urlPattern)
+            : urlPattern.test(resp.url());
+        return urlMatch && resp.status() === status;
+      },
+      { timeout }
+    ),
+    locator.click(),
+  ]);
+
+  return response;
+}
+
+/**
  * Options for waitForToast
  */
 export interface ToastOptions {
@@ -30,6 +67,7 @@ export interface ToastOptions {
 
 /**
  * Wait for a toast notification with specific text
+ * Supports both custom ToastContainer (data-testid) and react-hot-toast
  * @param page - Playwright Page instance
  * @param text - Text or RegExp to match in toast
  * @param options - Configuration options
@@ -41,14 +79,20 @@ export async function waitForToast(
 ): Promise<void> {
   const { timeout = 10000, type } = options;
 
-  // Match the actual ToastContainer implementation:
-  // - Uses data-testid="toast-{type}" for type-specific toasts
-  // - Uses role="status" with aria-live="polite"
-  const toastSelector = type
-    ? `[data-testid="toast-${type}"], [role="status"][data-testid="toast-${type}"]`
-    : '[data-testid^="toast-"], [role="status"][aria-live="polite"], [data-testid="toast-container"] > div';
+  // Build selectors prioritizing our custom toast system which uses data-testid
+  // This avoids matching generic [role="alert"] elements like security notices
+  let selector: string;
 
-  const toast = page.locator(toastSelector);
+  if (type) {
+    // Type-specific toast: match data-testid exactly
+    selector = `[data-testid="toast-${type}"]`;
+  } else {
+    // Any toast: match our custom toast container or react-hot-toast
+    // Avoid matching static [role="alert"] elements by being more specific
+    selector = '[data-testid^="toast-"]:not([data-testid="toast-container"])';
+  }
+
+  const toast = page.locator(selector);
   await expect(toast).toContainText(text, { timeout });
 }
 
@@ -276,7 +320,7 @@ export async function waitForModal(
 ): Promise<Locator> {
   const { timeout = 10000 } = options;
 
-  const modal = page.locator('[role="dialog"], [role="alertdialog"], .modal');
+  const modal = page.locator('[role="dialog"], .modal');
   await expect(modal).toBeVisible({ timeout });
 
   if (titleText) {

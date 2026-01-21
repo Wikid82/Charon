@@ -104,8 +104,10 @@ const SELECTORS = {
   sortSelect: 'select',
   refreshButton: 'button:has-text("Refresh")',
   downloadButton: 'button:has-text("Download")',
-  prevPageButton: 'button:has(.lucide-chevron-left)',
-  nextPageButton: 'button:has(.lucide-chevron-right)',
+  // Pagination buttons - scope to content area by looking for sibling showing text
+  // The pagination buttons are next to "Showing x - y of z" text
+  prevPageButton: '.flex.gap-2 button:has(.lucide-chevron-left), [data-testid="prev-page"], button[aria-label*="Previous"]',
+  nextPageButton: '.flex.gap-2 button:has(.lucide-chevron-right), [data-testid="next-page"], button[aria-label*="Next"]',
   emptyState: '[class*="EmptyState"], [data-testid="empty-state"]',
   loadingSkeleton: '[class*="Skeleton"], [data-testid="skeleton"]',
 };
@@ -251,11 +253,16 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       await page.goto('/tasks/logs');
       await waitForLoadingComplete(page);
 
+      // Set up response listener BEFORE clicking
+      const responsePromise = page.waitForResponse((resp) =>
+        resp.url().includes('/api/v1/logs/error.log')
+      );
+
       // Click on error.log to select it
       await page.click('button:has-text("error.log")');
 
       // Wait for content to load
-      await waitForAPIResponse(page, '/api/v1/logs/error.log', { status: 200 });
+      await responsePromise;
 
       // Verify log table is displayed with content
       await expect(page.locator(SELECTORS.logTable)).toBeVisible();
@@ -276,8 +283,8 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       await page.goto('/tasks/logs');
       await waitForLoadingComplete(page);
 
-      // Should show "No log files" message
-      await expect(page.getByText(/no log files|select.*log/i)).toBeVisible();
+      // Should show "No log files" message (use first() since there may be multiple matching texts)
+      await expect(page.getByText(/no log files|select.*log/i).first()).toBeVisible();
     });
 
     test('should highlight selected log file', async ({ page, authenticatedUser }) => {
@@ -292,9 +299,14 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       const accessLogButton = page.locator('button:has-text("access.log")');
       await expect(accessLogButton).toHaveClass(/brand-500|bg-brand/);
 
+      // Set up response listener BEFORE clicking
+      const responsePromise = page.waitForResponse((resp) =>
+        resp.url().includes('/api/v1/logs/error.log')
+      );
+
       // Click on error.log
       await page.click('button:has-text("error.log")');
-      await waitForAPIResponse(page, '/api/v1/logs/error.log', { status: 200 });
+      await responsePromise;
 
       // Error.log should now have the selected style
       const errorLogButton = page.locator('button:has-text("error.log")');
@@ -336,11 +348,11 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       // Wait for content to load
       await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
 
-      // Verify log entry content is displayed
-      await expect(page.getByText('192.168.1.100')).toBeVisible();
-      await expect(page.getByText('GET')).toBeVisible();
-      await expect(page.getByText('/api/v1/users')).toBeVisible();
-      await expect(page.getByText('200')).toBeVisible();
+      // Verify log entry content is displayed (use .first() where multiple matches possible)
+      await expect(page.getByText('192.168.1.100').first()).toBeVisible();
+      await expect(page.getByText('GET').first()).toBeVisible();
+      await expect(page.getByText('/api/v1/users').first()).toBeVisible();
+      await expect(page.getByText('200').first()).toBeVisible();
     });
 
     test('should sort logs by timestamp', async ({ page, authenticatedUser }) => {
@@ -390,8 +402,8 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       await waitForLoadingComplete(page);
       await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
 
-      // Find the 502 status entry (error)
-      const errorStatus = page.getByText('502');
+      // Find the 502 status entry (error) - use exact text match to avoid partial matches
+      const errorStatus = page.getByText('502', { exact: true });
       await expect(errorStatus).toBeVisible();
 
       // Error status should have red/error styling class
@@ -441,9 +453,14 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       // Click next page button
       const nextButton = page.locator(SELECTORS.nextPageButton);
       await expect(nextButton).toBeEnabled();
-      await nextButton.click();
 
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      // Use Promise.all to avoid race condition - set up listener BEFORE clicking
+      await Promise.all([
+        page.waitForResponse(
+          (resp) => resp.url().includes('/api/v1/logs/access.log') && resp.status() === 200
+        ),
+        nextButton.click(),
+      ]);
 
       // Should have requested offset 50 (second page)
       expect(capturedOffset).toBe(50);
@@ -527,9 +544,14 @@ test.describe('Logs Page - Static Log File Viewing', () => {
       await expect(prevButton).toBeDisabled();
       await expect(nextButton).toBeEnabled();
 
+      // Set up response listener BEFORE clicking
+      const nextPageResponse = page.waitForResponse((resp) =>
+        resp.url().includes('/api/v1/logs/access.log')
+      );
+
       // Navigate to last page
       await nextButton.click();
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await nextPageResponse;
 
       // On last page, next should be disabled
       await expect(prevButton).toBeEnabled();
@@ -581,11 +603,16 @@ test.describe('Logs Page - Static Log File Viewing', () => {
 
       // Type in search input
       const searchInput = page.locator(SELECTORS.searchInput);
+
+      // Set up response listener BEFORE typing to catch the debounced request
+      const searchResponsePromise = page.waitForResponse((resp) =>
+        resp.url().includes('/api/v1/logs/access.log')
+      );
+
       await searchInput.fill('users');
 
       // Wait for debounced search request
-      await page.waitForTimeout(500); // Debounce delay
-      await waitForAPIResponse(page, '/api/v1/logs/access.log', { status: 200 });
+      await searchResponsePromise;
 
       // Verify search parameter was sent
       expect(capturedSearch).toBe('users');

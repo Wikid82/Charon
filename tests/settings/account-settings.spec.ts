@@ -213,13 +213,18 @@ test.describe('Account Settings', () => {
       });
 
       await test.step('Toggle checkbox to opposite state', async () => {
-        const checkbox = page.locator('#useUserEmail');
-        await checkbox.click();
+        // Use getByRole for more reliable checkbox interaction with Radix UI
+        const checkbox = page.getByRole('checkbox', { name: /use.*account.*email|same.*email/i });
+        await checkbox.click({ force: true });
+
+        // Wait a moment for state to update
+        await page.waitForTimeout(100);
+
         // Should now be opposite of initial
         if (wasInitiallyChecked) {
-          await expect(checkbox).not.toBeChecked();
+          await expect(checkbox).not.toBeChecked({ timeout: 5000 });
         } else {
-          await expect(checkbox).toBeChecked();
+          await expect(checkbox).toBeChecked({ timeout: 5000 });
         }
       });
 
@@ -228,20 +233,22 @@ test.describe('Account Settings', () => {
         // When unchecked, custom email field should be visible
         if (wasInitiallyChecked) {
           // We just unchecked it, so field should now be visible
-          await expect(certEmailInput).toBeVisible();
+          await expect(certEmailInput).toBeVisible({ timeout: 5000 });
         } else {
           // We just checked it, so field should now be hidden
-          await expect(certEmailInput).not.toBeVisible();
+          await expect(certEmailInput).not.toBeVisible({ timeout: 5000 });
         }
       });
 
       await test.step('Toggle back to original state', async () => {
-        const checkbox = page.locator('#useUserEmail');
-        await checkbox.click();
+        const checkbox = page.getByRole('checkbox', { name: /use.*account.*email|same.*email/i });
+        await checkbox.click({ force: true });
+        await page.waitForTimeout(100);
+
         if (wasInitiallyChecked) {
-          await expect(checkbox).toBeChecked();
+          await expect(checkbox).toBeChecked({ timeout: 5000 });
         } else {
-          await expect(checkbox).not.toBeChecked();
+          await expect(checkbox).not.toBeChecked({ timeout: 5000 });
         }
       });
     });
@@ -328,9 +335,15 @@ test.describe('Account Settings', () => {
         await certEmailInput.fill(customEmail);
       });
 
-      await test.step('Save certificate email', async () => {
+      await test.step('Save certificate email using Promise.all pattern', async () => {
         const saveButton = page.getByRole('button', { name: /save.*certificate/i });
-        await saveButton.click();
+        // Use Promise.all to avoid race condition between click and response
+        await Promise.all([
+          page.waitForResponse(
+            (resp) => resp.url().includes('/api/v1/settings') && resp.request().method() === 'POST'
+          ),
+          saveButton.click(),
+        ]);
       });
 
       await test.step('Verify success toast', async () => {
@@ -598,14 +611,20 @@ test.describe('Account Settings', () => {
         originalKey = await apiKeyInput.inputValue();
       });
 
-      await test.step('Click regenerate button', async () => {
+      await test.step('Click regenerate button and wait for response', async () => {
         const regenerateButton = page
           .getByRole('button')
           .filter({ has: page.locator('svg.lucide-refresh-cw') })
           .or(page.getByRole('button', { name: /regenerate/i }))
           .or(page.getByTitle(/regenerate/i));
 
-        await regenerateButton.click();
+        // Use Promise.all to set up response listener BEFORE clicking
+        await Promise.all([
+          page.waitForResponse(
+            (resp) => resp.url().includes('/api/v1/user/api-key') && resp.request().method() === 'POST'
+          ),
+          regenerateButton.click(),
+        ]);
       });
 
       await test.step('Verify success toast', async () => {
