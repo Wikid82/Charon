@@ -62,6 +62,16 @@ const coverageReporterConfig = defineCoverageReporterConfig({
     lines: [50, 80],
   },
 
+  // Coverage threshold enforcement
+  check: {
+    global: {
+      statements: 85,
+      branches: 85,
+      functions: 85,
+      lines: 85,
+    },
+  },
+
   // Path rewriting for source file resolution
   rewritePath: ({ absolutePath, relativePath }) => {
     // Handle paths from Docker container

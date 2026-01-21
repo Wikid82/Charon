@@ -247,7 +247,7 @@ main() {
     log_info "Coverage output: ${PROJECT_ROOT}/coverage/e2e/"
     log_info ""
     log_info "Coverage architecture:"
-    log_info "  Tests → Vite (localhost:3000) → serves source files"
+    log_info "  Tests → Vite (localhost:${VITE_PORT}) → serves source files"
     log_info "  Vite → Docker (localhost:8080) → API proxy"
 
     # Execute Playwright tests with coverage
