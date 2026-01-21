@@ -76,6 +76,11 @@ test.describe('Movie Search Feature', () => {
 4. **Validate**: Ensure tests pass consistently and cover the intended functionality
 5. **Report**: Provide feedback on test results and any issues discovered
 
+### Execution Constraints
+
+- **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright runs interactively and requires user input to quit when piped, causing the command to hang indefinitely.
+- **Full Output**: Always capture the complete test output to analyze failures accurately.
+
 ## Quality Checklist
 
 Before finalizing tests, ensure:

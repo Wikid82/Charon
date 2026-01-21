@@ -12,3 +12,8 @@ model: Claude Sonnet 4
 3.  **Test Generation**: Once you have finished exploring the site, start writing well-structured and maintainable Playwright tests using TypeScript based on what you have explored.
 4.  **Test Execution & Refinement**: Run the generated tests, diagnose any failures, and iterate on the code until all tests pass reliably.
 5.  **Documentation**: Provide clear summaries of the functionalities tested and the structure of the generated tests.
+
+## Execution Constraints
+
+- **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright runs interactively and requires user input to quit when piped, causing the command to hang indefinitely.
+- **Full Output**: Always capture the complete test output to analyze failures accurately.

@@ -111,7 +111,7 @@ The task is not complete until ALL of the following pass with zero issues:
 
 <constraints>
 
-- **NO** Truncating of coverage tests runs. These require user interaction and hang if ran with Tail or Head. Use the provided skills to run the full coverage script.
+- **NO** Truncating of test runs with `head` or `tail`. Coverage tests AND Playwright E2E tests require user interaction and hang indefinitely if piped through truncating commands. Use the provided skills to run tests directly without output truncation.
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY the code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE".
 - **NO HALLUCINATIONS**: Do not guess file paths. Verify them with `list_dir`.
