@@ -15,7 +15,7 @@ TMPFILE="/tmp/${TARFILE}"
 # Download
 if [ ! -f "$TMPFILE" ]; then
   echo "Downloading go${GO_VERSION}..."
-  wget -q -O "$TMPFILE" "https://go.dev/dl/${TARFILE}"
+  curl -q -O "$TMPFILE" "https://go.dev/dl/${TARFILE}"
 fi
 
 # Remove existing installation
