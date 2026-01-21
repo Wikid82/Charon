@@ -86,6 +86,7 @@ The task is not complete until ALL of the following pass with zero issues:
 
 1. **Playwright E2E Tests (MANDATORY - Run First)**:
     - **Run**: `npx playwright test --project=chromium` from project root
+    - **No Truncation**: Never pipe output through `head`, `tail`, or other truncating commands. Playwright requires user input to quit when piped, causing hangs.
     - **Why First**: If the app is broken at E2E level, unit tests may need updates. Catch integration issues early.
     - **Scope**: Run tests relevant to modified features (e.g., `tests/manual-dns-provider.spec.ts`)
     - **On Failure**: Trace root cause through frontend → backend flow before proceeding

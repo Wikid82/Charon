@@ -9,6 +9,7 @@ description: 'Strict protocols for test execution, debugging, and coverage valid
 **MANDATORY**: Before running unit tests, verify the application functions correctly end-to-end.
 
 * **Run Playwright E2E Tests**: Execute `npx playwright test --project=chromium` from the project root.
+* **No Truncation**: Never pipe Playwright test output through `head`, `tail`, or other truncating commands. Playwright tests run interactively and require user input to quit when piped, causing the command to hang indefinitely.
 * **Why First**: If the application is broken at the E2E level, unit tests may need updates. Playwright catches integration issues early.
 * **Base URL**: Tests use `PLAYWRIGHT_BASE_URL` env var or default from `playwright.config.js` (Tailscale IP: `http://100.98.12.109:8080`).
 * **On Failure**: Analyze failures, trace root cause through frontend → backend flow, then fix before proceeding to unit tests.
