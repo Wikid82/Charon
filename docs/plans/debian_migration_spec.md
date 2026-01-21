@@ -350,13 +350,13 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 
 **File**: `.docker/docker-entrypoint.sh`
 
-> **⚠️ CRITICAL**: Debian slim does NOT include `wget`. The entrypoint uses wget for the Caddy readiness check. All `wget` calls must be replaced with `curl` equivalents.
+> **⚠️ CRITICAL**: Debian slim does NOT include `curl`. The entrypoint uses curl for the Caddy readiness check. All `curl` calls must be replaced with `curl` equivalents.
 
-#### Step 3.0: Replace wget with curl for Caddy Readiness Check
+#### Step 3.0: Replace curl with curl for Caddy Readiness Check
 
 ```bash
-# BEFORE (Alpine - uses wget)
-wget -q --spider http://localhost:2019/config/ || exit 1
+# BEFORE (Alpine - uses curl)
+curl -q --spider http://localhost:2019/config/ || exit 1
 
 # AFTER (Debian - uses curl)
 curl -sf http://localhost:2019/config/ > /dev/null || exit 1

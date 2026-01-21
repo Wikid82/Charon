@@ -35,7 +35,7 @@ SecRule REQUEST_BODY "@detectXSS" "id:2002,phase:2,deny,status:403,msg:'XSS in B
   {
     name: 'Common Bad Bots',
     url: '',
-    content: `SecRule REQUEST_HEADERS:User-Agent "@rx (?i)(curl|wget|python|scrapy|httpclient|libwww|nikto|sqlmap)" "id:3001,phase:1,deny,status:403,msg:'Bad Bot Detected'"
+    content: `SecRule REQUEST_HEADERS:User-Agent "@rx (?i)(curl|curl|python|scrapy|httpclient|libwww|nikto|sqlmap)" "id:3001,phase:1,deny,status:403,msg:'Bad Bot Detected'"
 SecRule REQUEST_HEADERS:User-Agent "@streq -" "id:3002,phase:1,deny,status:403,msg:'Empty User-Agent'"`,
     description: 'Block known malicious bots and scanners.',
   },
