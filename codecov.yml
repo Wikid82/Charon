@@ -11,6 +11,25 @@ coverage:
       default:
         target: 100%
 
+# Exclude test artifacts and non-production code from coverage
+ignore:
+  - "**/*_test.go"
+  - "**/testdata/**"
+  - "**/mocks/**"
+  - "**/test-data/**"
+  - "tests/**"
+  - "playwright/**"
+  - "test-results/**"
+  - "playwright-report/**"
+  - "coverage/**"
+  - "scripts/**"
+  - "tools/**"
+  - "docs/**"
+  - "*.md"
+  - "*.json"
+  - "*.yaml"
+  - "*.yml"
+
 flags:
   backend:
     paths:
