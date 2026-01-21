@@ -320,17 +320,33 @@ export async function waitForModal(
 ): Promise<Locator> {
   const { timeout = 10000 } = options;
 
-  const modal = page.locator('[role="dialog"], .modal');
-  await expect(modal).toBeVisible({ timeout });
+  // Try to find a modal dialog first, then fall back to a slide-out panel with matching heading
+  const dialogModal = page.locator('[role="dialog"], .modal');
+  const slideOutPanel = page.locator('h2, h3').filter({ hasText: titleText });
 
-  if (titleText) {
-    const titleLocator = modal.locator(
-      '[role="heading"], .modal-title, .dialog-title, h1, h2, h3'
+  // Wait for either the dialog modal or the slide-out panel heading to be visible
+  try {
+    await expect(dialogModal.or(slideOutPanel)).toBeVisible({ timeout });
+  } catch {
+    // If neither is found, throw a more helpful error
+    throw new Error(
+      `waitForModal: Could not find modal dialog or slide-out panel matching "${titleText}"`
     );
-    await expect(titleLocator).toContainText(titleText);
   }
 
-  return modal;
+  // If dialog modal is visible, verify its title
+  if (await dialogModal.isVisible()) {
+    if (titleText) {
+      const titleLocator = dialogModal.locator(
+        '[role="heading"], .modal-title, .dialog-title, h1, h2, h3'
+      );
+      await expect(titleLocator).toContainText(titleText);
+    }
+    return dialogModal;
+  }
+
+  // Return the parent container of the heading for slide-out panels
+  return slideOutPanel.locator('..');
 }
 
 /**
@@ -455,4 +471,123 @@ export async function retryAction<T>(
   }
 
   throw lastError || new Error('Retry failed after max attempts');
+}
+
+/**
+ * Options for waitForResourceInUI
+ */
+export interface WaitForResourceOptions {
+  /** Maximum time to wait (default: 15000ms) */
+  timeout?: number;
+  /** Whether to reload the page if resource not found initially (default: true) */
+  reloadIfNotFound?: boolean;
+  /** Delay after API call before checking UI (default: 500ms) */
+  initialDelay?: number;
+}
+
+/**
+ * Wait for a resource created via API to appear in the UI
+ * This handles the common case where API creates a resource but UI needs time to reflect it.
+ * Will attempt to find the resource, and if not found, will reload the page and retry.
+ *
+ * @param page - Playwright Page instance
+ * @param identifier - Text or RegExp to identify the resource in UI (e.g., domain name)
+ * @param options - Configuration options
+ *
+ * @example
+ * ```typescript
+ * // After creating a proxy host via API
+ * const { domain } = await testData.createProxyHost(config);
+ * await waitForResourceInUI(page, domain);
+ * ```
+ */
+export async function waitForResourceInUI(
+  page: Page,
+  identifier: string | RegExp,
+  options: WaitForResourceOptions = {}
+): Promise<void> {
+  const { timeout = 15000, reloadIfNotFound = true, initialDelay = 500 } = options;
+
+  // Small initial delay to allow API response to propagate
+  await page.waitForTimeout(initialDelay);
+
+  const startTime = Date.now();
+  let reloadAttempted = false;
+
+  // For long strings, search for a significant portion (first 40 chars after any prefix)
+  // to handle cases where UI truncates long domain names
+  let searchPattern: string | RegExp;
+  if (typeof identifier === 'string' && identifier.length > 50) {
+    // Extract the unique part after the namespace prefix (usually after the first .)
+    const dotIndex = identifier.indexOf('.');
+    if (dotIndex > 0 && dotIndex < identifier.length - 10) {
+      // Use the part after the first dot (the unique domain portion)
+      const uniquePart = identifier.substring(dotIndex + 1, dotIndex + 40);
+      searchPattern = new RegExp(uniquePart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    } else {
+      // Fallback: use first 40 chars
+      searchPattern = identifier.substring(0, 40);
+    }
+  } else {
+    searchPattern = identifier;
+  }
+
+  while (Date.now() - startTime < timeout) {
+    // Wait for any loading to complete first
+    await waitForLoadingComplete(page, { timeout: 5000 }).catch(() => {
+      // Ignore loading timeout - might not have a loader
+    });
+
+    // Try to find the resource using the search pattern
+    const resourceLocator = page.getByText(searchPattern);
+    const isVisible = await resourceLocator.first().isVisible().catch(() => false);
+
+    if (isVisible) {
+      return; // Resource found
+    }
+
+    // If not found and we haven't reloaded yet, try reloading
+    if (reloadIfNotFound && !reloadAttempted) {
+      reloadAttempted = true;
+      await page.reload();
+      await waitForLoadingComplete(page, { timeout: 5000 }).catch(() => {});
+      continue;
+    }
+
+    // Wait a bit before retrying
+    await page.waitForTimeout(500);
+  }
+
+  // Take a screenshot for debugging before throwing
+  const screenshotPath = `test-results/debug-resource-not-found-${Date.now()}.png`;
+  await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+
+  throw new Error(
+    `Resource with identifier "${identifier}" not found in UI after ${timeout}ms. Screenshot saved to: ${screenshotPath}`
+  );
+}
+
+/**
+ * Navigate to a page and wait for resources to load after an API mutation.
+ * Use this after creating/updating resources via API to ensure UI is ready.
+ *
+ * @param page - Playwright Page instance
+ * @param url - URL to navigate to
+ * @param options - Configuration options
+ */
+export async function navigateAndWaitForData(
+  page: Page,
+  url: string,
+  options: { timeout?: number } = {}
+): Promise<void> {
+  const { timeout = 10000 } = options;
+
+  await page.goto(url);
+  await waitForLoadingComplete(page, { timeout });
+
+  // Wait for any data-loading states to clear
+  const dataLoading = page.locator('[data-loading], [aria-busy="true"]');
+  await expect(dataLoading).toHaveCount(0, { timeout: 5000 }).catch(() => {
+    // Ignore if no data-loading elements exist
+  });
 }

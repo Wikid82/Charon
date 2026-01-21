@@ -546,20 +546,14 @@ test.describe('Account Settings', () => {
      */
     test('should display API key', async ({ page }) => {
       await test.step('Verify API key section is visible', async () => {
-        const apiKeySection = page.locator('form, [class*="card"]').filter({
-          has: page.getByText(/api.*key/i),
-        });
-        await expect(apiKeySection).toBeVisible();
+        // Find the API Key heading (h3) which is inside the Card component
+        const apiKeyHeading = page.getByRole('heading', { name: /api.*key/i });
+        await expect(apiKeyHeading).toBeVisible();
       });
 
       await test.step('Verify API key input exists and has value', async () => {
-        // API key is in a readonly input
-        const apiKeyInput = page
-          .locator('input[readonly]')
-          .filter({ has: page.locator('[class*="mono"]') })
-          .or(page.locator('input.font-mono'))
-          .or(page.locator('input[readonly]').last());
-
+        // API key is in a readonly input with font-mono class
+        const apiKeyInput = page.locator('input[readonly].font-mono');
         await expect(apiKeyInput).toBeVisible();
         const keyValue = await apiKeyInput.inputValue();
         expect(keyValue.length).toBeGreaterThan(0);

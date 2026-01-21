@@ -440,6 +440,54 @@
                 "panel": "dedicated",
                 "close": false
             }
+        },
+        {
+            "label": "Docker: Rebuild E2E Environment",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh docker-rebuild-e2e",
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Docker: Rebuild E2E Environment (Clean)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache",
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Debug Mode)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-debug",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
+        },
+        {
+            "label": "Test: E2E Playwright (Debug with Inspector)",
+            "type": "shell",
+            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector",
+            "group": "test",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "close": false
+            }
         }
     ],
     "inputs": [

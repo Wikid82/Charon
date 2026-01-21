@@ -87,6 +87,18 @@ The skill runs non-interactively by default (HTML report does not auto-open), ma
 - Charon application running (default: `http://localhost:8080`)
 - Test files in `tests/` directory
 
+### Quick Start: Ensure E2E Environment is Ready
+
+Before running tests, ensure the Docker E2E environment is running:
+
+```bash
+# Start/rebuild E2E Docker container (recommended before testing)
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+
+# Or for a complete clean rebuild:
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
+```
+
 ## Usage
 
 ### Basic Usage
@@ -240,19 +252,88 @@ tests/
 ### Common Errors
 
 #### Error: Target page, context or browser has been closed
-**Solution**: Ensure the application is running at the configured base URL
+**Solution**: Ensure the application is running at the configured base URL. Rebuild if needed:
+```bash
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+```
 
 #### Error: page.goto: net::ERR_CONNECTION_REFUSED
-**Solution**: Start the Charon application before running tests
+**Solution**: Start the Charon application before running tests:
+```bash
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+```
 
 #### Error: browserType.launch: Executable doesn't exist
 **Solution**: Run `npx playwright install` to install browser binaries
 
+#### Error: Timeout waiting for selector
+**Solution**: The application may be slow or in an unexpected state. Try:
+```bash
+# Rebuild with clean state
+.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+
+# Or debug the test to see what's happening
+.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="failing test"
+```
+
+#### Error: Authentication state is stale
+**Solution**: Remove stored auth and let setup recreate it:
+```bash
+rm -rf playwright/.auth/user.json
+.github/skills/scripts/skill-runner.sh test-e2e-playwright
+```
+
+## Troubleshooting Workflow
+
+When E2E tests fail, follow this workflow:
+
+1. **Check container health**:
+   ```bash
+   docker ps --filter "name=charon-playwright"
+   docker logs charon-playwright --tail 50
+   ```
+
+2. **Verify the application is accessible**:
+   ```bash
+   curl -sf http://localhost:8080/api/v1/health
+   ```
+
+3. **Rebuild with clean state if needed**:
+   ```bash
+   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+   ```
+
+4. **Debug specific failing test**:
+   ```bash
+   .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="test name"
+   ```
+
+5. **View the HTML report for details**:
+   ```bash
+   npx playwright show-report --port 9323
+   ```
+
+## Key File Locations
+
+| Path | Purpose |
+|------|---------|
+| `tests/` | All E2E test files |
+| `tests/auth.setup.ts` | Authentication setup fixture |
+| `playwright.config.js` | Playwright configuration |
+| `playwright/.auth/user.json` | Stored authentication state |
+| `playwright-report/` | HTML test reports |
+| `test-results/` | Test artifacts and traces |
+| `.docker/compose/docker-compose.playwright.yml` | E2E Docker compose config |
+| `Dockerfile` | Application Docker image |
+
 ## Related Skills
 
-- test-frontend-unit - Frontend unit tests with Vitest
-- docker-start-dev - Start development environment
-- integration-test-all - Run all integration tests
+- [docker-rebuild-e2e](./docker-rebuild-e2e.SKILL.md) - Rebuild Docker image and restart E2E container
+- [test-e2e-playwright-debug](./test-e2e-playwright-debug.SKILL.md) - Debug E2E tests in headed mode
+- [test-e2e-playwright-coverage](./test-e2e-playwright-coverage.SKILL.md) - Run E2E tests with coverage
+- [test-frontend-unit](./test-frontend-unit.SKILL.md) - Frontend unit tests with Vitest
+- [docker-start-dev](./docker-start-dev.SKILL.md) - Start development environment
+- [integration-test-all](./integration-test-all.SKILL.md) - Run all integration tests
 
 ## Notes
 

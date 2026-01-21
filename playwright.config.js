@@ -90,6 +90,8 @@ const coverageReporterConfig = defineCoverageReporterConfig({
  */
 export default defineConfig({
   testDir: './tests',
+  /* Global setup - runs once before all tests to clean up orphaned data */
+  globalSetup: './tests/global-setup.ts',
   /* Global timeout for each test */
   timeout: 30000,
   /* Timeout for expect() assertions */
