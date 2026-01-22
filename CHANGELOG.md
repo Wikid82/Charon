@@ -124,6 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CrowdSec Upgrade**: Upgraded CrowdSec from 1.7.4 to 1.7.5 (maintenance release, no breaking changes)
+  - Key improvements: PAPI allowlist check, CAPI token reuse improvements
 - **Caddy Upgrade**: Upgraded Caddy from v2.10.2 to v2.11.0-beta.2
 - **Dependency Cleanup**: Removed manual quic-go v0.57.1 patch (now included upstream at v0.58.0)
 - **Dependency Cleanup**: Removed manual smallstep/certificates v0.29.0 patch (now included upstream)

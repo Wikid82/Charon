@@ -210,7 +210,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.4
+ARG CROWDSEC_VERSION=1.7.5
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git clang lld \
@@ -264,7 +264,7 @@ WORKDIR /tmp/crowdsec
 ARG TARGETARCH
 # CrowdSec version - Renovate can update this
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.7.4
+ARG CROWDSEC_VERSION=1.7.5
 
 # Note: Debian slim does NOT include tar by default - must be explicitly installed
 RUN apt-get update && apt-get install -y --no-install-recommends \
