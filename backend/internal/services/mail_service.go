@@ -137,7 +137,7 @@ func (s *MailService) GetSMTPConfig() (*SMTPConfig, error) {
 	return config, nil
 }
 
-// SaveSMTPConfig saves SMTP settings to the database.
+// SaveSMTPConfig saves SMTP settings to the database using a transaction.
 func (s *MailService) SaveSMTPConfig(config *SMTPConfig) error {
 	settings := map[string]string{
 		"smtp_host":         config.Host,
@@ -148,31 +148,34 @@ func (s *MailService) SaveSMTPConfig(config *SMTPConfig) error {
 		"smtp_encryption":   config.Encryption,
 	}
 
-	for key, value := range settings {
-		setting := models.Setting{
-			Key:      key,
-			Value:    value,
-			Type:     "string",
-			Category: "smtp",
-		}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for key, value := range settings {
+			var existing models.Setting
+			result := tx.Where("key = ?", key).First(&existing)
 
-		// Upsert: update if exists, create if not
-		result := s.db.Where("key = ?", key).First(&models.Setting{})
-		if result.Error == gorm.ErrRecordNotFound {
-			if err := s.db.Create(&setting).Error; err != nil {
-				return fmt.Errorf("failed to create setting %s: %w", key, err)
-			}
-		} else {
-			if err := s.db.Model(&models.Setting{}).Where("key = ?", key).Updates(map[string]any{
-				"value":    value,
-				"category": "smtp",
-			}).Error; err != nil {
-				return fmt.Errorf("failed to update setting %s: %w", key, err)
+			switch result.Error {
+			case gorm.ErrRecordNotFound:
+				setting := models.Setting{
+					Key:      key,
+					Value:    value,
+					Type:     "string",
+					Category: "smtp",
+				}
+				if err := tx.Create(&setting).Error; err != nil {
+					return fmt.Errorf("failed to create setting %s: %w", key, err)
+				}
+			case nil:
+				existing.Value = value
+				existing.Category = "smtp"
+				if err := tx.Save(&existing).Error; err != nil {
+					return fmt.Errorf("failed to update setting %s: %w", key, err)
+				}
+			default:
+				return fmt.Errorf("failed to query setting %s: %w", key, result.Error)
 			}
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // IsConfigured returns true if SMTP is properly configured.

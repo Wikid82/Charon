@@ -16,6 +16,8 @@ const RemoteServers = lazy(() => import('./pages/RemoteServers'))
 const DNS = lazy(() => import('./pages/DNS'))
 const ImportCaddy = lazy(() => import('./pages/ImportCaddy'))
 const ImportCrowdSec = lazy(() => import('./pages/ImportCrowdSec'))
+const ImportNPM = lazy(() => import('./pages/ImportNPM'))
+const ImportJSON = lazy(() => import('./pages/ImportJSON'))
 const Certificates = lazy(() => import('./pages/Certificates'))
 const DNSProviders = lazy(() => import('./pages/DNSProviders'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
@@ -109,6 +111,8 @@ export default function App() {
                 <Route path="import">
                   <Route path="caddyfile" element={<ImportCaddy />} />
                   <Route path="crowdsec" element={<ImportCrowdSec />} />
+                  <Route path="npm" element={<ImportNPM />} />
+                  <Route path="json" element={<ImportJSON />} />
                 </Route>
               </Route>
 

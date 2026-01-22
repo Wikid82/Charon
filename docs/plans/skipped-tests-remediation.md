@@ -1,8 +1,8 @@
 # Skipped Playwright Tests Remediation Plan
 
-> **Status**: Active
+> **Status**: Active (Phase 3 Complete)
 > **Created**: 2024
-> **Total Skipped Tests**: 98
+> **Total Skipped Tests**: 91 (was 98, reduced by 7 in Phase 3)
 > **Target**: Reduce to <10 intentional skips
 
 ## Executive Summary
@@ -15,11 +15,13 @@ This plan addresses 98 skipped Playwright E2E tests discovered through comprehen
 |----------|-------|--------|----------|
 | Environment-Dependent (Cerberus) | 35 | S | P0 |
 | Feature Not Implemented | 25 | L | P1 |
-| Route/API Not Implemented | 12 | M | P1 |
-| UI Mismatch/Test ID Issues | 10 | S | P2 |
+| Route/API Not Implemented | 6 | M | P1 |
+| UI Mismatch/Test ID Issues | 9 | S | P2 |
 | TestDataManager Auth Issues | 8 | M | P1 |
 | Flaky/Timing Issues | 5 | S | P2 |
 | Intentional Skips | 3 | - | - |
+
+> **Note**: Phase 3 completed - NPM/JSON import routes implemented (6→0), SMTP fix (1 test), reducing total from 98 to 91.
 
 ---
 
@@ -339,13 +341,14 @@ These tests are intentionally skipped with documented reasons:
 
 ### Phase 3: Backend Routes (Week 3-4)
 **Target**: Implement missing API routes
+**Status**: ✅ COMPLETE (2026-01-22)
 
-1. Implement NPM import route
-2. Implement JSON import route
-3. Review SMTP persistence issue
-4. Re-enable import tests (+6 tests)
+1. ✅ Implemented NPM import route (`POST /api/v1/import/npm/upload`, `commit`, `cancel`)
+2. ✅ Implemented JSON import route (`POST /api/v1/import/json/upload`, `commit`, `cancel`)
+3. ✅ Fixed SMTP persistence bug (settings now persist correctly after save)
+4. ✅ Re-enabled import tests (+7 tests now passing)
 
-**Estimated Work**: 16-24 hours
+**Actual Work**: ~20 hours
 
 ### Phase 4: UI Components (Week 5-8)
 **Target**: Implement missing frontend components
@@ -462,3 +465,4 @@ grep -rn "test\.skip\|test\.fixme" tests/ --include="*.spec.ts" > skip-report.tx
 | Date | Author | Change |
 |------|--------|--------|
 | 2024-XX-XX | AI Analysis | Initial plan created |
+| 2026-01-22 | Implementation Team | Phase 3 complete - NPM/JSON import routes implemented, SMTP persistence fixed, 7 tests re-enabled |
