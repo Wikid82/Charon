@@ -1,6 +1,5 @@
 import { test as setup, expect } from '@bgotink/playwright-coverage';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { STORAGE_STATE } from './constants';
 
 /**
  * Authentication Setup for E2E Tests
@@ -20,9 +19,8 @@ const TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
 const TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
 const TEST_NAME = process.env.E2E_TEST_NAME || 'E2E Test User';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-export const STORAGE_STATE = join(__dirname, '../playwright/.auth/user.json');
+// Re-export STORAGE_STATE for backwards compatibility with playwright.config.js
+export { STORAGE_STATE };
 
 setup('authenticate', async ({ request, baseURL }) => {
   // Step 1: Check if setup is required

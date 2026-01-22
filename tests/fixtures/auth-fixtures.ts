@@ -23,7 +23,10 @@
  */
 
 import { test as base, expect } from '@bgotink/playwright-coverage';
+import { request as playwrightRequest } from '@playwright/test';
+import { existsSync } from 'fs';
 import { TestDataManager } from '../utils/TestDataManager';
+import { STORAGE_STATE } from '../constants';
 
 /**
  * Represents a test user with authentication details
@@ -67,12 +70,44 @@ const TEST_PASSWORD = 'TestPass123!';
 export const test = base.extend<AuthFixtures>({
   /**
    * TestDataManager fixture with automatic cleanup
-   * Creates a unique namespace per test and cleans up all resources after
+   *
+   * FIXED: Now creates an authenticated API context using stored auth state.
+   * This ensures API calls (like createUser, deleteUser) inherit the admin
+   * session established by auth.setup.ts.
+   *
+   * Previous Issue: The base `request` fixture was unauthenticated, causing
+   * "Admin access required" errors on protected endpoints.
    */
-  testData: async ({ request }, use, testInfo) => {
-    const manager = new TestDataManager(request, testInfo.title);
-    await use(manager);
-    await manager.cleanup();
+  testData: async ({ baseURL }, use, testInfo) => {
+    // Defensive check: Verify auth state file exists (created by auth.setup.ts)
+    if (!existsSync(STORAGE_STATE)) {
+      throw new Error(
+        `Auth state file not found at ${STORAGE_STATE}. ` +
+          'Ensure auth.setup has run first. Check that dependencies: ["setup"] is configured.'
+      );
+    }
+
+    // Create an authenticated API request context using stored auth state
+    // This inherits the admin session from auth.setup.ts
+    const authenticatedContext = await playwrightRequest.newContext({
+      baseURL,
+      storageState: STORAGE_STATE,
+      extraHTTPHeaders: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const manager = new TestDataManager(authenticatedContext, testInfo.title);
+
+    try {
+      await use(manager);
+    } finally {
+      // Ensure cleanup runs even if test fails
+      await manager.cleanup();
+      // Dispose the API context to release resources
+      await authenticatedContext.dispose();
+    }
   },
 
   /**

@@ -316,12 +316,26 @@ These tests are intentionally skipped with documented reasons:
 
 ### Phase 2: Authentication Fix (Week 2)
 **Target**: Enable TestDataManager-dependent tests
+**Status**: 🔸 PARTIALLY COMPLETE - Blocked by environment config
 
-1. Refactor TestDataManager to use authenticated context
-2. Update auth-fixtures.ts to provide authenticated API context
-3. Re-enable user management tests (+8 tests)
+1. ✅ Refactor TestDataManager to use authenticated context
+2. ✅ Update auth-fixtures.ts to provide authenticated API context
+3. 🔸 Re-enable user management tests (+8 tests) - BLOCKED
 
-**Estimated Work**: 4-8 hours
+**Implementation Completed**:
+- `auth-fixtures.ts` updated with `playwrightRequest.newContext({ storageState })` pattern
+- Defensive `existsSync()` check added
+- `try/finally` with `dispose()` for proper cleanup
+
+**Blocker Discovered**: Cookie domain mismatch
+- Auth setup creates cookies for `localhost` domain
+- Tests run against Tailscale IP `100.98.12.109:8080`
+- Cookies aren't sent cross-domain → API calls remain unauthenticated
+- **Fix required**: Set `PLAYWRIGHT_BASE_URL=http://localhost:8080` consistently
+
+**Tests Remain Skipped**: 8 tests still skipped with updated comments documenting the environment configuration issue.
+
+**Actual Work**: 2-3 hours (code complete, blocked by environment)
 
 ### Phase 3: Backend Routes (Week 3-4)
 **Target**: Implement missing API routes

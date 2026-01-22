@@ -531,11 +531,11 @@ test.describe('User Management', () => {
      * Test: Update permission mode
      * Priority: P0
      */
+    // SKIP: TestDataManager authenticated context not working due to cookie domain mismatch.
+    // Auth setup creates cookies for 'localhost' but tests run against Tailscale IP (100.98.12.109).
+    // Cookies aren't sent cross-domain. Fix requires consistent PLAYWRIGHT_BASE_URL environment config.
+    // Also depends on permissions button UI being fully functional.
     test.skip('should update permission mode', async ({ page, testData }) => {
-      // SKIP: testData.createUser() uses unauthenticated API calls
-      // The TestDataManager's request context doesn't inherit auth from the browser session
-      // This causes user creation and cleanup to fail with "Admin access required"
-      // TODO: Fix by making TestDataManager use authenticated API requests
       const testUser = await testData.createUser({
         name: 'Permission Mode Test',
         email: `perm-mode-${Date.now()}@test.local`,
@@ -548,13 +548,17 @@ test.describe('User Management', () => {
         await page.goto('/users');
         await waitForLoadingComplete(page);
 
+        // Reload to ensure newly created user is in the query cache
+        await page.reload();
+        await waitForLoadingComplete(page);
+
         // Wait for table to be visible
         const table = page.getByRole('table');
         await expect(table).toBeVisible({ timeout: 10000 });
 
-        // Find the user row using partial match on the unique email part
+        // Find the user row using name match (more reliable than email which may be truncated)
         const userRow = page.getByRole('row').filter({
-          hasText: testUser.email,
+          hasText: 'Permission Mode Test',
         });
         await expect(userRow).toBeVisible({ timeout: 10000 });
 
@@ -768,8 +772,11 @@ test.describe('User Management', () => {
   test.describe('User Actions', () => {
     /**
      * Test: Enable/disable user
-     * Note: Skip - Test data pollution from failed cleanups causes strict mode violations
+     * Priority: P0
      */
+    // SKIP: TestDataManager authenticated context not working due to cookie domain mismatch.
+    // Auth setup creates cookies for 'localhost' but tests run against Tailscale IP (100.98.12.109).
+    // Cookies aren't sent cross-domain. Fix requires consistent PLAYWRIGHT_BASE_URL environment config.
     test.skip('should enable/disable user', async ({ page, testData }) => {
       const testUser = await testData.createUser({
         name: 'Toggle Enable Test',
@@ -793,11 +800,13 @@ test.describe('User Management', () => {
 
         await expect(userRow).toBeVisible({ timeout: 10000 });
 
-        const enableSwitch = userRow.getByRole('switch');
+        // The Switch component uses an input[type=checkbox], not role="switch"
+        const enableSwitch = userRow.getByRole('checkbox');
         await expect(enableSwitch).toBeVisible();
 
         const initialState = await enableSwitch.isChecked();
-        await enableSwitch.click();
+        // The checkbox is sr-only, click the parent label container
+        await enableSwitch.click({ force: true });
 
         // Wait for API response
         await page.waitForTimeout(500);
