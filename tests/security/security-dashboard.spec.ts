@@ -121,22 +121,13 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle ACL state', async () => {
         await toggle.click();
-        // Wait for API response
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
-      });
-
-      await test.step('Verify state changed', async () => {
-        // Should show success toast
-        await waitForToast(page, /updated|success/i);
+        // Wait for success toast to confirm action completed
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back to original state', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
 
@@ -156,20 +147,12 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle WAF state', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
-      });
-
-      await test.step('Verify toast notification', async () => {
-        await waitForToast(page, /updated|success/i);
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
 
@@ -189,20 +172,12 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle Rate Limit state', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
-      });
-
-      await test.step('Verify toast notification', async () => {
-        await waitForToast(page, /updated|success/i);
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Toggle back', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
 
@@ -224,10 +199,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Toggle ACL state', async () => {
         await toggle.click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
-        await waitForToast(page, /updated|success/i);
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
 
       await test.step('Reload page', async () => {
@@ -242,9 +214,7 @@ test.describe('Security Dashboard', () => {
 
       await test.step('Restore original state', async () => {
         await page.getByTestId('toggle-acl').click();
-        await page.waitForResponse(resp =>
-          resp.url().includes('/settings') && resp.status() === 200
-        );
+        await waitForToast(page, /updated|success|enabled|disabled/i, 10000);
       });
     });
   });

@@ -51,7 +51,7 @@ services:
       - CHARON_ACME_STAGING=true
       # Security features - disabled by default for faster tests
       # Enable via profile: --profile security-tests
-      - FEATURE_CERBERUS_ENABLED=false
+      # FEATURE_CERBERUS_ENABLED deprecated - Cerberus enabled by default
       - CHARON_SECURITY_CROWDSEC_MODE=disabled
       # SMTP for notification tests (connects to MailHog when profile enabled)
       - CHARON_SMTP_HOST=mailhog

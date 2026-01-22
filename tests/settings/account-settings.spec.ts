@@ -255,15 +255,22 @@ test.describe('Account Settings', () => {
 
     /**
      * Test: Enter custom certificate email
-     * Note: Skip - checkbox toggle behavior inconsistent; may need double-click or wait
+     * Verifies custom email can be entered when account email is unchecked.
      */
-    test.skip('should enter custom certificate email', async ({ page }) => {
+    test('should enter custom certificate email', async ({ page }) => {
       const customEmail = `cert-${Date.now()}@custom.local`;
 
-      await test.step('Uncheck use account email', async () => {
-        const checkbox = page.locator('#useUserEmail');
-        await checkbox.click();
-        await expect(checkbox).not.toBeChecked();
+      await test.step('Ensure use account email is unchecked', async () => {
+        // force: true required for Radix UI checkbox
+        const checkbox = page.getByRole('checkbox', { name: /use.*account.*email|same.*email/i });
+
+        // Only click if currently checked - clicking an unchecked box would check it
+        const isCurrentlyChecked = await checkbox.isChecked();
+        if (isCurrentlyChecked) {
+          await checkbox.click({ force: true });
+          await page.waitForTimeout(100);
+        }
+        await expect(checkbox).not.toBeChecked({ timeout: 5000 });
       });
 
       await test.step('Enter custom email', async () => {
@@ -670,23 +677,25 @@ test.describe('Account Settings', () => {
   test.describe('Accessibility', () => {
     /**
      * Test: Keyboard navigation through account settings
-     * Note: Skip - Tab navigation order is browser/layout dependent
+     * Uses increased loop counts and waitForTimeout for CI reliability
      */
-    test.skip('should be keyboard navigable', async ({ page }) => {
+    test('should be keyboard navigable', async ({ page }) => {
       await test.step('Tab through profile section', async () => {
         // Start from first focusable element
         await page.keyboard.press('Tab');
+        await page.waitForTimeout(100);
 
         // Tab to profile name
         const nameInput = page.locator('#profile-name');
         let foundName = false;
 
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 20; i++) {
           if (await nameInput.evaluate((el) => el === document.activeElement)) {
             foundName = true;
             break;
           }
           await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
         }
 
         expect(foundName).toBeTruthy();
@@ -696,12 +705,13 @@ test.describe('Account Settings', () => {
         const currentPasswordInput = page.locator('#current-password');
         let foundPassword = false;
 
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 25; i++) {
           if (await currentPasswordInput.evaluate((el) => el === document.activeElement)) {
             foundPassword = true;
             break;
           }
           await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
         }
 
         expect(foundPassword).toBeTruthy();

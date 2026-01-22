@@ -30,7 +30,7 @@ services:
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       - CHARON_CADDY_BINARY=caddy
       - CHARON_ACME_STAGING=true
-      - FEATURE_CERBERUS_ENABLED=false
+      # FEATURE_CERBERUS_ENABLED deprecated - Cerberus enabled by default
     volumes:
       # Use tmpfs for E2E test data - fresh on every run
       - e2e_data:/app/data
